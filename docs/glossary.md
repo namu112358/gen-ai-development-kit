@@ -102,4 +102,4 @@ App が作る「Agent ダッシュボード」Issue。人の対応待ち、コ�
 
 ### Jev
 
-TypeSafe AI の判定モデル。いまは Claude の判定と並べて記録するだけ（シャドー判定）で、結果で見て外れがないと確かめてから Risk 判定を任せる。詳細：[plan.md](plan.md#jev-への段階移行)
+TypeSafe AI の判定モデル。いまは Claude の判定と並べて記録するだけ（シャドー判定）で、結果を見て外れがないと確かめてから Risk 判定を任せる。詳細：[plan.md](plan.md#jev-への段階移行)
