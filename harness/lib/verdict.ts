@@ -14,7 +14,7 @@ export type Noul = (typeof NOUL)[number];
 export const RISK_QUESTIONS = [
   { key: 'q2_revertible', text: 'revert すれば完全に元に戻るか', safe: 'yes' },
   { key: 'q3_publicInterface', text: '公開インターフェース（API・スキーマ・イベント形式・設定形式）を変えるか', safe: 'no' },
-  { key: 'q4_tested', text: '変更箇所は既存または追加されたテストで検証されているか', safe: 'yes' },
+  { key: 'q4_tested', text: '挙動を変える変更は、既存または追加されたテストで検証されているか（挙動を変えない変更だけなら yes）', safe: 'yes' },
   { key: 'q5_persistentData', text: '永続データの書き込み・削除・移行を伴うか', safe: 'no' },
   { key: 'q6_authBillingSecrets', text: '認証・認可・課金・秘密情報に関わるか', safe: 'no' },
   { key: 'q7_dependencies', text: '依存関係（パッケージ・lockfile）を追加・更新するか', safe: 'no' },

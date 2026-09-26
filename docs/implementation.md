@@ -46,15 +46,22 @@
 | Q67 | Routine の claim は、別の実行のもので 90 分を過ぎたら終了した実行とみなす | 実行が終わったかを GitHub から判定する手段がないため（Phase 0 で再確認） |
 | Q68 | `.claude/settings.json` の deny は Phase 2（Routine 作成）で有効化 | 構築中の人のセッションで main への push などが必要なため（ユーザー決定） |
 | Q70 | 外部レビューの反映：patch-id を `--verbatim` に、範囲パターンの最初の階層のワイルドカード禁止、受け付けの競合対策と定期照合、auto-merge できないときの直接 Merge、別リポジトリ参照の除外、ダッシュボードの作成者確認、`contents: read` | コードレビューで見つかったため |
+| Q71 | 質問4を「挙動を変える変更」に限定（U1 の決定） | docs・typo を low で自動 Merge できるようにするため（ユーザー決定） |
 | Q69 | 合格した判定を受け付けたら、App の過去の変更要求レビューを解除する | 変更要求が残ると Merge を妨げ得るため。修正回数は解除済みも数える |
+
+## 未決事項
+
+| # | 論点 | 選択肢 |
+| --- | --- | --- |
+| ~~U1~~ | docs だけの変更で質問4が `unsure` になり、自動 Merge されない | **決定（Q71）：(a) 質問4を「挙動を変える変更がテストで検証されているか（挙動を変えない変更だけなら yes）」に言い換える** |
 
 ## 進捗
 
 | Phase | 状態 |
 | --- | --- |
-| 0 | 一部検証済み（[phase0.md](phase0.md)）。App・Routine が必要な項目は未 |
+| 0 | App・Jev・Ruleset まで検証済み（[phase0.md](phase0.md)）。Routine が必要な項目（#1〜#5・#9）と #10 は未 |
 | 1 | 実装済み（ラベル、Issue Forms とパーサのテスト、Risk ポリシー、書式）。ラベルの作成は App 作成後に `setup.ts all` |
-| 2 | 実装済み・未稼働（計画 → ゲート → 実装 → Draft PR → 範囲照合） |
-| 3 | 実装済み・未稼働（判定、Check Run、merge-route、修正ループ、Jev シャドー、停滞検知）。集計スクリプトは未 |
+| 2 | 通し確認済み（Issue #4 → PR #5、Routine の役は手元）。Routine 本体は未作成 |
+| 3 | 判定・Check Run・merge-route・Jev シャドー・停滞検知は稼働確認済み。修正ループは未確認。集計スクリプトは `harness/scripts/report.ts` |
 | 4 | 実装済み・未稼働（停止スイッチ、hold、revert で自動停止、runbook、依存解消、親 Close） |
 | 5 | 未着手 |

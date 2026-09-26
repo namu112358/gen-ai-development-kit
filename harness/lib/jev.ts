@@ -13,7 +13,7 @@ const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 const QUESTION_TEXT: Record<string, string> = {
   q2_revertible: 'If this change is reverted with `git revert`, is every effect of it completely undone (no lingering data, external state, or published artifacts)?',
   q3_publicInterface: 'Does this change modify a public interface: an API, a schema, an event format, or a configuration format that other code or users depend on?',
-  q4_tested: 'Is every changed behavior covered by existing tests or tests added in `diff`?',
+  q4_tested: 'Is every behavior change in `diff` covered by existing tests or tests added in `diff`? If `diff` changes no runtime behavior at all (for example documentation only), answer yes.',
   q5_persistentData: 'Does this change write, delete, or migrate persistent data (databases, files kept across runs, external storage)?',
   q6_authBillingSecrets: 'Does this change touch authentication, authorization, billing, or secrets?',
   q7_dependencies: 'Does this change add or update dependencies (package manifests or lockfiles)?',
