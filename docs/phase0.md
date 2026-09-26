@@ -60,3 +60,4 @@
 2. （任意）sandbox の Environment `gate` に Secret を置き、#7 を実値で確認：`openssl rand -hex 16 | gh secret set PROBE_SECRET --env gate --repo namu112358/agent-harness-sandbox`、その後 sandbox PR #1 の workflow を再実行。
 3. #10（App の Merge・Close の後に後続 workflow が起動するか）は Phase 4 で自動 Merge を有効にしたときに確認。
 4. Routine を作成し、#1〜#5・#9 を確認。
+
