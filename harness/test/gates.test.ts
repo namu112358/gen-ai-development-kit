@@ -250,3 +250,14 @@ test('auto-merge を付けられないとき（チェックが揃い済み）は
   assert.deepEqual(mergedWith, { sha: HEAD, merge_method: 'squash' });
   assert.equal(fake.writes().at(-1), `PUT /repos/o/r/pulls/5/merge`);
 });
+
+test('hold を外すと、条件を満たす判定があれば auto-merge を付け直す', async () => {
+  const { patchId } = await import('../lib/patch-id.ts');
+  const acceptance = { version: 1, verdictCommentId: 70, verdictHeadSha: HEAD, patchId: patchId(DIFF), reviewPass: true, riskLevel: 'low', riskOk: true, scopeOk: true, outside: [], autoEligible: true, reasons: [] };
+  const prComments = [{ id: 91, created_at: '', updated_at: '', html_url: 'u', author_association: 'NONE', user: { login: APP, type: 'Bot' }, body: `${appMark('acceptance')}\n${renderBlock('agent-app', acceptance)}` }];
+  const fake = acceptanceFake({ pr: pr({ draft: false }), dashboardLabels: [], prComments });
+  await onPullRequest(ctxFor(fake, 'pull_request_target', { action: 'unlabeled', label: { name: 'agent:hold' }, sender: { login: 'me' }, pull_request: { number: 5 } }));
+  const w = fake.writes();
+  assert.ok(w.includes('comment:hold-removed'));
+  assert.ok(w.indexOf('enablePullRequestAutoMerge') < w.indexOf('check:agent/review=success'));
+});

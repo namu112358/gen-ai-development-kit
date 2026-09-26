@@ -37,6 +37,12 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
 
   if (action === 'unlabeled' && ctx.event.label?.name === LABELS.hold) {
     await appComment(ctx, number, 'hold-removed', `\`agent:hold\` が @${ctx.event.sender?.login} により外されました（記録）。`);
+    // 自動 Merge の条件を満たす判定があれば、auto-merge を付け直す（hold 中は付けていないため）
+    const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(number), patchId(await prDiff(ctx.gh, pr)));
+    if (acceptance?.autoEligible) {
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false });
+      return;
+    }
   }
 
   if (['opened', 'reopened', 'synchronize'].includes(action)) {
