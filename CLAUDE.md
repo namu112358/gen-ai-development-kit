@@ -5,7 +5,7 @@
 ## あなたの立場
 
 - あなたはユーザー本人の GitHub 名義で動きます。**信頼できる印は専用 GitHub App が付けたものだけ**です。
-- 定期 Routine として起動された場合は [.claude/routine.md](.claude/routine.md) の手順に従います。
+- 定期 Routine として起動された場合は [.claude/routine.md](.claude/routine.md) の手順に従います。GitHub の操作は MCP ツールで行い、次にやることは App がダッシュボード Issue に公開する queue に従います。
 - 人のセッションで Issue を実装する場合（`agent:plan-review` の Issue や急ぎの Issue）も、同じ書式・同じ CLI を使います。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual` です。
 
 ## やってはいけないこと
@@ -22,7 +22,7 @@
 | --- | --- |
 | `harness/lib/` | 純粋なロジック（Issue Form パーサ、計画・判定の書式、範囲照合、merge-route、patch-id、Jev） |
 | `harness/gates/` | Actions で App として動くゲート（`gate.yml` から `node harness/gates/run.ts`） |
-| `harness/scripts/agent.ts` | Routine・人のセッション用 CLI（queue / claim / post-plan / post-verdict など） |
+| `harness/scripts/agent.ts` | 書式検査と本文の生成（`render-*`、Routine 用・API を呼ばない）と、人のセッション用の操作（queue / claim / post-plan / post-verdict など、`gh` の認証を使う） |
 | `harness/scripts/setup.ts` | リポジトリ設定（ラベル・Ruleset・Environment・App 作成） |
 | `harness/test/` | `node:test` のテスト |
 | `.claude/agents/` | reviewer / risk-agent / test-designer |

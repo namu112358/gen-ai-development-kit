@@ -31,6 +31,7 @@ jobs:
     # - Issue：Close と、意味のあるラベル（plan-ok はこの App 以外が付けたときだけ）
     # - PR：ラベルは hold だけ。auto-merge の変化はこの App 以外によるものだけ
     # 「この App」はリポジトリ変数 AGENT_APP_SLUG で判定する（他の Bot の操作は起動する）。
+    # どの実行も最後に queue（次に Routine がやること）をダッシュボードに公開し直す。
     # GITHUB_TOKEN による操作は workflow を起動しないため、定期実行でも merge-route を照合し直す
     if: >-
       (github.event_name != 'issue_comment' ||
@@ -39,6 +40,8 @@ jobs:
       (github.event_name != 'issues' ||
         github.event.action == 'closed' ||
         github.event.label.name == 'agent:ready' ||
+        github.event.label.name == 'agent:waiting' ||
+        github.event.label.name == 'agent:blocked' ||
         (github.event.label.name == 'agent:plan-ok' && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG)) ||
         github.event.label.name == 'agent:hold' ||
         github.event.label.name == 'agent:auto-merge-stopped') &&

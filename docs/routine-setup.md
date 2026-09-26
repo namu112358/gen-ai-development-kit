@@ -45,7 +45,7 @@ fi
 
 - [ ] Team 組織の管理者設定で Routines と Claude Code on the web が有効か
 - [ ] 1日の実行上限の実数（[claude.ai/settings/usage](https://claude.ai/settings/usage)）
-- [ ] Routine から `gh issue edit --add-label`・`gh issue comment`・`gh pr create --draft`・`gh api graphql` が GitHub プロキシ経由で動くか
+- [x] Routine から GitHub をどう操作するか → `gh` は無く、`GITHUB_TOKEN` は仮の値。GitHub の MCP ツールだけを使う（Q72）
 - [ ] `claude/` 以外のブランチに push できるか（できても安全の境界にはしていない。Agent PR は `claude/` ブランチの PR として扱う）
 - [ ] `.github/workflows/**` を push できるか
 - [ ] `.claude/settings.json` の deny で `gh pr merge` が止まるか

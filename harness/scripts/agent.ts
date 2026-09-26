@@ -1,32 +1,27 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { CLAUDE_MARK, extractBlock, hasClaudeMark, renderBlock } from '../lib/blocks.ts';
-import { appLogin, CHECKS, LABELS, loadConfig, riskLabel, type HarnessConfig } from '../lib/config.ts';
-import { GitHub, transportFromEnv, type IssueComment } from '../lib/github.ts';
-import { patchId } from '../lib/patch-id.ts';
+import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
+import { LABELS, loadConfig, riskLabel } from '../lib/config.ts';
+import { computeQueue } from '../lib/facts.ts';
+import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
-import { buildQueue, type Claim, type IssueFacts, type PrFacts } from '../lib/queue.ts';
-import {
-  acceptanceForPatch,
-  appRecords,
-  closingIssues,
-  isAgentPr,
-  isAppComment,
-  isTrustedComment,
-  lastLabeled,
-  latestPlanGate,
-  prDiff,
-  timeline,
-  type PlanGateRecord,
-  type PullRequest,
-  type Review,
-} from '../lib/state.ts';
+import type { Claim } from '../lib/queue.ts';
+import { latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { parseVerdict } from '../lib/verdict.ts';
 
 /**
- * Routine と人のセッションが使う CLI。GitHub の操作はここを通し、書式は投稿前に検査する。
+ * Routine と人のセッションが使う CLI。書式は投稿前に検査する。
  *
+ * ■ Routine 用（GitHub API を呼ばない。投稿・ラベル操作は Routine が GitHub の MCP ツールで行う）
+ *   node harness/scripts/agent.ts render-claim [--manual]                 着手宣言コメントの本文
+ *   node harness/scripts/agent.ts render-plan <issue> <file>              計画コメントを検査し {body, addLabels, removeLabels}
+ *   node harness/scripts/agent.ts render-verdict <pr> <headSha> <file>    判定コメントを検査し本文を出力
+ *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> <tokens>  PR に残すメトリクスのコメント本文
+ *   node harness/scripts/agent.ts check <file>                            plan / verdict ブロックの書式検査のみ
+ *   node harness/scripts/agent.ts session-url                             この実行のセッション URL
+ *
+ * ■ 人のセッション用（gh の認証で GitHub API を呼ぶ）
  *   node harness/scripts/agent.ts queue                     次にやること（JSON）
  *   node harness/scripts/agent.ts claim <n> [--manual]      着手宣言（agent:working＋コメント）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除
@@ -62,105 +57,41 @@ export function sessionUrl(): string | null {
   return id ? `https://claude.ai/code/${id.replace(/^cse_/, 'session_')}` : null;
 }
 
-function claimOf(comments: IssueComment[]): Claim | null {
-  for (const c of [...comments].reverse()) {
-    if (!hasClaudeMark(c.body) || !isTrustedComment(c)) continue;
-    const b = extractBlock(c.body, 'agent-claim');
-    if (b.found && b.ok) return b.value as Claim;
-  }
-  return null;
-}
 
-function latestClaudeBlockAt(comments: IssueComment[], kind: 'agent-plan' | 'agent-verdict'): IssueComment | null {
-  return [...comments].reverse().find((c) => isTrustedComment(c) && hasClaudeMark(c.body) && extractBlock(c.body, kind).found) ?? null;
-}
-
-async function openBlockers(gh: GitHub, n: number): Promise<number[]> {
-  const data = await gh.graphql<{ repository: { issue: { blockedBy: { nodes: { number: number; state: string }[] } } } }>(
-    `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){blockedBy(first:50){nodes{number state}}}}}`,
-    { owner: gh.owner, repo: gh.repo, n },
-  );
-  return data.repository.issue.blockedBy.nodes.filter((b) => b.state === 'OPEN').map((b) => b.number);
-}
-
-async function issueFacts(gh: GitHub, cfg: HarnessConfig, issue: { number: number; title: string; labels: { name: string }[] }, prByIssue: Map<number, number>): Promise<IssueFacts> {
-  const [events, comments] = await Promise.all([timeline(gh, issue.number), gh.listComments(issue.number)]);
-  const gate = latestPlanGate(cfg, comments);
-  const plan = latestClaudeBlockAt(comments, 'agent-plan');
-  const planOk = lastLabeled(events, LABELS.planOk);
-  return {
-    number: issue.number,
-    title: issue.title,
-    labels: issue.labels.map((l) => l.name),
-    readyAt: lastLabeled(events, LABELS.ready)?.created_at ?? null,
-    claim: claimOf(comments),
-    openBlockers: await openBlockers(gh, issue.number),
-    gate: gate ? { pass: gate.value.pass, planCommentId: gate.value.planCommentId, at: gate.comment.created_at } : null,
-    latestPlanAt: plan?.created_at ?? null,
-    planOkByApp: planOk?.actor?.login === appLogin(cfg),
-    openPr: prByIssue.get(issue.number) ?? null,
-  };
-}
-
-/** 判定コメントへの App の返答をこれ以上待たない時間（ゲートの実行が落ちた場合に判定し直す） */
-const GATE_REPLY_TIMEOUT_MS = 30 * 60_000;
-
-async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, readyAt: Map<number, string | null>): Promise<PrFacts> {
-  const [comments, reviews, commit, checks, issues] = await Promise.all([
-    gh.listComments(pr.number),
-    gh.paginate<Review>(`/pulls/${pr.number}/reviews`),
-    gh.get<{ commit: { committer: { date: string } } }>(`/commits/${pr.head.sha}`),
-    gh.paginate<{ name: string; started_at: string; app: { slug: string } | null }>(`/commits/${pr.head.sha}/check-runs`),
-    closingIssues(gh, pr.number),
-  ]);
-  const fromApp = checks.filter((c) => c.app?.slug === cfg.appSlug);
-  // push の時刻は、App がその head に範囲照合を書いた時刻（なければコミット日時）。コミット日時は push の時刻と一致しないことがある
-  const pushedAt = fromApp.find((c) => c.name === CHECKS.scope)?.started_at ?? commit.commit.committer.date;
-  const patch = patchId(await prDiff(gh, pr));
-  const acc = acceptanceForPatch(cfg, comments, patch);
-  const accRecord = appRecords<{ patchId: string }>(cfg, comments, 'acceptance').filter((r) => r.value.patchId === patch).at(-1);
-  // 受け付けの記録があっても agent/review が head に書かれていなければ、反映の途中で落ちたとみなして判定し直す
-  const applied = fromApp.some((c) => c.name === CHECKS.review);
-  const verdict = latestClaudeBlockAt(comments, 'agent-verdict');
-  const lastGateReply = comments.filter((c) => isAppComment(cfg, c) && /kind=(acceptance|verdict-rejected)/.test(c.body)).at(-1);
-  const verdictBlock = verdict ? extractBlock(verdict.body, 'agent-verdict') : null;
-  const verdictForHead = verdictBlock?.found && verdictBlock.ok && (verdictBlock.value as { headSha?: string }).headSha === pr.head.sha;
-  const verdictFresh = verdict !== null && Date.now() - new Date(verdict.created_at).getTime() < GATE_REPLY_TIMEOUT_MS;
-  const human = reviews.filter(
-    (r) => r.user?.login !== appLogin(cfg) && isTrustedComment(r) && !hasClaudeMark(r.body) && ['COMMENTED', 'CHANGES_REQUESTED'].includes(r.state) && r.submitted_at > pushedAt,
-  );
-  const issue = issues[0] ?? null;
-  return {
-    number: pr.number,
-    claim: claimOf(comments),
-    issue,
-    readyAt: issue ? (readyAt.get(issue) ?? null) : null,
-    labels: pr.labels.map((l) => l.name),
-    headSha: pr.head.sha,
-    headPushedAt: pushedAt,
-    acceptance: acc && accRecord && applied ? { reviewPass: acc.reviewPass, at: accRecord.comment.created_at } : null,
-    verdictAwaitingGate: Boolean(verdictForHead && verdictFresh && (!lastGateReply || lastGateReply.created_at < verdict!.created_at)),
-    humanFeedbackSincePush: human.length,
-  };
-}
-
-async function queue(gh: GitHub): Promise<void> {
-  const issues = (await gh.paginate<{ number: number; title: string; labels: { name: string }[]; pull_request?: unknown }>(`/issues?state=open&labels=${encodeURIComponent(LABELS.ready)}`)).filter((i) => !i.pull_request);
-  const prs = (await gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isAgentPr(config, p, `${gh.owner}/${gh.repo}`));
-  const prByIssue = new Map<number, number>();
-  for (const pr of prs) for (const n of await closingIssues(gh, pr.number)) prByIssue.set(n, pr.number);
-  const iFacts = await Promise.all(issues.map((i) => issueFacts(gh, config, i, prByIssue)));
-  const readyAt = new Map(iFacts.map((f) => [f.number, f.readyAt]));
-  const pFacts = await Promise.all(prs.map((p) => prFacts(gh, config, p, readyAt)));
-  const result = buildQueue(iFacts, pFacts, { currentSession: sessionUrl(), now: new Date(), routineClaimTakeoverMinutes: config.routine.routineClaimTakeoverMinutes }, config.routine.maxItemsPerRun);
-  console.log(JSON.stringify(result, null, 2));
+function claimBody(manual: boolean): string {
+  const url = sessionUrl();
+  const value: Claim = manual || !url ? { by: 'manual', at: new Date().toISOString() } : { by: 'routine', session: url, at: new Date().toISOString() };
+  return [CLAUDE_MARK, `着手しました（${value.by === 'routine' ? `Routine: ${value.session}` : '手動'}）。`, '', renderBlock('agent-claim', value)].join('\n');
 }
 
 async function claim(gh: GitHub, n: number, manual: boolean): Promise<void> {
-  const url = sessionUrl();
-  const value: Claim = manual || !url ? { by: 'manual', at: new Date().toISOString() } : { by: 'routine', session: url, at: new Date().toISOString() };
   await gh.addLabels(n, [LABELS.working]);
-  await gh.comment(n, [CLAUDE_MARK, `着手しました（${value.by === 'routine' ? `Routine: ${value.session}` : '手動'}）。`, '', renderBlock('agent-claim', value)].join('\n'));
+  await gh.comment(n, claimBody(manual));
+}
+
+/** 計画コメントを検査し、投稿する本文と付け外しするラベルを返す（表示用の risk:* と、必要なら plan-review） */
+function renderPlan(n: number, file: string): { body: string; addLabels: string[]; removeLabels: string[]; expectedGate: { pass: boolean; reasons: string[] } } {
+  const checked = checkFile(file);
+  if (checked.kind !== 'plan' || checked.errors.length > 0) fail(checked.errors);
+  const plan = checked.value as Plan;
+  const gate = evaluatePlanGate(plan, n);
+  const risks = (['low', 'medium', 'high', 'critical'] as const).map(riskLabel);
+  return {
+    body: readBlockFile(file),
+    addLabels: [riskLabel(plan.risk), ...(gate.pass ? [] : [LABELS.planReview])],
+    removeLabels: [...risks.filter((r) => r !== riskLabel(plan.risk)), LABELS.working],
+    expectedGate: gate,
+  };
+}
+
+/** 判定コメントを検査し、投稿する本文を返す。headSha は投稿直前に確かめた PR の head */
+function renderVerdict(n: number, headSha: string, file: string): string {
+  const checked = checkFile(file);
+  if (checked.kind !== 'verdict' || checked.errors.length > 0) fail(checked.errors);
+  const v = checked.value as { pr: number; headSha: string };
+  if (v.pr !== n) fail([`verdict.pr（${v.pr}）が #${n} と一致しません`]);
+  if (v.headSha !== headSha) fail([`verdict.headSha が現在の head（${headSha}）と一致しません。判定し直してください`]);
+  return readBlockFile(file);
 }
 
 function readBlockFile(file: string): string {
@@ -181,27 +112,17 @@ function checkFile(file: string): { kind: 'plan' | 'verdict'; errors: string[]; 
 }
 
 async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
-  const checked = checkFile(file);
-  if (checked.kind !== 'plan' || checked.errors.length > 0) fail(checked.errors);
-  const plan = { value: checked.value as Plan };
-  const gate = evaluatePlanGate(plan.value, n);
-  // 表示用の想定 Risk と、人の判断が要る場合の plan-review は Routine が付ける（ゲートも独立に判断する）
-  const risks = (['low', 'medium', 'high', 'critical'] as const).map(riskLabel);
-  for (const r of risks) if (r !== riskLabel(plan.value.risk)) await gh.removeLabel(n, r);
-  await gh.addLabels(n, [riskLabel(plan.value.risk), ...(gate.pass ? [] : [LABELS.planReview])]);
-  const posted = await gh.comment(n, readBlockFile(file));
+  const r = renderPlan(n, file);
+  for (const l of r.removeLabels.filter((l) => l !== LABELS.working)) await gh.removeLabel(n, l);
+  await gh.addLabels(n, r.addLabels);
+  const posted = await gh.comment(n, r.body);
   await gh.removeLabel(n, LABELS.working);
-  console.log(JSON.stringify({ posted: posted.html_url, expectedGate: gate }, null, 2));
+  console.log(JSON.stringify({ posted: posted.html_url, expectedGate: r.expectedGate }, null, 2));
 }
 
 async function postVerdict(gh: GitHub, n: number, file: string): Promise<void> {
-  const checked = checkFile(file);
-  if (checked.kind !== 'verdict' || checked.errors.length > 0) fail(checked.errors);
-  const v = checked.value as { pr: number; headSha: string };
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
-  if (v.pr !== n) fail([`verdict.pr（${v.pr}）が #${n} と一致しません`]);
-  if (v.headSha !== pr.head.sha) fail([`verdict.headSha が現在の head（${pr.head.sha}）と一致しません。判定し直してください`]);
-  const posted = await gh.comment(n, readBlockFile(file));
+  const posted = await gh.comment(n, renderVerdict(n, pr.head.sha, file));
   await gh.removeLabel(n, LABELS.working);
   console.log(JSON.stringify({ posted: posted.html_url }, null, 2));
 }
@@ -240,6 +161,13 @@ function fail(errors: string[]): never {
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === 'session-url') return void console.log(sessionUrl() ?? '(none)');
+  if (cmd === 'render-claim') return void console.log(claimBody(args.includes('--manual')));
+  if (cmd === 'render-plan') return void console.log(JSON.stringify(renderPlan(Number(args[0]), args[1]!), null, 2));
+  if (cmd === 'render-verdict') return void console.log(renderVerdict(Number(args[0]), args[1]!, args[2]!));
+  if (cmd === 'render-metrics') {
+    const [stage, model, minutes, tokens] = args;
+    return void console.log(`${CLAUDE_MARK}\n| 時刻 (UTC) | 段階 | モデル | 所要時間（分） | トークン | セッション |\n| --- | --- | --- | --- | --- | --- |\n| ${new Date().toISOString().slice(0, 16)} | ${stage} | ${model} | ${minutes} | ${tokens} | ${sessionUrl() ?? '手動'} |`);
+  }
   if (cmd === 'check') {
     const r = checkFile(args[0]!);
     if (r.errors.length) fail(r.errors);
@@ -248,7 +176,7 @@ async function main(): Promise<void> {
   const gh = new GitHub(transportFromEnv(), repository());
   const n = Number(args[0]);
   switch (cmd) {
-    case 'queue': return queue(gh);
+    case 'queue': return void console.log(JSON.stringify(await computeQueue(gh, config, sessionUrl()), null, 2));
     case 'claim': return claim(gh, n, args.includes('--manual'));
     case 'release': return gh.removeLabel(n, LABELS.working);
     case 'show-plan': return showPlan(gh, n);
