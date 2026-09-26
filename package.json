@@ -1,0 +1,19 @@
+{
+  "name": "gen-ai-development-kit",
+  "private": true,
+  "type": "module",
+  "description": "GitHub Issues SSoT × Claude Code 自律開発ハーネス",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"harness/test/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test",
+    "agent": "node --no-warnings harness/scripts/agent.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.0",
+    "typescript": "^7.0.2"
+  }
+}

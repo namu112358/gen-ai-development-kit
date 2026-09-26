@@ -1,0 +1,28 @@
+{
+  "$comment": "ハーネスの設定。Routine と Actions の両方が既定ブランチのこのファイルを読む。appSlug は GitHub App 作成後に書き換える。",
+  "appSlug": "gen-ai-devkit-gate",
+  "defaultBranch": "main",
+  "agentBranchPrefix": "claude/",
+  "mergeMethod": "SQUASH",
+  "routine": {
+    "maxItemsPerRun": 3,
+    "humanClaimStaleHours": 6,
+    "routineClaimTakeoverMinutes": 90
+  },
+  "fixLoop": {
+    "normalLimit": 2,
+    "criticalLimit": 3
+  },
+  "staleHours": 24,
+  "dashboardIssueTitle": "Agent ダッシュボード",
+  "jev": {
+    "mode": "shadow",
+    "model": "jev-1.13.0",
+    "maxDiffChars": 80000,
+    "thresholds": {
+      "lowProbability": 0.9,
+      "noulSafe": 0.9
+    }
+  },
+  "autoMergeStopLabel": "agent:auto-merge-stopped"
+}

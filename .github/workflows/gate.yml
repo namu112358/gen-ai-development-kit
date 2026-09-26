@@ -1,0 +1,68 @@
+# 専用 GitHub App で動く決定論的ゲート。Claude は動かさない（数秒で終わるジョブのみ）。
+#
+# 安全の前提（docs/security.md）:
+# - 既定ブランチの YAML だけが動くトリガー（issue_comment / issues / pull_request_target / push:main / schedule）で起動する
+# - PR の head は checkout しない。PR の中身は API で読むだけ
+# - App の鍵と Jev の鍵は Environment `gate`（既定ブランチからの実行に限定）の Secret に置く
+# - イベントの中身（コメント本文など）を ${{ }} で run に埋め込まない。スクリプトが GITHUB_EVENT_PATH から読む
+name: gate
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [labeled, unlabeled, closed]
+  pull_request_target:
+    types: [opened, reopened, synchronize, labeled, unlabeled, auto_merge_enabled, auto_merge_disabled]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 */3 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  gate:
+    # 関係のないイベントでは起動しない（Actions はジョブごとに1分単位で課金されるため）
+    # - コメント：構造化ブロックを含むものだけ
+    # - Issue：Close と、意味のあるラベル（plan-ok は App 以外が付けたときだけ）
+    # - PR：ラベルは hold だけ。auto-merge の変化は App 以外によるものだけ
+    if: >-
+      (github.event_name != 'issue_comment' ||
+        contains(github.event.comment.body, '```agent-plan') ||
+        contains(github.event.comment.body, '```agent-verdict')) &&
+      (github.event_name != 'issues' ||
+        github.event.action == 'closed' ||
+        github.event.label.name == 'agent:ready' ||
+        (github.event.label.name == 'agent:plan-ok' && github.event.sender.type != 'Bot') ||
+        github.event.label.name == 'agent:hold' ||
+        github.event.label.name == 'agent:auto-merge-stopped') &&
+      (github.event_name != 'pull_request_target' ||
+        (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
+          github.event.action != 'auto_merge_enabled' && github.event.action != 'auto_merge_disabled') ||
+        github.event.label.name == 'agent:hold' ||
+        (startsWith(github.event.action, 'auto_merge_') && github.event.sender.type != 'Bot'))
+    runs-on: ubuntu-latest
+    environment: gate
+    timeout-minutes: 5
+    steps:
+      - name: Checkout default branch (never the PR head)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: App token
+        id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.AGENT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AGENT_APP_PRIVATE_KEY }}
+      - name: Run gate
+        run: node harness/gates/run.ts
+        env:
+          GH_APP_TOKEN: ${{ steps.app.outputs.token }}
+          JEV_API_KEY: ${{ secrets.JEV_API_KEY }}

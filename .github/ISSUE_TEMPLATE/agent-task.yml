@@ -1,0 +1,60 @@
+name: Agent タスク
+description: Claude Code が計画・実装する Issue（agent:ready を付けると Routine が拾います）
+body:
+  - type: markdown
+    attributes:
+      value: |
+        この Issue は Claude Code が読む**契約**です。見出し（各項目の label）を変えるとゲートが読めなくなります（harness/lib/issue-form.ts）。
+        Risk と Priority は書きません（Risk は Agent が付けます）。書き方は docs/issue-contract.md を参照してください。
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: 何を達成したいか（1〜3文）
+    validations:
+      required: true
+  - type: textarea
+    id: background
+    attributes:
+      label: Background
+      description: なぜ必要か、関連する経緯
+    validations:
+      required: false
+  - type: textarea
+    id: requirements
+    attributes:
+      label: Requirements
+      description: 満たすべき要件（箇条書き）
+    validations:
+      required: true
+  - type: textarea
+    id: non-goals
+    attributes:
+      label: Non-goals
+      description: やらないこと（範囲外の変更を防ぐ）
+    validations:
+      required: false
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: 検証可能な受け入れ条件。`- [ ]` の箇条書きで、1項目1条件
+      placeholder: |
+        - [ ] `foo --bar` を実行すると ... が出力される
+        - [ ] 既存のテストがすべて通る
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: 先に終わっている必要がある Issue は GitHub の Issue Dependencies（blocked by）で設定してください。ここは補足のみ
+    validations:
+      required: false
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation Requirements
+      description: 検証方法（追加すべきテスト、手動確認の手順など）
+    validations:
+      required: false

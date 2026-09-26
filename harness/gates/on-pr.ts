@@ -1,0 +1,70 @@
+import { CHECKS, LABELS } from '../lib/config.ts';
+import { patchId } from '../lib/patch-id.ts';
+import { checkScope } from '../lib/scope.ts';
+import { acceptanceForPatch, changedFiles, isAgentPr, plannedFilesForPr, prDiff } from '../lib/state.ts';
+import { applyAcceptance, refreshMergeRoute } from './apply.ts';
+import { appComment, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
+
+/**
+ * pull_request_target：PR の head は checkout せず、中身は API で読むだけ。
+ * - push（synchronize）：まず auto-merge を解除し、差分が同じなら過去の判定を引き継ぐ
+ * - 範囲照合（agent/scope、情報表示用）
+ * - hold・auto-merge の変化で merge-route を書き直す
+ */
+export async function onPullRequest(ctx: GateContext): Promise<void> {
+  const action = ctx.event.action as string;
+  const number = ctx.event.pull_request.number as number;
+
+  if (action === 'synchronize') {
+    // 最初に auto-merge を解除する（順序制御）。イベントの内容ではなく API の最新状態を使う
+    await disableAutoMerge(ctx, await getPr(ctx, number));
+  }
+  const pr = await getPr(ctx, number);
+  if (pr.state !== 'open') return;
+  const agent = isAgentPr(ctx.config, pr, ctx.repository);
+
+  if (!agent) {
+    if (['opened', 'reopened', 'synchronize'].includes(action)) {
+      await writeCheck(ctx, pr.head.sha, CHECKS.review, {
+        conclusion: 'success',
+        title: 'Agent の PR ではありません（判定対象外）',
+        summary: '同じリポジトリの `claude/` ブランチ以外からの PR は Agent の判定の対象外です。自動 Merge の経路には乗りません（merge-route）。',
+      });
+    }
+    await refreshMergeRoute(ctx, pr);
+    return;
+  }
+
+  if (action === 'unlabeled' && ctx.event.label?.name === LABELS.hold) {
+    await appComment(ctx, number, 'hold-removed', `\`agent:hold\` が @${ctx.event.sender?.login} により外されました（記録）。`);
+  }
+
+  if (['opened', 'reopened', 'synchronize', 'edited'].includes(action)) {
+    const diff = await prDiff(ctx.gh, pr);
+    const patch = patchId(diff);
+    await writeScopeCheck(ctx, number, pr.head.sha);
+    const comments = await ctx.gh.listComments(number);
+    const acceptance = acceptanceForPatch(ctx.config, comments, patch);
+    if (acceptance && action === 'synchronize') {
+      ctx.log(`patch-id ${patch} は受け付け済みの判定と同じ。判定を引き継ぎます`);
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false });
+      return;
+    }
+    await refreshMergeRoute(ctx, pr, { patch });
+    return;
+  }
+
+  await refreshMergeRoute(ctx, pr);
+}
+
+async function writeScopeCheck(ctx: GateContext, number: number, headSha: string): Promise<void> {
+  const planned = await plannedFilesForPr(ctx.gh, ctx.config, number);
+  if ('missing' in planned) {
+    await writeCheck(ctx, headSha, CHECKS.scope, { conclusion: 'neutral', title: '範囲照合できません', summary: `${planned.missing}。自動 Merge の対象外です。` });
+    return;
+  }
+  const result = checkScope(planned.files, await changedFiles(ctx.gh, number));
+  await writeCheck(ctx, headSha, CHECKS.scope, result.ok
+    ? { conclusion: 'success', title: '計画の範囲内です', summary: planned.files.map((p) => `- \`${p}\``).join('\n') }
+    : { conclusion: 'neutral', title: `計画の範囲外のファイルが ${result.outside.length} 件`, summary: ['自動 Merge の対象外です（Human Merge は可）。', '', ...result.outside.map((f) => `- \`${f}\``)].join('\n') });
+}
