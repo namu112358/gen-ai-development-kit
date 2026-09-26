@@ -1,8 +1,7 @@
 # 構造化コメントの書式
 
 Claude（Routine・人のセッション）と App は、コメントに JSON のフェンスを埋め込んで状態を受け渡す。
-書式は投稿前に `node harness/scripts/agent.ts check <ファイル>` で検査される（`post-plan` / `post-verdict` は自動で検査する）。
-App も受け付け時に同じ検査をし、壊れていれば受け付けない。
+投稿前に `node harness/scripts/agent.ts render-plan` / `render-verdict`（人のセッションでは `post-plan` / `post-verdict`）で検査し、App も受け付け時に同じ検査をする。
 
 | フェンス | 書く者 | 置き場所 | 検査 |
 | --- | --- | --- | --- |
@@ -102,17 +101,16 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 - `risk.probabilities` は記録のみ
 - `facts` は Jev に渡す事実（英語）。Claude の判定を含めない
 
-App は判定時の head と現在の head で、PR が main に加えた変更の `git patch-id` が同じときだけ受け付ける。
 
 ## 着手宣言（agent-claim）
 
-`node harness/scripts/agent.ts claim <番号>` が書く。
+`node harness/scripts/agent.ts render-claim`（人のセッションでは `claim <番号> --manual`）が書く。
 
 ```agent-claim
 { "by": "routine", "session": "https://claude.ai/code/session_...", "at": "2026-09-26T12:00:00.000Z" }
 ```
 
-`by` が `manual` の着手は Routine が奪わない。`routine` の着手は、別の実行のもので `routineClaimTakeoverMinutes`（既定 90 分）を過ぎていれば、終了した実行とみなして引き継ぐ。
+`manual` の着手は Routine が奪わない。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
 ## App の記録（agent-app）
 
@@ -120,7 +118,8 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 
 | kind | 置き場所 | 内容 |
 | --- | --- | --- |
-| `plan-gate` | Issue | `{ planCommentId, pass, reasons, plan }`。`plan` はゲート時点の計画の写し（後でコメントが編集されても影響しない） |
+| `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan }`。`plan` はゲート時点の計画の写し |
+| `queue` | ダッシュボードの本文 | `{ computedAt, actions, skipped }`。Routine が次にやること |
 | `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev }` |
 | `verdict-rejected` | PR | 判定を受け付けなかった理由 |
 | `fix-request` | PR（レビュー） | Reviewer のブロッキング指摘（修正回数はこの数で数える） |

@@ -5,7 +5,7 @@ body:
     attributes:
       value: |
         この Issue は Claude Code が読む**契約**です。見出し（各項目の label）を変えるとゲートが読めなくなります（harness/lib/issue-form.ts）。
-        Risk と Priority は書きません（Risk は Agent が付けます）。書き方は docs/issue-contract.md を参照してください。
+        Risk と Priority は書きません（Risk は Agent が付けます）。書き方は docs/operations.md を参照してください。
   - type: textarea
     id: goal
     attributes:

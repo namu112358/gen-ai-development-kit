@@ -1,7 +1,6 @@
 # 定期 Routine の手順
 
-毎時の Routine は、このファイルの手順で**1回分**の処理を行う。Routine の設定に登録するプロンプトは
-[docs/routine-setup.md](../docs/routine-setup.md) を参照。
+毎時の Routine は、このファイルの手順で**1回分**の処理を行う（Routine の設定は [docs/setup.md](../docs/setup.md)）。
 
 ## 大原則
 
@@ -16,8 +15,8 @@
 
 ### 0. queue を読む
 
-1. `node --version` が v22.18 以上か確認する（古ければ `.claude/routine.md` のこの節を報告して終了）。
-2. MCP ツールで、タイトルが「Agent ダッシュボード」の open Issue を探す。**作成者が `namu112358-agent-gate[bot]`（`harness.config.json` の `appSlug` ＋ `[bot]`）であること**を確かめる。違えば何もせず終了する。
+1. `node --version` が v22.18 以上か確認する（古ければ報告して終了）。
+2. MCP ツールで、タイトルが `harness.config.json` の `dashboardIssueTitle` の open Issue を探す。**作成者が `<appSlug>[bot]`（`appSlug` も同じファイル）であること**を確かめる。違えば何もせず終了する。
 3. 本文の `<!-- agent-harness:queue:start -->` と `<!-- agent-harness:queue:end -->` の間にある ```` ```agent-app ```` の JSON（`kind: "queue"`）を読む。`actions` を上から順に処理する。空なら要約を出力して終了する。
 
 各アクションの前に、MCP で対象の現在の状態を読み直し、queue と食い違っていたら（ラベルが変わった、PR の head が `headSha` と違う、既に計画や判定が投稿済み など）そのアクションは飛ばす。queue は App が次のイベントで計算し直す。

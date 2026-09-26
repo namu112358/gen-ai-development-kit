@@ -2,8 +2,6 @@
 
 Sep 26, 2026
 
-> この文書は計画の原本です。実装との対応は [implementation.md](implementation.md) を参照してください。
-
 ## 目的と前提
 
 GitHub Issues を開発状態の SSoT とし、Claude Code が Issue を起点に計画・実装・レビューを自律的に進め、Risk が low の変更は人手なしで Merge まで完走させる。
@@ -218,7 +216,7 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
 | 既存 CI の緑の偽装 | 既存 CI は `pull_request` で PR 側の YAML が動くため、`ci.yml` を書き換えた PR は自分の CI を緑にできる | Risk Agent の質問8（`.github/**` に触れるか） | Q57 |
 | 保護対象のパス下限なし | `.github/**`・`.claude/**`・CODEOWNERS などを触る PR も、パスでは自動 Merge から外さない | Risk Agent の質問8 | Q4・Q50 |
 | low にリファクタを含む | 挙動を変えないと称したリファクタや独立した UI も low になり得る | Risk Agent の質問2・4、Reviewer の退行の指摘 | Q51 |
-| パブリック期間のコメント | パブリック期間はだれのコメントでもゲートが起動し、偽の計画・判定コメントを置かれる余地がある。受け付け条件、編集への対応、`${{ }}` の埋め込み対策は入れない | private 移行後はメンバーのみがコメント可能 | Q58（※実装時に作成者チェックを追加。[implementation.md](implementation.md) 参照） |
+| パブリック期間のコメント | パブリック期間はだれのコメントでもゲートが起動し、偽の計画・判定コメントを置かれる余地がある。受け付け条件、編集への対応、`${{ }}` の埋め込み対策は入れない | private 移行後はメンバーのみがコメント可能 | Q58（実装では作成者チェックを追加。Q60） |
 | 直接マージ | 本人名義の API 直接マージは GitHub 側では止められない | `.claude/settings.json` の deny（コマンドパターンのため完全ではない） | Q47 |
 | 判定段階の名義 | 実装段階と判定段階はどちらも本人名義で、名義では区別できない | 段階を別の実行・別のプロンプトに分けること。将来は Jev を Actions から呼ぶ | Q44 |
 | hold の解除 | Routine も `agent:hold` を外せる | App による記録と通知 | Q59 |
@@ -397,5 +395,15 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | --- | --- | --- |
 | Q60 | Q58 の作成者チェック | ゲートは `author_association` が OWNER / MEMBER / COLLABORATOR のコメントのみ受け付ける（1行で済むため追加）。`${{ }}` 埋め込みはイベント JSON をファイルから読む実装で発生しない |
 | Q61 | 実装言語 | TypeScript（ビルドなし、Node 24 の type stripping、実行時依存ゼロ、`tsc --noEmit`＋`node:test`） |
-| Q62〜Q70 | 実装時の決定 | [implementation.md](implementation.md) の「計画からの差分」を参照 |
-| Q71 | 質問4 の範囲 | 「挙動を変える変更がテストで検証されているか（挙動を変えない変更だけなら yes）」に言い換え。docs・typo が質問4で止まらないように |
+| Q62 | 質問8の対象 | `harness/**`・`harness.config.json` を追加 |
+| Q63 | コードの置き場所 | ハーネスは `harness/` に置き、導入先の製品コードと分ける |
+| Q64 | 自動 Merge モード | ダッシュボード Issue の `agent:auto-merge-stopped` ラベルで持つ（App の権限で変数を書けないため）。ダッシュボードが無ければ停止 |
+| Q65 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。それ以外は `agent/review` を判定対象外で通し、自動経路に乗せない |
+| Q66 | 人の修正依頼 | PR の Review（Comment）で行う（同じ名義の PR には Request changes を付けられない）。Reviewer の変更要求は App が付ける |
+| Q67 | claim の引き継ぎ | 別の Routine の実行の claim は 90 分で引き継ぐ |
+| Q68 | deny | Phase 2（Routine 作成）で有効化 |
+| Q69 | 変更要求の解除 | 合格した判定を受け付けたら App の過去の変更要求を解除する（修正回数は解除済みも数える） |
+| Q70 | patch-id | `--verbatim` を使う（`--stable` は空白を無視する） |
+| Q71 | 質問4 の範囲 | 「挙動を変える変更がテストで検証されているか（挙動を変えない変更だけなら yes）」に言い換え |
+| Q72 | Routine の GitHub 操作 | GitHub MCP ツールのみ（Routine の環境に `gh` と API 用トークンがない）。queue は App が計算してダッシュボードに公開し、Routine はそれに従う。メトリクスは PR コメントに残す |
+| Q73 | 汎用化 | 固有名は `harness.config.json` と `setup.ts` の引数に寄せ、別のリポジトリに導入できるようにする |
