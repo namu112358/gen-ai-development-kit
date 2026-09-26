@@ -56,6 +56,8 @@
 | --- | --- | --- |
 | ~~U1~~ | docs だけの変更で質問4が `unsure` になり、自動 Merge されない | **決定（Q71）：(a) 質問4を「挙動を変える変更がテストで検証されているか（挙動を変えない変更だけなら yes）」に言い換える** |
 
+| U2 | Routine の環境から GitHub API を呼べない（`gh` なし、`GITHUB_TOKEN` は仮の値で 401） | 診断の Routine で経路を確かめてから決める：(a) `NODE_USE_ENV_PROXY=1` や curl でプロキシを通すと差し替わるか (b) `gh` を入れて使う（外部バイナリの取得は要承認） (c) Routine の GitHub 操作を MCP ツールに寄せ、`agent.ts` は判断だけにする (d) fine-grained PAT を環境変数に置く（秘密を置けないため非推奨） |
+
 ## 進捗
 
 | Phase | 状態 |
