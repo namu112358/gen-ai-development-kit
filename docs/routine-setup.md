@@ -2,6 +2,12 @@
 
 Claude の処理は、人のセッションか、毎時1本の Routine だけで動かす。GitHub イベントで Claude を起動しない。
 
+## 事前準備：deny の有効化（Phase 2 の開始時）
+
+構築中は人のセッションで main への push などが必要なため、直接マージ等の deny はまだ有効にしていない。
+Routine を作る前に、[harness/templates/claude-settings.deny.json](../harness/templates/claude-settings.deny.json) の `permissions.deny` を `.claude/settings.json` に反映して main に Merge する。
+Routine は既定ブランチから clone して始まるため、main に入った時点から効く。反映後は人のセッションにも効く（main への push・`gh pr merge` は人が GitHub の UI で行う）。
+
 ## 作成
 
 [claude.ai/code/routines](https://claude.ai/code/routines)（またはデスクトップアプリの Code タブ → Routines → New routine → Cloud、CLI の `/schedule`）で作る。

@@ -1,0 +1,29 @@
+{
+  "$comment": "Phase 2（Routine 作成）の前に、この deny を .claude/settings.json に反映する（docs/routine-setup.md）。構築中の人のセッションでは main への push 等が必要なため、まだ有効にしていない。",
+  "permissions": {
+    "deny": [
+      "Bash(gh pr merge)",
+      "Bash(gh pr merge *)",
+      "Bash(* gh pr merge *)",
+      "Bash(gh api *pulls/*/merge*)",
+      "Bash(* gh api *pulls/*/merge*)",
+      "Bash(gh api graphql *mergePullRequest*)",
+      "Bash(*enablePullRequestAutoMerge*)",
+      "Bash(*mergePullRequest*)",
+      "Bash(gh pr ready *)",
+      "Bash(gh variable *)",
+      "Bash(gh api *actions/variables*)",
+      "Bash(gh api *rulesets*)",
+      "Bash(gh api *branches/*/protection*)",
+      "Bash(gh secret *)",
+      "Bash(*agent:plan-ok*)",
+      "Bash(*agent:hold*)",
+      "Bash(*agent:auto-merge-stopped*)",
+      "Bash(git push * main)",
+      "Bash(git push * main:*)",
+      "Bash(git push * HEAD:main)",
+      "Bash(git push --force*)",
+      "Bash(git push -f*)"
+    ]
+  }
+}

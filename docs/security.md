@@ -17,7 +17,7 @@ Claude はユーザー本人の名義で動くため、GitHub 上の印で「人
 | 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を App が照合する |
 | 判定の鮮度 | 判定時の head と現在の head で PR 自身の差分の `git patch-id` が同じときだけ受け付ける |
 | 順序 | push を検知したら最初に auto-merge を解除。受け付け時は auto-merge → merge-route → agent/risk → agent/review の順（`agent/review` が最後） |
-| 直接マージ | `.claude/settings.json` の deny（`gh pr merge`、merge API、auto-merge、`gh pr ready`、変数・Secret・Ruleset 変更、main への push）。コマンドパターンのため完全ではない |
+| 直接マージ | `.claude/settings.json` の deny（Phase 2 で有効化。テンプレートは `harness/templates/claude-settings.deny.json`。`gh pr merge`、merge API、auto-merge、`gh pr ready`、変数・Secret・Ruleset 変更、main への push）。コマンドパターンのため完全ではない |
 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。fork は含めない。それ以外の PR は `agent/review` を「判定対象外」で通し、自動経路には乗らない（merge-route） |
 | 停止スイッチ | ダッシュボード Issue の `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い（安全側） |
 

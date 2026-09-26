@@ -10,7 +10,7 @@
 
 ## やってはいけないこと
 
-- Merge（`gh pr merge`、merge API）、auto-merge の設定、`gh pr ready`：App と人の役割（`.claude/settings.json` で deny）
+- Merge（`gh pr merge`、merge API）、auto-merge の設定、`gh pr ready`：App と人の役割（Phase 2 以降は `.claude/settings.json` で deny）
 - `agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` の付け外し
 - main への push、force push、Ruleset・Secret・変数の変更
 - Issue 本文の書き換え（要件・AC の変更は提案コメントのみ）
