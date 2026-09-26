@@ -11,13 +11,15 @@
 | 1 | `level` | Risk レベルはどれか | low / medium / high / critical | `low` |
 | 2 | `q2_revertible` | revert すれば完全に元に戻るか | Noul | `yes` |
 | 3 | `q3_publicInterface` | 公開インターフェース（API・スキーマ・イベント形式・設定形式）を変えるか | Noul | `no` |
-| 4 | `q4_tested` | 変更箇所は既存または追加されたテストで検証されているか | Noul | `yes` |
+| 4 | `q4_tested` | 挙動を変える変更は、既存または追加されたテストで検証されているか（挙動を変えない変更だけなら yes） | Noul | `yes` |
 | 5 | `q5_persistentData` | 永続データの書き込み・削除・移行を伴うか | Noul | `no` |
 | 6 | `q6_authBillingSecrets` | 認証・認可・課金・秘密情報に関わるか | Noul | `no` |
 | 7 | `q7_dependencies` | 依存関係（パッケージ・lockfile）を追加・更新するか | Noul | `no` |
 | 8 | `q8_harnessConfig` | この仕組み自体（`.claude/**`、`CLAUDE.md`、CODEOWNERS、`.github/**`、`harness/**`、`harness.config.json`）に触れるか | Noul | `no` |
 
 Claude 判定期間の Noul は `yes` / `no` / `unsure` の3択。**`unsure` は常に止める答え**。1つでも止める答えがあれば自動 Merge しない。
+
+> 質問4は「挙動を変える変更」に限って聞く。docs・コメント・typo など実行時の挙動を変えない変更だけなら `yes`（テストが無いことを理由に止めない）。挙動を変えるかどうかの判断に迷えば `unsure`（決定ログ Q71、2026-09-27）。
 
 > 質問8の対象に `harness/**` と `harness.config.json` を加えている。ゲートのコードと設定は「この仕組み自体」であり、Merge されると次のイベントから効くため（2026-09-26 実装時の追加。決定ログ Q62）。
 

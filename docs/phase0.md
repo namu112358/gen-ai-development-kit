@@ -52,7 +52,7 @@
 | 判定（reviewer・risk-agent を別サブエージェントで） → `post-verdict` | ✅ |
 | 受け付け（App） | ✅ patch-id 照合、Jev シャドー、Ready 化、`agent/review`・`agent/risk`・`merge-route` を App が記録、Human Merge の依頼コメント |
 
-見つかった論点：**docs だけの変更は、Risk Agent が質問4（テストで検証されているか）に `unsure` と答えるため自動 Merge の対象外になる**。計画の「low の例：docs、typo」と食い違う（未決。implementation.md の未決事項）。
+見つかった論点：**docs だけの変更は、Risk Agent が質問4（テストで検証されているか）に `unsure` と答えるため自動 Merge の対象外になる**。計画の「low の例：docs、typo」と食い違う→ 質問4を「挙動を変える変更」に限定して解決（Q71）。
 
 ## 残り（App・Routine・鍵の準備後）
 
