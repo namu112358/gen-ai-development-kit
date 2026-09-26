@@ -1,5 +1,5 @@
 {
-  "$comment": "ハーネスの設定。Routine と Actions の両方が既定ブランチのこのファイルを読む。appSlug は GitHub App 作成後に書き換える。",
+  "$comment": "導入先ごとの設定。Routine と Actions の両方が既定ブランチのこのファイルを読む。",
   "appSlug": "namu112358-agent-gate",
   "defaultBranch": "main",
   "agentBranchPrefix": "claude/",

@@ -6,7 +6,7 @@
 
 ### `agent:ready`
 
-人が Issue に付けるラベル。「着手してよい」の意味で、Routine が次の実行で拾う。付けた時点で App が Issue 本文を Issue Form の書式として読めるか確かめる。詳細：[issue-contract.md](issue-contract.md)
+人が Issue に付けるラベル。「着手してよい」の意味で、Routine が次の実行で拾う。付けた時点で App が Issue 本文を Issue Form の書式として読めるか確かめる。詳細：[operations.md](operations.md#issue-の書き方)
 
 ### claim（着手宣言）
 
@@ -28,7 +28,7 @@ Routine が Issue に投稿する実装方針。末尾の ```` ```agent-plan ```
 
 ### `agent:plan-ok` / `agent:plan-review`
 
-計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は人が手元のセッションで実装する。詳細：[issue-contract.md](issue-contract.md#状態ラベル)
+計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は人が手元のセッションで実装する。詳細：[operations.md](operations.md#ラベル)
 
 ## 実装
 
@@ -88,15 +88,15 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ### 停止スイッチ
 
-ダッシュボード Issue に付ける `agent:auto-merge-stopped` ラベル。付いている間は自動 Merge がすべて止まり、自動 Merge された PR が revert されると App が自動で付ける。詳細：[runbook.md](runbook.md)
+ダッシュボード Issue に付ける `agent:auto-merge-stopped` ラベル。付いている間は自動 Merge がすべて止まり、自動 Merge された PR が revert されると App が自動で付ける。詳細：[operations.md](operations.md#止める仕組み)
 
 ### `agent:hold`
 
-人が Issue や PR に付ける個別停止のラベル。PR なら merge-route が failure になり、Issue なら Routine が処理しない。詳細：[runbook.md](runbook.md)
+人が Issue や PR に付ける個別停止のラベル。PR なら merge-route が failure になり、Issue なら Routine が処理しない。詳細：[operations.md](operations.md#止める仕組み)
 
 ### ダッシュボード
 
-App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR を3時間ごとに一覧にする。詳細：[runbook.md](runbook.md)
+App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR を3時間ごとに一覧にする。詳細：[operations.md](operations.md#止める仕組み)
 
 ## 外部
 

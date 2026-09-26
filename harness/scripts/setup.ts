@@ -127,9 +127,9 @@ function appManifest(repository: string, name: string): void {
   const manifest = {
     name,
     url: `https://github.com/${repository}`,
-    description: 'gen-ai-development-kit の決定論的ゲート（Claude は動かさない）',
+    description: 'Agent harness の決定論的ゲート（Claude は動かさない）',
     hook_attributes: { url: `https://github.com/${repository}`, active: false },
-    redirect_url: `https://github.com/${repository}/blob/main/docs/github-app-setup.md`,
+    redirect_url: `https://github.com/${repository}/blob/main/docs/setup.md`,
     public: false,
     default_permissions: {
       checks: 'write',
@@ -162,6 +162,7 @@ async function appConvert(gh: GitHub, code: string): Promise<void> {
   const repo = `${gh.owner}/${gh.repo}`;
   set(['secret', 'set', 'AGENT_APP_PRIVATE_KEY', '--env', ENVIRONMENT, '--repo', repo], app.pem);
   set(['variable', 'set', 'AGENT_APP_CLIENT_ID', '--env', ENVIRONMENT, '--repo', repo, '--body', app.client_id]);
+  set(['variable', 'set', 'AGENT_APP_SLUG', '--repo', repo, '--body', app.slug]);
   const path = 'harness.config.json';
   const config = JSON.parse(readFileSync(path, 'utf8'));
   config.appSlug = app.slug;

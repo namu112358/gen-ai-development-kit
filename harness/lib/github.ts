@@ -41,7 +41,7 @@ export class FetchTransport implements Transport {
       authorization: `Bearer ${this.token}`,
       accept: opts.accept ?? 'application/vnd.github+json',
       'x-github-api-version': '2022-11-28',
-      'user-agent': 'gen-ai-development-kit-gate',
+      'user-agent': 'agent-harness',
     };
     let body: string | undefined;
     if (opts.body !== undefined) {

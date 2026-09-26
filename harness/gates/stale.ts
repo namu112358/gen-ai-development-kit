@@ -94,7 +94,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   const current = await findDashboard(ctx.gh, ctx.config);
   const stopped = !current || hasLabel(current, ctx.config.autoMergeStopLabel);
   const mode = stopped
-    ? `**自動 Merge モード: 停止中**（このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外すと有効になります。docs/runbook.md）`
+    ? `**自動 Merge モード: 停止中**（このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外すと有効になります。docs/operations.md）`
     : `**自動 Merge モード: 有効**（このダッシュボードに \`${ctx.config.autoMergeStopLabel}\` ラベルを付けると一斉に止まります）`;
   const withMode = body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${mode}\n`);
   const existing = (await ctx.gh.get<{ body: string | null }>(`/issues/${dashboard}`)).body ?? '';

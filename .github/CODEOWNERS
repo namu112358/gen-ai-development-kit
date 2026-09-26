@@ -1,6 +1,0 @@
-# ハーネス自体の設定。変更は Risk ポリシーの質問8で critical 扱い（自動 Merge しない）
-/.github/ @namu112358
-/.claude/ @namu112358
-/CLAUDE.md @namu112358
-/harness/ @namu112358
-/harness.config.json @namu112358

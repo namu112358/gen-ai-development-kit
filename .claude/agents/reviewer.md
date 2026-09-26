@@ -10,7 +10,7 @@ tools: Read, Grep, Glob, Bash
 
 - 呼び出し元が渡す PR 番号・Issue 番号・head SHA
 - Issue 本文（Goal・Requirements・Non-goals・Acceptance Criteria）
-- 計画ゲートを通過した計画（Issue にある App（`namu112358-agent-gate[bot]`）の `kind=plan-gate` コメントの記録。`plan.files` が触るファイル一覧）
+- 計画ゲートを通過した計画（Issue にある App（`<appSlug>[bot]`）の `kind=plan-gate` コメントの記録。`plan.files` が触るファイル一覧）
 - diff（`git fetch origin && git diff origin/main...<headSha>`）とリポジトリ全体
 - 範囲照合の結果（PR の head の Check Run `agent/scope`）
 
