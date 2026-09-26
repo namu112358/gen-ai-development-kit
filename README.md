@@ -8,6 +8,7 @@ GitHub Issues を開発状態の SSoT とし、Claude Code が Issue を起点�
 - セットアップ: [docs/github-app-setup.md](docs/github-app-setup.md) → [docs/routine-setup.md](docs/routine-setup.md)
 - 用語集: [docs/glossary.md](docs/glossary.md)
 - 運用: [docs/runbook.md](docs/runbook.md)、[docs/issue-contract.md](docs/issue-contract.md)、[docs/risk-policy.md](docs/risk-policy.md)、[docs/formats.md](docs/formats.md)、[docs/security.md](docs/security.md)
+- 移行: [docs/migration.md](docs/migration.md)
 
 ## 流れ
 
