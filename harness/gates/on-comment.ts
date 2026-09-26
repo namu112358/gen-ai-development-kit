@@ -1,0 +1,189 @@
+import { extractBlock } from '../lib/blocks.ts';
+import { LABELS } from '../lib/config.ts';
+import type { IssueComment } from '../lib/github.ts';
+import { callJev } from '../lib/jev.ts';
+import { eligibility, type Acceptance } from '../lib/merge-route.ts';
+import { patchId } from '../lib/patch-id.ts';
+import { evaluatePlanGate, parsePlan } from '../lib/plan.ts';
+import { checkScope } from '../lib/scope.ts';
+import {
+  changedFiles,
+  fixRequestCount,
+  hasLabel,
+  isAgentPr,
+  isTrustedComment,
+  plannedFilesForPr,
+  prDiff,
+  type PlanGateRecord,
+} from '../lib/state.ts';
+import { fixAllowed, hasCriticalBlocking, parseVerdict, riskAllowsAutoMerge, type Verdict } from '../lib/verdict.ts';
+import { appComment, convertToDraft, getPr, type GateContext } from './context.ts';
+import { applyAcceptance } from './apply.ts';
+
+/** issue_comment（created）：計画ゲートと判定の受け付け */
+export async function onComment(ctx: GateContext): Promise<void> {
+  if (ctx.event.action !== 'created') return;
+  const comment = ctx.event.comment as IssueComment;
+  const issue = ctx.event.issue as { number: number; pull_request?: unknown; labels: { name: string }[]; state: string };
+  if (!isTrustedComment(comment)) {
+    ctx.log(`作成者の関連が ${comment.author_association} のため無視します（Q60）`);
+    return;
+  }
+  if (issue.pull_request) {
+    const block = extractBlock(comment.body, 'agent-verdict');
+    if (block.found) await onVerdict(ctx, issue.number, comment, block);
+  } else {
+    const block = extractBlock(comment.body, 'agent-plan');
+    if (block.found) await onPlan(ctx, issue, comment, block);
+  }
+}
+
+async function onPlan(
+  ctx: GateContext,
+  issue: { number: number; labels: { name: string }[]; state: string },
+  comment: IssueComment,
+  block: ReturnType<typeof extractBlock>,
+): Promise<void> {
+  if (issue.state !== 'open') return;
+  const errors = !block.found ? [] : !block.ok ? [block.error] : [];
+  const parsed = block.found && block.ok ? parsePlan(block.value) : null;
+  if (parsed && !parsed.ok) errors.push(...parsed.errors);
+  if (errors.length > 0 || !parsed?.ok) {
+    await ctx.gh.removeLabel(issue.number, LABELS.planOk);
+    await ctx.gh.addLabels(issue.number, [LABELS.blocked]);
+    await appComment(ctx, issue.number, 'plan-gate', [`計画の構造化出力を読めませんでした（[コメント](${comment.html_url})）。\`agent:blocked\` にしました。`, '', ...errors.map((e) => `- ${e}`)].join('\n'), {
+      version: 1, planCommentId: comment.id, pass: false, reasons: errors,
+    } satisfies PlanGateRecord);
+    return;
+  }
+
+  const plan = parsed.value;
+  const gate = evaluatePlanGate(plan, issue.number);
+  if (hasLabel(issue, LABELS.planReview) && gate.pass) {
+    gate.pass = false;
+    gate.reasons.push('`agent:plan-review` が付いています（Planner が人の判断を求めています）');
+  }
+  const record = { version: 1, planCommentId: comment.id, pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan };
+  if (gate.pass) {
+    await ctx.gh.addLabels(issue.number, [LABELS.planOk]);
+    await appComment(ctx, issue.number, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。`, record);
+  } else {
+    await ctx.gh.removeLabel(issue.number, LABELS.planOk);
+    await ctx.gh.addLabels(issue.number, [LABELS.planReview]);
+    await appComment(
+      ctx,
+      issue.number,
+      'plan-gate',
+      [`計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`, '', ...gate.reasons.map((r) => `- ${r}`)].join('\n'),
+      record,
+    );
+  }
+}
+
+async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComment, block: ReturnType<typeof extractBlock>): Promise<void> {
+  const pr = await getPr(ctx, prNumber);
+  if (pr.state !== 'open') return;
+  if (!isAgentPr(ctx.config, pr, ctx.repository)) {
+    await appComment(ctx, prNumber, 'verdict-rejected', 'Agent の PR（同じリポジトリの `claude/` ブランチ）ではないため、判定を受け付けません。');
+    return;
+  }
+  const errors = !block.found ? [] : !block.ok ? [block.error] : [];
+  const parsed = block.found && block.ok ? parseVerdict(block.value) : null;
+  if (parsed && !parsed.ok) errors.push(...parsed.errors);
+  if (!parsed?.ok || errors.length > 0) {
+    await appComment(ctx, prNumber, 'verdict-rejected', ['判定コメントの書式が不正なため受け付けません。次の Routine の実行で判定し直します。', '', ...errors.map((e) => `- ${e}`)].join('\n'));
+    return;
+  }
+  const verdict = parsed.value;
+  if (verdict.pr !== prNumber) {
+    await appComment(ctx, prNumber, 'verdict-rejected', `判定の PR 番号（#${verdict.pr}）がこの PR と一致しません。`);
+    return;
+  }
+
+  // 判定時の head と現在の head で、PR が base に加えた変更が同じときだけ受け付ける（Q48）
+  const diff = await prDiff(ctx.gh, pr);
+  const currentPatch = patchId(diff);
+  const verdictPatch = verdict.headSha === pr.head.sha ? currentPatch : await prDiff(ctx.gh, pr, verdict.headSha).then(patchId, () => 'unavailable');
+  if (currentPatch !== verdictPatch) {
+    await appComment(ctx, prNumber, 'verdict-rejected', `判定は古い差分（${verdict.headSha.slice(0, 7)}）に対するものです。現在の head ${pr.head.sha.slice(0, 7)} で判定し直してください。`);
+    return;
+  }
+
+  const acceptance = await buildAcceptance(ctx, pr.number, verdict, comment.id, currentPatch, diff);
+  // Jev の呼び出し中などに push されていたら、新しい head の差分でも同じときだけ続ける
+  const current = await getPr(ctx, prNumber);
+  if (current.head.sha !== pr.head.sha && patchId(await prDiff(ctx.gh, current)) !== currentPatch) {
+    await appComment(ctx, prNumber, 'verdict-rejected', `受け付け中に push されました（${current.head.sha.slice(0, 7)}）。次の Routine の実行で判定し直します。`);
+    return;
+  }
+
+  let limitExceeded = false;
+  if (!acceptance.reviewPass) {
+    const count = await fixRequestCount(ctx.gh, ctx.config, prNumber);
+    await convertToDraft(ctx, current);
+    if (fixAllowed(count, hasCriticalBlocking(verdict), ctx.config.fixLoop)) {
+      await ctx.gh.request('POST', `/pulls/${prNumber}/reviews`, {
+        body: { event: 'REQUEST_CHANGES', commit_id: current.head.sha, body: renderBlockingReview(verdict, count + 1) },
+      });
+    } else {
+      limitExceeded = true;
+      await ctx.gh.addLabels(prNumber, [LABELS.blocked]);
+      acceptance.reasons.push('修正回数の上限に達しました（`agent:blocked`、人の対応が必要）');
+    }
+  }
+  const posted = await appComment(ctx, prNumber, 'acceptance', renderAcceptance(acceptance, verdict, comment.html_url), acceptance);
+  ctx.log(`acceptance comment ${posted.id}${limitExceeded ? ' (fix limit exceeded)' : ''}`);
+  await applyAcceptance(ctx, current, acceptance, { fresh: true });
+}
+
+async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, verdictCommentId: number, currentPatch: string, diff: string): Promise<Acceptance> {
+  const files = await changedFiles(ctx.gh, prNumber);
+  const planned = await plannedFilesForPr(ctx.gh, ctx.config, prNumber);
+  const scope = 'files' in planned ? checkScope(planned.files, files) : { ok: false, outside: [`（${planned.missing}）`] };
+  const risk = riskAllowsAutoMerge(verdict.risk);
+  const jev = await callJev(ctx.config, ctx.secrets.jevApiKey, diff, files, verdict.facts);
+  const jevGate =
+    ctx.config.jev.mode === 'enforce'
+      ? { ok: jev.status === 'ok' && jev.allows === true, reason: `Jev が自動 Merge を許可していません（${jev.status}${jev.detail ? `: ${jev.detail}` : ''}）` }
+      : undefined;
+  const elig = eligibility({ reviewPass: verdict.review.pass, risk, scopeOk: scope.ok, outside: scope.outside, jevGate });
+  return {
+    version: 1,
+    verdictCommentId,
+    verdictHeadSha: verdict.headSha,
+    patchId: currentPatch,
+    reviewPass: verdict.review.pass,
+    riskLevel: verdict.risk.level,
+    riskOk: risk.ok,
+    scopeOk: scope.ok,
+    outside: scope.outside,
+    autoEligible: elig.autoEligible,
+    reasons: elig.reasons,
+    jev,
+  };
+}
+
+function renderBlockingReview(verdict: Verdict, round: number): string {
+  return [
+    `<!-- agent-harness:app kind=fix-request -->`,
+    `Reviewer のブロッキング指摘（修正 ${round} 回目）。修正して push してください。`,
+    '',
+    ...verdict.review.blocking.map((b) => `- **${b.kind}**${b.file ? ` \`${b.file}\`` : ''}: ${b.detail}`),
+  ].join('\n');
+}
+
+function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string {
+  const route = !a.reviewPass ? '修正へ（Draft のまま）' : a.autoEligible ? '自動 Merge（auto-merge を設定）' : 'Human Merge（人のレビュー待ち）';
+  return [
+    `[判定](${verdictUrl})を受け付けました（head ${v.headSha.slice(0, 7)}、patch-id ${a.patchId.slice(0, 12)}）。`,
+    '',
+    `| 項目 | 結果 |`,
+    `| --- | --- |`,
+    `| 経路 | ${route} |`,
+    `| Reviewer | ${a.reviewPass ? '合格' : `ブロッキング ${v.review.blocking.length} 件`} |`,
+    `| Risk（Claude） | ${a.riskLevel}${a.riskOk ? '' : '（自動 Merge 不可）'} |`,
+    `| 範囲照合 | ${a.scopeOk ? 'OK' : `範囲外: ${a.outside.join(', ')}`} |`,
+    `| Jev | ${a.jev?.status ?? '-'}${a.jev?.allows === undefined ? '' : a.jev.allows ? '（可）' : '（不可）'} |`,
+    ...(a.reasons.length > 0 ? ['', '自動 Merge しない理由:', ...a.reasons.map((r) => `- ${r}`)] : []),
+  ].join('\n');
+}
