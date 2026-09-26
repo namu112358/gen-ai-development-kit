@@ -27,7 +27,8 @@ export type ExtractResult =
 /** 指定したフェンスの JSON を1つだけ取り出す。2つ以上あれば曖昧としてエラー */
 export function extractBlock(body: string | null | undefined, kind: BlockKind): ExtractResult {
   const text = (body ?? '').replace(/\r\n/g, '\n');
-  const fence = new RegExp('^(`{3,}|~{3,})[ \\t]*' + kind + '[ \\t]*\\n([\\s\\S]*?)\\n\\1[ \\t]*$', 'gm');
+  // バッククォートのフェンスだけを受け付ける（gate.yml の if: が ```agent- で絞り込むため）
+  const fence = new RegExp('^(`{3,})[ \\t]*' + kind + '[ \\t]*\\n([\\s\\S]*?)\\n\\1[ \\t]*$', 'gm');
   const matches = [...text.matchAll(fence)];
   if (matches.length === 0) return { found: false };
   if (matches.length > 1) return { found: true, ok: false, error: `${kind} ブロックが複数あります` };

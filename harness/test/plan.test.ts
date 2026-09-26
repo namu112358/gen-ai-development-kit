@@ -18,6 +18,7 @@ test('停止基準：人の判断・AC 変更・未解決の質問・high 以上
     [{ risk: 'critical' }, 'critical'],
     [{ files: [] }, 'files'],
     [{ files: ['**'] }, '広すぎ'],
+    [{ files: ['s*/**'] }, '広すぎ'],
     [{ files: ['../x'] }, '..'],
     [{ issue: 8 }, '一致しません'],
   ];

@@ -14,9 +14,11 @@ Claude はユーザー本人の名義で動くため、GitHub 上の印で「人
 | 必須チェック | `agent/review`・`merge-route` は App の `integration_id` に固定。`ci` は GitHub Actions に固定。bypass なし |
 | 段階ゲート | `agent:plan-ok` は App だけ。App 以外が付けたら App が外す。Routine は Timeline で「App が付けた」ことを確認してから実装する |
 | 計画の写し | ゲート通過時の計画を App の記録に写す。後で計画コメントが編集されても、実装と範囲照合は写しを使う |
-| 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を App が照合する |
-| 判定の鮮度 | 判定時の head と現在の head で PR 自身の差分の `git patch-id` が同じときだけ受け付ける |
-| 順序 | push を検知したら最初に auto-merge を解除。受け付け時は auto-merge → merge-route → agent/risk → agent/review の順（`agent/review` が最後） |
+| 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を App が照合する。最初の階層にワイルドカードがあるパターンは拒否。変更ファイルを全件取得できなければ不可 |
+| 別リポジトリの参照 | `Closes`・親 Issue・依存の参照先が別リポジトリなら無視する（同じ番号のローカル Issue を操作しない） |
+| 判定の鮮度 | 判定時の head と現在の head で PR 自身の差分の `git patch-id --verbatim` が同じときだけ受け付ける（`--stable` は空白を無視するため使わない） |
+| 順序 | push を検知したら最初に auto-merge を解除。受け付け時は auto-merge → merge-route（直前に PR を取り直す）→ agent/risk → agent/review の順。書き終えた後に auto-merge の状態が変わっていれば merge-route を書き直す |
+| 定期照合 | 3時間ごとに、auto-merge が付いた PR のうち自動 Merge の条件を満たさないものから auto-merge を外す（`GITHUB_TOKEN` による操作はゲートを起動しないため） |
 | 直接マージ | `.claude/settings.json` の deny（Phase 2 で有効化。テンプレートは `harness/templates/claude-settings.deny.json`。`gh pr merge`、merge API、auto-merge、`gh pr ready`、変数・Secret・Ruleset 変更、main への push）。コマンドパターンのため完全ではない |
 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。fork は含めない。それ以外の PR は `agent/review` を「判定対象外」で通し、自動経路には乗らない（merge-route） |
 | 停止スイッチ | ダッシュボード Issue の `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い（安全側） |
@@ -29,6 +31,7 @@ Claude はユーザー本人の名義で動くため、GitHub 上の印で「人
 | --- | --- |
 | コメントの編集 | ゲートは `created` だけを見る。受け付け後にコメントを編集しても再評価されない（計画は写しを使うので影響は表示のみ） |
 | コラボレーター本人 | コラボレーター（＝本人・Routine）が偽の判定を書くことは防げない（Q44：段階分割と将来の Jev で対処） |
-| auto-merge 付与と CI 完了の競合 | Routine（本人名義）が medium の PR に auto-merge を付け、`auto_merge_enabled` のゲートが merge-route を failure に書き換える前に CI が完了すると、Merge され得る（数秒の窓）。`.claude/settings.json` で auto-merge の設定を deny している |
+| auto-merge 付与と CI 完了の競合 | Routine（本人名義）が medium の PR に auto-merge を付け、`auto_merge_enabled` のゲートが merge-route を failure に書き換える前に CI が完了すると、Merge され得る（数秒の窓）。Phase 2 以降は `.claude/settings.json` で auto-merge の設定を deny する |
+| `GITHUB_TOKEN` による auto-merge | PR 側で足した workflow が `GITHUB_TOKEN` で別の PR に auto-merge を付けると、ゲートは起動しない。Human Merge 経路で判定済み（merge-route・agent/review が success）の medium の PR は、定期照合（最大3時間）までに Merge され得る。workflow を足す PR は質問8で critical になり自動 Merge されないが、push した時点で動く（Q57 と同種） |
 | App に workflows 権限がない副作用 | `.github/workflows/**` を変える PR は App の auto-merge で Merge できない。意図した下限ではないが、質問8で critical になるため実害はない |
 | Routine の push 先 | Routine は `claude/` 以外のブランチにも push できる可能性がある（Phase 0 で確認）。その PR は Agent PR とみなされず自動経路に乗らないため、Merge には人が必要 |

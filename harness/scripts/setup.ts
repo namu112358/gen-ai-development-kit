@@ -8,7 +8,7 @@ import { GhTransport, GitHub } from '../lib/github.ts';
  *
  *   node harness/scripts/setup.ts labels <owner/repo>
  *   node harness/scripts/setup.ts repo <owner/repo>                 マージ方式・auto-merge・Actions の既定権限
- *   node harness/scripts/setup.ts environment <owner/repo>          Environment `gate`（既定ブランチからの実行に限定）
+ *   node harness/scripts/setup.ts environment <owner/repo> [clientId] Environment `gate`（既定ブランチからの実行に限定）と App の変数
  *   node harness/scripts/setup.ts ruleset <owner/repo> <appId>      main の Ruleset（必須チェックの出どころを App に固定、bypass なし）
  *   node harness/scripts/setup.ts app-manifest <owner/repo> <name>  App 作成用の HTML（マニフェストフロー）を出力
  *   node harness/scripts/setup.ts app-convert <owner/repo> <code>   マニフェストの code から App を確定し、鍵を Environment Secret に保存
@@ -50,7 +50,7 @@ async function repo(gh: GitHub): Promise<void> {
   console.log('repo settings applied');
 }
 
-async function environment(gh: GitHub): Promise<void> {
+async function environment(gh: GitHub, clientId?: string): Promise<void> {
   await gh.request('PUT', `${gh.repoPath}/environments/${ENVIRONMENT}`, {
     body: { deployment_branch_policy: { protected_branches: false, custom_branch_policies: true } },
   });
@@ -65,6 +65,16 @@ async function environment(gh: GitHub): Promise<void> {
     await gh.request('POST', `${gh.repoPath}/environments/${ENVIRONMENT}/deployment-branch-policies`, { body: { name: config.defaultBranch, type: 'branch' } });
   }
   console.log(`environment ${ENVIRONMENT}: ${config.defaultBranch} のみ`);
+  await setVariable(gh, `${gh.repoPath}/actions/variables`, 'AGENT_APP_SLUG', config.appSlug);
+  if (clientId) await setVariable(gh, `${gh.repoPath}/environments/${ENVIRONMENT}/variables`, 'AGENT_APP_CLIENT_ID', clientId);
+}
+
+/** 変数を作成または更新する（リポジトリ変数・Environment 変数の両方に使う） */
+async function setVariable(gh: GitHub, base: string, name: string, value: string): Promise<void> {
+  const existing = await gh.get(`${base}/${name}`, { allow404: true });
+  if (existing) await gh.request('PATCH', `${base}/${name}`, { body: { name, value } });
+  else await gh.request('POST', base, { body: { name, value } });
+  console.log(`variable ${name}=${value}`);
 }
 
 export function rulesetBody(appId: number) {
@@ -168,7 +178,7 @@ const gh = new GitHub(new GhTransport(), repository);
 switch (cmd) {
   case 'labels': await labels(gh); break;
   case 'repo': await repo(gh); break;
-  case 'environment': await environment(gh); break;
+  case 'environment': await environment(gh, arg); break;
   case 'ruleset': await ruleset(gh, Number(arg)); break;
   case 'app-manifest': appManifest(repository, arg ?? `${gh.owner}-agent-gate`); break;
   case 'app-convert': await appConvert(gh, arg!); break;

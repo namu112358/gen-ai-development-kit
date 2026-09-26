@@ -85,9 +85,9 @@ function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabels?: st
     .on('GET', /\/pulls\/5\/reviews/, () => [])
     .on('GET', /\/issues\/3\/comments/, () => [planGateComment])
     .on('GET', /\/issues\/5\/comments/, () => state.prComments ?? [])
-    .on('GET', /\/issues\?state=open&creator=/, () => (state.dashboardLabels ? [{ number: 1, title: config.dashboardIssueTitle, labels: state.dashboardLabels.map((name) => ({ name })) }] : []))
+    .on('GET', /\/issues\?state=open&creator=/, () => (state.dashboardLabels ? [{ number: 1, title: config.dashboardIssueTitle, user: { login: APP }, labels: state.dashboardLabels.map((name) => ({ name })) }] : []))
     .on('POST', /\/graphql/, (_m, body) => {
-      if (String(body.query).includes('closingIssuesReferences')) return { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [{ number: 3 }] } } } } };
+      if (String(body.query).includes('closingIssuesReferences')) return { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [{ number: 3, repository: { nameWithOwner: 'o/r' } }] } } } } };
       if (String(body.query).includes('enablePullRequestAutoMerge')) autoMerge = { enabled: true };
       if (String(body.query).includes('disablePullRequestAutoMerge')) autoMerge = null;
       return { data: {} };
@@ -220,4 +220,33 @@ test('App 以外が付けた plan-ok は外す', async () => {
   const byApp = acceptanceFake({ pr: pr() });
   await onIssue(ctxFor(byApp, 'issues', { action: 'labeled', label: { name: 'agent:plan-ok' }, sender: { login: APP }, issue: { number: 3, body: '', labels: [], state: 'open' } }));
   assert.equal(byApp.calls.length, 0);
+});
+
+test('受け付け中に別の操作で auto-merge が付けられたら、merge-route を failure に書き直す', async () => {
+  const fake = acceptanceFake({ pr: pr(), dashboardLabels: [] });
+  let enabledBySomeoneElse = false;
+  fake.on('POST', /\/check-runs/, (_m, body) => {
+    // agent/risk を書いた直後に、Routine（本人名義）が medium の PR に auto-merge を付けた想定
+    if (body.name === 'agent/risk') enabledBySomeoneElse = true;
+    return {};
+  });
+  fake.on('GET', /\/pulls\/5$/, () => ({ ...pr(), auto_merge: enabledBySomeoneElse ? { enabled: true } : null }));
+  const v = verdict({ risk: { ...verdict().risk, level: 'medium' } });
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', v))));
+  const w = fake.writes();
+  assert.equal(w.at(-1), 'check:merge-route=failure', '最後に書かれた merge-route が failure');
+});
+
+test('auto-merge を付けられないとき（チェックが揃い済み）は、検証した head を指定して直接 Merge する', async () => {
+  const fake = acceptanceFake({ pr: pr(), dashboardLabels: [] });
+  fake.on('POST', /\/graphql/, (_m, body) => {
+    if (String(body.query).includes('closingIssuesReferences')) return { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [{ number: 3, repository: { nameWithOwner: 'o/r' } }] } } } } };
+    if (String(body.query).includes('enablePullRequestAutoMerge')) throw new Error('Pull request is in clean status');
+    return { data: {} };
+  });
+  let mergedWith: any = null;
+  fake.on('PUT', /\/pulls\/5\/merge/, (_m, body) => (mergedWith = body));
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
+  assert.deepEqual(mergedWith, { sha: HEAD, merge_method: 'squash' });
+  assert.equal(fake.writes().at(-1), `PUT /repos/o/r/pulls/5/merge`);
 });
