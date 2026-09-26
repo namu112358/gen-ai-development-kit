@@ -44,3 +44,10 @@ test('計画ブロックの書式検査', () => {
   assert.ok(broken.found && !broken.ok);
   assert.equal(extractBlock('no block', 'agent-plan').found, false);
 });
+
+test('MCP でエスケープされた目印も Claude のコメントとして扱う', async () => {
+  const { hasClaudeMark } = await import('../lib/blocks.ts');
+  assert.equal(hasClaudeMark('&lt;!-- agent-harness:claude --&gt;\n## 計画'), true);
+  assert.equal(hasClaudeMark('<!-- agent-harness:claude -->'), true);
+  assert.equal(hasClaudeMark('人のコメント'), false);
+});

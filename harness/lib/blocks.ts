@@ -11,8 +11,12 @@ export const appMark = (kind: string): string => `<!-- agent-harness:app kind=${
 
 export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app';
 
+/** MCP 経由の投稿で `<` `>` が HTML エンティティに変わることがあるため、その形も目印として扱う */
+const CLAUDE_MARK_ESCAPED = '&lt;!-- agent-harness:claude --&gt;';
+
 export function hasClaudeMark(body: string | null | undefined): boolean {
-  return (body ?? '').includes(CLAUDE_MARK);
+  const text = body ?? '';
+  return text.includes(CLAUDE_MARK) || text.includes(CLAUDE_MARK_ESCAPED);
 }
 
 export function appMarkKind(body: string | null | undefined): string | null {
