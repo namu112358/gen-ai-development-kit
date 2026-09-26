@@ -47,6 +47,7 @@
 | Q68 | `.claude/settings.json` の deny は Phase 2（Routine 作成）で有効化 | 構築中の人のセッションで main への push などが必要なため（ユーザー決定） |
 | Q70 | 外部レビューの反映：patch-id を `--verbatim` に、範囲パターンの最初の階層のワイルドカード禁止、受け付けの競合対策と定期照合、auto-merge できないときの直接 Merge、別リポジトリ参照の除外、ダッシュボードの作成者確認、`contents: read` | コードレビューで見つかったため |
 | Q71 | 質問4を「挙動を変える変更」に限定（U1 の決定） | docs・typo を low で自動 Merge できるようにするため（ユーザー決定） |
+| Q72 | Routine は GitHub の操作を MCP ツールだけで行い、queue は App が Actions で計算してダッシュボード Issue に公開する。`agent.ts` の Routine 用コマンドは API を呼ばず書式検査と本文生成だけ。メトリクスは PR コメントに残す（MCP の `update_pull_request` を deny にするため） | Routine の環境には `gh` も API 用トークンもなく、Routine のシステム側の決まりで GitHub は MCP ツールのみ（初回実行と診断で判明、U2）。状態の判定が App 側に移り、偽装されにくくなる |
 | Q69 | 合格した判定を受け付けたら、App の過去の変更要求レビューを解除する | 変更要求が残ると Merge を妨げ得るため。修正回数は解除済みも数える |
 
 ## 未決事項
