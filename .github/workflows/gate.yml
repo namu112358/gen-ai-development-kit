@@ -20,14 +20,18 @@ on:
     - cron: '17 */3 * * *'
   workflow_dispatch:
 
-permissions: {}
+# checkout に必要な最小限（private 移行後も checkout できるように）。書き込みはすべて App のトークンで行う
+permissions:
+  contents: read
 
 jobs:
   gate:
     # 関係のないイベントでは起動しない（Actions はジョブごとに1分単位で課金されるため）
     # - コメント：構造化ブロックを含むものだけ
-    # - Issue：Close と、意味のあるラベル（plan-ok は App 以外が付けたときだけ）
-    # - PR：ラベルは hold だけ。auto-merge の変化は App 以外によるものだけ
+    # - Issue：Close と、意味のあるラベル（plan-ok はこの App 以外が付けたときだけ）
+    # - PR：ラベルは hold だけ。auto-merge の変化はこの App 以外によるものだけ
+    # 「この App」はリポジトリ変数 AGENT_APP_SLUG で判定する（他の Bot の操作は起動する）。
+    # GITHUB_TOKEN による操作は workflow を起動しないため、定期実行でも merge-route を照合し直す
     if: >-
       (github.event_name != 'issue_comment' ||
         contains(github.event.comment.body, '```agent-plan') ||
@@ -35,14 +39,14 @@ jobs:
       (github.event_name != 'issues' ||
         github.event.action == 'closed' ||
         github.event.label.name == 'agent:ready' ||
-        (github.event.label.name == 'agent:plan-ok' && github.event.sender.type != 'Bot') ||
+        (github.event.label.name == 'agent:plan-ok' && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG)) ||
         github.event.label.name == 'agent:hold' ||
         github.event.label.name == 'agent:auto-merge-stopped') &&
       (github.event_name != 'pull_request_target' ||
         (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
           github.event.action != 'auto_merge_enabled' && github.event.action != 'auto_merge_disabled') ||
         github.event.label.name == 'agent:hold' ||
-        (startsWith(github.event.action, 'auto_merge_') && github.event.sender.type != 'Bot'))
+        (startsWith(github.event.action, 'auto_merge_') && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG)))
     runs-on: ubuntu-latest
     environment: gate
     timeout-minutes: 5

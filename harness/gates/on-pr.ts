@@ -39,7 +39,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
     await appComment(ctx, number, 'hold-removed', `\`agent:hold\` が @${ctx.event.sender?.login} により外されました（記録）。`);
   }
 
-  if (['opened', 'reopened', 'synchronize', 'edited'].includes(action)) {
+  if (['opened', 'reopened', 'synchronize'].includes(action)) {
     const diff = await prDiff(ctx.gh, pr);
     const patch = patchId(diff);
     await writeScopeCheck(ctx, number, pr.head.sha);

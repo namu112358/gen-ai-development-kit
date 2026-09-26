@@ -1,7 +1,9 @@
 import { appMark } from '../lib/blocks.ts';
 import { LABELS } from '../lib/config.ts';
-import { findDashboard, hasLabel, isAgentPr, type PullRequest } from '../lib/state.ts';
-import type { GateContext } from './context.ts';
+import { patchId } from '../lib/patch-id.ts';
+import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
+import { refreshMergeRoute } from './apply.ts';
+import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
 
 /**
  * 定期実行：停滞検知。24 時間動きがない Issue・PR、期限切れの人の claim、コンフリクトしている PR、
@@ -32,7 +34,29 @@ export async function ensureDashboard(ctx: GateContext): Promise<number> {
   return created.number;
 }
 
+/**
+ * auto-merge が付いた PR を照合し直す。自動 Merge の条件を満たさないものは auto-merge を外し、merge-route を書き直す。
+ * GITHUB_TOKEN による auto-merge の設定は workflow を起動しないため、イベントだけでは拾えない。
+ */
+async function reconcileAutoMerge(ctx: GateContext): Promise<number> {
+  const mode = await autoMergeMode(ctx.gh, ctx.config);
+  let fixed = 0;
+  for (const item of await ctx.gh.paginate<PullRequest>('/pulls?state=open', 5)) {
+    if (!item.auto_merge) continue;
+    const pr = await getPr(ctx, item.number);
+    const agent = isAgentPr(ctx.config, pr, ctx.repository);
+    const acceptance = agent ? acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patchId(await prDiff(ctx.gh, pr))) : null;
+    if (agent && mode && !hasLabel(pr, LABELS.hold) && acceptance?.autoEligible) continue;
+    await disableAutoMerge(ctx, pr);
+    await refreshMergeRoute(ctx, pr);
+    await appComment(ctx, pr.number, 'auto-merge-removed', '自動 Merge の条件を満たさない auto-merge が付いていたため外しました（定期照合）。');
+    fixed++;
+  }
+  return fixed;
+}
+
 export async function onSchedule(ctx: GateContext, now: Date = new Date()): Promise<void> {
+  const reconciled = await reconcileAutoMerge(ctx);
   const staleMs = ctx.config.staleHours * 3600_000;
   const humanClaimMs = ctx.config.routine.humanClaimStaleHours * 3600_000;
   const age = (iso: string) => now.getTime() - new Date(iso).getTime();
@@ -73,5 +97,5 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     ? `**自動 Merge モード: 停止中**（このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外すと有効になります。docs/runbook.md）`
     : `**自動 Merge モード: 有効**（このダッシュボードに \`${ctx.config.autoMergeStopLabel}\` ラベルを付けると一斉に止まります）`;
   await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${mode}\n`) } });
-  ctx.log(`dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} stalePRs=${stalePrs.length} staleIssues=${stale.length}`);
+  ctx.log(`auto-merge reconciled=${reconciled}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} stalePRs=${stalePrs.length} staleIssues=${stale.length}`);
 }

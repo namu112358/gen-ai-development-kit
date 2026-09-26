@@ -10,6 +10,7 @@ test('glob の意味', () => {
   assert.ok(globToRegExp('src/**/*.ts').test('src/x/y/a.ts'));
   assert.ok(!globToRegExp('src/a.ts').test('src/a_ts'));
   assert.ok(!globToRegExp('docs/a.md').test('docs/a.md.bak'));
+  assert.ok(!globToRegExp('?**').test('src/a.ts'), '? はワイルドカードではない');
 });
 
 test('範囲照合：はみ出したファイルを列挙する', () => {

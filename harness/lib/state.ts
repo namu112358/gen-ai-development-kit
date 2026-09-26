@@ -119,11 +119,12 @@ export async function changedFiles(gh: GitHub, pr: number): Promise<string[]> {
 
 /** PR が Close する Issue（本文の Closes #N を GitHub が解釈したもの） */
 export async function closingIssues(gh: GitHub, pr: number): Promise<number[]> {
-  const data = await gh.graphql<{ repository: { pullRequest: { closingIssuesReferences: { nodes: { number: number }[] } } } }>(
-    `query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){closingIssuesReferences(first:5){nodes{number}}}}}`,
+  const data = await gh.graphql<{ repository: { pullRequest: { closingIssuesReferences: { nodes: { number: number; repository: { nameWithOwner: string } }[] } } } }>(
+    `query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}`,
     { owner: gh.owner, repo: gh.repo, pr },
   );
-  return data.repository.pullRequest.closingIssuesReferences.nodes.map((n) => n.number);
+  // 別リポジトリの Issue は同じ番号のローカル Issue と取り違えないよう除く
+  return data.repository.pullRequest.closingIssuesReferences.nodes.filter((n) => n.repository.nameWithOwner === `${gh.owner}/${gh.repo}`).map((n) => n.number);
 }
 
 /** PR 自身の差分の patch-id を計算するための diff（base ブランチの現在値との3点比較） */
@@ -134,6 +135,7 @@ export function prDiff(gh: GitHub, pr: PullRequest, headSha: string = pr.head.sh
 export interface DashboardIssue {
   number: number;
   title: string;
+  user: { login: string } | null;
   labels: { name: string }[];
   pull_request?: unknown;
 }
@@ -141,7 +143,8 @@ export interface DashboardIssue {
 /** App が作ったダッシュボード Issue（無ければ null） */
 export async function findDashboard(gh: GitHub, config: HarnessConfig): Promise<DashboardIssue | null> {
   const mine = await gh.paginate<DashboardIssue>(`/issues?state=open&creator=${encodeURIComponent(appLogin(config))}`, 5);
-  return mine.find((i) => i.title === config.dashboardIssueTitle && !i.pull_request) ?? null;
+  // creator フィルタだけに頼らず、App が作ったことを手元でも確かめる
+  return mine.find((i) => i.title === config.dashboardIssueTitle && !i.pull_request && i.user?.login === appLogin(config)) ?? null;
 }
 
 /** 自動 Merge モード。ダッシュボードに停止ラベルがない場合だけ有効（ダッシュボードが無ければ停止＝安全側） */

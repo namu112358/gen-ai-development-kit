@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { CLAUDE_MARK, extractBlock, hasClaudeMark, renderBlock } from '../lib/blocks.ts';
-import { appLogin, LABELS, loadConfig, riskLabel, type HarnessConfig } from '../lib/config.ts';
+import { appLogin, CHECKS, LABELS, loadConfig, riskLabel, type HarnessConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv, type IssueComment } from '../lib/github.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
@@ -101,34 +102,44 @@ async function issueFacts(gh: GitHub, cfg: HarnessConfig, issue: { number: numbe
   };
 }
 
+/** 判定コメントへの App の返答をこれ以上待たない時間（ゲートの実行が落ちた場合に判定し直す） */
+const GATE_REPLY_TIMEOUT_MS = 30 * 60_000;
+
 async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, readyAt: Map<number, string | null>): Promise<PrFacts> {
-  const [comments, reviews, commit, issues] = await Promise.all([
+  const [comments, reviews, commit, checks, issues] = await Promise.all([
     gh.listComments(pr.number),
     gh.paginate<Review>(`/pulls/${pr.number}/reviews`),
     gh.get<{ commit: { committer: { date: string } } }>(`/commits/${pr.head.sha}`),
+    gh.paginate<{ name: string; started_at: string; app: { slug: string } | null }>(`/commits/${pr.head.sha}/check-runs`),
     closingIssues(gh, pr.number),
   ]);
-  const pushedAt = commit.commit.committer.date;
+  const fromApp = checks.filter((c) => c.app?.slug === cfg.appSlug);
+  // push の時刻は、App がその head に範囲照合を書いた時刻（なければコミット日時）。コミット日時は push の時刻と一致しないことがある
+  const pushedAt = fromApp.find((c) => c.name === CHECKS.scope)?.started_at ?? commit.commit.committer.date;
   const patch = patchId(await prDiff(gh, pr));
   const acc = acceptanceForPatch(cfg, comments, patch);
   const accRecord = appRecords<{ patchId: string }>(cfg, comments, 'acceptance').filter((r) => r.value.patchId === patch).at(-1);
+  // 受け付けの記録があっても agent/review が head に書かれていなければ、反映の途中で落ちたとみなして判定し直す
+  const applied = fromApp.some((c) => c.name === CHECKS.review);
   const verdict = latestClaudeBlockAt(comments, 'agent-verdict');
   const lastGateReply = comments.filter((c) => isAppComment(cfg, c) && /kind=(acceptance|verdict-rejected)/.test(c.body)).at(-1);
   const verdictBlock = verdict ? extractBlock(verdict.body, 'agent-verdict') : null;
   const verdictForHead = verdictBlock?.found && verdictBlock.ok && (verdictBlock.value as { headSha?: string }).headSha === pr.head.sha;
+  const verdictFresh = verdict !== null && Date.now() - new Date(verdict.created_at).getTime() < GATE_REPLY_TIMEOUT_MS;
   const human = reviews.filter(
     (r) => r.user?.login !== appLogin(cfg) && isTrustedComment(r) && !hasClaudeMark(r.body) && ['COMMENTED', 'CHANGES_REQUESTED'].includes(r.state) && r.submitted_at > pushedAt,
   );
   const issue = issues[0] ?? null;
   return {
     number: pr.number,
+    claim: claimOf(comments),
     issue,
     readyAt: issue ? (readyAt.get(issue) ?? null) : null,
     labels: pr.labels.map((l) => l.name),
     headSha: pr.head.sha,
     headPushedAt: pushedAt,
-    acceptance: acc && accRecord ? { reviewPass: acc.reviewPass, at: accRecord.comment.created_at } : null,
-    verdictAwaitingGate: Boolean(verdictForHead && (!lastGateReply || lastGateReply.created_at < verdict!.created_at)),
+    acceptance: acc && accRecord && applied ? { reviewPass: acc.reviewPass, at: accRecord.comment.created_at } : null,
+    verdictAwaitingGate: Boolean(verdictForHead && verdictFresh && (!lastGateReply || lastGateReply.created_at < verdict!.created_at)),
     humanFeedbackSincePush: human.length,
   };
 }
@@ -197,10 +208,17 @@ async function postVerdict(gh: GitHub, n: number, file: string): Promise<void> {
 
 async function showPlan(gh: GitHub, n: number): Promise<void> {
   const comments = await gh.listComments(n);
-  const gate = latestPlanGate(config, comments) as { value: PlanGateRecord & { plan?: unknown } } | null;
+  const gate = latestPlanGate(config, comments) as { value: PlanGateRecord & { plan?: unknown; planBodySha256?: string } } | null;
   if (!gate?.value.pass) fail([`#${n} に計画ゲートを通過した計画がありません`]);
   const planComment = comments.find((c) => c.id === gate!.value.planCommentId);
-  console.log(JSON.stringify({ gate: gate!.value, planCommentUrl: planComment?.html_url, planCommentBody: planComment?.body }, null, 2));
+  // ゲート通過後に計画コメントが編集されていたら本文は渡さない（実装の入力は App が写した計画だけ）
+  const intact = planComment !== undefined && gate!.value.planBodySha256 === createHash('sha256').update(planComment.body).digest('hex');
+  console.log(JSON.stringify({
+    gate: gate!.value,
+    planCommentUrl: planComment?.html_url,
+    planCommentBody: intact ? planComment!.body : null,
+    note: intact ? undefined : '計画コメントはゲート通過後に編集されたか見つかりません。gate.plan（App の写し）だけに従ってください',
+  }, null, 2));
 }
 
 const FOOTER_START = '<!-- agent-harness:metrics -->';

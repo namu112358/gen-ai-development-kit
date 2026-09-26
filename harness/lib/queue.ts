@@ -25,6 +25,7 @@ export interface IssueFacts {
 
 export interface PrFacts {
   number: number;
+  claim: Claim | null;
   issue: number | null;
   readyAt: string | null;
   labels: string[];
@@ -32,9 +33,9 @@ export interface PrFacts {
   headPushedAt: string;
   /** 現在の patch-id に対する App の受け付け記録 */
   acceptance: { reviewPass: boolean; at: string } | null;
-  /** 現在の head に対する Claude の判定コメントがあり、App の返答（受け付け・却下）がまだない */
+  /** 現在の head に対する Claude の判定コメントがあり、App の返答（受け付け・却下）がまだない（一定時間で打ち切る） */
   verdictAwaitingGate: boolean;
-  /** 最後の push より後の、人（Claude・App 以外のコラボレーター）のレビュー・コメントの数 */
+  /** 最後の push より後の、人（Claude・App 以外のコラボレーター）のレビューの数（会話コメントは数えない） */
   humanFeedbackSincePush: number;
 }
 
@@ -55,6 +56,15 @@ export interface QueueOptions {
 
 const has = (labels: string[], name: string) => labels.includes(name);
 
+/** 着手宣言があり、奪ってはいけないなら理由を返す */
+function claimedByOther(labels: string[], claim: Claim | null, opts: QueueOptions): string | null {
+  if (!has(labels, LABELS.working) || !claim) return null;
+  if (claim.by === 'manual') return '人のセッションが着手中';
+  if (claim.session === opts.currentSession) return null;
+  const minutes = (opts.now.getTime() - new Date(claim.at).getTime()) / 60_000;
+  return minutes < opts.routineClaimTakeoverMinutes ? '別の Routine の実行が着手中' : null;
+}
+
 export function decideIssue(f: IssueFacts, opts: QueueOptions): Action {
   const target = `#${f.number}`;
   for (const stop of [LABELS.hold, LABELS.blocked, LABELS.planReview, LABELS.waiting]) {
@@ -62,13 +72,8 @@ export function decideIssue(f: IssueFacts, opts: QueueOptions): Action {
   }
   if (!has(f.labels, LABELS.ready)) return { kind: 'skip', target, reason: '`agent:ready` がありません' };
   if (f.openPr !== null || has(f.labels, LABELS.inPr)) return { kind: 'skip', target, reason: `PR #${f.openPr ?? '?'} の段階です` };
-  if (has(f.labels, LABELS.working) && f.claim) {
-    if (f.claim.by === 'manual') return { kind: 'skip', target, reason: '人のセッションが着手中' };
-    if (f.claim.session !== opts.currentSession) {
-      const minutes = (opts.now.getTime() - new Date(f.claim.at).getTime()) / 60_000;
-      if (minutes < opts.routineClaimTakeoverMinutes) return { kind: 'skip', target, reason: '別の Routine の実行が着手中' };
-    }
-  }
+  const claimed = claimedByOther(f.labels, f.claim, opts);
+  if (claimed) return { kind: 'skip', target, reason: claimed };
   if (f.openBlockers.length > 0) return { kind: 'wait-dependency', issue: f.number, blockers: f.openBlockers };
 
   const planPending = f.latestPlanAt !== null && (f.gate === null || f.gate.at < f.latestPlanAt);
@@ -79,11 +84,13 @@ export function decideIssue(f: IssueFacts, opts: QueueOptions): Action {
   return { kind: 'implement', issue: f.number, planCommentId: f.gate.planCommentId };
 }
 
-export function decidePr(f: PrFacts): Action {
+export function decidePr(f: PrFacts, opts: QueueOptions): Action {
   const target = `PR #${f.number}`;
   for (const stop of [LABELS.hold, LABELS.blocked]) {
     if (has(f.labels, stop)) return { kind: 'skip', target, reason: `\`${stop}\`` };
   }
+  const claimed = claimedByOther(f.labels, f.claim, opts);
+  if (claimed) return { kind: 'skip', target, reason: claimed };
   if (f.humanFeedbackSincePush > 0) return { kind: 'fix', pr: f.number, issue: f.issue, reason: 'human' };
   if (f.verdictAwaitingGate) return { kind: 'skip', target, reason: '判定の受け付け待ち' };
   if (!f.acceptance) return { kind: 'judge', pr: f.number, issue: f.issue, headSha: f.headSha };
@@ -95,7 +102,7 @@ export function decidePr(f: PrFacts): Action {
 export function buildQueue(issues: IssueFacts[], prs: PrFacts[], opts: QueueOptions, limit: number): { actions: Action[]; skipped: Action[] } {
   const items = [
     ...issues.map((f) => ({ at: f.readyAt, action: decideIssue(f, opts) })),
-    ...prs.map((f) => ({ at: f.readyAt, action: decidePr(f) })),
+    ...prs.map((f) => ({ at: f.readyAt, action: decidePr(f, opts) })),
   ].sort((a, b) => (a.at ?? '9999').localeCompare(b.at ?? '9999'));
   const actions = items.filter((i) => i.action.kind !== 'skip').map((i) => i.action);
   const skipped = items.filter((i) => i.action.kind === 'skip').map((i) => i.action);

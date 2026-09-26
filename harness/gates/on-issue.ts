@@ -67,6 +67,7 @@ async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: bool
 
 interface IssueNode {
   number: number;
+  repository: { nameWithOwner: string };
   state: 'OPEN' | 'CLOSED';
   labels?: { nodes: { name: string }[] };
   blockedBy?: { nodes: { number: number; state: 'OPEN' | 'CLOSED' }[] };
@@ -75,11 +76,11 @@ interface IssueNode {
 async function resolveDependents(ctx: GateContext, number: number): Promise<void> {
   const data = await ctx.gh.graphql<{ repository: { issue: { blocking: { nodes: IssueNode[] } } } }>(
     `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){
-      blocking(first:50){nodes{number state labels(first:30){nodes{name}} blockedBy(first:50){nodes{number state}}}}}}}`,
+      blocking(first:100){nodes{number state repository{nameWithOwner} labels(first:50){nodes{name}} blockedBy(first:100){nodes{number state}}}}}}}`,
     { owner: ctx.gh.owner, repo: ctx.gh.repo, n: number },
   );
   for (const dep of data.repository.issue.blocking.nodes) {
-    if (dep.state !== 'OPEN') continue;
+    if (dep.state !== 'OPEN' || dep.repository.nameWithOwner !== ctx.repository) continue;
     if (!hasLabel({ labels: dep.labels?.nodes ?? [] }, LABELS.waiting)) continue;
     const open = (dep.blockedBy?.nodes ?? []).filter((b) => b.state === 'OPEN');
     if (open.length > 0) continue;
@@ -89,13 +90,14 @@ async function resolveDependents(ctx: GateContext, number: number): Promise<void
 }
 
 async function closeParentIfDone(ctx: GateContext, number: number): Promise<void> {
-  const data = await ctx.gh.graphql<{ repository: { issue: { parent: { number: number; state: string; subIssues: { totalCount: number; nodes: { state: string }[] } } | null } } }>(
+  const data = await ctx.gh.graphql<{ repository: { issue: { parent: { number: number; state: string; repository: { nameWithOwner: string }; subIssues: { totalCount: number; nodes: { state: string }[] } } | null } } }>(
     `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){
-      parent{number state subIssues(first:100){totalCount nodes{state}}}}}}`,
+      parent{number state repository{nameWithOwner} subIssues(first:100){totalCount nodes{state}}}}}}`,
     { owner: ctx.gh.owner, repo: ctx.gh.repo, n: number },
   );
   const parent = data.repository.issue.parent;
-  if (!parent || parent.state !== 'OPEN') return;
+  // 親が別リポジトリなら同じ番号のローカル Issue を閉じてしまわないよう何もしない
+  if (!parent || parent.state !== 'OPEN' || parent.repository.nameWithOwner !== ctx.repository) return;
   if (parent.subIssues.totalCount > parent.subIssues.nodes.length) return;
   if (!parent.subIssues.nodes.every((s) => s.state === 'CLOSED')) return;
   await appComment(ctx, parent.number, 'parent-closed', 'Sub-issues がすべて閉じたため、この Issue を閉じます。');

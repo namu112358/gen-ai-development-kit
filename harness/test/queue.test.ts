@@ -10,7 +10,7 @@ const issue = (patch: Partial<IssueFacts> = {}): IssueFacts => ({
   gate: null, latestPlanAt: null, planOkByApp: false, openPr: null, ...patch,
 });
 const pr = (patch: Partial<PrFacts> = {}): PrFacts => ({
-  number: 10, issue: 1, readyAt: '2026-09-26T00:00:00Z', labels: [], headSha: 'h', headPushedAt: '2026-09-26T01:00:00Z',
+  number: 10, claim: null, issue: 1, readyAt: '2026-09-26T00:00:00Z', labels: [], headSha: 'h', headPushedAt: '2026-09-26T01:00:00Z',
   acceptance: null, verdictAwaitingGate: false, humanFeedbackSincePush: 0, ...patch,
 });
 
@@ -38,12 +38,13 @@ test('Issue：停止ラベル・依存・着手宣言', () => {
 });
 
 test('PR：判定 → 受け付け待ち → 修正 / Merge 待ち', () => {
-  assert.equal(decidePr(pr()).kind, 'judge');
-  assert.equal(decidePr(pr({ verdictAwaitingGate: true })).kind, 'skip');
-  assert.equal(decidePr(pr({ acceptance: { reviewPass: false, at: 'x' } })).kind, 'fix');
-  assert.equal(decidePr(pr({ acceptance: { reviewPass: true, at: 'x' } })).kind, 'skip');
-  assert.deepEqual(decidePr(pr({ acceptance: { reviewPass: true, at: 'x' }, humanFeedbackSincePush: 1 })), { kind: 'fix', pr: 10, issue: 1, reason: 'human' });
-  assert.equal(decidePr(pr({ labels: ['agent:hold'], humanFeedbackSincePush: 1 })).kind, 'skip');
+  assert.equal(decidePr(pr(), opts).kind, 'judge');
+  assert.equal(decidePr(pr({ verdictAwaitingGate: true }), opts).kind, 'skip');
+  assert.equal(decidePr(pr({ acceptance: { reviewPass: false, at: 'x' } }), opts).kind, 'fix');
+  assert.equal(decidePr(pr({ acceptance: { reviewPass: true, at: 'x' } }), opts).kind, 'skip');
+  assert.deepEqual(decidePr(pr({ acceptance: { reviewPass: true, at: 'x' }, humanFeedbackSincePush: 1 }), opts), { kind: 'fix', pr: 10, issue: 1, reason: 'human' });
+  assert.equal(decidePr(pr({ labels: ['agent:hold'], humanFeedbackSincePush: 1 }), opts).kind, 'skip');
+  assert.equal(decidePr(pr({ labels: ['agent:working'], claim: { by: 'manual', at: '2026-09-26T11:00:00Z' } }), opts).kind, 'skip', 'PR でも人の着手は奪わない');
 });
 
 test('キュー：先着順・上限・skip は数えない', () => {

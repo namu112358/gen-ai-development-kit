@@ -44,3 +44,9 @@ test('main 追従後も PR 自身の差分の patch-id は同じ、変更すれ�
   assert.notEqual(patchId(threeDot(dir, 'main', 'claude/rebased')), judged, '差分が変われば別の値');
   assert.equal(patchId(''), 'empty');
 });
+
+test('空白だけの違いも別の差分として扱う', () => {
+  const diff = (line: string) => `diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+${line}\n`;
+  assert.notEqual(patchId(diff('rm -rf /tmp/build')), patchId(diff('rm -rf / tmp/build')));
+  assert.notEqual(patchId(diff('  if x:')), patchId(diff('    if x:')), 'Python / YAML のインデント');
+});

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { extractBlock } from '../lib/blocks.ts';
 import { LABELS } from '../lib/config.ts';
 import type { IssueComment } from '../lib/github.ts';
@@ -63,7 +64,7 @@ async function onPlan(
     gate.pass = false;
     gate.reasons.push('`agent:plan-review` が付いています（Planner が人の判断を求めています）');
   }
-  const record = { version: 1, planCommentId: comment.id, pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan };
+  const record = { version: 1, planCommentId: comment.id, planBodySha256: sha256(comment.body), pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan; planBodySha256: string };
   if (gate.pass) {
     await ctx.gh.addLabels(issue.number, [LABELS.planOk]);
     await appComment(ctx, issue.number, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。`, record);
@@ -139,7 +140,10 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
 async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, verdictCommentId: number, currentPatch: string, diff: string): Promise<Acceptance> {
   const files = await changedFiles(ctx.gh, prNumber);
   const planned = await plannedFilesForPr(ctx.gh, ctx.config, prNumber);
-  const scope = 'files' in planned ? checkScope(planned.files, files) : { ok: false, outside: [`（${planned.missing}）`] };
+  let scope = 'files' in planned ? checkScope(planned.files, files) : { ok: false, outside: [`（${planned.missing}）`] };
+  // 変更ファイルの一覧は API の上限（3000 件）で打ち切られ得る。全件を見られなければ範囲照合は不可とする
+  const total = (await ctx.gh.get<{ changed_files: number }>(`/pulls/${prNumber}`)).changed_files;
+  if (new Set(files).size < total) scope = { ok: false, outside: [`（変更ファイル ${total} 件のうち ${new Set(files).size} 件しか取得できません）`] };
   const risk = riskAllowsAutoMerge(verdict.risk);
   const jev = await callJev(ctx.config, ctx.secrets.jevApiKey, diff, files, verdict.facts);
   const jevGate =
@@ -162,6 +166,8 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     jev,
   };
 }
+
+export const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
 
 function renderBlockingReview(verdict: Verdict, round: number): string {
   return [
