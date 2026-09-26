@@ -2,7 +2,7 @@
 
 Claude の処理は、人のセッションか、毎時1本の Routine だけで動かす。GitHub イベントで Claude を起動しない。
 
-## 事前準備：deny の有効化（Phase 2 の開始時）
+## 事前準備：deny の有効化（Phase 2 の開始時・反映済み）
 
 構築中は人のセッションで main への push などが必要なため、直接マージ等の deny はまだ有効にしていない。
 Routine を作る前に、[harness/templates/claude-settings.deny.json](../harness/templates/claude-settings.deny.json) の `permissions.deny` を `.claude/settings.json` に反映して main に Merge する。

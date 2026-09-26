@@ -1,5 +1,5 @@
 {
-  "$comment": "Phase 2（Routine 作成）の前に、この deny を .claude/settings.json に反映する（docs/routine-setup.md）。構築中の人のセッションでは main への push 等が必要なため、まだ有効にしていない。",
+  "$comment": ".claude/settings.json の permissions.deny と同じ内容（Phase 2 で反映済み）。deny を変えるときは両方を更新する。",
   "permissions": {
     "deny": [
       "Bash(gh pr merge)",
@@ -7,6 +7,8 @@
       "Bash(* gh pr merge *)",
       "Bash(gh api *pulls/*/merge*)",
       "Bash(* gh api *pulls/*/merge*)",
+      "Bash(gh api --method PUT *pulls/*/merge*)",
+      "Bash(gh api -X PUT *pulls/*/merge*)",
       "Bash(gh api graphql *mergePullRequest*)",
       "Bash(*enablePullRequestAutoMerge*)",
       "Bash(*mergePullRequest*)",
