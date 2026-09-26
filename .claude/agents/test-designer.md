@@ -9,8 +9,8 @@ tools: Read, Grep, Glob, Bash, Write, Edit
 ## 入力
 
 - 呼び出し元が渡す Issue 番号
-- Issue の Acceptance Criteria と Validation Requirements（`gh issue view <番号> --json body`）
-- 計画ゲートを通過した計画（`node harness/scripts/agent.ts show-plan <番号>`）
+- Issue の Acceptance Criteria と Validation Requirements（Routine では GitHub の MCP ツール、人のセッションでは `gh issue view <番号> --json body` で読む）
+- 計画ゲートを通過した計画の触るファイル一覧（呼び出し元が渡す `planFiles`）
 - リポジトリの既存テスト（書き方・置き場所・実行方法を合わせる）
 
 ## 手順

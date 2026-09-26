@@ -96,6 +96,11 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   const mode = stopped
     ? `**自動 Merge モード: 停止中**（このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外すと有効になります。docs/runbook.md）`
     : `**自動 Merge モード: 有効**（このダッシュボードに \`${ctx.config.autoMergeStopLabel}\` ラベルを付けると一斉に止まります）`;
-  await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${mode}\n`) } });
+  const withMode = body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${mode}\n`);
+  const existing = (await ctx.gh.get<{ body: string | null }>(`/issues/${dashboard}`)).body ?? '';
+  const queueStart = existing.indexOf('<!-- agent-harness:queue:start -->');
+  // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
+  const kept = queueStart >= 0 ? `${withMode}\n\n${existing.slice(queueStart)}` : withMode;
+  await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: kept } });
   ctx.log(`auto-merge reconciled=${reconciled}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} stalePRs=${stalePrs.length} staleIssues=${stale.length}`);
 }

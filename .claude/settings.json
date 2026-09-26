@@ -25,7 +25,10 @@
       "Bash(git push * main:*)",
       "Bash(git push * HEAD:main)",
       "Bash(git push --force*)",
-      "Bash(git push -f*)"
+      "Bash(git push -f*)",
+      "mcp__github__merge_pull_request",
+      "mcp__github__update_pull_request",
+      "mcp__github__enable_pull_request_auto_merge"
     ],
     "allow": [
       "Bash(npm run check)",
