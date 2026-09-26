@@ -4,6 +4,10 @@
 
 ## 着手
 
+### queue
+
+App が次に Routine がやることを計算してダッシュボード Issue の本文に公開し、Routine がそれに従って処理する仕組み。詳細：[formats.md](formats.md#app-の記録agent-app)
+
 ### `agent:ready`
 
 人が Issue に付けるラベル。「着手してよい」の意味で、Routine が次の実行で拾う。付けた時点で App が Issue 本文を Issue Form の書式として読めるか確かめる。詳細：[operations.md](operations.md#issue-の書き方)
