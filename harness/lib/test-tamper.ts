@@ -7,7 +7,9 @@
  * - skip / only / todo の追加（.skip(、{ skip: … }、xit( など）
  * - アサーション（assert / expect(）を含む行の削除・書き換え（整形だけの変更も含む）
  * 同じファイルで同じ内容の行が消えて足されたもの（移動）は数えない。
+ * アサーションの書き換えは、同じ場所の削除と追加が対になれば変更後の行も持たせる（表示のためだけで、判定には使わない）。
  */
+import { TEST_EXEMPT_LABEL } from './config.ts';
 import { globToRegExp } from './scope.ts';
 
 export type TamperKind = 'deleted-file' | 'renamed-away' | 'removed-test' | 'skip-added' | 'assertion-changed';
@@ -19,6 +21,8 @@ export interface TamperFinding {
   line?: number;
   side?: 'base' | 'head';
   text?: string;
+  /** assertion-changed で、同じ場所の追加の行と対になったときの変更後の行（head 側） */
+  after?: { line: number; text: string };
 }
 
 export const TAMPER_KIND_LABELS: Record<TamperKind, string> = {
@@ -29,9 +33,20 @@ export const TAMPER_KIND_LABELS: Record<TamperKind, string> = {
   'assertion-changed': 'アサーションの削除・書き換え',
 };
 
+/** 検出の種類ごとの一言の説明（Check Run の概要に出す） */
+export const TAMPER_KIND_NOTES: Record<TamperKind, string> = {
+  'deleted-file': 'テストのファイルがまるごと消えています。確かめる対象が無くなると、何を変えても通ってしまいます。',
+  'renamed-away': 'テストのファイルが、テストとして扱われない場所・名前に移されています。テストとして動かなくなるおそれがあります。',
+  'removed-test': 'テストの項目（`test(` / `it(` / `describe(`）が消えています。それまで確かめていたことが確かめられなくなります。',
+  'skip-added': 'テストを飛ばす・一部だけ動かす印（`skip` / `only` / `todo`）が足されています。そのテスト（`only` ならほかのテスト）が動かなくなります。',
+  'assertion-changed': '採点基準の行（`assert` / `expect(`）が消えたか、書き換わっています。変更後の行が分かるものは並べています。',
+};
+
 interface Line {
   no: number;
   text: string;
+  /** hunk の中の「連続する削除と、その直後に続く連続する追加」のまとまりの番号 */
+  block: number;
 }
 
 interface FileDiff {
@@ -75,17 +90,36 @@ export function detectTestTampering(diff: string, patterns: string[]): TamperFin
     const removedPool = countTexts(f.removed);
     const removed = f.removed.filter((l) => !take(addedPool, l.text.trim()));
     const added = f.added.filter((l) => !take(removedPool, l.text.trim()));
+    const pairs = pairLines(removed, added);
     const addedNames = new Set(f.added.map((l) => definitionName(l.text)).filter((n): n is string => n !== null));
     for (const l of removed) {
       const name = definitionName(l.text);
       if (name !== null && !addedNames.has(name)) findings.push({ kind: 'removed-test', file, line: l.no, side: 'base', text: l.text.trim() });
-      else if (ASSERTION.test(l.text) && !IMPORT.test(l.text)) findings.push({ kind: 'assertion-changed', file, line: l.no, side: 'base', text: l.text.trim() });
+      else if (ASSERTION.test(l.text) && !IMPORT.test(l.text)) {
+        const after = pairs.get(l);
+        findings.push({ kind: 'assertion-changed', file, line: l.no, side: 'base', text: l.text.trim(), ...(after ? { after: { line: after.no, text: after.text.trim() } } : {}) });
+      }
     }
     for (const l of added) {
       if (SKIP.test(l.text)) findings.push({ kind: 'skip-added', file, line: l.no, side: 'head', text: l.text.trim() });
     }
   }
   return findings;
+}
+
+/** 同じまとまりの中で、相殺後に残った削除の k 番目と追加の k 番目を組む（数が合わず余った行は組まない） */
+function pairLines(removed: Line[], added: Line[]): Map<Line, Line> {
+  const addedByBlock = new Map<number, Line[]>();
+  for (const l of added) addedByBlock.set(l.block, [...(addedByBlock.get(l.block) ?? []), l]);
+  const seen = new Map<number, number>();
+  const pairs = new Map<Line, Line>();
+  for (const l of removed) {
+    const k = seen.get(l.block) ?? 0;
+    seen.set(l.block, k + 1);
+    const a = addedByBlock.get(l.block)?.[k];
+    if (a) pairs.set(l, a);
+  }
+  return pairs;
 }
 
 function definitionName(text: string): string | null {
@@ -152,6 +186,8 @@ function parseDiff(diff: string): FileDiff[] {
   let newNo = 0;
   let oldLeft = 0;
   let newLeft = 0;
+  let block = 0;
+  let prev = ' ';
   for (const raw of diff.split('\n')) {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     if (cur && (oldLeft > 0 || newLeft > 0)) {
@@ -160,10 +196,12 @@ function parseDiff(diff: string): FileDiff[] {
       const mark = line[0];
       const text = line.slice(1);
       if (mark === '-') {
-        cur.removed.push({ no: oldNo++, text });
+        if (prev !== '-') block++;
+        cur.removed.push({ no: oldNo++, text, block });
         oldLeft--;
       } else if (mark === '+') {
-        cur.added.push({ no: newNo++, text });
+        if (prev !== '-' && prev !== '+') block++;
+        cur.added.push({ no: newNo++, text, block });
         newLeft--;
       } else {
         oldNo++;
@@ -171,6 +209,7 @@ function parseDiff(diff: string): FileDiff[] {
         oldLeft--;
         newLeft--;
       }
+      prev = mark === '-' || mark === '+' ? mark : ' ';
       continue;
     }
     if (line.startsWith('diff --git ')) {
@@ -187,6 +226,7 @@ function parseDiff(diff: string): FileDiff[] {
       oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
       newNo = Number(hunk[3]);
       newLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
+      prev = ' ';
     } else if (line.startsWith('deleted file mode')) {
       cur.deleted = true;
     } else if (line.startsWith('rename from ')) {
@@ -204,13 +244,51 @@ function parseDiff(diff: string): FileDiff[] {
   return files;
 }
 
-/** Check Run の要約（ファイルと行の一覧） */
-export function renderTamperSummary(findings: TamperFinding[], limit = 100): string {
-  const lines = findings.slice(0, limit).map((f) => {
-    const at = f.line === undefined ? '' : `:${f.line}${f.side === 'base' ? '（変更前）' : ''}`;
-    const text = f.text ? ` — \`${f.text.slice(0, 120).replace(/`/g, "'")}\`` : '';
-    return `- ${TAMPER_KIND_LABELS[f.kind]}：\`${f.file}${at}\`${text}`;
-  });
+/** failure の概要の先頭に置く、技術者でなくても分かる説明 */
+function tamperExplanation(exemptLabel: string): string[] {
+  return [
+    '### 何を見張っているか',
+    '',
+    'この検査は、テストを甘くして通すことを見張っています。たとえるなら、試験の答案（コード）を直さずに、採点基準（テスト）を書き換えて合格にしてしまう行為です。',
+    '',
+    '### なぜ止まったか',
+    '',
+    'テストの行（採点基準の行など）が変わると、中身に関わらず止めます。甘くなったかどうかまでは判断できないので、人に見せる作りです。止まっても、テストが甘くなったとは限りません（関数に引数を足しただけでも止まります）。',
+    '',
+    '### 人が確かめること',
+    '',
+    '- 期待する結果（比べている値）・メッセージ・確認の数が変わっていないか',
+    '- テストが消えたり、飛ばされたりしていないか',
+    '',
+    '### 通し方',
+    '',
+    `確かめて問題が無ければ、Issue か PR に理由を書いて、人が PR に \`${exemptLabel}\` を付けます（AI は付けません）。ラベルは付けた時点の差分にだけ効くので、付けたあとに push したら、差分を確かめてラベルを外して付け直します。問題があれば、ラベルを付けずに PR にコメントで直してもらいます。`,
+    '',
+    '### 検出したもの',
+    '',
+  ];
+}
+
+const code = (text: string) => `\`${text.slice(0, 120).replace(/`/g, "'")}\``;
+
+/** Check Run の要約（平易な説明と、種類ごとのファイルと行の一覧） */
+export function renderTamperSummary(findings: TamperFinding[], limit = 100, exemptLabel = TEST_EXEMPT_LABEL): string {
+  const shown = findings.slice(0, limit);
+  const lines = tamperExplanation(exemptLabel);
+  for (const kind of Object.keys(TAMPER_KIND_LABELS) as TamperKind[]) {
+    const ofKind = shown.filter((f) => f.kind === kind);
+    if (ofKind.length === 0) continue;
+    lines.push(`**${TAMPER_KIND_LABELS[kind]}**：${TAMPER_KIND_NOTES[kind]}`, '');
+    for (const f of ofKind) {
+      const at = f.line === undefined ? '' : `:${f.line}${f.side === 'base' ? '（変更前）' : ''}`;
+      if (f.after) {
+        lines.push(`- \`${f.file}${at}\` → \`:${f.after.line}（変更後）\``, `  - 変更前：${code(f.text ?? '')}`, `  - 変更後：${code(f.after.text)}`);
+      } else {
+        lines.push(`- \`${f.file}${at}\`${f.text ? ` — ${code(f.text)}` : ''}`);
+      }
+    }
+    lines.push('');
+  }
   if (findings.length > limit) lines.push(`- ほか ${findings.length - limit} 件`);
-  return lines.join('\n');
+  return lines.join('\n').trimEnd();
 }
