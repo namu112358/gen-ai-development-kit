@@ -45,6 +45,8 @@ interface FileDiff {
 const DEFINITION = /\b(?:test|it|describe)(?:\.\w+)*\s*\(\s*(['"`])((?:\\.|(?!\1).)*)\1/;
 const SKIP = /\.(?:skip|only|todo)\s*\(|\b[xf](?:it|describe|test)\s*\(|[{,]\s*(?:skip|only|todo)\s*:(?!\s*false\b)/;
 const ASSERTION = /\bassert\b|\bexpect\s*\(/;
+/** import の行はアサーションとみなさない（`import assert from ...` の削除で誤検出しない） */
+const IMPORT = /^\s*import\b/;
 
 /** harness.config.json に testPatterns が無いときのパターン */
 export const DEFAULT_TEST_PATTERNS = ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**'];
@@ -77,7 +79,7 @@ export function detectTestTampering(diff: string, patterns: string[]): TamperFin
     for (const l of removed) {
       const name = definitionName(l.text);
       if (name !== null && !addedNames.has(name)) findings.push({ kind: 'removed-test', file, line: l.no, side: 'base', text: l.text.trim() });
-      else if (ASSERTION.test(l.text)) findings.push({ kind: 'assertion-changed', file, line: l.no, side: 'base', text: l.text.trim() });
+      else if (ASSERTION.test(l.text) && !IMPORT.test(l.text)) findings.push({ kind: 'assertion-changed', file, line: l.no, side: 'base', text: l.text.trim() });
     }
     for (const l of added) {
       if (SKIP.test(l.text)) findings.push({ kind: 'skip-added', file, line: l.no, side: 'head', text: l.text.trim() });
@@ -103,13 +105,38 @@ function take(pool: Map<string, number>, key: string): boolean {
   return true;
 }
 
+/** git が引用符で囲んだパス（C 形式のエスケープ。非 ASCII は 8 進のバイト列）を元に戻す */
 function unquote(path: string): string {
-  if (!(path.startsWith('"') && path.endsWith('"'))) return path;
-  try {
-    return JSON.parse(path) as string;
-  } catch {
-    return path.slice(1, -1);
+  if (!(path.length >= 2 && path.startsWith('"') && path.endsWith('"'))) return path;
+  const bytes: number[] = [];
+  const body = path.slice(1, -1);
+  const simple: Record<string, number> = { n: 10, t: 9, r: 13, a: 7, b: 8, f: 12, v: 11, '"': 34, '\\': 92 };
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i]!;
+    if (ch !== '\\') {
+      bytes.push(...Buffer.from(ch, 'utf8'));
+      continue;
+    }
+    const next = body[i + 1] ?? '';
+    const octal = body.slice(i + 1, i + 4);
+    if (/^[0-7]{3}$/.test(octal)) {
+      bytes.push(parseInt(octal, 8));
+      i += 3;
+    } else if (next in simple) {
+      bytes.push(simple[next]!);
+      i += 1;
+    } else {
+      bytes.push(92);
+    }
   }
+  return Buffer.from(bytes).toString('utf8');
+}
+
+/** `diff --git` の見出しから、変更前後のパスを読む（引用符付きの形も受け付ける。読めなければ null） */
+function headerPaths(line: string): [string, string] | null {
+  const m = line.match(/^diff --git ("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/);
+  if (!m) return null;
+  return [unquote(m[1]!).replace(/^a\//, ''), unquote(m[2]!).replace(/^b\//, '')];
 }
 
 function parseDiff(diff: string): FileDiff[] {
@@ -140,9 +167,10 @@ function parseDiff(diff: string): FileDiff[] {
       }
       continue;
     }
-    const header = line.match(/^diff --git a\/(.+) b\/(.+)$/);
-    if (header) {
-      cur = { oldPath: header[1]!, newPath: header[2]!, deleted: false, removed: [], added: [] };
+    if (line.startsWith('diff --git ')) {
+      // 見出しが読めなくても必ず新しいファイルを始める（直前のファイルの記録を上書きしないため）。パスは ---/+++/rename でも決まる
+      const paths = headerPaths(line);
+      cur = { oldPath: paths?.[0] ?? null, newPath: paths?.[1] ?? null, deleted: false, removed: [], added: [] };
       files.push(cur);
       continue;
     }

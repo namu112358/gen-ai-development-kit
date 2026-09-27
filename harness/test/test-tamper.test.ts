@@ -76,3 +76,16 @@ test('要約はファイルと行を一覧にし、多すぎれば件数に丸�
   assert.match(s, /`a\.test\.ts:1（変更前）`/);
   assert.match(s, /ほか 1 件/);
 });
+
+test('引用符付きのパスの見出しがあっても、前後のファイルの検出を失わない', () => {
+  const quotedHeader = 'diff --git "a/x\\"y.md" "b/x\\"y.md"\n--- "a/x\\"y.md"\n+++ "b/x\\"y.md"\n@@ -1 +1 @@\n-a\n+b\n';
+  const before = fileDiff('b.test.ts', ['-  assert.ok(1);']);
+  assert.deepEqual(kinds(before + quotedHeader), ['assertion-changed'], '直前のテストファイルの検出が残る');
+  const quotedTestDeleted = 'diff --git "a/t/\\303\\251.test.ts" "b/t/\\303\\251.test.ts"\ndeleted file mode 100644\n--- "a/t/\\303\\251.test.ts"\n+++ /dev/null\n@@ -1 +0,0 @@\n-test(\'x\', () => {});\n';
+  const found = detectTestTampering(quotedTestDeleted, P);
+  assert.deepEqual(found.map((f) => [f.kind, f.file]), [['deleted-file', 't/é.test.ts']], '先頭が引用符付きのテストファイルの削除でも検出し、8 進のバイト列を戻す');
+});
+
+test('import assert の行の削除はアサーションの変更とみなさない', () => {
+  assert.deepEqual(kinds(fileDiff('a.test.ts', ["-import assert from 'node:assert/strict';", "+import assert from 'node:assert';"])), []);
+});
