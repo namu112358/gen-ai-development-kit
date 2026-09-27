@@ -5,7 +5,7 @@
   "agentBranchPrefix": "claude/",
   "mergeMethod": "SQUASH",
   "routine": {
-    "maxItemsPerRun": 3,
+    "maxItemsPerRun": 5,
     "humanClaimStaleHours": 6,
     "routineClaimTakeoverMinutes": 90
   },

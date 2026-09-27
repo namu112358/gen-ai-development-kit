@@ -8,6 +8,7 @@ import type { GateContext } from '../gates/context.ts';
 import { onComment } from '../gates/on-comment.ts';
 import { onPullRequest } from '../gates/on-pr.ts';
 import { onIssue } from '../gates/on-issue.ts';
+import { onMainPush } from '../gates/on-main-push.ts';
 
 /** 偽の GitHub。呼び出しを記録し、ルートごとの応答を返す */
 class FakeGitHub implements Transport {
@@ -355,4 +356,13 @@ test('形式でない Issue タイトルは agent:ready で blocked になる', 
   const body = ['Goal', 'Requirements', 'Acceptance Criteria'].map((h) => `### ${h}\n\nx`).join('\n\n');
   await onIssue(ctxFor(fake, 'issues', { action: 'labeled', label: { name: 'agent:ready' }, sender: { login: 'me' }, issue: { number: 3, title: '用語集に追加', body, labels: [], state: 'open' } }));
   assert.deepEqual(fake.writes(), ['label+agent:blocked', 'comment:form-error']);
+});
+
+test('main への push で、auto-merge 待ちでない Agent PR も main に追従させる', async () => {
+  const fake = acceptanceFake({ pr: pr({ draft: false }), dashboardLabels: [], behindBy: 2 });
+  fake.on('GET', /\/pulls\?state=open/, () => [pr()]);
+  let updated = false;
+  fake.on('PUT', /\/pulls\/5\/update-branch/, () => (updated = true));
+  await onMainPush(ctxFor(fake, 'push', { commits: [{ id: 'x', message: 'docs: 何か' }] }));
+  assert.equal(updated, true);
 });
