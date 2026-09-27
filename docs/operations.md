@@ -30,6 +30,8 @@ Issue を進めるのは、人が付き添う Claude のセッション。「#�
 
 ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-review` のコメントを付けた）か、人の判断待ち（計画ゲートで止まった、修正の上限、判断できない衝突など）で止まり、人がすること（Merge、例外ラベルを付けるかの判断、`setup.ts` の実行が要るか、Merge 後の確かめ）を一覧にする。段階を1つだけ頼めば、その skill だけを行う。
 
+複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（領域の上限・触るファイルの重なり・人が1回にさばける数を守る）、ship の段階を Issue ごとに交互に進めて、人がすることを1つの一覧にする。
+
 毎時の Routine（[.claude/routine.md](../.claude/routine.md)）が queue に従って同じ段階を進めるのは将来の構想。この文書の「Routine」は、付き添いのセッションで同じ段階を行うときはそのセッションに読み替える。
 
 ## ラベル
