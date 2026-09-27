@@ -1,4 +1,12 @@
 # 既存 CI（型検査とテスト）。pull_request で PR 側の YAML が動くため、信頼の根にはしない（受け入れるリスク Q57）。
+#
+# mutation ジョブ（harness/scripts/mutate.ts）：PR で変えた実装の行を少しずつ壊してテストを動かし、
+# 壊してもテストが落ちなかった箇所を Summary に一覧で出す。限界：
+# - 結果は PR 側のコードとこの YAML が決めるので、PR を出した側が偽れる。情報のためだけに出す。
+# - 自動 Merge の条件や App の agent/* チェックの代わりにしない（条件にするなら、信頼できる実行が別に要る）。
+# - Ruleset の必須チェック（context は ci）に足さない。ci ジョブとは別のジョブにする。
+# - 全 PR で動かす（自動 Merge の経路に乗る PR だけに絞らない）。
+# - 壊す箇所の数（--max-mutants）と時間（--max-minutes）に上限を置く。上限で打ち切っても失敗にせず、打ち切った旨を出す。
 name: ci
 
 on:
@@ -23,3 +31,23 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+
+  mutation:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # npm ci・ベースライン込みの 15 分・最後の1回のテスト（90 秒）が収まる長さ
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # マージコミットの第1親（base）と比べる
+          fetch-depth: 2
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+          cache: npm
+      - run: npm ci
+      - run: node harness/scripts/mutate.ts --max-mutants 30 --max-minutes 15 --test-timeout-seconds 90
