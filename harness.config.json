@@ -24,5 +24,50 @@
       "noulSafe": 0.9
     }
   },
-  "autoMergeStopLabel": "agent:auto-merge-stopped"
+  "autoMergeStopLabel": "agent:auto-merge-stopped",
+  "classification": {
+    "sizes": [
+      [
+        "XS",
+        10
+      ],
+      [
+        "S",
+        30
+      ],
+      [
+        "M",
+        100
+      ],
+      [
+        "L",
+        500
+      ],
+      [
+        "XL",
+        1000
+      ]
+    ],
+    "sizeExclude": [
+      "package-lock.json",
+      "**/*.lock",
+      "**/*.snap"
+    ],
+    "areas": {
+      "harness": [
+        "harness/**",
+        ".github/**",
+        ".claude/**",
+        "CLAUDE.md",
+        "harness.config.json",
+        "package.json",
+        "tsconfig.json"
+      ],
+      "docs": [
+        "docs/**",
+        "README.md"
+      ]
+    },
+    "issueTriage": "shadow"
+  }
 }

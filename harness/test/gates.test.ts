@@ -82,7 +82,7 @@ function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabels?: st
     .on('GET', /\/repos\/o\/r$/, () => ({ allow_auto_merge: state.allowAutoMerge ?? true }))
     .on('GET', /\/pulls\/5$/, () => ({ ...state.pr, auto_merge: autoMerge }))
     .on('GET', /\/compare\//, () => DIFF)
-    .on('GET', /\/pulls\/5\/files/, () => [{ filename: 'docs/a.md' }])
+    .on('GET', /\/pulls\/5\/files/, () => [{ filename: 'docs/a.md', additions: 1, deletions: 1 }])
     .on('GET', /\/pulls\/5\/reviews/, () => [])
     .on('GET', /\/issues\/3\/comments/, () => [planGateComment])
     .on('GET', /\/issues\/5\/comments/, () => state.prComments ?? [])
@@ -188,7 +188,7 @@ test('push：差分が変わっていれば auto-merge を外したまま、agen
 test('Agent 以外の PR は agent/review を判定対象外で通す', async () => {
   const fake = acceptanceFake({ pr: pr({ head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }), dashboardLabels: [] });
   await onPullRequest(ctxFor(fake, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
-  assert.deepEqual(fake.writes(), ['check:agent/review=success', 'check:merge-route=success']);
+  assert.deepEqual(fake.writes(), ['label+size:XS,area:docs', 'check:agent/review=success', 'check:merge-route=success'], 'Agent 以外の PR にも分類ラベルは付ける');
 });
 
 test('fork の claude/ ブランチは Agent PR とみなさない', async () => {

@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { CHECKS, LABEL_DEFS, loadConfig } from '../lib/config.ts';
+import { allLabelDefs, CHECKS, loadConfig } from '../lib/config.ts';
 import { GhTransport, GitHub } from '../lib/github.ts';
 
 /**
@@ -21,7 +21,7 @@ const RULESET_NAME = 'agent-harness-main';
 
 async function labels(gh: GitHub): Promise<void> {
   const existing = new Set((await gh.paginate<{ name: string }>('/labels')).map((l) => l.name));
-  for (const def of LABEL_DEFS) {
+  for (const def of allLabelDefs(loadConfig())) {
     if (existing.has(def.name)) {
       await gh.request('PATCH', `/labels/${encodeURIComponent(def.name)}`, { body: { color: def.color, description: def.description } });
     } else {

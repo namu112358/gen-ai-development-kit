@@ -1,5 +1,7 @@
-import { appLogin, LABELS } from '../lib/config.ts';
-import { parseIssueBody } from '../lib/issue-form.ts';
+import { appLogin, LABELS, PRIORITY_LABELS } from '../lib/config.ts';
+import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
+import { buildTriageRequest, renderTriage, summarizeTriage } from '../lib/issue-triage.ts';
+import { askJev, flattenAnswers } from '../lib/jev.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute } from './apply.ts';
@@ -20,6 +22,7 @@ export async function onIssue(ctx: GateContext): Promise<void> {
 
   if (action === 'labeled' && label === LABELS.ready) {
     const parsed = parseIssueBody(issue.body);
+    if (parsed.ok) await triageIssue(ctx, issue.number, (ctx.event.issue as { title: string }).title, parsed.contract);
     if (!parsed.ok) {
       await ctx.gh.addLabels(issue.number, [LABELS.blocked]);
       await appComment(ctx, issue.number, 'form-error', ['Issue 本文を Issue Form の書式として読めませんでした。`agent:blocked` にしました。本文を直して `agent:blocked` を外してください。', '', ...parsed.errors.map((e) => `- ${e}`)].join('\n'));
@@ -33,6 +36,10 @@ export async function onIssue(ctx: GateContext): Promise<void> {
   }
   if (action === 'unlabeled' && label === LABELS.hold) {
     await appComment(ctx, issue.number, 'hold-removed', `\`agent:hold\` が @${sender} により外されました（記録）。`);
+    return;
+  }
+  if (action === 'labeled' && label?.startsWith('priority:') && hasLabel(issue, PRIORITY_LABELS.high) && hasLabel(issue, PRIORITY_LABELS.low)) {
+    await appComment(ctx, issue.number, 'priority-conflict', `\`${PRIORITY_LABELS.high}\` と \`${PRIORITY_LABELS.low}\` が両方付いています。queue は \`${PRIORITY_LABELS.high}\` として扱います。どちらかを外してください。`);
     return;
   }
   if ((action === 'labeled' || action === 'unlabeled') && label === ctx.config.autoMergeStopLabel) {
@@ -111,4 +118,16 @@ async function closeParentIfDone(ctx: GateContext, number: number): Promise<void
   if (!parent.subIssues.nodes.every((s) => s.state === 'CLOSED')) return;
   await appComment(ctx, parent.number, 'parent-closed', 'Sub-issues がすべて閉じたため、この Issue を閉じます。');
   await ctx.gh.request('PATCH', `/issues/${parent.number}`, { body: { state: 'closed', state_reason: 'completed' } });
+}
+
+/** Jev に Issue を分類させ、提案をコメントする（シャドー。ラベルは付けない。失敗してもゲートは止めない） */
+async function triageIssue(ctx: GateContext, number: number, title: string, contract: IssueContract): Promise<void> {
+  if (ctx.config.classification.issueTriage !== 'shadow' || !ctx.secrets.jevApiKey) return;
+  const r = await askJev(ctx.secrets.jevApiKey, buildTriageRequest(ctx.config, title, contract));
+  if (r.status !== 'ok') {
+    ctx.log(`Issue の分類に失敗しました: ${r.detail}`);
+    return;
+  }
+  const summary = summarizeTriage(r.answers);
+  await appComment(ctx, number, 'issue-triage', renderTriage(summary), { version: 1, model: r.model, answers: flattenAnswers(r.answers) });
 }

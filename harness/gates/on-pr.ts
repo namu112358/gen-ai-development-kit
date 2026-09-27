@@ -1,3 +1,4 @@
+import { areaLabels, classificationChanges, sizeLabel, type ChangedFile } from '../lib/classify.ts';
 import { CHECKS, LABELS } from '../lib/config.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { checkScope } from '../lib/scope.ts';
@@ -22,6 +23,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   const pr = await getPr(ctx, number);
   if (pr.state !== 'open') return;
   const agent = isAgentPr(ctx.config, pr, ctx.repository);
+  if (['opened', 'reopened', 'synchronize'].includes(action)) await classifyPr(ctx, pr);
 
   if (!agent) {
     if (['opened', 'reopened', 'synchronize'].includes(action)) {
@@ -73,4 +75,13 @@ async function writeScopeCheck(ctx: GateContext, number: number, headSha: string
   await writeCheck(ctx, headSha, CHECKS.scope, result.ok
     ? { conclusion: 'success', title: '計画の範囲内です', summary: planned.files.map((p) => `- \`${p}\``).join('\n') }
     : { conclusion: 'neutral', title: `計画の範囲外のファイルが ${result.outside.length} 件`, summary: ['自動 Merge の対象外です（Human Merge は可）。', '', ...result.outside.map((f) => `- \`${f}\``)].join('\n') });
+}
+
+/** 表示用の size:* と area:* を差分から付ける（Agent 以外の PR にも付ける） */
+async function classifyPr(ctx: GateContext, pr: { number: number; labels: { name: string }[] }): Promise<void> {
+  const files = await ctx.gh.paginate<ChangedFile & { previous_filename?: string }>(`/pulls/${pr.number}/files`, 30);
+  const names = files.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename]));
+  const change = classificationChanges(pr.labels.map((l) => l.name), sizeLabel(ctx.config, files), areaLabels(ctx.config, names));
+  for (const l of change.remove) await ctx.gh.removeLabel(pr.number, l);
+  if (change.add.length > 0) await ctx.gh.addLabels(pr.number, change.add);
 }

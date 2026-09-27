@@ -14,7 +14,7 @@
 | Dependencies | | 補足のみ。順序は Issue Dependencies（blocked by）で設定する |
 | Validation Requirements | | 検証方法 |
 
-Risk と Priority は本文に書かない。急ぐものには `priority:high` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。
+`agent:ready` を付けると、App が Jev に種類・領域・優先度・AC の書き方を問い、提案をコメントする（ラベルは付けない。`classification.issueTriage`）。Risk と Priority は本文に書かない。急ぐものには `priority:high` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。
 
 ## ラベル
 
@@ -29,7 +29,9 @@ Risk と Priority は本文に書かない。急ぐものには `priority:high` 
 | `agent:blocked` | Routine / App / 人 | 人の対応が必要 |
 | `agent:hold` | 人 | 個別停止 |
 | `risk:*` | Routine | 計画時の想定 Risk（表示用） |
-| `priority:high` / `priority:low` | 人 | queue で先に・後に処理する（付いていなければ通常） |
+| `priority:high` / `priority:low` | 人 | queue で先に・後に処理する（付いていなければ通常。両方付くと App が指摘する） |
+| `size:*` | App | PR の差分の行数（XS〜XXL、lockfile は数えない）。push のたびに付け替える |
+| `area:*` | App | PR の変更ファイルの領域（`harness.config.json` の `classification.areas`）。足すだけで外さない |
 
 ## 人が関わる場面
 
