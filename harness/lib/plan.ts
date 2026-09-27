@@ -15,7 +15,12 @@ export interface Plan {
   acChangeProposed: boolean;
   openQuestions: string[];
   files: string[];
+  /** 投稿前の批評の結果（記録用。ゲートの判断には使わない） */
+  critique?: { verdict: CritiqueVerdict; rounds: number };
 }
+
+export const CRITIQUE_VERDICTS = ['go', 'revise', 'split', 'drop'] as const;
+export type CritiqueVerdict = (typeof CRITIQUE_VERDICTS)[number];
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; errors: string[] };
 
@@ -35,6 +40,14 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
     // 触るファイル一覧が欠けていてもゲートで止められるよう、ここでは空配列を許す
     files: o.files === undefined ? [] : c.stringArray(o.files, 'plan.files'),
   };
+  if (o.critique !== undefined) {
+    const k = c.object(o.critique, 'plan.critique');
+    if (k) {
+      const rounds = c.integer(k.rounds, 'plan.critique.rounds');
+      if (Number.isInteger(k.rounds) && rounds < 1) c.errors.push('plan.critique.rounds: 1 以上ではありません');
+      plan.critique = { verdict: c.oneOf(k.verdict, CRITIQUE_VERDICTS, 'plan.critique.verdict'), rounds };
+    }
+  }
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: plan };
 }
 
