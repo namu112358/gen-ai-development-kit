@@ -73,3 +73,25 @@ Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材
 **実行のしかた**：付き添いのセッションが手で `node harness/scripts/report.ts <owner>/<repo> [日数]` を実行する（ship・fleet の終わりなど）。基準を満たすかと、満たさない項目が表の下に出る。定期実行は Routine の再開と一緒に決める。
 
 **切り替え**：`jev.mode` を `enforce` にするのは、基準を満たしたうえで人が決め、`harness.config.json` を PR で変える（ガードレールなので人が Merge する）。
+
+### 日本語の材料の実験
+
+Jev は英語が主言語のため、日本語の材料（PR の diff・Issue の本文）を渡したときに答えが変わらないかを、手で実行する実験で確かめる（Epic #130）。ゲート（`gate.yml`）には組み込まず、ゲートでの自動の英訳もしない。スクリプトは `harness/scripts/jev-language.ts`。
+
+**目的**：本番と同じ問い（`harness/lib/jev.ts` の `buildJevRequest`、`harness/lib/issue-triage.ts` の `buildTriageRequest`）に、同じ材料の日本語版・英訳版を投げ比べ、Brier score・一致率・問いごとの確率の対の差などで、言語による答えのぶれを見る。
+
+**素材の選び方**：Merge 済みの PR 30〜40 件を diff の長さで3層（短・中・長）に分けてそれぞれから選び、日本語を含むものに限る。Issue 20〜30 件は Issue Form の本文のもの（`harness/lib/issue-form.ts` が読める形）から選ぶ。候補が層ごとに足りなければ件数を減らし、減らしたことを実行結果（決定ログ、AC2）に書く。
+
+**訳**：付き添いのセッションが下書きし、人が確かめてから `manifest.json` の項目ごとの `translationReviewed` を `true` にする（`jev-language.ts check` が未確認・残る日本語・diff の食い違い・タイトルの説明部分の訳し忘れ（空のまま）を検出する）。Issue のタイトルは `type(scope):` の部分を残し、後ろの説明だけを英訳する（人の決定、2026-09-27）。Issue の `type`（Jev の `type` の選択肢）はラベルの `type:*`（Conventional Commits の type）とは語彙が違うため、`prepare` が対応表（`feat`→`feature`、`fix`→`bug` など）で合わせて下書きする。
+
+**実行の手順**：承認してから手で実行する。
+
+1. `node harness/scripts/jev-language.ts prepare <owner/repo> <出力先> --prs <番号,…> --issues <番号,…>` で材料と manifest を作る。出力先に既に manifest.json があれば、そこに人が入れた `translationReviewed`・`truth` を新しい manifest に引き継ぐ（材料自体は毎回 GitHub から取り直す）。引き継がずに作り直すときは `--force` を付ける
+2. 人が訳を確かめ、`translationReviewed` を `true` にする
+3. `node harness/scripts/jev-language.ts check <manifest>` で訳の問題が無いことを確かめる
+4. `node harness/scripts/jev-language.ts run <manifest> <結果の出力先> --confirm` で Jev に投げる（`JEV_API_KEY` と `--confirm` が無ければ見積もりだけ）。見積もりは `state` だけでなく問い（`instructions`・`criteria`）ぶんの文字数も数え、既に結果がある項目・言語・回（再開できるように結果の出力先を見て決める）は除く
+5. `node harness/scripts/jev-language.ts summarize <manifest> <結果>` で集計する（Brier score・一致率は run1・run2 をまとめて出す。回ごとのぶれ（`runToRunSpread`）、日本語版の input_tokens による3層の対の差も出す）
+
+**費用の見積もり**：文字数からトークン数への換算は日本語・英語で分ける（目安。実測で差し替える前提の係数で、日本語は1文字あたり約 1.5 文字/トークン、英語は約4文字/トークン）。単価は https://docs.typesafe.ai/models を出どころとし、既定は jev-1.13.0 の入力単価（100 万トークンあたり $0.042。出力トークンは無料）（`estimateCost` の引数で差し替え可能）。この式で、上記の規模（PR 30〜40 件・Issue 20〜30 件を日本語版・英訳版・各2回）を見積もると、おおよそ入力トークン数320万・費用$0.13 程度になる（実際の値は選んだ素材で変わるため、`run` は `--confirm` の前に実測の見積もりを出す）。
+
+**結果**：決定ログ（別 Issue、Epic #130 の AC2）に書く。
