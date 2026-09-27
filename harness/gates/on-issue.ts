@@ -1,4 +1,4 @@
-import { appLogin, LABELS, PRIORITY_LABELS, reasonMark } from '../lib/config.ts';
+import { appLogin, LABELS, PRIORITY_LABELS, priorityRank, reasonMark } from '../lib/config.ts';
 import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
 import { parseTitle } from '../lib/title.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage } from '../lib/issue-triage.ts';
@@ -7,9 +7,13 @@ import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute } from './apply.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
+import { applyAppLabels, triageLabels } from './label-apply.ts';
+
+const PRIORITY_VALUES: string[] = Object.values(PRIORITY_LABELS);
 
 /**
  * issues：
+ * - 作成とタイトルの編集で、足りない type:*（と子を持つ Issue の epic）を付ける。App が前に付けた type:* だけ付け替える（label-apply.ts）
  * - agent:ready が付いたら Issue 本文を読み、読めなければ agent:blocked（静かに止めない）
  * - agent:plan-ok を App 以外が付けたら外す
  * - agent:hold が外されたら記録
@@ -21,12 +25,20 @@ export async function onIssue(ctx: GateContext): Promise<void> {
   const sender = ctx.event.sender?.login as string | undefined;
   const label = ctx.event.label?.name as string | undefined;
 
+  if (action === 'opened' || (action === 'edited' && ctx.event.changes?.title)) {
+    const { title, sub_issues_summary } = ctx.event.issue as { title: string; sub_issues_summary?: { total?: number } | null };
+    if (title === ctx.config.dashboardIssueTitle || issue.state !== 'open') return;
+    const target = { kind: 'issue' as const, title, labels: issue.labels.map((l) => l.name), subIssues: sub_issues_summary?.total ?? 0 };
+    await applyAppLabels(ctx, issue.number, target, () => ctx.gh.listComments(issue.number));
+    return;
+  }
+
   if (action === 'labeled' && label === LABELS.ready) {
     const title = (ctx.event.issue as { title: string }).title;
     const body = parseIssueBody(issue.body);
     const titleCheck = parseTitle(title);
     const parsed = titleCheck.ok || title === ctx.config.dashboardIssueTitle ? body : { ok: false as const, errors: [...(body.ok ? [] : body.errors), titleCheck.ok ? '' : titleCheck.error].filter(Boolean) };
-    if (parsed.ok) await triageIssue(ctx, issue.number, title, parsed.contract);
+    if (parsed.ok) await triageIssue(ctx, issue, title, parsed.contract);
     if (!parsed.ok) {
       await ctx.gh.addLabels(issue.number, [LABELS.blocked]);
       await appComment(ctx, issue.number, 'form-error', [reasonMark('form-error'), 'Issue のタイトルか本文が書式に合いません。`agent:blocked` にしました。直してから `agent:blocked` を外してください。', '', ...parsed.errors.map((e) => `- ${e}`)].join('\n'));
@@ -42,8 +54,10 @@ export async function onIssue(ctx: GateContext): Promise<void> {
     await appComment(ctx, issue.number, 'hold-removed', `\`agent:hold\` が @${sender} により外されました（記録）。`);
     return;
   }
-  if (action === 'labeled' && label?.startsWith('priority:') && hasLabel(issue, PRIORITY_LABELS.high) && hasLabel(issue, PRIORITY_LABELS.low)) {
-    await appComment(ctx, issue.number, 'priority-conflict', `\`${PRIORITY_LABELS.high}\` と \`${PRIORITY_LABELS.low}\` が両方付いています。queue は \`${PRIORITY_LABELS.high}\` として扱います。どちらかを外してください。`);
+  const priorities = issue.labels.map((l) => l.name).filter((n) => PRIORITY_VALUES.includes(n));
+  if (action === 'labeled' && label?.startsWith('priority:') && priorities.length >= 2) {
+    const top = PRIORITY_VALUES[priorityRank(priorities)]!;
+    await appComment(ctx, issue.number, 'priority-conflict', `${priorities.map((p) => `\`${p}\``).join('・')} が付いています。queue は最も高い \`${top}\` として扱います。1つにしてください。`);
     return;
   }
   if ((action === 'labeled' || action === 'unlabeled') && label === ctx.config.autoMergeStopLabel) {
@@ -124,10 +138,24 @@ async function closeParentIfDone(ctx: GateContext, number: number): Promise<void
   await ctx.gh.request('PATCH', `/issues/${parent.number}`, { body: { state: 'closed', state_reason: 'completed' } });
 }
 
-/** Jev に Issue を分類させ、提案をコメントする（シャドー。ラベルは付けない。失敗してもゲートは止めない） */
-async function triageIssue(ctx: GateContext, number: number, title: string, contract: IssueContract): Promise<void> {
+/**
+ * Jev に Issue を分類させる（失敗してもゲートは止めない）。
+ * - shadow：提案をコメントする（ラベルは付けない）
+ * - label：提案のコメントを続け、そのうえで足りない priority:*・area:* だけを付ける（記録は label-triage 1つ）。問い済みなら何もしない
+ */
+async function triageIssue(ctx: GateContext, issue: { number: number; body: string | null; labels: { name: string }[] }, title: string, contract: IssueContract): Promise<void> {
+  if (ctx.config.classification.issueTriage === 'label') {
+    if (!ctx.secrets.jevApiKey) return;
+    try {
+      await triageLabels(ctx, { number: issue.number, title, body: issue.body, labels: issue.labels.map((l) => l.name) }, await ctx.gh.listComments(issue.number), { proposal: true });
+    } catch (e) {
+      ctx.log(`Issue の分類に失敗しました: ${(e as Error).message}`);
+    }
+    return;
+  }
+  const number = issue.number;
   if (ctx.config.classification.issueTriage !== 'shadow' || !ctx.secrets.jevApiKey) return;
-  const r = await askJev(ctx.secrets.jevApiKey, buildTriageRequest(ctx.config, title, contract));
+  const r = await (ctx.askJev ?? askJev)(ctx.secrets.jevApiKey, buildTriageRequest(ctx.config, title, contract));
   if (r.status !== 'ok') {
     ctx.log(`Issue の分類に失敗しました: ${r.detail}`);
     return;

@@ -3,8 +3,10 @@ import type { IssueContract } from './issue-form.ts';
 import type { JevAnswers } from './jev.ts';
 
 /**
- * Issue の分類（シャドー）。agent:ready が付いたときに App が Jev に問い、提案をコメントするだけでラベルは付けない。
- * 優先度と着手の可否は人が決める。種類・領域・書き方の問題は、人が見て直すための材料。
+ * Issue の分類。App が Jev に問う。
+ * - shadow：agent:ready が付いたときに提案をコメントするだけでラベルは付けない
+ * - label：足りない priority:*・area:* を、確率が jev.thresholds.labelProbability 以上のときだけ付ける（harness/gates/label-apply.ts）
+ * 着手の可否は人が決める。種類・書き方の問題は、人が見て直すための材料。
  */
 
 const TYPES = {
@@ -16,10 +18,13 @@ const TYPES = {
   chore: 'Build, CI, dependencies, or harness maintenance.',
 };
 
+/** 選択肢の名前は priority:* の段階と同じ（harness/lib/config.ts の PRIORITY_LABELS） */
 const PRIORITIES = {
-  high: 'Urgent: blocks users or other work, security, data loss, or a broken main branch.',
-  normal: 'Regular planned work.',
+  highest: 'Emergency: security, data loss, a broken main branch, or everything else is blocked on it. Drop other work.',
+  high: 'Urgent: blocks users or other planned work; should be done before regular work.',
+  medium: 'Regular planned work.',
   low: 'Nice to have; can wait until there is spare capacity.',
+  lowest: 'Someday: only if nothing else is waiting.',
 };
 
 export function buildTriageRequest(config: HarnessConfig, title: string, c: IssueContract) {
@@ -77,10 +82,10 @@ export function summarizeTriage(answers: JevAnswers): TriageSummary {
   };
 }
 
-export function renderTriage(s: TriageSummary): string {
+export function renderTriage(s: TriageSummary, heading = 'Jev による分類の提案です（シャドー運用。ラベルは付けません）。'): string {
   const pct = (p: number) => (Number.isFinite(p) ? `${Math.round(p * 100)}%` : '-');
   return [
-    'Jev による分類の提案です（シャドー運用。ラベルは付けません）。',
+    heading,
     '',
     '| 項目 | 提案 | 確率 |',
     '| --- | --- | --- |',

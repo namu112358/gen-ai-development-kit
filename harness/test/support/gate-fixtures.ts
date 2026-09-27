@@ -43,8 +43,9 @@ export const APP = appLogin(config);
 export const HEAD = 'a'.repeat(40);
 export const DIFF = 'diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n+b\n';
 
-export function ctxFor(fake: FakeGitHub, eventName: string, event: unknown): GateContext {
-  return { config, gh: new GitHub(fake, 'o/r'), repository: 'o/r', eventName, event, secrets: {}, log: () => {} };
+/** extra で config・secrets・askJev（Jev の fake）などを差し替える */
+export function ctxFor(fake: FakeGitHub, eventName: string, event: unknown, extra: Partial<GateContext> = {}): GateContext {
+  return { config, gh: new GitHub(fake, 'o/r'), repository: 'o/r', eventName, event, secrets: {}, log: () => {}, ...extra };
 }
 
 export function pr(patch: Record<string, unknown> = {}) {

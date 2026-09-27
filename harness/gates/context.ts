@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { appMark, renderBlock } from '../lib/blocks.ts';
 import { loadConfig, type HarnessConfig } from '../lib/config.ts';
 import { FetchTransport, GitHub } from '../lib/github.ts';
-import { redact } from '../lib/jev.ts';
+import { askJev, redact } from '../lib/jev.ts';
 import type { CheckOutcome } from '../lib/merge-route.ts';
 import type { PullRequest } from '../lib/state.ts';
 
@@ -18,6 +18,8 @@ export interface GateContext {
   event: any;
   secrets: { jevApiKey?: string };
   log: (msg: string) => void;
+  /** Issue の分類で Jev に問う関数（無ければ harness/lib/jev.ts の askJev。テストで差し替える） */
+  askJev?: typeof askJev;
 }
 
 export function createContext(): GateContext {
@@ -35,6 +37,7 @@ export function createContext(): GateContext {
     event: JSON.parse(readFileSync(eventPath, 'utf8')),
     secrets: { jevApiKey },
     log: (msg) => console.log(redact(msg, ...secrets)),
+    askJev,
   };
 }
 
