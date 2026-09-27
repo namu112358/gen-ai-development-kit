@@ -19,14 +19,14 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 段階ゲート | `agent:plan-ok` は App だけ。App 以外が付けたら App が外す |
 | 計画の紐付け | すべての PR（人のセッションの PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録） |
 | 計画の写し | ゲート通過時の計画を App の記録に写す。後で計画コメントが編集されても写しを使う |
-| テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が記録） |
+| テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない） |
 | ガードレール | `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）に触れる PR は、Risk Agent の答えに関わらず自動 Merge せず理由を受け付けのコメントに書く（変更ファイルはリネームの旧パスも）。触れる計画は想定 Risk に関わらず計画ゲートで止める（`harness/lib/guardrail.ts`） |
 | 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を照合する。最初の階層にワイルドカードがあるパターンは拒否。全件取得できなければ不可 |
 | 判定の鮮度 | 判定時と現在の head で、PR 自身の差分の `git patch-id --verbatim` が同じときだけ受け付ける（`--stable` は空白を無視するため使わない） |
 | 順序 | push を検知したら最初に auto-merge を解除する。受け付け時は auto-merge → merge-route（直前に PR を取り直す）→ agent/risk → agent/review の順に書き、書き終えた後に auto-merge が変わっていれば merge-route を書き直す |
 | 定期照合 | 3時間ごとに、条件を満たさない auto-merge を外す（`GITHUB_TOKEN` による操作はゲートを起動しないため） |
 | 直接マージ | `.claude/settings.json` の deny（`gh pr merge`、merge API、MCP の merge / PR 編集、auto-merge、`gh pr ready`、Secret・変数・Ruleset、main への push、信頼ラベル）。文字列のパターンなので完全ではない |
-| 判定の対象 | 同じリポジトリの PR は、計画のある Issue に紐付いていればブランチに関係なく判定する。人の PR は判定が出るまで `agent/review` を通さない。例外は人が付ける `review:exempt`（App が記録）。fork からの PR は判定せず、例外でのみ通る |
+| 判定の対象 | 同じリポジトリの PR は、計画のある Issue に紐付いていればブランチに関係なく判定する。人の PR は判定が出るまで `agent/review` を通さない。例外は人が付ける `review:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。fork からの PR は判定せず、例外でのみ通る |
 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。自動 Merge の経路に乗るのはこれだけ |
 | 停止スイッチ | ダッシュボードの `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い |
 | 別リポジトリの参照 | `Closes`・親 Issue・依存の参照先が別リポジトリなら無視する |

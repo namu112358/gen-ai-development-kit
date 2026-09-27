@@ -1,14 +1,22 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { appMark, renderBlock } from '../lib/blocks.ts';
+import { patchId } from '../lib/patch-id.ts';
 import { onPullRequest } from '../gates/on-pr.ts';
-import { HEAD, ctxFor, pr, acceptanceFake } from './support/gate-fixtures.ts';
+import { APP, HEAD, ctxFor, pr, acceptanceFake } from './support/gate-fixtures.ts';
 
 const SKIP_DIFF = "diff --git a/a.test.ts b/a.test.ts\n--- a/a.test.ts\n+++ b/a.test.ts\n@@ -1 +1 @@\n-test('a', () => {});\n+test.skip('a', () => {});\n";
 
 /** 差分だけ差し替えた偽の GitHub */
-function fakeWith(diff: string, patch: Record<string, unknown> = {}) {
-  return acceptanceFake({ pr: pr(patch), dashboardLabels: [] }).on('GET', /\/compare\//, (_m, _b, o) => (o.raw ? diff : { behind_by: 0 }));
+function fakeWith(diff: string, patch: Record<string, unknown> = {}, prComments: unknown[] = []) {
+  return acceptanceFake({ pr: pr(patch), dashboardLabels: [], prComments }).on('GET', /\/compare\//, (_m, _b, o) => (o.raw ? diff : { behind_by: 0 }));
 }
+
+/** App が test:exempt を付けた時点の差分で残した記録 */
+const exemptRecord = (diff: string) => ({
+  id: 92, created_at: '', updated_at: '', html_url: 'u', author_association: 'NONE', user: { login: APP, type: 'Bot' },
+  body: `${appMark('test-exempt')}\n${renderBlock('agent-app', { version: 1, label: 'test:exempt', action: 'labeled', by: 'me', patchId: patchId(diff), headSha: HEAD })}`,
+});
 
 const testsCheck = (fake: ReturnType<typeof fakeWith>) => fake.calls.find((c) => c.path.endsWith('/check-runs') && c.body.name === 'agent/tests')?.body;
 
@@ -38,7 +46,7 @@ test('test:exempt を付けると agent/tests を通し、App が記録する。
   await onPullRequest(ctxFor(on, 'pull_request_target', { action: 'labeled', label: { name: 'test:exempt' }, sender: { login: 'me' }, pull_request: { number: 5 } }));
   assert.ok(on.writes().includes('comment:test-exempt') && on.writes().includes('check:agent/tests=success'));
 
-  const pushed = fakeWith(SKIP_DIFF, { labels: [{ name: 'test:exempt' }] });
+  const pushed = fakeWith(SKIP_DIFF, { labels: [{ name: 'test:exempt' }] }, [exemptRecord(SKIP_DIFF)]);
   await onPullRequest(ctxFor(pushed, 'pull_request_target', { action: 'synchronize', pull_request: { number: 5 } }));
   assert.ok(pushed.writes().includes('check:agent/tests=success'), '付いている間は push しても success');
 

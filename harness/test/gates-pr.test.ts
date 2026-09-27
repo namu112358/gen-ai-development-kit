@@ -76,7 +76,9 @@ test('判定前に Ready で出された PR は Draft に戻す。判定を引�
   await onPullRequest(ctxFor(ready, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
   assert.ok(ready.writes().includes('convertPullRequestToDraft') && ready.writes().includes('comment:draft-until-judged'));
 
-  const exempt = acceptanceFake({ pr: pr({ draft: false, labels: [{ name: 'review:exempt' }] }), dashboardLabels: [], prComments: [] });
+  const { patchId: pid } = await import('../lib/patch-id.ts');
+  const exemptRecord = { id: 92, created_at: '', updated_at: '', html_url: 'u', author_association: 'NONE', user: { login: APP, type: 'Bot' }, body: `${appMark('review-exempt')}\n${renderBlock('agent-app', { version: 1, label: 'review:exempt', action: 'labeled', by: 'me', patchId: pid(DIFF), headSha: HEAD })}` };
+  const exempt = acceptanceFake({ pr: pr({ draft: false, labels: [{ name: 'review:exempt' }] }), dashboardLabels: [], prComments: [exemptRecord] });
   await onPullRequest(ctxFor(exempt, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
   assert.ok(!exempt.writes().includes('convertPullRequestToDraft'));
 
