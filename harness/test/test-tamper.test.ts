@@ -45,7 +45,7 @@ test('skip・only・todo の追加', () => {
 
 test('期待値の変更：アサーションの行の削除・書き換え（整形だけでも）', () => {
   const changed = detectTestTampering(fileDiff('a.test.ts', ['-  assert.equal(f(), 2);', '+  assert.equal(f(), 3);'], 5), P);
-  assert.deepEqual(changed, [{ kind: 'assertion-changed', file: 'a.test.ts', line: 5, side: 'base', text: 'assert.equal(f(), 2);' }]);
+  assert.deepEqual(changed, [{ kind: 'assertion-changed', file: 'a.test.ts', line: 5, side: 'base', text: 'assert.equal(f(), 2);', after: { line: 5, text: 'assert.equal(f(), 3);' } }]);
   assert.deepEqual(kinds(fileDiff('a.spec.js', ['-  expect(x).toBe(1);'])), ['assertion-changed']);
   assert.deepEqual(kinds(fileDiff('a.test.ts', ["-  assert.equal(f(), 'a');", '+  assert.equal(f(), "a");'])), ['assertion-changed'], '整形だけでも検出する');
   assert.deepEqual(kinds(fileDiff('a.test.ts', ['-assert.ok(x);', '+    assert.ok(x);'])), [], 'インデントだけの違いは移動とみなす');

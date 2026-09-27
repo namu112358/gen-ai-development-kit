@@ -155,7 +155,7 @@ async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () =>
   const findings = detectTestTampering(await getDiff(), ctx.config.testPatterns ?? DEFAULT_TEST_PATTERNS);
   await writeCheck(ctx, pr.head.sha, CHECKS.tests, findings.length === 0
     ? { conclusion: 'success', title: 'テストを弱める変更はありません', summary: '' }
-    : { conclusion: 'failure', title: `テストを弱める変更が ${findings.length} 件`, summary: [`Issue 本文にテストを変える理由があれば、人が \`${TEST_EXEMPT_LABEL}\` を付けて通します。`, '', renderTamperSummary(findings)].join('\n') });
+    : { conclusion: 'failure', title: `テストを弱める変更が ${findings.length} 件`, summary: renderTamperSummary(findings, 100, TEST_EXEMPT_LABEL) });
 }
 
 async function writeScopeCheck(ctx: GateContext, number: number, headSha: string): Promise<void> {
