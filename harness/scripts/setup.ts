@@ -19,9 +19,19 @@ const GITHUB_ACTIONS_APP_ID = 15368;
 const ENVIRONMENT = 'gate';
 const RULESET_NAME = 'agent-harness-main';
 
+/** ハーネスが管理するラベルの接頭辞。定義に無いものは消す（廃止したラベルを残さない） */
+const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'size:', 'area:'];
+
 async function labels(gh: GitHub): Promise<void> {
+  const defs = allLabelDefs(loadConfig());
   const existing = new Set((await gh.paginate<{ name: string }>('/labels')).map((l) => l.name));
-  for (const def of allLabelDefs(loadConfig())) {
+  for (const name of existing) {
+    if (MANAGED_PREFIXES.some((p) => name.startsWith(p)) && !defs.some((d) => d.name === name)) {
+      await gh.request('DELETE', `/labels/${encodeURIComponent(name)}`);
+      console.log(`deleted ${name}`);
+    }
+  }
+  for (const def of defs) {
     if (existing.has(def.name)) {
       await gh.request('PATCH', `/labels/${encodeURIComponent(def.name)}`, { body: { color: def.color, description: def.description } });
     } else {

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { buildQueue, decideIssue, decidePr, type IssueFacts, type PrFacts } from '../lib/queue.ts';
 
 const now = new Date('2026-09-26T12:00:00Z');
-const opts = { currentSession: 'https://claude.ai/code/session_now', now, routineClaimTakeoverMinutes: 90 };
+const opts = { currentSession: 'https://claude.ai/code/session_now', now, routineClaimTakeoverMinutes: 90, humanClaimStaleHours: 6 };
 
 const issue = (patch: Partial<IssueFacts> = {}): IssueFacts => ({
   number: 1, title: 't', labels: ['agent:ready'], readyAt: '2026-09-26T00:00:00Z', claim: null, openBlockers: [],
@@ -30,7 +30,7 @@ test('Issue：停止ラベル・依存・着手宣言', () => {
   }
   assert.equal(decideIssue(issue({ labels: [] }), opts).kind, 'skip');
   assert.deepEqual(decideIssue(issue({ openBlockers: [3] }), opts), { kind: 'wait-dependency', issue: 1, blockers: [3] });
-  const working = ['agent:ready', 'agent:working'];
+  const working = ['agent:ready'];
   assert.equal(decideIssue(issue({ labels: working, claim: { by: 'manual', at: '2026-09-20T00:00:00Z' } }), opts).kind, 'skip', '人の着手は奪わない');
   assert.equal(decideIssue(issue({ labels: working, claim: { by: 'routine', session: 'other', at: '2026-09-26T11:30:00Z' } }), opts).kind, 'skip', '別の実行が着手中');
   assert.equal(decideIssue(issue({ labels: working, claim: { by: 'routine', session: 'other', at: '2026-09-26T10:00:00Z' } }), opts).kind, 'plan', '終了した実行の claim は引き継ぐ');
@@ -44,7 +44,7 @@ test('PR：判定 → 受け付け待ち → 修正 / Merge 待ち', () => {
   assert.equal(decidePr(pr({ acceptance: { reviewPass: true, at: 'x' } }), opts).kind, 'skip');
   assert.deepEqual(decidePr(pr({ acceptance: { reviewPass: true, at: 'x' }, humanFeedbackSincePush: 1 }), opts), { kind: 'fix', pr: 10, issue: 1, reason: 'human' });
   assert.equal(decidePr(pr({ labels: ['agent:hold'], humanFeedbackSincePush: 1 }), opts).kind, 'skip');
-  assert.equal(decidePr(pr({ labels: ['agent:working'], claim: { by: 'manual', at: '2026-09-26T11:00:00Z' } }), opts).kind, 'skip', 'PR でも人の着手は奪わない');
+  assert.equal(decidePr(pr({ claim: { by: 'manual', at: '2026-09-26T11:00:00Z' } }), opts).kind, 'skip', 'PR でも人の着手は奪わない');
 });
 
 test('キュー：先着順・上限・skip は数えない', () => {
@@ -70,4 +70,10 @@ test('キュー：優先度ラベル → 先着順。PR は Issue の優先度�
     10,
   );
   assert.deepEqual(q.actions.map((a) => ('pr' in a ? `pr${a.pr}` : 'issue' in a ? a.issue : '')), [2, 'pr10', 1, 3]);
+});
+
+test('着手宣言：解除コメントで終わり、人の着手は奪わず停滞を表示する', () => {
+  assert.equal(decideIssue(issue({ claim: { by: 'manual', at: '2026-09-26T11:00:00Z', released: true } }), opts).kind, 'plan', '解除済み');
+  const stale = decideIssue(issue({ claim: { by: 'manual', at: '2026-09-26T01:00:00Z' } }), opts);
+  assert.ok(stale.kind === 'skip' && stale.reason.includes('停滞'));
 });

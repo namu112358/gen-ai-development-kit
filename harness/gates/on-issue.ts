@@ -1,4 +1,4 @@
-import { appLogin, LABELS, PRIORITY_LABELS } from '../lib/config.ts';
+import { appLogin, LABELS, PRIORITY_LABELS, reasonMark } from '../lib/config.ts';
 import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage } from '../lib/issue-triage.ts';
 import { askJev, flattenAnswers } from '../lib/jev.ts';
@@ -25,7 +25,7 @@ export async function onIssue(ctx: GateContext): Promise<void> {
     if (parsed.ok) await triageIssue(ctx, issue.number, (ctx.event.issue as { title: string }).title, parsed.contract);
     if (!parsed.ok) {
       await ctx.gh.addLabels(issue.number, [LABELS.blocked]);
-      await appComment(ctx, issue.number, 'form-error', ['Issue 本文を Issue Form の書式として読めませんでした。`agent:blocked` にしました。本文を直して `agent:blocked` を外してください。', '', ...parsed.errors.map((e) => `- ${e}`)].join('\n'));
+      await appComment(ctx, issue.number, 'form-error', [reasonMark('form-error'), 'Issue 本文を Issue Form の書式として読めませんでした。`agent:blocked` にしました。本文を直して `agent:blocked` を外してください。', '', ...parsed.errors.map((e) => `- ${e}`)].join('\n'));
     }
     return;
   }

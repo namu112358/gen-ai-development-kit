@@ -18,7 +18,7 @@ App が次に Routine がやることを計算してダッシュボード Issue 
 
 ### claim（着手宣言）
 
-Routine か人のセッションが作業の前に付ける `agent:working` ラベルと、着手者を記録したコメント（```` ```agent-claim ````）。人の着手は Routine が奪わない。詳細：[formats.md](formats.md#着手宣言agent-claim)
+Routine か人のセッションが作業の前に残す、着手者を記録したコメント（```` ```agent-claim ````）。人の着手は Routine が奪わない。詳細：[formats.md](formats.md#着手宣言agent-claim)
 
 ## 計画
 

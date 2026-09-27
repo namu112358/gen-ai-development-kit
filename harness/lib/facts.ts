@@ -24,11 +24,16 @@ import {
  * Routine は GitHub API を直接呼べない（MCP ツールのみ）ため、App が計算してダッシュボードに公開した queue を読む。
  */
 
+/** 有効な着手宣言。解除コメントか、宣言より新しい計画・判定コメントがあれば null */
 export function claimOf(comments: IssueComment[]): Claim | null {
   for (const c of [...comments].reverse()) {
     if (!hasClaudeMark(c.body) || !isTrustedComment(c)) continue;
+    if (extractBlock(c.body, 'agent-plan').found || extractBlock(c.body, 'agent-verdict').found) return null;
     const b = extractBlock(c.body, 'agent-claim');
-    if (b.found && b.ok) return b.value as Claim;
+    if (b.found && b.ok) {
+      const claim = b.value as Claim;
+      return claim.released ? null : claim;
+    }
   }
   return null;
 }
@@ -123,7 +128,7 @@ export async function computeQueue(gh: GitHub, config: HarnessConfig, currentSes
   const readyAt = new Map(iFacts.map((f) => [f.number, f.readyAt]));
   const issueLabels = new Map(iFacts.map((f) => [f.number, f.labels]));
   const pFacts = await Promise.all(prs.map((p) => prFacts(gh, config, p, readyAt, issueLabels)));
-  const result = buildQueue(iFacts, pFacts, { currentSession, now, routineClaimTakeoverMinutes: config.routine.routineClaimTakeoverMinutes }, config.routine.maxItemsPerRun);
+  const result = buildQueue(iFacts, pFacts, { currentSession, now, routineClaimTakeoverMinutes: config.routine.routineClaimTakeoverMinutes, humanClaimStaleHours: config.routine.humanClaimStaleHours }, config.routine.maxItemsPerRun);
   const actions = await Promise.all(result.actions.map(async (a) => {
     if (a.kind !== 'implement') return a;
     const gate = latestPlanGate(config, await gh.listComments(a.issue)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;

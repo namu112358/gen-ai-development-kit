@@ -37,14 +37,31 @@ export function appLogin(config: HarnessConfig): string {
 
 export const LABELS = {
   ready: 'agent:ready',
-  working: 'agent:working',
   planReview: 'agent:plan-review',
   planOk: 'agent:plan-ok',
-  inPr: 'agent:in-pr',
   waiting: 'agent:waiting',
   blocked: 'agent:blocked',
   hold: 'agent:hold',
 } as const;
+
+/** 止めたとき（agent:blocked / agent:plan-review）に必ず残す理由コード */
+export const REASON_CODES = {
+  'form-error': 'Issue 本文が Issue Form の書式でない',
+  'plan-invalid': '計画の構造化出力が読めない',
+  'needs-decision': '仕様・設計・AC について人の判断が必要',
+  'high-risk': '想定 Risk が high 以上',
+  'fix-limit': '修正回数の上限に達した',
+  'external': '権限・外部サービス・手作業など Claude の外の対応が必要',
+  'other': 'その他（コメントに詳細）',
+} as const;
+export type ReasonCode = keyof typeof REASON_CODES;
+
+export const reasonMark = (code: ReasonCode): string => `<!-- agent-harness:reason code=${code} -->`;
+
+export function reasonOf(body: string | null | undefined): ReasonCode | null {
+  const code = (body ?? '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').match(/<!-- agent-harness:reason code=([\w-]+) -->/)?.[1];
+  return code && code in REASON_CODES ? (code as ReasonCode) : null;
+}
 
 /** queue の並び順を変える優先度ラベル（付いていなければ通常） */
 export const PRIORITY_LABELS = { high: 'priority:high', low: 'priority:low' } as const;
@@ -71,10 +88,8 @@ export const CHECKS = {
 /** ラベルの定義（setup-labels が使う） */
 export const LABEL_DEFS: { name: string; color: string; description: string }[] = [
   { name: LABELS.ready, color: '0e8a16', description: '人: 着手してよい。Routine が次の実行で拾う' },
-  { name: LABELS.working, color: 'fbca04', description: 'Routine/人: 着手宣言（claim）' },
   { name: LABELS.planReview, color: 'd93f0b', description: 'Routine/App: 計画済み・人間の判断が必要' },
   { name: LABELS.planOk, color: '0052cc', description: 'App のみ: 計画ゲート通過' },
-  { name: LABELS.inPr, color: '5319e7', description: 'Routine: Draft PR 作成済み' },
   { name: LABELS.waiting, color: 'c5def5', description: 'Routine/App: 依存待ち' },
   { name: LABELS.blocked, color: 'b60205', description: '人の対応が必要' },
   { name: LABELS.hold, color: '000000', description: '人: 個別停止' },

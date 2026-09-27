@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { extractBlock } from '../lib/blocks.ts';
-import { LABELS } from '../lib/config.ts';
+import { LABELS, reasonMark } from '../lib/config.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { callJev } from '../lib/jev.ts';
 import { eligibility, type Acceptance } from '../lib/merge-route.ts';
@@ -52,7 +52,7 @@ async function onPlan(
   if (errors.length > 0 || !parsed?.ok) {
     await ctx.gh.removeLabel(issue.number, LABELS.planOk);
     await ctx.gh.addLabels(issue.number, [LABELS.blocked]);
-    await appComment(ctx, issue.number, 'plan-gate', [`計画の構造化出力を読めませんでした（[コメント](${comment.html_url})）。\`agent:blocked\` にしました。`, '', ...errors.map((e) => `- ${e}`)].join('\n'), {
+    await appComment(ctx, issue.number, 'plan-gate', [reasonMark('plan-invalid'), `計画の構造化出力を読めませんでした（[コメント](${comment.html_url})）。\`agent:blocked\` にしました。`, '', ...errors.map((e) => `- ${e}`)].join('\n'), {
       version: 1, planCommentId: comment.id, pass: false, reasons: errors,
     } satisfies PlanGateRecord);
     return;
@@ -75,7 +75,7 @@ async function onPlan(
       ctx,
       issue.number,
       'plan-gate',
-      [`計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`, '', ...gate.reasons.map((r) => `- ${r}`)].join('\n'),
+      [reasonMark(plan.risk === 'high' || plan.risk === 'critical' ? 'high-risk' : 'needs-decision'), `計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`, '', ...gate.reasons.map((r) => `- ${r}`)].join('\n'),
       record,
     );
   }
@@ -134,6 +134,9 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
   }
   const posted = await appComment(ctx, prNumber, 'acceptance', renderAcceptance(acceptance, verdict, comment.html_url), acceptance);
   ctx.log(`acceptance comment ${posted.id}${limitExceeded ? ' (fix limit exceeded)' : ''}`);
+  if (limitExceeded) {
+    await appComment(ctx, prNumber, 'fix-limit', `${reasonMark('fix-limit')}\n修正回数の上限に達したため \`agent:blocked\` にしました。指摘を確認して人が直すか、Close してください。`);
+  }
   await applyAcceptance(ctx, current, acceptance, { fresh: true });
 }
 
