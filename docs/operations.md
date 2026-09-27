@@ -29,6 +29,7 @@
 | `risk:*` | Routine | 計画時の想定 Risk（表示用） |
 | `priority:high` / `priority:low` | 人 | queue で先に・後に処理する（付いていなければ通常。両方付くと App が指摘する） |
 | `size:*` | App | PR の差分の行数（XS〜XXL、lockfile は数えない）。push のたびに付け替える |
+| `review:exempt` | 人 | 判定を待たずに `agent/review` を通す（人の PR の急ぎ、fork からの PR）。付け外しを App が記録する |
 | `plan:exempt` | 人 | 計画のある Issue に紐付かない PR を例外として通す（付け外しを App が記録する） |
 | `area:*` | App | PR の変更ファイルの領域（`harness.config.json` の `classification.areas`）。足すだけで外さない |
 
@@ -54,6 +55,7 @@
 | `agent:plan-review` の Issue | 手元のセッションで `node harness/scripts/agent.ts claim <番号> --manual` してから実装し、同じ書式で PR を出す。やめるときは `release <番号>` |
 | Agent PR に直してほしい点がある | PR の Review を **Comment として Submit** する（同じ名義の PR には Request changes を付けられない）。最後の push 以降のレビューを Routine が修正依頼として扱う |
 | Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を確認して Merge する |
+| 人の PR（Claude の人のセッションを含む） | 計画のある Issue に紐付いていれば Routine が判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
 | `agent:blocked` | 理由のコメントを読み、直してからラベルを外す |
 
 ## 止める仕組み

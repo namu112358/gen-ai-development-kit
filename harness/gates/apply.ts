@@ -1,7 +1,7 @@
 import { appLogin, CHECKS, LABELS } from '../lib/config.ts';
 import { evaluateMergeRoute, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { acceptanceForPatch, autoMergeMode, hasLabel, isAgentPr, prDiff, type PullRequest, type Review } from '../lib/state.ts';
+import { acceptanceForPatch, autoMergeMode, hasLabel, isAgentPr, isSameRepoPr, prDiff, type PullRequest, type Review } from '../lib/state.ts';
 import { appComment, enableAutoMerge, getPr, markReady, writeCheck, type GateContext } from './context.ts';
 
 /**
@@ -86,9 +86,9 @@ async function writeMergeRoute(ctx: GateContext, pr: PullRequest, acceptance: Ac
 /** 現在の差分に対する受け付け記録を探して merge-route を書き直す（PR は最新を取り直す） */
 export async function refreshMergeRoute(ctx: GateContext, stale: PullRequest, known?: { patch: string }): Promise<Acceptance | null> {
   const pr = await getPr(ctx, stale.number);
-  const agent = isAgentPr(ctx.config, pr, ctx.repository);
+  const judged = isSameRepoPr(pr, ctx.repository);
   let acceptance: Acceptance | null = null;
-  if (agent) {
+  if (judged) {
     const patch = known && pr.head.sha === stale.head.sha ? known.patch : patchId(await prDiff(ctx.gh, pr));
     acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patch);
   }

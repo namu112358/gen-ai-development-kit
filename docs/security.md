@@ -24,7 +24,8 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 順序 | push を検知したら最初に auto-merge を解除する。受け付け時は auto-merge → merge-route（直前に PR を取り直す）→ agent/risk → agent/review の順に書き、書き終えた後に auto-merge が変わっていれば merge-route を書き直す |
 | 定期照合 | 3時間ごとに、条件を満たさない auto-merge を外す（`GITHUB_TOKEN` による操作はゲートを起動しないため） |
 | 直接マージ | `.claude/settings.json` の deny（`gh pr merge`、merge API、MCP の merge / PR 編集、auto-merge、`gh pr ready`、Secret・変数・Ruleset、main への push、信頼ラベル）。文字列のパターンなので完全ではない |
-| Agent PR | 同じリポジトリの `claude/` ブランチからの PR。fork は含めない。それ以外の PR は `agent/review` を判定対象外として通し、自動経路には乗せない |
+| 判定の対象 | 同じリポジトリの PR は、計画のある Issue に紐付いていればブランチに関係なく判定する。人の PR は判定が出るまで `agent/review` を通さない。例外は人が付ける `review:exempt`（App が記録）。fork からの PR は判定せず、例外でのみ通る |
+| Agent PR | 同じリポジトリの `claude/` ブランチからの PR。自動 Merge の経路に乗るのはこれだけ |
 | 停止スイッチ | ダッシュボードの `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い |
 | 別リポジトリの参照 | `Closes`・親 Issue・依存の参照先が別リポジトリなら無視する |
 

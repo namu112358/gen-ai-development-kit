@@ -45,7 +45,12 @@ export function isAppComment(config: HarnessConfig, comment: Pick<IssueComment, 
   return comment.user?.login === appLogin(config);
 }
 
-/** 同じリポジトリの `claude/` ブランチからの PR だけを Agent の PR とみなす（fork は含めない） */
+/** 同じリポジトリからの PR（fork は含めない）。判定の対象になる */
+export function isSameRepoPr(pr: PullRequest, repository: string): boolean {
+  return pr.head.repo?.full_name === repository;
+}
+
+/** 同じリポジトリの `claude/` ブランチからの PR だけを Agent の PR とみなす（fork は含めない）。自動 Merge の経路はこれだけ */
 export function isAgentPr(config: HarnessConfig, pr: PullRequest, repository: string): boolean {
   return pr.head.repo?.full_name === repository && pr.head.ref.startsWith(config.agentBranchPrefix);
 }

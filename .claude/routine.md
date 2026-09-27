@@ -49,6 +49,8 @@
 
 ### judge（判定）
 
+Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同じ手順で判定する。人の PR は修正しない（ブロッキング指摘は App が変更要求レビューとして返す）。
+
 1. MCP で PR の head SHA を読み、queue の `headSha` と同じか確かめる（違えば飛ばす）。
 2. **reviewer** サブエージェントに PR 番号・Issue 番号・head SHA を渡す。GitHub の読み取りは MCP ツールで行うよう伝える。
 3. **risk-agent** サブエージェントに PR 番号と head SHA **だけ**を渡す（Issue や PR の説明を渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。

@@ -1,5 +1,5 @@
 import { extractBlock, hasClaudeMark } from './blocks.ts';
-import { appLogin, CHECKS, LABELS, type HarnessConfig } from './config.ts';
+import { appLogin, CHECKS, LABELS, REVIEW_EXEMPT_LABEL, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
 import { patchId } from './patch-id.ts';
 import { buildQueue, type Action, type Claim, type IssueFacts, type PrFacts } from './queue.ts';
@@ -7,11 +7,14 @@ import {
   acceptanceForPatch,
   appRecords,
   closingIssues,
+  hasLabel,
   isAgentPr,
+  isSameRepoPr,
   isAppComment,
   isTrustedComment,
   lastLabeled,
   latestPlanGate,
+  planLinkedIssues,
   prDiff,
   timeline,
   type PlanGateRecord,
@@ -99,6 +102,7 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
   const issue = issues[0] ?? null;
   return {
     number: pr.number,
+    agent: isAgentPr(cfg, pr, `${gh.owner}/${gh.repo}`),
     claim: claimOf(comments),
     issue,
     readyAt: issue ? (readyAt.get(issue) ?? null) : null,
@@ -121,7 +125,13 @@ export interface QueueResult {
 /** 次にやることを計算する。implement には計画ゲートを通過した計画の files（App の写し）を付ける */
 export async function computeQueue(gh: GitHub, config: HarnessConfig, currentSession: string | null, now: Date = new Date()): Promise<QueueResult> {
   const issues = (await gh.paginate<{ number: number; title: string; labels: { name: string }[]; pull_request?: unknown }>(`/issues?state=open&labels=${encodeURIComponent(LABELS.ready)}`)).filter((i) => !i.pull_request);
-  const prs = (await gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isAgentPr(config, p, `${gh.owner}/${gh.repo}`));
+  // Agent PR と、計画のある Issue を Closes する人の PR（例外ラベル付きは除く）を判定の対象にする
+  const repository = `${gh.owner}/${gh.repo}`;
+  const prs: PullRequest[] = [];
+  for (const p of await gh.paginate<PullRequest>('/pulls?state=open')) {
+    if (isAgentPr(config, p, repository)) prs.push(p);
+    else if (isSameRepoPr(p, repository) && !hasLabel(p, REVIEW_EXEMPT_LABEL) && (await planLinkedIssues(gh, config, p.number)).linked.length > 0) prs.push(p);
+  }
   const prByIssue = new Map<number, number>();
   for (const pr of prs) for (const n of await closingIssues(gh, pr.number)) prByIssue.set(n, pr.number);
   const iFacts = await Promise.all(issues.map((i) => issueFacts(gh, config, i, prByIssue)));

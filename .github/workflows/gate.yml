@@ -51,6 +51,7 @@ jobs:
           github.event.action != 'auto_merge_enabled' && github.event.action != 'auto_merge_disabled') ||
         github.event.label.name == 'agent:hold' ||
         github.event.label.name == 'plan:exempt' ||
+        github.event.label.name == 'review:exempt' ||
         (startsWith(github.event.action, 'auto_merge_') && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG)))
     runs-on: ubuntu-latest
     environment: gate
