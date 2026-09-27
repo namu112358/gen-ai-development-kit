@@ -8,6 +8,7 @@ import type { GateContext } from '../gates/context.ts';
 import { onComment } from '../gates/on-comment.ts';
 import { onPullRequest } from '../gates/on-pr.ts';
 import { onIssue } from '../gates/on-issue.ts';
+import { onMainPush } from '../gates/on-main-push.ts';
 
 /** 偽の GitHub。呼び出しを記録し、ルートごとの応答を返す */
 class FakeGitHub implements Transport {
@@ -339,4 +340,13 @@ test('人へのレビュー依頼に、懸念点・見てほしい箇所・Risk 
   assert.match(body, /### 懸念点\n- 空配列のとき例外になりうる/);
   assert.match(body, /### 見てほしい箇所\n- src\/a.ts の parse/);
   assert.match(body, /API の挙動が変わる/);
+});
+
+test('main への push で、auto-merge 待ちでない Agent PR も main に追従させる', async () => {
+  const fake = acceptanceFake({ pr: pr({ draft: false }), dashboardLabels: [], behindBy: 2 });
+  fake.on('GET', /\/pulls\?state=open/, () => [pr()]);
+  let updated = false;
+  fake.on('PUT', /\/pulls\/5\/update-branch/, () => (updated = true));
+  await onMainPush(ctxFor(fake, 'push', { commits: [{ id: 'x', message: 'docs: 何か' }] }));
+  assert.equal(updated, true);
 });

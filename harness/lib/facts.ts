@@ -86,7 +86,8 @@ export function humanFeedback(reviews: Review[], headSha: string, app: string): 
 }
 
 export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, readyAt: Map<number, string | null>, issueLabels: Map<number, string[]>): Promise<PrFacts> {
-  const [comments, reviews, commit, checks, issues] = await Promise.all([
+  const [detail, comments, reviews, commit, checks, issues] = await Promise.all([
+    gh.get<PullRequest>(`/pulls/${pr.number}`),
     gh.listComments(pr.number),
     gh.paginate<Review>(`/pulls/${pr.number}/reviews`),
     gh.get<{ commit: { committer: { date: string } } }>(`/commits/${pr.head.sha}`),
@@ -111,6 +112,7 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
   return {
     number: pr.number,
     agent: isAgentPr(cfg, pr, `${gh.owner}/${gh.repo}`),
+    conflicted: detail.mergeable_state === 'dirty',
     claim: claimOf(comments),
     issue,
     readyAt: issue ? (readyAt.get(issue) ?? null) : null,
