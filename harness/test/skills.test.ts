@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 const root = join(import.meta.dirname, '..', '..');
-const SKILLS = ['plan', 'implement', 'judge', 'fix', 'sync'];
+const SKILLS = ['plan', 'implement', 'judge', 'fix', 'sync', 'fleet'];
 const HEADINGS = ['## 入力', '## 手順', '## 終わりの状態', '## 人に返す条件'];
 
 const skillPath = (name: string): string => join(root, '.claude', 'skills', name, 'SKILL.md');
