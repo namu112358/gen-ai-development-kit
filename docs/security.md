@@ -8,7 +8,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 
 | 観点 | 実装 |
 | --- | --- |
-| 起動 | Claude は人のセッションと定期 Routine だけ。`gate.yml` は Claude を動かさない |
+| 起動 | Claude は付き添いのセッションと定期 Routine だけ。`gate.yml` は Claude を動かさない |
 | 信頼の根 | App の名義で書かれたラベルイベント・コメント・Check Run だけを信頼する（`harness/lib/state.ts`） |
 | 次にやること | App が Actions で queue を計算し、ダッシュボード Issue に公開する。Routine はそれに従う。「`agent:plan-ok` を付けたのが App か」「判定が現在の差分に有効か」は App 側で判断する |
 | Routine の GitHub 操作 | Routine に組み込みの GitHub MCP ツールのみ（`gh` と API 用トークンは環境にない）。push は `git` |
@@ -19,9 +19,9 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 秘密 | App と Jev の鍵は Environment `gate` の Secret。`gate` は既定ブランチからの実行に限定。ログ・コメントは伏せ字にする |
 | 必須チェック | `agent/review`・`merge-route` は App の `integration_id` に固定。本人名義で同名のステータスを書いても通らない。bypass なし |
 | 段階ゲート | `agent:plan-ok` は App だけ。App 以外が付けたら App が外す |
-| 計画の紐付け | すべての PR（人のセッションの PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録） |
+| 計画の紐付け | すべての PR（付き添いのセッションの Agent PR も、人の PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録） |
 | 計画の写し | ゲート通過時の計画を App の記録に写す。後で計画コメントが編集されても写しを使う |
-| テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない） |
+| テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。人が Merge する PR（ガードレール・`humanMergePaths`・自動 Merge の対象外の判定）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の Merge の判断にまとめる（テストを弱めた PR が自動で Merge されるのを防ぐ目的は変わらない。経路が自動 Merge に変わると止める側に戻る） |
 | ガードレール | `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）に触れる PR は、Risk Agent の答えに関わらず自動 Merge せず理由を受け付けのコメントに書く（変更ファイルはリネームの旧パスも）。触れる計画は想定 Risk に関わらず計画ゲートで止める（`harness/lib/guardrail.ts`） |
 | 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を照合する。最初の階層にワイルドカードがあるパターンは拒否。全件取得できなければ不可 |
 | 判定の鮮度 | 判定時と現在の head で、PR 自身の差分の `git patch-id --verbatim` が同じときだけ受け付ける（`--stable` は空白を無視するため使わない） |
@@ -61,11 +61,13 @@ Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材
 
 | 項目 | 値 | 意味 |
 | --- | --- | --- |
-| 否定側 | 20 件以上 | Claude が自動 Merge 不可とした PR。Jev の見落としを検出できるだけの件数 |
+| 否定側 | 20 件以上 | Claude が自動 Merge 不可とした PR のうち、今の問いの版で Jev が応答したもの。Jev の見落としを検出できるだけの件数 |
 | Jev の low の外れ | 0 件 | Jev が low（P(low) が `jev.thresholds.lowProbability` 以上）とした PR のうち、外れたもの |
 | Jev だけが「可」 | 0 件 | Claude は不可、Jev は可とした PR |
 
 外れ＝ Merge 後 7 日以内に revert された、または同じファイルを直す fix の PR（タイトルが `fix`・`hotfix` で始まるか「修正」を含む、またはブランチ名に `fix`）が Merge された。比べる相手は Claude ではなく結果とする。plan.md の「Jev の『可』に外れがない」を、より厳しい「Jev の low の外れ 0 件」に置き換えた。Jev の「可」の外れと、Claude と Jev の一致率は参考として表に残す（基準には入れない）。集計の表には、ほかに修正の往復（App の修正要求レビューの数）、停滞時間（作成から Merge、未 Merge は Close まで）の中央値、受け付けられなかった判定コメントの数も出る。
+
+**問いの版**：Jev への問いの版（`harness/lib/jev.ts` の `JEV_QUESTION_SET`）を受け付けの記録の `jev.questionSet` に残す（無い古い記録は版 1）。基準の3項目（否定側・Jev の low の外れ・Jev だけが「可」）は今の版の記録だけで数え、否定側は Jev が今の版で応答した PR に限る（問いを書き直す前の記録で基準を満たさないように）。表には版の違う記録の件数も出る。集計の最後には「問いごとの確率（Jev）」の節が出て、版ごとに問いごとの確率の分布（最小・25%・中央・75%・最大）と、しきい値で落とした件数・その問いだけで落とした件数を示す（しきい値の決め方は plan.md の Q88）。
 
 **実行のしかた**：付き添いのセッションが手で `node harness/scripts/report.ts <owner>/<repo> [日数]` を実行する（ship・fleet の終わりなど）。基準を満たすかと、満たさない項目が表の下に出る。定期実行は Routine の再開と一緒に決める。
 

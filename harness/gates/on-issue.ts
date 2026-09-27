@@ -97,9 +97,9 @@ async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: bool
       continue;
     }
     if (!isAgentPr(ctx.config, pr, ctx.repository)) continue;
-    const patch = patchId(await prDiff(ctx.gh, pr));
-    const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patch);
-    if (acceptance?.autoEligible) await applyAcceptance(ctx, pr, acceptance, { fresh: false });
+    const diff = await prDiff(ctx.gh, pr);
+    const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patchId(diff));
+    if (acceptance?.autoEligible) await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff });
   }
 }
 

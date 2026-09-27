@@ -4,6 +4,10 @@
 
 ## 着手
 
+### 付き添いのセッション
+
+Claude が人と一緒に作業するセッション。着手は `node harness/scripts/agent.ts claim <番号> --manual`、ブランチは `claude/`、出す PR は Agent PR として判定・修正・自動 Merge の経路に乗る（critical は人が Merge する）。詳細：[operations.md](operations.md#付き添いのセッションで進める)
+
 ### ship
 
 付き添いのセッションで、Issue 番号から plan → implement → judge → fix（必要なら sync）の skill をつなぎ、人の Merge 待ちか人の判断待ちまで進める skill。最後に人がすることを一覧にする。詳細：[operations.md](operations.md#付き添いのセッションで進める)
@@ -22,7 +26,7 @@ App が次に Routine がやることを計算してダッシュボード Issue 
 
 ### claim（着手宣言）
 
-Routine か人のセッションが作業の前に残す、着手者を記録したコメント（```` ```agent-claim ````）。人の着手は Routine が奪わない。詳細：[formats.md](formats.md#着手宣言agent-claim)
+Routine か付き添いのセッションが作業の前に残す、着手者を記録したコメント（```` ```agent-claim ````）。付き添いのセッションの着手（`manual`）は Routine が奪わない。詳細：[formats.md](formats.md#着手宣言agent-claim)
 
 ## 計画
 
@@ -40,13 +44,17 @@ Routine が Issue に投稿する実装方針。末尾の ```` ```agent-plan ```
 
 ### `agent:plan-ok` / `agent:plan-review`
 
-計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は人が手元のセッションで実装する。App のゲートの停止による `agent:plan-review` は、止めた理由が当たらない計画を出し直せば App が外す。Planner の申告や人が付けた印は、人が外すまで残る。詳細：[operations.md](operations.md#ラベル)
+計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は、付き添いのセッションで、人が進めると決めてから実装する。App のゲートの停止による `agent:plan-review` は、止めた理由が当たらない計画を出し直せば App が外す。Planner の申告や人が付けた印は、人が外すまで残る。詳細：[operations.md](operations.md#ラベル)
 
 ## 実装
 
 ### Agent PR
 
-同じリポジトリの `claude/` ブランチからの PR。自動 Merge の経路に乗れるのは Agent PR だけで、fork やそれ以外のブランチの PR は判定の対象外になる。詳細：[security.md](security.md)
+同じリポジトリの `claude/` ブランチからの PR。付き添いのセッションの PR も Agent PR。自動 Merge の経路に乗れるのは Agent PR だけ。詳細：[security.md](security.md)
+
+### 人の PR
+
+`claude/` 以外のブランチから人が自分で書いた PR。計画のある Issue に紐付いていれば判定されるが、修正は人がし、自動 Merge しない。fork からの PR は判定しない。詳細：[security.md](security.md) / [operations.md](operations.md#人が関わる場面)
 
 ### Draft
 
@@ -94,7 +102,7 @@ App が書く必須チェック。計画のある Issue を `Closes` しない P
 
 ### `agent/tests`
 
-App が書く必須チェック。PR の差分からテストの削除、skip・only・todo の追加、アサーションの削除・書き換えを検出して止める。例外は人が付ける `test:exempt`。詳細：[operations.md](operations.md#テストの改ざん検査)
+App が書く必須チェック。PR の差分からテストの削除、skip・only・todo の追加、アサーションの削除・書き換えを検出して止める。例外は人が付ける `test:exempt`。人が Merge する PR（Human Merge）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の確認に回す。詳細：[operations.md](operations.md#テストの改ざん検査)
 
 ### Human Merge / 自動 Merge
 

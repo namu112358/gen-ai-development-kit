@@ -230,7 +230,7 @@ function extractYmlComment(content: string): string | null {
   return out.length > 0 ? out.join('\n') : null;
 }
 
-/** relPath は拡張子の判定にだけ使う。種類ごとの決まりは docs/plan.md の Q87（Issue #132） */
+/** relPath は拡張子の判定にだけ使う。種類ごとの決まりは docs/plan.md の Q89（Issue #132） */
 export function extractComment(relPath: string, content: string): string | null {
   const ext = extname(relPath);
   if (ext === '.ts') return extractTsComment(content);

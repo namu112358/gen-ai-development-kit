@@ -26,23 +26,23 @@ GitHub Issues を開発状態の SSoT とし、Claude Code が Issue を起点�
 
 | 観点 | 元計画 | 改訂版 | 理由 |
 | --- | --- | --- | --- |
-| Orchestrator | GitHub Agentic Workflows（gh-aw） | Claude Code Routines（定期実行）＋人のセッション＋軽い Actions | gh-aw はサブスク OAuth 非対応。private での Actions 課金回避 |
+| Orchestrator | GitHub Agentic Workflows（gh-aw） | Claude Code Routines（定期実行）＋付き添いのセッション＋軽い Actions | gh-aw はサブスク OAuth 非対応。private での Actions 課金回避 |
 | 状態管理 | Issue Fields | ラベル（`agent:*`、`risk:*`） | 個人アカウントでは Issue Fields が使えない。移行後に再検討可 |
 | Risk 段階 | R0〜R4 | low / medium / high / critical（Agent のみが付与） | low = R0+R1 |
 | Risk 判定 | Changed Paths から機械判定 | Claude が8問の型付き質問に答え、将来 Jev に移行 | 意味的な判定が必要。確率付き判定へ段階移行 |
 | 自動 Merge | Phase 4 で R0/R1 から検討 | low は Phase 4 で即有効化 | 運用方針 |
-| 計画承認 | 初期は全件 | 人間の判断が必要な場合のみ。承認＝人が手元でセッションを立てる | 名義が同一のため、ラベル承認は偽装を防げない |
+| 計画承認 | 初期は全件 | 人間の判断が必要な場合のみ。承認＝人が付き添いのセッションで進めると決める | 名義が同一のため、ラベル承認は偽装を防げない |
 | 書き込み | Safe Outputs | Routine は `claude/` ブランチ・PR・コメントまで。信頼が必要なラベル、Check Run、merge-route、auto-merge は専用 GitHub App のみ（既定ブランチの YAML から） | 本人名義と区別でき、PR 側から偽装できないのは App だけ。`GITHUB_TOKEN` は後続 workflow を起動せず、`github-actions[bot]` は PR 側から名乗れる |
 | Protected Files | パス保護 | ガードレール（`guardrailPaths`）に触れる PR は App がパスで自動 Merge から外す（Q82） | 保護するのは Agent が自分を縛る仕組みと、判定の連鎖（入力の作り方・組み立て・手順）と、導入先の下限（Q85） |
 
 ## アーキテクチャ
 
-Claude が動く処理はすべて Routines か人のセッションに置き、GitHub Actions には Claude を動かさない数秒のジョブだけを残す。Actions の費用はほぼ Claude の実行時間なので、これで private 移行後も GitHub Team の無料枠に収める。
+Claude が動く処理はすべて Routines か付き添いのセッションに置き、GitHub Actions には Claude を動かさない数秒のジョブだけを残す。Actions の費用はほぼ Claude の実行時間なので、これで private 移行後も GitHub Team の無料枠に収める。
 
 | 構成要素 | 担当 | 動く場所 | GitHub 上の名義 |
 | --- | --- | --- | --- |
 | 定期実行 Routine（1本、毎時） | 進められる Issue・PR を1段階ずつ進める（計画・実装・Reviewer・Risk・修正） | Anthropic のクラウド | ユーザー本人 |
-| 人のセッション | 承認が必要な Issue と急ぎの Issue の実装、手動の介入 | 手元またはクラウドの Claude Code | ユーザー本人 |
+| 付き添いのセッション | 承認が必要な Issue と急ぎの Issue の実装、手動の介入（PR は `claude/` ブランチの Agent PR） | 手元またはクラウドの Claude Code | ユーザー本人 |
 | 軽い Actions（決定論的ジョブ） | 段階間のゲート、範囲照合、Check Run 作成、merge-route、auto-merge 制御、依存解消、親 Issue の Close、停滞検知、Jev 呼び出し | GitHub Actions（既定ブランチの YAML のみ） | 専用 GitHub App |
 | 既存 CI | Build・Lint・Typecheck・Test・Security | GitHub Actions | `github-actions[bot]` |
 | GitHub 標準機能 | Ruleset、Required Checks、auto-merge、Sub-issues、Dependencies | GitHub | — |
@@ -63,7 +63,7 @@ flowchart LR
   M -->|Closes| I
 ```
 
-**名義と信頼**：信頼できる印は専用 GitHub App が付けたものだけと定義する。Routine と人のセッションはどちらもユーザー本人として記録されるため、偽装されては困る印（段階ゲート、判定結果の確定、merge-route、auto-merge）は必ず App が付ける。`github-actions[bot]` は信頼の根にしない。`pull_request` で起動する workflow は PR 側の YAML で動き、同じ名義で書き込めてしまうためである。
+**名義と信頼**：信頼できる印は専用 GitHub App が付けたものだけと定義する。Routine と付き添いのセッションはどちらもユーザー本人として記録されるため、偽装されては困る印（段階ゲート、判定結果の確定、merge-route、auto-merge）は必ず App が付ける。`github-actions[bot]` は信頼の根にしない。`pull_request` で起動する workflow は PR 側の YAML で動き、同じ名義で書き込めてしまうためである。
 
 **ゲートの起動**：ゲートの workflow は既定ブランチの YAML だけが動くトリガーで起動する。コメントが起点のもの（計画ゲート、判定の受け付け）は `issue_comment`、PR が起点のもの（push 検知で auto-merge を解除する処理など）は `pull_request_target` とし、PR の head を checkout せず、PR の中身は API で読むだけにする。パブリックリポジトリでは fork を無効にできないため、PR のコードを実行しないことが秘密（App の鍵、Jev の鍵）を守る前提になる。
 
@@ -76,7 +76,7 @@ flowchart LR
 | ラベル | 付ける者 | 意味 |
 | --- | --- | --- |
 | `agent:ready` | 人 | 着手してよい。Routine が次の実行で拾う |
-| `agent:working` | Routine / 人のセッション | 着手宣言（claim）。着手者（Routine の実行 URL か「手動」）をコメントに残す。Routine はこのラベルの Issue をスキップする。着手者が Routine の実行で、その実行がすでに終わっている場合に限り、次の Routine が引き継ぐ。人のセッションの着手は奪わず、6 時間（目安）進展がなければ停滞として表示する |
+| `agent:working` | Routine / 付き添いのセッション | 着手宣言（claim）。着手者（Routine の実行 URL か「手動」）をコメントに残す。Routine はこのラベルの Issue をスキップする。着手者が Routine の実行で、その実行がすでに終わっている場合に限り、次の Routine が引き継ぐ。付き添いのセッションの着手は奪わず、6 時間（目安）進展がなければ停滞として表示する |
 | `agent:plan-review` | Routine | 計画済み、人間の判断が必要。Routine は以後この Issue の実装をしない |
 | `agent:plan-ok` | App のみ | 計画が停止基準に該当しないことを確認済み。Routine はこのラベルが App によって付けられた Issue だけを実装する |
 | `agent:in-pr` | Routine | Draft PR 作成済み |
@@ -97,16 +97,16 @@ Issue Forms は `###` 見出しで出力される。フォームの定義とゲ�
 
 毎時1本の Routine が、その時点で進められる Issue・PR をまとめて1段階ずつ進める。段階の間には Actions のゲートを挟むため、1 Issue は数時間かけて進む前提とする。
 
-急ぎの Issue は定期実行を待たず、人が手元でセッションを立てて進める。
+急ぎの Issue は定期実行を待たず、付き添いのセッションで進める。
 
 1. **起動**：人が Issue に `agent:ready` を付ける。
-2. **着手宣言**：Routine（または人のセッション）は作業の前に `agent:working` を付け、着手者をコメントに残す。各段階は開始時に GitHub の状態（ブランチ、PR、計画コメント、ラベル）を読み直し、途中まで済んだ作業は続きから進める（冪等に動く）。
+2. **着手宣言**：Routine（または付き添いのセッション）は作業の前に `agent:working` を付け、着手者をコメントに残す。各段階は開始時に GitHub の状態（ブランチ、PR、計画コメント、ラベル）を読み直し、途中まで済んだ作業は続きから進める（冪等に動く）。
 3. **計画（Routine）**：Issue 本文と、コラボレーターのコメントだけを読み、計画を Issue コメントとして投稿する。コメントには構造化出力（想定 Risk、人間の判断が必要かのフラグ、Open Questions、**触るファイル一覧**）を含める。触るファイル一覧は必須とする。要件や AC の変更が必要なら提案だけをコメントし、Issue 本文は書き換えない。
 4. **ゲート（App、`issue_comment` 起動）**：計画の構造化出力を読み、次のどれにも該当しなければ `agent:plan-ok` を付ける。該当すれば Routine が付けた `agent:plan-review` のまま停止する。
    - 人間の判断が必要（仕様の曖昧さ、AC 変更の提案、Issue 範囲を超える設計判断）
    - 想定 Risk が high 以上
    - 触るファイル一覧が欠けている
-5. **承認経路**：`agent:plan-review` の Issue は、人が手元でセッションを立てて実装する。Routine は手を出さない。
+5. **承認経路**：`agent:plan-review` の Issue は、付き添いのセッションで実装する。Routine は手を出さない。
 6. **実装（Routine）**：App が `agent:plan-ok` を付けた Issue だけを対象に、投稿済みの計画コメントを入力として実装する（承認後に Issue 本文が書き換えられても影響しない）。Test Designer は実装内のサブエージェント。`claude/` ブランチに push し、Draft PR を作成する。PR 本文に `Closes #番号` と実行セッションの URL を入れる。
 7. **範囲照合（App）**：実際の diff が計画の触るファイル一覧に収まるかを機械的に検査する。はみ出していれば自動 Merge の対象外とし（Human Merge は可）、Reviewer への入力にも含める。
 8. **判定（Routine、次の実行）**：Reviewer と Risk Agent を別のサブエージェントとして実行し、結果を head SHA 付きの構造化コメントとして PR に投稿する。
@@ -195,10 +195,10 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
 
 | 観点 | 設計 |
 | --- | --- |
-| 起動 | Claude の起動は人のセッションと定期実行だけ。Issue や PR の中身が起動のきっかけにならない |
+| 起動 | Claude の起動は付き添いのセッションと定期実行だけ。Issue や PR の中身が起動のきっかけにならない |
 | 信頼の根 | 専用 App が付けた印だけを信頼する。App のトークンを使う workflow は `issue_comment` / `pull_request_target` など既定ブランチの YAML だけが動くトリガーで起動し、PR の head を checkout しない。`github-actions[bot]` は PR 側の YAML からも名乗れるため信頼の根にしない |
 | 必須チェック | Ruleset の必須チェック（`agent/review`、merge-route）の出どころを App に固定する。Ruleset の bypass には誰も入れない |
-| 承認 | 承認＝人が手元でセッションを立てること。Routine は `agent:plan-review` の Issue を実装しない |
+| 承認 | 承認＝人が付き添いのセッションで進めると決めること。Routine は `agent:plan-review` の Issue を実装しない |
 | 段階ゲート | 計画 → 実装の通過は App が付ける `agent:plan-ok` のみ |
 | 範囲 | 計画の触るファイル一覧と実際の diff を App が照合する |
 | マージ経路 | 自動経路は merge-route で GitHub 側で強制。直接マージは `.claude/settings.json` の deny で Claude 側で防ぐ（完全ではない） |
@@ -416,10 +416,12 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q84 | ラベルの規則 | 必須ラベルは、Issue が `type:*`・`area:*`・`priority:*`、PR が `type:*`・`area:*`・`size:*`。子を持つ Issue は `epic` が必須で `type:*` を付けない。`type:*` はタイトルの type と同じ一覧。人が付けたラベルは上書きしない。`classification.issueTriage` に `label`（足りないラベルを Jev が付ける。確率の下限は `jev.thresholds.labelProbability`）を足す（Q75 のシャドーのみを改める。付与は #99、検査は #98 で入る） |
 | Q85 | 判定の連鎖とガードレール | 判定の入力の作り方・組み立て・手順を変える変更も人が Merge する。`guardrailPaths` に `harness/scripts/agent.ts`、judge・plan の skill、`.claude/routine.md`、plan-critic・test-designer の定義を足し、`guardrailExclude` から `harness/lib/facts.ts`（queue が judge・fix を決める材料として、判定の受け付け・人のレビューなどの事実を集める）を外す。残りの除外（usage・classify・worktree・issue-triage・queue・concurrency）は判定の材料を作らないので残す。`harness/lib/session-inputs.ts` は `harness/lib/**` で既に入っていて扱いを変えない。導入先で人が Merge するパスを足す仕組みは `humanMergePaths` を採る（#105）。Jev の切り替えの基準は docs/security.md に置く（#104）。Q82 の「保護するのは Agent が自分を縛る仕組みだけ」を、判定の連鎖と導入先の下限に広げる |
 | Q86 | 判定の連鎖の残り | `guardrailPaths` に sync・fix・ship の skill、`CLAUDE.md`、`harness/scripts/report.ts` を足す（判定の引き継ぎ、再レビューの範囲とテストの改ざん検査、段階のつなぎ、有人セッションで計画の批評の止める条件を上書きする規則、Jev の切り替えの集計を緩められるため）。`harness/lib/queue.ts` は `guardrailExclude` に残す：queue は次にやること（いつ judge・fix するか）を決めるだけで、Merge の条件は App が確かめる（判定は `agent/review` の必須チェックと patch-id に結び付き、範囲照合は計画ゲートを通った計画だけを使い、修正回数は App の `fix-request` で数える）。緩めても判定・修正をしない／余計にするだけで、判定なしの Merge にはならない。事実を集める `harness/lib/facts.ts` はガードレールに入っている（Q85）。implement・fleet の skill はこの決定の対象外 |
+| Q87 | テストの改ざん検査と Human Merge | 人が Merge する PR では `agent/tests` を止めず（neutral）、Human Merge の依頼に見つけた行を載せて Merge の判断にまとめる（施策 A、2026-09-27 の人の決定）。Human Merge とみなすのは Agent PR で、変更ファイルがガードレール・`humanMergePaths` に当たるか、現在の差分に対する最新の受け付けが合格かつ自動 Merge の対象外のとき。hold・自動 Merge モードの停止だけが理由のもの、人の PR・fork、auto-merge が付いた PR は対象外（今までどおり `test:exempt`）。経路が自動 Merge に変わると auto-merge を付ける前に failure に戻す |
+| Q88 | Jev の問いとしきい値 | これまでの受け付けの記録 64 件（jev-1.13.0）は Jev の `allows` がすべて false で、Claude が low とした 11 件もすべて q2 で落ちた（q2 の yes は 0.77〜0.89。ガードレールに触れる critical の PR でも 0.91 で区別に役立たない）。Jev は問いを文字どおりに読むので、条件を直接書き、境界の例を `criteria` に置く形に書き直した（文は `harness/lib/jev.ts` の `JEV_NOUL_QUESTIONS`）。q2 は instructions を「Would running git revert on this change restore the state from before the change?」にし、criteria の true は「Every change in diff is an edit to files in this repository (documentation, tests, source code, or configuration), and the changed code does not write stored data, call an external service, send messages, or publish or deploy anything when it runs. Changes that only edit documentation or tests are yes.」、false は「diff adds or changes code that, when it runs, writes, deletes, or migrates stored data, calls an external service that changes remote state, sends messages, or publishes, deploys, or releases something. Reverting the files does not undo those effects. This includes changes to CI or deployment workflow files that publish, deploy, or release something when they run.」とした。実行されると外部の状態を変えるコード（このリポジトリでは GitHub API を呼ぶ `harness/gates` など）の変更が q2 で no 側に倒れるのは意図どおり（revert してもラベルやコメントは残る。こうした変更はガードレールで人が Merge する）。q5 は instructions を「Does diff add or change code that writes, deletes, or migrates persistent data?」にし、criteria の true は「diff adds or changes code that, when it runs, writes to, deletes from, or changes the schema of a database, files that the program keeps between runs, or external storage.」、false は「diff changes only documentation, tests, or code that does not write stored data. The edits to repository files shown in diff are not themselves persistent data writes.」とした。q3・q6 は instructions を変えずに criteria を足した（q3：criteria の true は「diff changes the name, parameters, or return value of an exported function, type, or class, or changes the fields, keys, or allowed values of a configuration file, schema, API, command-line option, or event or comment format.」、false は「diff changes only explanatory documentation, tests, code comments, or code that is not exported, and changes no configuration, schema, API, command-line option, or event or comment format.」。q6：criteria の true は「diff changes code or configuration that checks identity or permissions, handles tokens, keys, or passwords, stores or reads secrets, or charges money.」、false は「diff changes no such code or configuration. Documentation that only mentions these topics without changing how they work is no.」）。q1・q4・q7・q8 は変えない。問いの版（`JEV_QUESTION_SET`、今は 2、それまでを 1）を受け付けの記録の `jev.questionSet` に残し、`report.ts` の集計で版ごとに問いごとの確率の分布としきい値で落とした件数を出す。切り替えの基準（否定側・Jev の low の外れ・Jev だけが可）は今の版の記録だけで数える（版 1 は全件が不可なので、混ぜると今の問いを見ないまま「Jev だけが可 0 件」を満たすため）。しきい値は一律の `noulSafe` 0.9 のまま据え置き、問いごとのしきい値は入れない：今の記録で q2 だけを 0.75 に下げると Claude が不可とした PR（#10）も通り「Jev だけが可」が出る。書き直した問いは確率の出方が変わるので今の記録から問いごとの値を決められない。Jev のドキュメント（Confidence）もしきい値は保守的に始めて自分のデータで調整するとしている。決め直すのは版 2 の受け付けの記録が 20 件以上になったとき：`report.ts` の「問いごとの確率」を見て人が決め、問いごとの値を入れるのはその値でも記録の上で「Jev だけが可」が 0 件のままのときに限る。入れるときは別の Issue で `harness.config.json` と `jevAllows` を変える（ガードレールなので人が Merge する）。`jev.mode` は shadow のまま、切り替えの判断は security.md の「Jev」の基準で人が行う |
 | Q78 | 人の PR の判定 | 計画のある Issue に紐付いた人の PR も Routine が判定し、判定が出るまで `agent/review` を通さない（自動 Merge はしない、修正は人）。例外は人が付ける `review:exempt` |
 | Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt` |
 | Q76 | 状態ラベルの整理 | `agent:working`・`agent:in-pr` を廃止し、着手宣言コメントと開いた PR から判断する。止めるときは理由コード必須。ラベル定義はコードで一元管理し、文書との一致をテストで検査、定義に無いラベルは `setup.ts` が消す |
 | Q75 | 分類ラベル | PR の `size:*`・`area:*` は App が差分から付ける（area は足すだけ）。Issue の種類・領域・優先度・書き方は Jev が提案コメントだけ出す（シャドー） |
 | Q74 | 優先度 | `priority:*` の5段階（highest・high・medium・low・lowest）のラベルで queue を並べ替える（優先度 → 先着順）。付いていなければ medium、複数付いていれば最も高いもの。フォームには入れない（Q84 で `priority:high` / `priority:low` の2つから5段階に改めた） |
 | Q73 | 汎用化 | 固有名は `harness.config.json` と `setup.ts` の引数に寄せ、別のリポジトリに導入できるようにする |
-| Q87 | README の説明の生成 | README の表の「説明」は各ファイル・ディレクトリの先頭のコメントの1文目から生成する（新しいスクリプト `harness/scripts/readme.ts`。ガードレールの外に置き、`agent.ts` には足さない）。表が生成結果と食い違う、表の名前が実在しない、`overview.html` のラベルと設定が食い違う、をそれぞれテストで検査する（#132） |
+| Q89 | README の説明の生成 | README の表の「説明」は各ファイル・ディレクトリの先頭のコメントの1文目から生成する（新しいスクリプト `harness/scripts/readme.ts`。ガードレールの外に置き、`agent.ts` には足さない）。表が生成結果と食い違う、表の名前が実在しない、`overview.html` のラベルと設定が食い違う、をそれぞれテストで検査する（#132） |
