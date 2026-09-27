@@ -41,7 +41,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | --- | --- |
 | `harness/lib/` | ロジック（Issue Form、計画・判定の書式、範囲照合、merge-route、patch-id、queue、Jev） |
 | `harness/gates/` | Actions で App として動くゲート（`gate.yml` → `node harness/gates/run.ts`） |
-| `harness/scripts/agent.ts` | 書式検査と本文生成（`render-*`、API を呼ばない）と、人のセッション用の操作（`gh` を使う） |
+| `harness/scripts/agent.ts` | 書式検査と本文生成（`render-*`、API を呼ばない）と、付き添いのセッション用の操作（`gh` を使う） |
 | `harness/scripts/setup.ts` | 導入先の設定（ラベル・Ruleset・Environment・App） |
 | `harness/test/` | `node:test` のテスト |
 | `.claude/skills/` | 付き添いのセッションの手順（ship / fleet / plan / implement / judge / fix / sync） |

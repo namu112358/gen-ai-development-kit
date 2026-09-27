@@ -1,7 +1,7 @@
 # 構造化コメントの書式
 
-Claude（Routine・人のセッション）と App は、コメントに JSON のフェンスを埋め込んで状態を受け渡す。
-投稿前に `node harness/scripts/agent.ts render-plan` / `render-verdict`（人のセッションでは `post-plan` / `post-verdict`）で検査し、App も受け付け時に同じ検査をする。
+Claude（Routine・付き添いのセッション）と App は、コメントに JSON のフェンスを埋め込んで状態を受け渡す。
+投稿前に `node harness/scripts/agent.ts render-plan` / `render-verdict`（付き添いのセッションでは `post-plan` / `post-verdict`）で検査し、App も受け付け時に同じ検査をする。
 
 | フェンス | 書く者 | 置き場所 | 検査 |
 | --- | --- | --- | --- |
@@ -135,7 +135,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 ## 着手宣言（agent-claim）
 
-`node harness/scripts/agent.ts render-claim`（人のセッションでは `claim <番号> --manual`）が書く。
+`node harness/scripts/agent.ts render-claim`（付き添いのセッションでは `claim <番号> --manual`）が書く。
 
 ```agent-claim
 { "by": "routine", "session": "https://claude.ai/code/session_...", "at": "2026-09-26T12:00:00.000Z" }
