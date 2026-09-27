@@ -53,7 +53,8 @@ export const NO_COMMENT_ALLOWLIST: string[] = [
 
 /** 先頭にコメントを書けない4件の、README にそのまま残す説明（手書き。生成しない） */
 const NO_COMMENT_TEXT: Record<string, string> = {
-  '.claude/settings.json': 'Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録。',
+  '.claude/settings.json':
+    'Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録、チームで使うプラグインの登録（版を固定）と外部のページの許可。',
   'harness/templates/claude-settings.deny.json':
     'Claude Code にさせない操作（Merge、main への push、保護ラベルの付け外し、Secret・資格情報の読み出しなど）の一覧。`.claude/settings.json` の `permissions.deny` と同じ内容で、変えるときは両方を直す',
   '.github/ISSUE_TEMPLATE/':

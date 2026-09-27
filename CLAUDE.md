@@ -21,6 +21,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - ブランチは付き添いのセッションでも `claude/issue-<番号>-<短い名前>` にする。書いているのは AI なので Agent PR として扱い、判定・修正と、low なら自動 Merge の経路に乗る（critical は人が Merge する）。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。
 - 作業は常に worktree で行う（`node harness/scripts/agent.ts worktree <ブランチ>`。置き場所はリポジトリの外）。作業ツリーを複数の作業で共有しない。
+- プラグイン（[docs/setup.md](docs/setup.md#8-プラグイン全員に同じ版で入れる) の節8）：Jev に関わる作業（問い・criteria・しきい値を書く計画・実装）では `typesafe` の skill を使う。skill を作る・直すときは `skill-creator` を使える。`pr-review-toolkit` の agent は判定（reviewer → App）の外の補助で、判定コメント（`agent-verdict`）の材料にしない。
 
 ## 立場
 
