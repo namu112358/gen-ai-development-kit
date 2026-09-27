@@ -4,6 +4,10 @@
 
 ## 着手
 
+### Routine
+
+毎時起動される Claude のクラウド実行。App がダッシュボードに公開する queue に従い、Issue や PR を1段階ずつ進める。GitHub の操作は MCP ツールで行う。詳細：[setup.md](setup.md#6-routine)
+
 ### queue
 
 App が次に Routine がやることを計算してダッシュボード Issue の本文に公開し、Routine がそれに従って処理する仕組み。詳細：[formats.md](formats.md#app-の記録agent-app)
