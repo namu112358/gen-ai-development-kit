@@ -52,4 +52,4 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 
 ## Jev
 
-`jev.mode` が `shadow` の間は、Actions から Jev に同じ8問を1回で問い、結果を記録するだけにする。Jev に渡すのは diff と Risk Agent が集めた事実（`facts`）とガードレールの一覧だけで、Claude の判定は渡さない。切り替え（`enforce`）の判断は `harness/scripts/report.ts` の集計で行う（[plan.md](plan.md#jev-への段階移行)）。
+`jev.mode` が `shadow` の間は、Actions から Jev に同じ8問を1回で問い、結果を記録するだけにする。Jev に渡すのは App が集めたもの（diff・変更ファイル・ガードレールの一覧）だけで、Risk Agent の `facts` や Claude の判定などセッションが書いたものは渡さない。切り替え（`enforce`）の判断は `harness/scripts/report.ts` の集計で行い、基準は [security.md](security.md#jev) に置く。

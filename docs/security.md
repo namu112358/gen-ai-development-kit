@@ -42,3 +42,29 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | `GITHUB_TOKEN` による auto-merge | PR 側の workflow が `GITHUB_TOKEN` で別の PR に auto-merge を付けるとゲートが起動しない | 定期照合（最大3時間） |
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |
+
+## Jev
+
+Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材料と切り替えの基準。段階移行の全体は [plan.md](plan.md#jev-への段階移行)。
+
+**材料**：Jev に渡すのは App が API と設定から集めたものだけにする。
+
+- `diff`：PR の差分
+- `changed_files`：変更ファイル（リネームは旧パスも）
+- `guardrail_paths`・`guardrail_exclude`：`harness.config.json` のガードレールの一覧
+
+判定コメントの `facts`・level・answers など、セッションが書いたものは渡さない（セッションが Jev を誘導できないように）。`facts` は記録と人の確認用に残る。Jev はリポジトリを読めないため、diff に見えない影響（変えた関数の呼び出し元など）は分からないものとして安全側に倒すよう問う。
+
+**基準**（`harness/lib/report.ts` の `JEV_ENFORCE_CRITERIA`）：
+
+| 項目 | 値 | 意味 |
+| --- | --- | --- |
+| 否定側 | 20 件以上 | Claude が自動 Merge 不可とした PR。Jev の見落としを検出できるだけの件数 |
+| Jev の low の外れ | 0 件 | Jev が low（P(low) が `jev.thresholds.lowProbability` 以上）とした PR のうち、外れたもの |
+| Jev だけが「可」 | 0 件 | Claude は不可、Jev は可とした PR |
+
+外れ＝ Merge 後 7 日以内に revert された、または同じファイルを直す fix の PR（タイトルが `fix`・`hotfix` で始まるか「修正」を含む、またはブランチ名に `fix`）が Merge された。比べる相手は Claude ではなく結果とする。plan.md の「Jev の『可』に外れがない」を、より厳しい「Jev の low の外れ 0 件」に置き換えた。Jev の「可」の外れと、Claude と Jev の一致率は参考として表に残す（基準には入れない）。集計の表には、ほかに修正の往復（App の修正要求レビューの数）、停滞時間（作成から Merge、未 Merge は Close まで）の中央値、受け付けられなかった判定コメントの数も出る。
+
+**実行のしかた**：付き添いのセッションが手で `node harness/scripts/report.ts <owner>/<repo> [日数]` を実行する（ship・fleet の終わりなど）。基準を満たすかと、満たさない項目が表の下に出る。定期実行は Routine の再開と一緒に決める。
+
+**切り替え**：`jev.mode` を `enforce` にするのは、基準を満たしたうえで人が決め、`harness.config.json` を PR で変える（ガードレールなので人が Merge する）。
