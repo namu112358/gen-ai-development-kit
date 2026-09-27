@@ -25,6 +25,7 @@ import { appComment, convertToDraft, getPr, type GateContext } from './context.t
 import { inspectEpic, splitEpic, type EpicState } from './epic-split.ts';
 import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
+import { planAreaLabels, riskLabelChanges } from './label-apply.ts';
 
 /** issue_comment（created）：計画ゲートと判定の受け付け */
 export async function onComment(ctx: GateContext): Promise<void> {
@@ -83,6 +84,9 @@ async function onPlan(
     await splitEpic(ctx, issue, comment, { ...plan, split: plan.split }, record, epic);
   } else if (gate.pass) {
     await ctx.gh.addLabels(issue.number, [LABELS.planOk]);
+    // 計画の files から決まる area:* を足す（人が付けたものは外さない）
+    const areas = planAreaLabels(ctx.config, plan.files, issue.labels.map((l) => l.name));
+    if (areas.length > 0) await ctx.gh.addLabels(issue.number, areas);
     await appComment(ctx, issue.number, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。`, record);
   } else {
     await ctx.gh.removeLabel(issue.number, LABELS.planOk);
@@ -165,6 +169,10 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
     await appComment(ctx, prNumber, 'fix-limit', `${reasonMark('fix-limit')}\n修正回数の上限に達したため \`agent:blocked\` にしました。指摘を確認して人が直すか、Close してください。`);
   }
   await applyAcceptance(ctx, current, acceptance, { fresh: true });
+  // 受け付けた判定の Risk を PR の risk:* にする（ほかの risk:* は外す）。受け付けの書き込みの後に置く
+  const risk = riskLabelChanges(current.labels.map((l) => l.name), verdict.risk.level);
+  for (const l of risk.remove) await ctx.gh.removeLabel(prNumber, l);
+  if (risk.add.length > 0) await ctx.gh.addLabels(prNumber, risk.add);
 }
 
 async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, verdictCommentId: number, currentPatch: string, diff: string, agent: boolean): Promise<Acceptance> {

@@ -14,6 +14,7 @@ test('low の判定：Ready 化 → auto-merge → merge-route → agent/risk �
     'check:merge-route=success',
     'check:agent/risk=success',
     'check:agent/review=success',
+    'label+risk:low',
   ]);
 });
 
@@ -23,7 +24,7 @@ test('停止スイッチ中は auto-merge を付けず、人にレビューを�
   const w = fake.writes();
   assert.ok(!w.includes('enablePullRequestAutoMerge'));
   assert.ok(w.includes('comment:human-review'));
-  assert.equal(w.at(-1), 'check:agent/review=success', 'Human Merge は通す');
+  assert.deepEqual(w.slice(-2), ['check:agent/review=success', 'label+risk:low'], 'Human Merge は通す');
   assert.ok(w.includes('check:merge-route=success'), 'auto-merge なし＝Human Merge 経路');
 });
 
@@ -46,7 +47,7 @@ test('ブロッキング指摘：Draft のまま App が変更要求、agent/rev
   const w = fake.writes();
   assert.ok(w.includes('convertPullRequestToDraft'));
   assert.ok(w.includes('POST /repos/o/r/pulls/5/reviews'));
-  assert.equal(w.at(-1), 'check:agent/review=failure');
+  assert.deepEqual(w.slice(-2), ['check:agent/review=failure', 'label+risk:low']);
 });
 
 test('コラボレーター以外の判定コメントは無視する（Q60）', async () => {
@@ -68,7 +69,7 @@ test('人の PR の判定を受け付け、合格なら agent/review を通す�
   const w = fake.writes();
   assert.ok(!w.includes('enablePullRequestAutoMerge'));
   assert.ok(w.includes('comment:human-review'));
-  assert.equal(w.at(-1), 'check:agent/review=success');
+  assert.deepEqual(w.slice(-2), ['check:agent/review=success', 'label+risk:low']);
 });
 
 test('fork の PR の判定は受け付けない', async () => {
@@ -89,7 +90,7 @@ test('受け付け中に別の操作で auto-merge が付けられたら、merge
   const v = verdict({ risk: { ...verdict().risk, level: 'medium' } });
   await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', v))));
   const w = fake.writes();
-  assert.equal(w.at(-1), 'check:merge-route=failure', '最後に書かれた merge-route が failure');
+  assert.deepEqual(w.slice(-2), ['check:merge-route=failure', 'label+risk:medium'], '最後に書かれた merge-route が failure');
 });
 
 test('auto-merge を付けられないとき（チェックが揃い済み）は、検証した head を指定して直接 Merge する', async () => {
@@ -103,7 +104,7 @@ test('auto-merge を付けられないとき（チェックが揃い済み）は
   fake.on('PUT', /\/pulls\/5\/merge/, (_m, body) => (mergedWith = body));
   await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
   assert.deepEqual(mergedWith, { sha: HEAD, merge_method: 'squash' });
-  assert.equal(fake.writes().at(-1), `PUT /repos/o/r/pulls/5/merge`);
+  assert.deepEqual(fake.writes().slice(-2), [`PUT /repos/o/r/pulls/5/merge`, 'label+risk:low']);
 });
 
 test('リポジトリ設定の Allow auto-merge が切れていれば、auto-merge も直接 Merge もしない', async () => {
@@ -135,4 +136,23 @@ test('人へのレビュー依頼に、懸念点・見てほしい箇所・Risk 
   assert.match(body, /### 懸念点\n- 空配列のとき例外になりうる/);
   assert.match(body, /### 見てほしい箇所\n- src\/a.ts の parse/);
   assert.match(body, /API の挙動が変わる/);
+});
+
+test('PR の risk:*：受け付けた判定の Risk を付け、ほかの risk:* を外す（判定し直せば付け替える）', async () => {
+  const fake = acceptanceFake({ pr: pr({ labels: [{ name: 'risk:low' }, { name: 'risk:critical' }] }), dashboardLabels: [] });
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict({ risk: { ...verdict().risk, level: 'medium' } })))));
+  const w = fake.writes();
+  assert.deepEqual(w.slice(-3), ['label-risk:low', 'label-risk:critical', 'label+risk:medium'], '受け付けの書き込みの後に付け替える');
+  assert.ok(w.indexOf('check:agent/review=success') < w.indexOf('label-risk:low'));
+
+  const same = acceptanceFake({ pr: pr({ labels: [{ name: 'risk:low' }] }), dashboardLabels: [] });
+  await onComment(ctxFor(same, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
+  assert.ok(!same.writes().some((x) => x.includes('risk:')), '同じ段階なら付け外ししない');
+});
+
+test('判定を受け付けなかったときは PR の risk:* を付け替えない', async () => {
+  const fake = acceptanceFake({ pr: pr({ labels: [{ name: 'risk:high' }], head: { ref: 'claude/issue-3', sha: 'c'.repeat(40), repo: { full_name: 'o/r' } } }), dashboardLabels: [] })
+    .on('GET', /\/compare\/main\.\.\.c+$/, (_m, _b, o) => (o.raw ? DIFF.replace('+b', '+changed') : { behind_by: 0 }));
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
+  assert.deepEqual(fake.writes(), ['comment:verdict-rejected']);
 });

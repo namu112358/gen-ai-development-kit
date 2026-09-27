@@ -14,7 +14,7 @@
 | Dependencies | | 補足のみ。順序は Issue Dependencies（blocked by）で設定する |
 | Validation Requirements | | 検証方法 |
 
-`agent:ready` を付けたときに App が Jev に種類・領域・優先度・AC の書き方を問うかは、`harness.config.json` の `classification.issueTriage` で決める。`off` は問わない。`shadow` は提案をコメントするだけでラベルは付けない。`label` は足りない必須ラベル（下記「必須ラベルの規則」）を Jev の答えから付ける（確率の下限は `jev.thresholds.labelProbability`。`label` の動きは #99 で入る。それまでは設定の型だけがある）。Risk と Priority は本文に書かない。優先度は `priority:*` の5段階（highest・high・medium・low・lowest）で、急ぐものには `priority:high` か `priority:highest` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。付いていなければ medium、複数付いていれば最も高いものとして扱う。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
+`agent:ready` を付けたときに App が Jev に種類・領域・優先度・AC の書き方を問うかは、`harness.config.json` の `classification.issueTriage` で決める。`off` は問わない。`shadow` は提案をコメントするだけでラベルは付けない。`label` は提案のコメントを続け、そのうえで足りない `priority:*` と（計画が無ければ）`area:*` を Jev の答えから付ける（下記「足りないラベルを付ける」）。Risk と Priority は本文に書かない。優先度は `priority:*` の5段階（highest・high・medium・low・lowest）で、急ぐものには `priority:high` か `priority:highest` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。付いていなければ medium、複数付いていれば最も高いものとして扱う。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
 
 ## 付き添いのセッションで進める
 
@@ -43,14 +43,14 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `agent:blocked` | Routine / App / 人 | 人の対応が必要。付けるときは理由コードを残す（下記） |
 | `agent:hold` | 人 | 個別停止 |
 | `epic` | App | 子課題に分けた親 Issue。queue は計画・実装の対象にしない。Close しても残る |
-| `risk:*` | Routine | 計画時の想定 Risk（表示用） |
-| `priority:highest` / `priority:high` / `priority:medium` / `priority:low` / `priority:lowest` | 人 / App | queue の優先度（高い順）。付いていなければ medium、複数付いていれば最も高いものとして扱う。今は `priority:high` と `priority:low` が両方付いたときだけ App が指摘する（5段階への拡張は #99） |
+| `risk:*` | Routine（Issue） / App（PR） | Issue：計画時の想定 Risk（表示用）。PR：App が受け付けた判定の Risk（判定し直せば付け替える） |
+| `priority:highest` / `priority:high` / `priority:medium` / `priority:low` / `priority:lowest` | 人 / App | queue の優先度（高い順）。付いていなければ medium、複数付いていれば最も高いものとして扱う。2つ以上付いたら App が指摘する |
 | `type:*` | 人 / App | 課題の種類。タイトルの type（feat / fix / docs / refactor / test / chore / ci / build / perf / style / revert）と同じ一覧。`epic` の Issue には付けない |
 | `size:*` | App | PR の差分の行数（XS〜XXL、lockfile は数えない）。push のたびに付け替える |
 | `review:exempt` | 人 | 判定を待たずに `agent/review` を通す（人の PR の急ぎ、fork からの PR）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する |
 | `plan:exempt` | 人 | 計画のある Issue に紐付かない PR を例外として通す（付け外しを App が記録する） |
 | `test:exempt` | 人 | テストを弱める変更を例外として `agent/tests` を通す（Issue 本文にテストを変える理由があるとき）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する |
-| `area:*` | App | PR の変更ファイルの領域（`harness.config.json` の `classification.areas`）。足すだけで外さない |
+| `area:*` | App | PR の変更ファイルの領域、Issue の計画（計画ゲートを通ったもの）の files の領域（`harness.config.json` の `classification.areas`）。計画の無い Issue には Jev が付ける。足すだけで外さない |
 
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。
 
@@ -77,7 +77,16 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | 子を持つ Issue（Epic） | `epic`・`area:*`・`priority:*`（`type:*` は付けない） |
 | PR | `type:*`・`area:*`・`size:*` |
 
-人が付けたラベルは上書きしない（足りないものだけを足す）。足りないラベルを付ける仕組み（`classification.issueTriage` の `label`）は #99 で入る。
+人が付けたラベルは上書きしない（足りないものだけを足す）。
+
+#### 足りないラベルを付ける
+
+`harness/gates/label-apply.ts` が、Issue・PR の作成とタイトルの編集（イベント）と、定期実行で付ける。定期実行は、開いた Issue（ダッシュボードを除く。`agent:ready` の有無は問わない）と Agent PR を見て、ダッシュボードを書き直す前に付ける（「ラベルが足りない Issue・PR」は付けた後の状態を映す）。
+
+- App（決定的に決まるもの）：タイトルの type から `type:*`。子（Sub-issues）を持つ Issue に `epic`。計画ゲートを通った Issue に、計画の files から `area:*`（計画ゲートの通過時にも付ける）。タイトルの形式が違う Issue・PR には `type:*` を付けない（ダッシュボードに出る）。
+- `type:*` の付け替え：タイトルと食い違う `type:*` と、Epic の `type:*` は、App が付けたもの（Issue・PR の events API で、そのラベルを最後に付けた actor が App）だけを外して付け直す。人が付けたもの（見分けられないものを含む）は外さず、`label-mismatch` のコメントで知らせる。
+- Jev（決まらないもの）：`classification.issueTriage` が `label` のとき、優先度の無い Issue に `priority:*`、計画が無く `area:*` の無い Issue に `area:*` を、Jev の答えの確率が `jev.thresholds.labelProbability` 以上のときだけ付ける。下限未満のもの、下限が未設定のとき（提案のみ）は付けずに `label-triage` のコメントで知らせる。本文が Issue Form として読めない Issue には問わない。同じ Issue には一度だけ問う（`issue-triage` か `label-triage` の記録があれば問い済み）。`agent:ready` が付いたときは提案のコメントを出したうえで足りないものを付ける。1回の定期実行で問う Issue は 5 件まで（残りは次の実行）。
+- PR の `risk:*`：App が判定を受け付けたとき、受け付けた判定の Risk を付け、ほかの `risk:*` を外す（判定し直せば付け替える）。判定を受け付けなかったときは変えない。
 
 必須ラベルの検査（`harness/lib/label-rules.ts`）は、足りないラベルと次の違反を返す：優先度（`priority:*`）が2つ以上、子（Sub-issues）を持つのに `epic` が無い、Epic に `type:*` がある、`type:*` がタイトルの type と食い違う（`type:*` が2つ以上を含む）、タイトルが `type(scope): 説明` の形式でない。`epic` が付いた Issue は、子課題を作る途中で子が 0 でも Epic として扱う。`area:*` と `size:*` は `harness.config.json` にある名前だけを数える。
 

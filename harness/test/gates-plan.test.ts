@@ -14,7 +14,7 @@ test('計画ゲート：通過なら plan-ok と計画の写し、停止なら p
   });
   const fake = acceptanceFake({ pr: pr() });
   await onComment(ctxFor(fake, 'issue_comment', event(plan)));
-  assert.deepEqual(fake.writes(), ['label+agent:plan-ok', 'comment:plan-gate', 'check:agent/plan-link=success'], '計画を投稿したら、その Issue を Closes する PR の plan-link を書き直す');
+  assert.deepEqual(fake.writes(), ['label+agent:plan-ok', 'label+area:docs', 'comment:plan-gate', 'check:agent/plan-link=success'], '計画を投稿したら、その Issue を Closes する PR の plan-link を書き直す');
   assert.match(fake.calls.find((c) => c.path.endsWith('/issues/3/comments') && c.method === 'POST')!.body.body, /"files": \[\s*"docs\/a.md"/);
 
   const stop = acceptanceFake({ pr: pr() });

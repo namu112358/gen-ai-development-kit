@@ -10,10 +10,12 @@ import type { IssueComment } from '../lib/github.ts';
 import { acceptanceForPatch, changedFiles, hasLabel, isSameRepoPr, plannedFilesForPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute } from './apply.ts';
 import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
+import { applyAppLabels } from './label-apply.ts';
 
 /**
  * pull_request_target：PR の head は checkout せず、中身は API で読むだけ。
  * - push（synchronize）：まず auto-merge を解除し、差分が同じなら過去の判定を引き継ぐ
+ * - 作成とタイトルの編集で type:* を付ける（App が前に付けたものだけ付け替える。label-apply.ts）
  * - 範囲照合（agent/scope、情報表示用）
  * - テストの改ざん検査（agent/tests、必須。fork の PR も）
  * - 例外ラベル（review:exempt・test:exempt）は付けた時点の差分（patch-id）にだけ効かせる
@@ -32,6 +34,9 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   const label = ctx.event.label?.name as string | undefined;
   if (['opened', 'reopened', 'synchronize', 'edited'].includes(action)) await writeTitleCheck(ctx, pr);
   if (['opened', 'reopened', 'synchronize', 'edited'].includes(action) || label === PLAN_EXEMPT_LABEL) await writePlanLink(ctx, pr);
+  if (action === 'opened' || (action === 'edited' && ctx.event.changes?.title)) {
+    await applyAppLabels(ctx, number, { kind: 'pr', title: pr.title, labels: pr.labels.map((l) => l.name) }, () => ctx.gh.listComments(number));
+  }
   if ((action === 'labeled' || action === 'unlabeled') && label === PLAN_EXEMPT_LABEL) {
     await appComment(ctx, number, 'plan-exempt', `\`${PLAN_EXEMPT_LABEL}\` が @${ctx.event.sender?.login} により${action === 'labeled' ? '付けられました' : '外されました'}（記録）。`);
     return;
