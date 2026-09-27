@@ -82,7 +82,7 @@ test('compose-verdict：正しい入力から parseVerdict を通る判定がで
   assert.ok(r.ok);
   assert.ok(r.value.startsWith(`${CLAUDE_MARK}\n## 判定`));
   assert.ok(r.value.includes('ブロッキング指摘 0 件'));
-  assert.ok(r.value.includes('harness/**'));
+  assert.ok(r.value.includes(RISK_QUESTIONS.find((q) => q.key === 'q8_harnessConfig')!.text), '安全側でない問いの文言が要約に入る');
   const b = extractBlock(r.value, 'agent-verdict');
   assert.ok(b.found && b.ok);
   const v = parseVerdict(b.value);
