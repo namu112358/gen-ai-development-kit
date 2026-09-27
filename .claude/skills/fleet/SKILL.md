@@ -10,14 +10,22 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を、1つのセッシ
 ## 入力
 
 - 対象：Issue 番号の一覧（任意）。無ければ `agent:ready`・`agent:plan-ok`・`agent:plan-review` の開いた Issue から選ぶ
-- 人が1回にさばける数（任意。既定 3）
-- 状態の表：`node harness/scripts/agent.ts fleet-status [--max <n>] [<Issue 番号>...]` の出力（Issue・PR ごとの段階、次にやること、選ぶか・待つ理由、触るファイルの重なり、領域の上限）
+- 本数（任意）：衝突しない範囲で本数を制限せずに進める。本数を絞りたいときだけ `--max <n>` を渡す
+- 状態の表：`node harness/scripts/agent.ts fleet-status [--max <n>] [<Issue 番号>...]` の出力（Issue・PR ごとの段階、次にやること、選ぶか・待つ理由、重なり）
+
+## 選び方
+
+- 領域の上限（`areaConcurrency`）は fleet では見ない。
+- PR が無い段階の Issue は、既に選んだ Issue・PR 段階・実装中の Issue と計画の files が重なれば待つ。
+- 両方に PR がある組は、`fleet-status` が PR の head を fetch して `git merge-tree` で実際に試し、衝突する組だけ、並べた順の後の側が待つ。衝突しなければ、同じファイルを変えていても並行して進める。
+- `git merge-tree --write-tree` が使えない環境（git 2.38 未満）や fetch に失敗したときは、PR 同士が全部「衝突」扱いになる（表のメモに「試せなかったため衝突ありとして扱う」と出る）。
 
 ## 手順
 
-1. `node harness/scripts/agent.ts fleet-status --max <n>`（対象を指定されたら番号も渡す）で表を出し、「選ぶ」の Issue を控える。以降は同じ番号を渡して表を読み直す。選べる Issue が無ければ、待つ理由を添えて人に返す。
+1. `node harness/scripts/agent.ts fleet-status`（対象を指定されたら番号も、本数を絞るなら `--max <n>` も渡す）で表を出し、「選ぶ」の Issue を控える。以降は同じ番号を渡して表を読み直す。選べる Issue が無ければ、待つ理由を添えて人に返す。
    - 「着手宣言あり」で選ばれない Issue が、このセッションか止まった前のセッションの途中のものなら、人に確かめてから `node harness/scripts/agent.ts release <番号>` で解除して読み直す。
-2. 「選ぶ」の Issue ごとに、表の「次にやること」の段階を ship と同じ判断（ship の手順2〜6）で1つ進める。
+   - 着手宣言（`claim <番号> --manual`）が領域の上限で止まったら、`--force` を付けて宣言する（fleet は領域の上限を見ないため）。
+2. 「選ぶ」の Issue ごとに（選択が「待つ」の行は、次にやること（fix・judge など）が出ていても進めない）、表の「次にやること」の段階を ship と同じ判断（ship の手順2〜6）で1つ進める。
    - plan：plan の skill。批評（plan-critic）は Issue ごとに並行して呼んでよい。
    - implement：implement の skill。worktree は Issue ごとに分ける。test-designer・実装は並行してよい。
    - judge：judge の skill。Reviewer・Risk Agent は Issue ごとに並行して呼んでよい。
@@ -26,7 +34,8 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を、1つのセッシ
    - 「—」（待つ）：計画ゲート・判定の受け付け・App の Merge 経路を待つ。ほかの Issue を先に進める。
 3. 段階を1つ進めるたびに、手順1の `node harness/scripts/agent.ts fleet-status` を読み直して、次にやることを決める。セッションの記憶に頼らない（止まっても同じ手順で続きから再開できる）。
    - 計画の後に「触るファイルが重なるため待つ」になった Issue は、実装に進めない（先に選んだほうの Merge の後に読み直す）。
-   - 領域の上限や人がさばける数で待つ Issue は、ほかが Merge されるまで進めない。
+   - PR 同士が衝突して待つ Issue は、先の側が Merge された後に sync の skill で main を取り込んでから進める。
+   - `--max` の本数で待つ Issue は、ほかが Merge されるまで進めない。
 4. Merge 済みの Issue が出たら、次にやることが sync になった残りの PR に sync の skill をする（判定が引き継がれたかを確かめ、変わっていれば判定し直す）。
 5. 「選ぶ」の Issue が全部、人の Merge 待ち（Ready・人の Merge 待ち、自動 Merge 待ち）か人の判断待ち（plan-review、止まる印あり、各 skill の人に返す条件）になるまで、手順2〜4を繰り返す。
 6. `node harness/scripts/agent.ts label-audit <Issue番号..> <PR番号..>` で、扱った Issue・PR に必須ラベルの不足や違反が無いかを確かめる（ラベルは付け外ししない）。
@@ -38,7 +47,7 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を、1つのセッシ
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
    - 人の判断待ち：どの Issue の、どの段階の、何を決めてほしいか
    - ラベルの不足・違反（手順6で見つかったもの）
-   - 待たせた Issue と理由（重なり・領域の上限・人がさばける数）
+   - 待たせた Issue と理由（重なり・PR 同士の衝突・`--max` の本数）
    - 費用：進めた本数と、手順7のトークン数・推定料金
 
 ## 終わりの状態
@@ -50,7 +59,7 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を、1つのセッシ
 ## 人に返す条件
 
 - ship の「人に返す条件」に当たった（その Issue は止めて人に返し、ほかの Issue は進める。一覧にまとめて返す）
-- 選べる Issue が無い（止まる印・依存・着手宣言・重なり・上限で全部が待つ）
-- 領域の上限か人が1回にさばける数に達し、選んだ Issue が全部待つ状態になった
+- 選べる Issue が無い（止まる印・依存・着手宣言・重なり・PR 同士の衝突・`--max` の本数で全部が待つ）
+- 選んだ Issue が全部待つ状態になった
 - 操作が deny などで拒否された（別の方法で試さない）
 - やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` と `*:exempt` のラベルの付け外し
