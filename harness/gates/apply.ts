@@ -1,10 +1,29 @@
-import { appLogin, CHECKS, LABELS, TEST_EXEMPT_LABEL } from '../lib/config.ts';
+import { appLogin, CHECKS, LABELS, reasonMark, reasonOf, TEST_EXEMPT_LABEL } from '../lib/config.ts';
 import { exemptRecords, exemptState } from '../lib/exempt.ts';
+import type { IssueComment } from '../lib/github.ts';
 import { evaluateMergeRoute, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { acceptanceForPatch, autoMergeMode, hasLabel, isAgentPr, isSameRepoPr, prDiff, type PullRequest, type Review } from '../lib/state.ts';
+import { checkScope } from '../lib/scope.ts';
+import { classifyBase, type BaseKind } from '../lib/stack.ts';
+import {
+  acceptanceForPatch,
+  appRecords,
+  autoMergeMode,
+  changedFiles,
+  hasLabel,
+  isAgentPr,
+  isAppComment,
+  isSameRepoPr,
+  lastLabeled,
+  plannedFilesForPr,
+  prDiff,
+  type PullRequest,
+  type Review,
+  type TimelineEvent,
+} from '../lib/state.ts';
 import { DEFAULT_TEST_PATTERNS, detectTestTampering, renderTamperForHumanMerge, renderTamperSummary, type TamperFinding } from '../lib/test-tamper.ts';
-import { appComment, enableAutoMerge, getPr, markReady, updateBranchIfBehind, writeCheck, type GateContext } from './context.ts';
+import { appComment, convertToDraft, disableAutoMerge, enableAutoMerge, getPr, markReady, updateBranchIfBehind, writeCheck, type GateContext } from './context.ts';
+import { writePlanLink } from './plan-link.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
 
 /**
@@ -17,16 +36,21 @@ import { testsHumanMerge, testsOutcome } from './tests-check.ts';
  * 4. agent/review（必須チェック。これが書かれるまで Merge されない）
  * 5. 書き込み中に auto-merge の状態が変わっていたら merge-route を書き直す（別のゲート実行との競合対策）
  * チェックはすべて、判定を検証した head（pr.head.sha）に書く。
+ * base が既定ブランチでない PR（Stacked PR・orphan-base）は自動の経路に乗せない（auto-merge も直接の Merge もしない）。
+ * orphan-base の間は合格しても Ready にしない。pr は API で取り直したもの（stack を読む）を渡す。
  */
 export async function applyAcceptance(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, opts: { fresh: boolean; diff: string }): Promise<void> {
   const tests = await rewriteTestsCheck(ctx, pr, acceptance, opts.diff);
   const hold = hasLabel(pr, LABELS.hold);
   const mode = await autoMergeMode(ctx.gh, ctx.config);
-  const wantAuto = acceptance.reviewPass && acceptance.autoEligible && mode && !hold;
+  const base = classifyBase(pr, ctx.config.defaultBranch);
+  // スタックに入る前に受け付けた古い記録（autoEligible が真）が残っていても、既定ブランチ宛てでなければ自動の経路に乗せない
+  const wantAuto = acceptance.reviewPass && acceptance.autoEligible && mode && !hold && base === 'default';
   let armed = false;
   if (acceptance.reviewPass) {
     await dismissFixRequests(ctx, pr.number);
-    await markReady(ctx, pr);
+    if (base === 'orphan-base') ctx.log(`#${pr.number} は orphan-base のため Ready にしません`);
+    else await markReady(ctx, pr);
     if (wantAuto) {
       armed = await enableAutoMerge(ctx, pr);
     } else if (opts.fresh) {
@@ -103,6 +127,7 @@ async function writeMergeRoute(ctx: GateContext, pr: PullRequest, acceptance: Ac
     hold: hasLabel(pr, LABELS.hold),
     autoMergeMode: mode,
     acceptance,
+    stacked: classifyBase(pr, ctx.config.defaultBranch) !== 'default',
   });
   await writeCheck(ctx, headSha, CHECKS.mergeRoute, outcome);
 }
@@ -118,6 +143,106 @@ export async function refreshMergeRoute(ctx: GateContext, stale: PullRequest, kn
   }
   await writeMergeRoute(ctx, pr, acceptance, await autoMergeMode(ctx.gh, ctx.config));
   return acceptance;
+}
+
+/**
+ * agent/scope（情報表示用）：計画の files と変更ファイルの照合。
+ * on-pr.ts と stale.ts（スタックに入った PR の書き直し）から呼ぶため、ここに置く（on-pr.ts に置くと import が循環する）。
+ */
+export async function writeScopeCheck(ctx: GateContext, number: number, headSha: string): Promise<void> {
+  const planned = await plannedFilesForPr(ctx.gh, ctx.config, number);
+  if ('missing' in planned) {
+    await writeCheck(ctx, headSha, CHECKS.scope, { conclusion: 'neutral', title: '範囲照合できません', summary: `${planned.missing}。自動 Merge の対象外です。` });
+    return;
+  }
+  const result = checkScope(planned.files, await changedFiles(ctx.gh, number));
+  await writeCheck(ctx, headSha, CHECKS.scope, result.ok
+    ? { conclusion: 'success', title: '計画の範囲内です', summary: planned.files.map((p) => `- \`${p}\``).join('\n') }
+    : { conclusion: 'neutral', title: `計画の範囲外のファイルが ${result.outside.length} 件`, summary: ['自動 Merge の対象外です（Human Merge は可）。', '', ...result.outside.map((f) => `- \`${f}\``)].join('\n') });
+}
+
+/** App が PR に残す orphan-base の記録（kind=orphan-base） */
+export interface OrphanBaseRecord {
+  version: 1;
+  base: string;
+  headSha: string;
+}
+
+/** orphan-base が解消した記録（kind=base-resolved） */
+export interface BaseResolvedRecord {
+  version: 1;
+  base: string;
+  kind: Exclude<BaseKind, 'orphan-base'>;
+}
+
+/** App の orphan-base／base-resolved の記録のうち最新のもの */
+function latestBaseRecord(ctx: GateContext, comments: IssueComment[]): { kind: 'orphan-base'; value: OrphanBaseRecord } | { kind: 'base-resolved'; value: BaseResolvedRecord } | null {
+  const all = [
+    ...appRecords<OrphanBaseRecord>(ctx.config, comments, 'orphan-base').map((r) => ({ kind: 'orphan-base' as const, ...r })),
+    ...appRecords<BaseResolvedRecord>(ctx.config, comments, 'base-resolved').map((r) => ({ kind: 'base-resolved' as const, ...r })),
+  ];
+  const order = new Map(comments.map((c, i) => [c, i]));
+  const last = all.sort((a, b) => order.get(a.comment)! - order.get(b.comment)!).at(-1);
+  if (!last) return null;
+  return last.kind === 'orphan-base' ? { kind: last.kind, value: last.value as OrphanBaseRecord } : { kind: last.kind, value: last.value as BaseResolvedRecord };
+}
+
+/** App の orphan-base の記録が最新で、まだ解消の記録が無いか */
+export async function orphanRecorded(ctx: GateContext, number: number): Promise<boolean> {
+  return latestBaseRecord(ctx, await ctx.gh.listComments(number))?.kind === 'orphan-base';
+}
+
+/**
+ * スタックでないのに base が既定ブランチ以外の PR（orphan-base）を Merge できない状態に留める：
+ * auto-merge を外し、Draft に戻し、理由コード orphan-base 付きの記録と agent:blocked を付ける。
+ * 同じ base の orphan-base の記録が最新なら、記録とラベルは付け直さない（人が agent:blocked を外した判断を尊重する）。
+ * pr は API で取り直したもの。
+ */
+export async function enforceBase(ctx: GateContext, pr: PullRequest): Promise<void> {
+  await disableAutoMerge(ctx, pr);
+  await convertToDraft(ctx, pr);
+  const latest = latestBaseRecord(ctx, await ctx.gh.listComments(pr.number));
+  if (latest?.kind === 'orphan-base' && latest.value.base === pr.base.ref) {
+    ctx.log(`#${pr.number} は orphan-base の記録があるため Draft に戻すだけにします`);
+    return;
+  }
+  await appComment(ctx, pr.number, 'orphan-base', [
+    reasonMark('orphan-base'),
+    `この PR の base（\`${pr.base.ref}\`）は既定ブランチ（\`${ctx.config.defaultBranch}\`）ではなく、GitHub のスタックにも入っていません。Merge できないよう Draft に留め、\`${LABELS.blocked}\` にしました。`,
+    '',
+    `base を \`${ctx.config.defaultBranch}\` に変えるか、スタックに組み込んでください（組み込まれると App が通常の流れに戻します）。`,
+  ].join('\n'), { version: 1, base: pr.base.ref, headSha: pr.head.sha } satisfies OrphanBaseRecord);
+  await ctx.gh.addLabels(pr.number, [LABELS.blocked]);
+}
+
+/**
+ * orphan-base でなくなった PR を通常の流れに戻す。App の最新の記録が orphan-base のときだけ行い、行ったら true を返す。
+ * 1. App が orphan-base の理由で付けた agent:blocked を外す（人が付けたもの・別の理由のものは外さない）
+ * 2. base-resolved を記録する
+ * 3. agent/plan-link と agent/scope を書き直す（スタックに入る前の PR として書かれたまま残っているため）
+ * 4. 現在の差分に受け付けがあれば applyAcceptance で Ready 化と merge-route をやり直し、無ければ merge-route だけ書き直す
+ * pr は API で取り直したもの。
+ */
+export async function resumeFromOrphan(ctx: GateContext, pr: PullRequest, kind: Exclude<BaseKind, 'orphan-base'>): Promise<boolean> {
+  const comments = await ctx.gh.listComments(pr.number);
+  if (latestBaseRecord(ctx, comments)?.kind !== 'orphan-base') return false;
+  if (hasLabel(pr, LABELS.blocked)) {
+    const events = await ctx.gh.paginate<TimelineEvent>(`/issues/${pr.number}/events`);
+    const byApp = lastLabeled(events, LABELS.blocked)?.actor?.login === appLogin(ctx.config);
+    const reason = [...comments].reverse().filter((c) => isAppComment(ctx.config, c)).map((c) => reasonOf(c.body)).find((r) => r !== null) ?? null;
+    if (byApp && reason === 'orphan-base') {
+      await ctx.gh.removeLabel(pr.number, LABELS.blocked);
+      pr.labels = pr.labels.filter((l) => l.name !== LABELS.blocked);
+    }
+  }
+  await appComment(ctx, pr.number, 'base-resolved', `base の問題が解消しました（${kind === 'stacked' ? 'スタックに組み込まれました' : `base が \`${ctx.config.defaultBranch}\` になりました`}）。通常の流れに戻します。`, { version: 1, base: pr.base.ref, kind } satisfies BaseResolvedRecord);
+  await writePlanLink(ctx, pr);
+  await writeScopeCheck(ctx, pr.number, pr.head.sha);
+  const diff = isSameRepoPr(pr, ctx.repository) ? await prDiff(ctx.gh, pr) : null;
+  const acceptance = diff === null ? null : acceptanceForPatch(ctx.config, comments, patchId(diff));
+  if (acceptance && diff !== null) await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff });
+  else await refreshMergeRoute(ctx, pr);
+  return true;
 }
 
 /** 合格した判定を受け付けたら、App が以前に出した変更要求レビューを解除する（回数は解除済みも数える） */

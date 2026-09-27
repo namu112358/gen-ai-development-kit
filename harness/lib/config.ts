@@ -77,6 +77,7 @@ export const REASON_CODES = {
   'resplit': 'Epic を子課題に分けた後に、別の分け方の計画が来た',
   'split-failed': 'Epic の子課題を作る途中で失敗した',
   'fix-limit': '修正回数の上限に達した',
+  'orphan-base': 'スタックでないのに base が既定ブランチ以外の PR（Draft に留めている）',
   'external': '権限・外部サービス・手作業など Claude の外の対応が必要',
   'other': 'その他（コメントに詳細）',
 } as const;
