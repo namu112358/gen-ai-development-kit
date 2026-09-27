@@ -25,6 +25,8 @@ export interface IssueFacts {
   /** agent:plan-ok を最後に付けたのが App か */
   planOkByApp: boolean;
   openPr: number | null;
+  /** 計画の触るファイルが入る領域のうち、開いた PR の数が上限に達しているもの（説明文。無ければ null） */
+  areaFull?: string | null;
 }
 
 export interface PrFacts {
@@ -97,6 +99,7 @@ export function decideIssue(f: IssueFacts, opts: QueueOptions): Action {
   if (f.gate === null) return { kind: 'plan', issue: f.number };
   if (!f.gate.pass) return { kind: 'skip', target, reason: '計画ゲートで停止中' };
   if (!has(f.labels, LABELS.planOk) || !f.planOkByApp) return { kind: 'skip', target, reason: '`agent:plan-ok` が App によって付けられていません' };
+  if (f.areaFull) return { kind: 'skip', target, reason: `${f.areaFull}。どれかが Merge されるまで着手しない` };
   return { kind: 'implement', issue: f.number, planCommentId: f.gate.planCommentId };
 }
 
