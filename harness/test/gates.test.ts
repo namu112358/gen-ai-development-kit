@@ -342,6 +342,23 @@ test('人へのレビュー依頼に、懸念点・見てほしい箇所・Risk 
   assert.match(body, /API の挙動が変わる/);
 });
 
+test('判定前に Ready で出された PR は Draft に戻す。判定を引き継げる push と例外ラベルでは戻さない', async () => {
+  const ready = acceptanceFake({ pr: pr({ draft: false }), dashboardLabels: [], prComments: [] });
+  await onPullRequest(ctxFor(ready, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
+  assert.ok(ready.writes().includes('convertPullRequestToDraft') && ready.writes().includes('comment:draft-until-judged'));
+
+  const exempt = acceptanceFake({ pr: pr({ draft: false, labels: [{ name: 'review:exempt' }] }), dashboardLabels: [], prComments: [] });
+  await onPullRequest(ctxFor(exempt, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
+  assert.ok(!exempt.writes().includes('convertPullRequestToDraft'));
+
+  const { patchId } = await import('../lib/patch-id.ts');
+  const acceptance = { version: 1, verdictCommentId: 70, verdictHeadSha: HEAD, patchId: patchId(DIFF), reviewPass: true, riskLevel: 'low', riskOk: true, scopeOk: true, outside: [], autoEligible: true, reasons: [] };
+  const prComments = [{ id: 91, created_at: '', updated_at: '', html_url: 'u', author_association: 'NONE', user: { login: APP, type: 'Bot' }, body: `${appMark('acceptance')}\n${renderBlock('agent-app', acceptance)}` }];
+  const carried = acceptanceFake({ pr: pr({ draft: false }), dashboardLabels: [], prComments });
+  await onPullRequest(ctxFor(carried, 'pull_request_target', { action: 'synchronize', pull_request: { number: 5 } }));
+  assert.ok(!carried.writes().includes('convertPullRequestToDraft'));
+});
+
 test('agent/title：PR のタイトルの形式を検査する', async () => {
   const ok = acceptanceFake({ pr: pr({ title: 'fix(harness): 直す' }), dashboardLabels: [] });
   await onPullRequest(ctxFor(ok, 'pull_request_target', { action: 'edited', pull_request: { number: 5 } }));

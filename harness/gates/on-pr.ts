@@ -6,7 +6,7 @@ import { patchId } from '../lib/patch-id.ts';
 import { checkScope } from '../lib/scope.ts';
 import { acceptanceForPatch, changedFiles, hasLabel, isSameRepoPr, plannedFilesForPr, prDiff } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute } from './apply.ts';
-import { appComment, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
+import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
 
 /**
  * pull_request_target：PR の head は checkout せず、中身は API で読むだけ。
@@ -71,6 +71,11 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
       ctx.log(`patch-id ${patch} は受け付け済みの判定と同じ。判定を引き継ぎます`);
       await applyAcceptance(ctx, pr, acceptance, { fresh: false });
       return;
+    }
+    // 判定前の PR は Draft にする（Draft＝判定前、Ready＝判定に合格して人のレビュー待ち）。出し方にかかわらずそろえる
+    if (!acceptance && !pr.draft && !hasLabel(pr, REVIEW_EXEMPT_LABEL)) {
+      await convertToDraft(ctx, pr);
+      await appComment(ctx, number, 'draft-until-judged', '判定がまだ無いため Draft に戻しました。Reviewer と Risk Agent の判定に合格すると、App が Ready にします。');
     }
     await refreshMergeRoute(ctx, pr, { patch });
     return;
