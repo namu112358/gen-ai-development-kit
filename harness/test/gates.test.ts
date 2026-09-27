@@ -76,9 +76,10 @@ function verdict(patch: Partial<Verdict> = {}): Verdict {
 }
 
 /** 判定の受け付けに必要な応答を揃えた偽の GitHub */
-function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabels?: string[]; prComments?: unknown[] }): FakeGitHub {
+function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabels?: string[]; prComments?: unknown[]; allowAutoMerge?: boolean }): FakeGitHub {
   let autoMerge: unknown = state.pr.auto_merge;
   return new FakeGitHub()
+    .on('GET', /\/repos\/o\/r$/, () => ({ allow_auto_merge: state.allowAutoMerge ?? true }))
     .on('GET', /\/pulls\/5$/, () => ({ ...state.pr, auto_merge: autoMerge }))
     .on('GET', /\/compare\//, () => DIFF)
     .on('GET', /\/pulls\/5\/files/, () => [{ filename: 'docs/a.md' }])
@@ -260,4 +261,22 @@ test('hold を外すと、条件を満たす判定があれば auto-merge を付
   const w = fake.writes();
   assert.ok(w.includes('comment:hold-removed'));
   assert.ok(w.indexOf('enablePullRequestAutoMerge') < w.indexOf('check:agent/review=success'));
+});
+
+test('リポジトリ設定の Allow auto-merge が切れていれば、auto-merge も直接 Merge もしない', async () => {
+  const fake = acceptanceFake({ pr: pr(), dashboardLabels: [], allowAutoMerge: false });
+  let merged = false;
+  fake.on('PUT', /\/pulls\/5\/merge/, () => (merged = true));
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
+  assert.ok(!fake.writes().includes('enablePullRequestAutoMerge'));
+  assert.equal(merged, false);
+  assert.ok(fake.writes().includes('comment:human-review'));
+});
+
+test('Issue が閉じたら進み具合のラベルを外す（hold は残す）', async () => {
+  const fake = acceptanceFake({ pr: pr() })
+    .on('POST', /\/graphql/, () => ({ data: { repository: { issue: { blocking: { nodes: [] }, parent: null } } } }));
+  await onIssue(ctxFor(fake, 'issues', { action: 'closed', sender: { login: 'me' }, issue: { number: 3, body: '', state: 'closed', labels: [{ name: 'agent:ready' }, { name: 'agent:in-pr' }, { name: 'agent:hold' }, { name: 'risk:low' }] } }));
+  const w = fake.writes().filter((x) => x.startsWith('label-'));
+  assert.deepEqual(w, ['label-agent:ready', 'label-agent:in-pr']);
 });

@@ -40,8 +40,17 @@ export async function onIssue(ctx: GateContext): Promise<void> {
     return;
   }
   if (action === 'closed') {
+    await clearStateLabels(ctx, issue);
     await resolveDependents(ctx, issue.number);
     await closeParentIfDone(ctx, issue.number);
+  }
+}
+
+/** 閉じた Issue に進み具合のラベルを残さない（hold は人の意思なので残す） */
+async function clearStateLabels(ctx: GateContext, issue: { number: number; labels: { name: string }[] }): Promise<void> {
+  const keep = new Set<string>([LABELS.hold, ctx.config.autoMergeStopLabel]);
+  for (const l of issue.labels) {
+    if (l.name.startsWith('agent:') && !keep.has(l.name)) await ctx.gh.removeLabel(issue.number, l.name);
   }
 }
 

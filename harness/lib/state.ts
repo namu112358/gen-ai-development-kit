@@ -149,6 +149,9 @@ export async function findDashboard(gh: GitHub, config: HarnessConfig): Promise<
 
 /** 自動 Merge モード。ダッシュボードに停止ラベルがない場合だけ有効（ダッシュボードが無ければ停止＝安全側） */
 export async function autoMergeMode(gh: GitHub, config: HarnessConfig): Promise<boolean> {
+  // リポジトリ設定の Allow auto-merge も停止スイッチとして扱う（ラベルは本人名義の操作でも外せるため、設定を最終手段にする）
+  const repo = await gh.get<{ allow_auto_merge?: boolean }>(gh.repoPath);
+  if (repo.allow_auto_merge !== true) return false;
   const dashboard = await findDashboard(gh, config);
   return dashboard !== null && !hasLabel(dashboard, config.autoMergeStopLabel);
 }
