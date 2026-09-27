@@ -1,5 +1,5 @@
 import { appMark } from '../lib/blocks.ts';
-import { LABELS } from '../lib/config.ts';
+import { LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { refreshMergeRoute } from './apply.ts';
@@ -58,14 +58,20 @@ async function reconcileAutoMerge(ctx: GateContext): Promise<number> {
 export async function onSchedule(ctx: GateContext, now: Date = new Date()): Promise<void> {
   const reconciled = await reconcileAutoMerge(ctx);
   const staleMs = ctx.config.staleHours * 3600_000;
-  const humanClaimMs = ctx.config.routine.humanClaimStaleHours * 3600_000;
   const age = (iso: string) => now.getTime() - new Date(iso).getTime();
   const issues = await ctx.gh.paginate<IssueItem>('/issues?state=open', 10);
   const agentItems = issues.filter((i) => i.labels.some((l) => l.name.startsWith('agent:')) && i.title !== ctx.config.dashboardIssueTitle);
 
   const needsHuman = agentItems.filter((i) => i.labels.some((l) => l.name === LABELS.blocked || l.name === LABELS.planReview));
   const stale = agentItems.filter((i) => age(i.updated_at) > staleMs && !needsHuman.includes(i));
-  const humanClaims = agentItems.filter((i) => i.labels.some((l) => l.name === LABELS.working) && age(i.updated_at) > humanClaimMs);
+  // 人の対応待ちは理由コード別に並べる（理由が無いものは目立たせる）
+  const reasons = new Map<number, string>();
+  for (const i of needsHuman) {
+    const comments = await ctx.gh.listComments(i.number);
+    const code = [...comments].reverse().map((c) => reasonOf(c.body)).find((r) => r !== null) ?? null;
+    reasons.set(i.number, code ? `${code}（${REASON_CODES[code]}）` : '理由なし（要確認）');
+  }
+  const byReason = [...needsHuman].sort((a, b) => reasons.get(a.number)!.localeCompare(reasons.get(b.number)!));
 
   const prs = await ctx.gh.paginate<PullRequest>('/pulls?state=open', 5);
   const conflicts: PullRequest[] = [];
@@ -82,11 +88,10 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     appMark('dashboard'),
     `最終更新: ${now.toISOString()}（${ctx.config.staleHours} 時間動きがないものを停滞とみなします）`,
     '',
-    ...section('人の対応待ち（blocked / plan-review）', needsHuman.map((i) => line(i, ` — ${i.labels.map((l) => `\`${l.name}\``).join(' ')}`))),
+    ...section('人の対応待ち（blocked / plan-review）', byReason.map((i) => line(i, ` — ${reasons.get(i.number)}`))),
     ...section('コンフリクトしている Agent PR（CI が動きません）', conflicts.map((p) => line(p))),
     ...section('停滞している Agent PR', stalePrs.map((p) => line(p))),
     ...section('停滞している Issue', stale.map((i) => line(i))),
-    ...section(`${ctx.config.routine.humanClaimStaleHours} 時間以上進展のない着手（agent:working）`, humanClaims.map((i) => line(i))),
     '失敗した Actions の実行は [Actions](../../actions?query=is%3Afailure) を確認してください。',
   ].join('\n');
 
