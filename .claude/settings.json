@@ -22,6 +22,7 @@
       "Bash(*agent:hold*)",
       "Bash(*agent:auto-merge-stopped*)",
       "Bash(*plan:exempt*)",
+      "Bash(*review:exempt*)",
       "Bash(git push * main)",
       "Bash(git push * main:*)",
       "Bash(git push * HEAD:main)",

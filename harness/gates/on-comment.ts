@@ -12,6 +12,7 @@ import {
   fixRequestCount,
   hasLabel,
   isAgentPr,
+  isSameRepoPr,
   isTrustedComment,
   openPrsClosing,
   plannedFilesForPr,
@@ -94,8 +95,8 @@ async function refreshPlanLinks(ctx: GateContext, issue: number): Promise<void> 
 async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComment, block: ReturnType<typeof extractBlock>): Promise<void> {
   const pr = await getPr(ctx, prNumber);
   if (pr.state !== 'open') return;
-  if (!isAgentPr(ctx.config, pr, ctx.repository)) {
-    await appComment(ctx, prNumber, 'verdict-rejected', 'Agent の PR（同じリポジトリの `claude/` ブランチ）ではないため、判定を受け付けません。');
+  if (!isSameRepoPr(pr, ctx.repository)) {
+    await appComment(ctx, prNumber, 'verdict-rejected', 'fork からの PR の判定は受け付けません（人が `review:exempt` で通します）。');
     return;
   }
   const errors = !block.found ? [] : !block.ok ? [block.error] : [];
@@ -120,7 +121,7 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
     return;
   }
 
-  const acceptance = await buildAcceptance(ctx, pr.number, verdict, comment.id, currentPatch, diff);
+  const acceptance = await buildAcceptance(ctx, pr.number, verdict, comment.id, currentPatch, diff, isAgentPr(ctx.config, pr, ctx.repository));
   // Jev の呼び出し中などに push されていたら、新しい head の差分でも同じときだけ続ける
   const current = await getPr(ctx, prNumber);
   if (current.head.sha !== pr.head.sha && patchId(await prDiff(ctx.gh, current)) !== currentPatch) {
@@ -150,7 +151,7 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
   await applyAcceptance(ctx, current, acceptance, { fresh: true });
 }
 
-async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, verdictCommentId: number, currentPatch: string, diff: string): Promise<Acceptance> {
+async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, verdictCommentId: number, currentPatch: string, diff: string, agent: boolean): Promise<Acceptance> {
   const files = await changedFiles(ctx.gh, prNumber);
   const planned = await plannedFilesForPr(ctx.gh, ctx.config, prNumber);
   let scope = 'files' in planned ? checkScope(planned.files, files) : { ok: false, outside: [`（${planned.missing}）`] };
@@ -164,6 +165,10 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
       ? { ok: jev.status === 'ok' && jev.allows === true, reason: `Jev が自動 Merge を許可していません（${jev.status}${jev.detail ? `: ${jev.detail}` : ''}）` }
       : undefined;
   const elig = eligibility({ reviewPass: verdict.review.pass, risk, scopeOk: scope.ok, outside: scope.outside, jevGate });
+  if (!agent) {
+    elig.autoEligible = false;
+    elig.reasons.unshift('Agent の PR ではない（人の PR は人が Merge する）');
+  }
   return {
     version: 1,
     verdictCommentId,

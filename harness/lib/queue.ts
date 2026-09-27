@@ -29,6 +29,8 @@ export interface IssueFacts {
 
 export interface PrFacts {
   number: number;
+  /** Agent PR（claude/ ブランチ）か。人の PR は判定だけで、修正は人が行う */
+  agent: boolean;
   /** PR が Close する Issue のラベル（優先度を引き継ぐ） */
   issueLabels: string[];
   claim: Claim | null;
@@ -102,6 +104,11 @@ export function decidePr(f: PrFacts, opts: QueueOptions): Action {
   }
   const claimed = claimedByOther(f.claim, opts);
   if (claimed) return { kind: 'skip', target, reason: claimed };
+  if (!f.agent) {
+    if (f.verdictAwaitingGate) return { kind: 'skip', target, reason: '判定の受け付け待ち' };
+    if (!f.acceptance) return { kind: 'judge', pr: f.number, issue: f.issue, headSha: f.headSha };
+    return { kind: 'skip', target, reason: f.acceptance.reviewPass ? '判定済み（人の Merge 待ち）' : '判定済み（人の修正待ち）' };
+  }
   if (f.humanFeedbackSincePush > 0) return { kind: 'fix', pr: f.number, issue: f.issue, reason: 'human' };
   if (f.verdictAwaitingGate) return { kind: 'skip', target, reason: '判定の受け付け待ち' };
   if (!f.acceptance) return { kind: 'judge', pr: f.number, issue: f.issue, headSha: f.headSha };

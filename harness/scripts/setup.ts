@@ -20,7 +20,7 @@ const ENVIRONMENT = 'gate';
 const RULESET_NAME = 'agent-harness-main';
 
 /** ハーネスが管理するラベルの接頭辞。定義に無いものは消す（廃止したラベルを残さない） */
-const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'size:', 'area:', 'plan:'];
+const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'size:', 'area:', 'plan:', 'review:'];
 
 async function labels(gh: GitHub): Promise<void> {
   const defs = allLabelDefs(loadConfig());

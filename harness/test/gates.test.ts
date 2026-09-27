@@ -186,10 +186,37 @@ test('push：差分が変わっていれば auto-merge を外したまま、agen
   assert.ok(w.includes('check:merge-route=success'), 'auto-merge なし＝Human Merge 経路');
 });
 
-test('Agent 以外の PR は agent/review を判定対象外で通す', async () => {
+test('人の PR は判定が出るまで agent/review を書かない', async () => {
   const fake = acceptanceFake({ pr: pr({ head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }), dashboardLabels: [] });
   await onPullRequest(ctxFor(fake, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
-  assert.deepEqual(fake.writes(), ['check:agent/plan-link=success', 'label+size:XS,area:docs', 'check:agent/review=success', 'check:merge-route=success'], '人の PR にも計画の紐付けと分類ラベル');
+  const w = fake.writes();
+  assert.ok(!w.some((x) => x.startsWith('check:agent/review')));
+  assert.ok(w.includes('check:agent/plan-link=success') && w.includes('check:merge-route=success'));
+});
+
+test('review:exempt を付けると agent/review を通し、App が記録する。外すと判定待ちに戻す', async () => {
+  const human = { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } };
+  const on = acceptanceFake({ pr: pr({ head: human, labels: [{ name: 'review:exempt' }] }), dashboardLabels: [] });
+  await onPullRequest(ctxFor(on, 'pull_request_target', { action: 'labeled', label: { name: 'review:exempt' }, sender: { login: 'me' }, pull_request: { number: 5 } }));
+  assert.ok(on.writes().includes('comment:review-exempt') && on.writes().includes('check:agent/review=success'));
+  const off = acceptanceFake({ pr: pr({ head: human }), dashboardLabels: [] });
+  await onPullRequest(ctxFor(off, 'pull_request_target', { action: 'unlabeled', label: { name: 'review:exempt' }, sender: { login: 'me' }, pull_request: { number: 5 } }));
+  assert.ok(off.writes().includes('check:agent/review=failure'));
+});
+
+test('人の PR の判定を受け付け、合格なら agent/review を通すが auto-merge は付けない', async () => {
+  const fake = acceptanceFake({ pr: pr({ head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }), dashboardLabels: [] });
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
+  const w = fake.writes();
+  assert.ok(!w.includes('enablePullRequestAutoMerge'));
+  assert.ok(w.includes('comment:human-review'));
+  assert.equal(w.at(-1), 'check:agent/review=success');
+});
+
+test('fork の PR の判定は受け付けない', async () => {
+  const fake = acceptanceFake({ pr: pr({ head: { ref: 'claude/x', sha: HEAD, repo: { full_name: 'evil/r' } } }), dashboardLabels: [] });
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
+  assert.deepEqual(fake.writes(), ['comment:verdict-rejected']);
 });
 
 test('fork の claude/ ブランチは Agent PR とみなさない', async () => {

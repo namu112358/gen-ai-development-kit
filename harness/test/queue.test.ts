@@ -10,7 +10,7 @@ const issue = (patch: Partial<IssueFacts> = {}): IssueFacts => ({
   gate: null, latestPlanAt: null, planOkByApp: false, openPr: null, ...patch,
 });
 const pr = (patch: Partial<PrFacts> = {}): PrFacts => ({
-  number: 10, claim: null, issueLabels: [], issue: 1, readyAt: '2026-09-26T00:00:00Z', labels: [], headSha: 'h', headPushedAt: '2026-09-26T01:00:00Z',
+  number: 10, agent: true, claim: null, issueLabels: [], issue: 1, readyAt: '2026-09-26T00:00:00Z', labels: [], headSha: 'h', headPushedAt: '2026-09-26T01:00:00Z',
   acceptance: null, verdictAwaitingGate: false, humanFeedbackSincePush: 0, ...patch,
 });
 
@@ -76,4 +76,11 @@ test('着手宣言：解除コメントで終わり、人の着手は奪わず�
   assert.equal(decideIssue(issue({ claim: { by: 'manual', at: '2026-09-26T11:00:00Z', released: true } }), opts).kind, 'plan', '解除済み');
   const stale = decideIssue(issue({ claim: { by: 'manual', at: '2026-09-26T01:00:00Z' } }), opts);
   assert.ok(stale.kind === 'skip' && stale.reason.includes('停滞'));
+});
+
+test('人の PR：判定だけ出し、修正は出さない', () => {
+  assert.equal(decidePr(pr({ agent: false }), opts).kind, 'judge');
+  assert.equal(decidePr(pr({ agent: false, humanFeedbackSincePush: 1 }), opts).kind, 'judge', '人の指摘でも Routine は直さない');
+  const failed = decidePr(pr({ agent: false, acceptance: { reviewPass: false, at: 'x' } }), opts);
+  assert.ok(failed.kind === 'skip' && failed.reason.includes('人の修正待ち'));
 });
