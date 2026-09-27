@@ -406,4 +406,5 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q70 | patch-id | `--verbatim` を使う（`--stable` は空白を無視する） |
 | Q71 | 質問4 の範囲 | 「挙動を変える変更がテストで検証されているか（挙動を変えない変更だけなら yes）」に言い換え |
 | Q72 | Routine の GitHub 操作 | GitHub MCP ツールのみ（Routine の環境に `gh` と API 用トークンがない）。queue は App が計算してダッシュボードに公開し、Routine はそれに従う。メトリクスは PR コメントに残す |
+| Q74 | 優先度 | `priority:high` / `priority:low` ラベルで queue を並べ替える（優先度 → 先着順）。フォームには入れない |
 | Q73 | 汎用化 | 固有名は `harness.config.json` と `setup.ts` の引数に寄せ、別のリポジトリに導入できるようにする |

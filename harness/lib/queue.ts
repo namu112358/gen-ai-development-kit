@@ -1,4 +1,4 @@
-import { LABELS } from './config.ts';
+import { LABELS, priorityRank } from './config.ts';
 
 /**
  * Routine の次の行動を決める純粋関数。GitHub から集めた事実（Facts）だけを入力にする。
@@ -25,6 +25,8 @@ export interface IssueFacts {
 
 export interface PrFacts {
   number: number;
+  /** PR が Close する Issue のラベル（優先度を引き継ぐ） */
+  issueLabels: string[];
   claim: Claim | null;
   issue: number | null;
   readyAt: string | null;
@@ -98,12 +100,12 @@ export function decidePr(f: PrFacts, opts: QueueOptions): Action {
   return { kind: 'skip', target, reason: '判定済み（Merge 待ち）' };
 }
 
-/** 先着順（agent:ready が付いた順）に並べ、上限件数まで返す。skip は上限に数えない */
+/** 優先度ラベル → agent:ready が付いた順に並べ、上限件数まで返す。skip は上限に数えない */
 export function buildQueue(issues: IssueFacts[], prs: PrFacts[], opts: QueueOptions, limit: number): { actions: Action[]; skipped: Action[] } {
   const items = [
-    ...issues.map((f) => ({ at: f.readyAt, action: decideIssue(f, opts) })),
-    ...prs.map((f) => ({ at: f.readyAt, action: decidePr(f, opts) })),
-  ].sort((a, b) => (a.at ?? '9999').localeCompare(b.at ?? '9999'));
+    ...issues.map((f) => ({ rank: priorityRank(f.labels), at: f.readyAt, action: decideIssue(f, opts) })),
+    ...prs.map((f) => ({ rank: priorityRank(f.issueLabels), at: f.readyAt, action: decidePr(f, opts) })),
+  ].sort((a, b) => a.rank - b.rank || (a.at ?? '9999').localeCompare(b.at ?? '9999'));
   const actions = items.filter((i) => i.action.kind !== 'skip').map((i) => i.action);
   const skipped = items.filter((i) => i.action.kind === 'skip').map((i) => i.action);
   return { actions: actions.slice(0, limit), skipped };
