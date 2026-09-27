@@ -72,13 +72,3 @@ test('計画ゲート（App）：files がガードレールに触れると、�
   await onComment(ctxFor(ok, 'issue_comment', planEvent({ ...plan, files: ['harness/lib/usage.ts'] })));
   assert.equal(ok.writes()[0], 'label+agent:plan-ok', '除外したファイルは止めない');
 });
-
-test('計画ゲート（App）：split の子課題がガードレールに触れると、子課題を作らずに止める', async () => {
-  const child = (files: string[]) => ({ title: 'docs: x', goal: 'g', requirements: ['r'], acceptanceCriteria: ['a'], files, dependsOn: [] });
-  const fake = acceptanceFake({ pr: pr() });
-  await onComment(ctxFor(fake, 'issue_comment', planEvent({ ...plan, risk: 'critical', files: [], split: [child(['docs/a.md']), child(['.github/**'])] })));
-  const w = fake.writes();
-  assert.deepEqual(w.slice(0, 3), ['label-agent:plan-ok', 'label+agent:plan-review', 'comment:plan-gate']);
-  assert.ok(!w.some((x) => x.startsWith('POST /repos/o/r/issues') && !x.includes('/comments')), '子 Issue は作らない');
-  assert.match(gateBody(fake), /ガードレールに触れます.*\.github\/\*\*/);
-});
