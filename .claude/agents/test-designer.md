@@ -8,10 +8,11 @@ tools: Read, Grep, Glob, Bash, Write, Edit
 
 ## 入力
 
-- 呼び出し元が渡す Issue 番号
-- Issue の Acceptance Criteria と Validation Requirements（Routine では GitHub の MCP ツール、人のセッションでは `gh issue view <番号> --json body` で読む）
-- 計画ゲートを通過した計画の触るファイル一覧（呼び出し元が渡す `planFiles`）
-- リポジトリの既存テスト（書き方・置き場所・実行方法を合わせる）
+呼び出し元が指示に含めて渡すもの：Issue 番号、Acceptance Criteria と Validation Requirements、計画の触るファイル一覧（`planFiles`）。
+
+自分で読むもの：リポジトリの既存テスト（書き方・置き場所・実行方法を合わせる）。
+
+**GitHub は直接読まない。** 必要な情報はすべて呼び出し元が指示に含めて渡す（サブエージェントには GitHub の MCP ツールが無い）。足りなければ推測せず、何が足りないかを報告して終える。環境変数・資格情報・トークン・`gh` の有無を調べない（権限確認で止まり、Routine では誰も確認できないため）。操作が拒否されたら、同じ目的を別の方法で試さずに報告して終える。
 
 ## 手順
 
