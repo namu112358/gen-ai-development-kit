@@ -1,13 +1,15 @@
 import { appLogin } from '../lib/config.ts';
-import { isAgentPr, type PullRequest } from '../lib/state.ts';
+import { appRecords, bodyIssueRefs, isAgentPr, type PullRequest } from '../lib/state.ts';
 import { refreshMergeRoute } from './apply.ts';
 import { appComment, disableAutoMerge, getPr, updateBranchIfBehind, type GateContext } from './context.ts';
+import type { StackLinkRecord } from './plan-link.ts';
 import { ensureDashboard } from './stale.ts';
 
 /**
  * main に push されたときの処理。
  * - 自動 Merge された PR の revert を検知したら自動 Merge モードを切る（人が戻すまで再開しない）
  * - Agent PR を main に追従させる（差分が同じなら判定は引き継がれる。衝突したものは Routine が解消する）
+ * - Stacked PR の層が Merge されたら、App の stack-link の記録の Issue を閉じる（層の Closes は GitHub が閉じない見込みのため）
  */
 export async function onMainPush(ctx: GateContext): Promise<void> {
   const commits = (ctx.event.commits ?? []) as { id: string; message: string }[];
@@ -26,6 +28,7 @@ export async function onMainPush(ctx: GateContext): Promise<void> {
   }
   if (autoMerged.length > 0) await stopAutoMerge(ctx, autoMerged);
   await updateWaitingBranches(ctx);
+  await closeStackedIssues(ctx, commits);
 }
 
 export function revertedPrNumbers(message: string): number[] {
@@ -63,5 +66,37 @@ async function updateWaitingBranches(ctx: GateContext): Promise<void> {
     // auto-merge 待ちに限らず、すべての Agent PR を早めに追従させる（衝突を小さいうちに見つけ、Routine が解消する）
     if (!isAgentPr(ctx.config, item, ctx.repository)) continue;
     await updateBranchIfBehind(ctx, await getPr(ctx, item.number));
+  }
+}
+
+/**
+ * push のコミットから Merge された PR を引き、App の stack-link の記録の Issue のうち開いているものを閉じる。
+ * 記録の Issue のうち、Merge された PR の今の本文にもあるものだけを閉じる（記録の後に本文を書き換えた PR で、古い記録の Issue を閉じないため）。
+ * PR の取得に失敗したコミットは飛ばす（取りこぼしは Issue が開いたまま残る側に倒れる）。
+ */
+async function closeStackedIssues(ctx: GateContext, commits: { id: string }[]): Promise<void> {
+  const seen = new Set<number>();
+  for (const c of commits) {
+    let prs: PullRequest[];
+    try {
+      prs = await ctx.gh.get<PullRequest[]>(`/commits/${c.id}/pulls`);
+    } catch (e) {
+      ctx.log(`コミット ${c.id.slice(0, 7)} の PR を読めませんでした（Stacked PR の Issue の Close を飛ばします）: ${e instanceof Error ? e.message : String(e)}`);
+      continue;
+    }
+    for (const pr of prs) {
+      if (seen.has(pr.number)) continue;
+      seen.add(pr.number);
+      if (!pr.merged_at) continue;
+      const record = appRecords<StackLinkRecord>(ctx.config, await ctx.gh.listComments(pr.number), 'stack-link').at(-1)?.value;
+      if (!record || !Array.isArray(record.issues)) continue;
+      const inBody = new Set(bodyIssueRefs(pr.body).map((r) => r.number));
+      for (const n of record.issues.filter((i) => inBody.has(i))) {
+        const issue = await ctx.gh.get<{ state: string; pull_request?: unknown }>(`/issues/${n}`);
+        if (issue.pull_request || issue.state !== 'open') continue;
+        await ctx.gh.request('PATCH', `/issues/${n}`, { body: { state: 'closed', state_reason: 'completed' } });
+        await appComment(ctx, n, 'stack-closed', `Stacked PR #${pr.number}（スタック #${record.stack}）が既定ブランチに Merge されたため閉じました。`);
+      }
+    }
   }
 }

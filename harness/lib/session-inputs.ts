@@ -102,9 +102,19 @@ export const PAST_PR_LIMIT = 10;
 export const PAST_PR_ITEM_CHARS = 1500;
 export const PAST_PR_SECTION_CHARS = 20000;
 
+/** Stacked PR の層の事実（judge-input のスタックの節）。lower は下の層（近い順） */
+export interface StackFacts {
+  base: string;
+  number: number;
+  position: number;
+  size: number;
+  lower: { number: number; base: string; files: string[] }[];
+}
+
 export interface JudgeFacts {
-  pr: { number: number; headSha: string; body: string | null };
-  /** PR が Closes する Issue。comments は Issue のコメント（App の計画ゲートの記録を含む）。epic は Epic の子課題なら親 */
+  /** baseRef は PR の base（無ければ既定ブランチとみなす。再レビューの補足の diff の取り方に使う） */
+  pr: { number: number; headSha: string; body: string | null; baseRef?: string };
+  /** PR が紐付く Issue（スタックの層は本文の `Refs`／`Closes`）。comments は Issue のコメント（App の計画ゲートの記録を含む）。epic は Epic の子課題なら親 */
   issues: { number: number; title: string; body: string | null; comments: IssueComment[]; epic?: ParentEpic }[];
   prComments: IssueComment[];
   /** head の check run */
@@ -115,6 +125,8 @@ export interface JudgeFacts {
   prState?: PrState;
   /** 変更ファイルを触った Merge 済みの過去の PR（無ければ「(集めていません)」） */
   pastPrs?: PastPrs;
+  /** Stacked PR の層の事実（null はスタックの層でない。無ければスタックの節を出さない） */
+  stack?: StackFacts | null;
 }
 
 /** コラボレーターのコメント（着手宣言を除く） */
@@ -209,15 +221,46 @@ export function mergesSince(commits: PrCommit[], previousHead: string): MergeSin
   return merges.length > 0 ? { kind: 'merged', merges } : { kind: 'none' };
 }
 
-function renderRange(commits: PrCommit[] | undefined, previousHead: string): string {
+/** 再レビューの範囲の補足。base は PR の base（Stacked PR の層なら下の層のブランチ） */
+function renderRange(commits: PrCommit[] | undefined, previousHead: string, base: string): string {
   if (!commits) return '(PR のコミット一覧がありません)';
   const m = mergesSince(commits, previousHead);
   if (m.kind === 'unknown') return `判断できません：${m.reason}`;
-  if (m.kind === 'none') return '前回の head の後に main の取り込みはありません。';
+  if (m.kind === 'none') return `前回の head の後に ${base} の取り込みはありません。`;
   return [
-    `前回の head の後に main の取り込みがあります（${m.merges.join(', ')}）。`,
-    `\`git diff ${previousHead}...<headSha>\` には main から来た変更も入る。PR 自身の変更は、それぞれの head で \`git diff origin/main...<head>\` を取って比べると分かる。`,
+    `前回の head の後に ${base} の取り込みがあります（${m.merges.join(', ')}）。`,
+    `\`git diff ${previousHead}...<headSha>\` には ${base} から来た変更も入る。PR 自身の変更は、それぞれの head で \`git diff origin/${base}...<head>\` を取って比べると分かる。`,
   ].join('\n');
+}
+
+/**
+ * Stacked PR の下の層をたどる。PR の base から始めて、head がその base で同じリポジトリの開いた PR を下へたどり、
+ * base が既定ブランチになるか、見つからないか、limit 件で止まる（近い順）。
+ */
+export function lowerLayers(
+  openPrs: { number: number; head: { ref: string; repo: { full_name: string } | null }; base: { ref: string } }[],
+  pr: { number: number; base: { ref: string } },
+  defaultBranch: string,
+  repository: string,
+  limit: number,
+): { number: number; base: string }[] {
+  const out: { number: number; base: string }[] = [];
+  let base = pr.base.ref;
+  while (base !== defaultBranch && out.length < limit) {
+    const lower = openPrs.find((p) => p.number !== pr.number && p.head.ref === base && p.head.repo?.full_name === repository);
+    if (!lower) break;
+    out.push({ number: lower.number, base: lower.base.ref });
+    base = lower.base.ref;
+  }
+  return out;
+}
+
+/** judge-input のスタックの節の本文 */
+export function renderStack(stack: StackFacts | null): string[] {
+  if (stack === null) return ['(スタックの層ではありません)'];
+  const head = `base: ${stack.base} / 位置: ${stack.position} / ${stack.size}（スタック #${stack.number}）`;
+  if (stack.lower.length === 0) return [head, '(なし)'];
+  return [head, ...stack.lower.flatMap((l) => [`--- PR #${l.number}（base ${l.base}）`, `変更ファイル: ${l.files.join(', ') || '(なし)'}`])];
 }
 
 type HistoryPr = { number: number; title: string; merged: boolean; mergedAt: string | null; baseRefName: string };
@@ -332,6 +375,7 @@ export function renderJudgeInput(config: HarnessConfig, facts: JudgeFacts): stri
   out.push('', '=== PR のコメント（コラボレーター。判定コメントを除く）');
   out.push(...(prComments.length > 0 ? prComments.flatMap((c) => [`--- ${c.user?.login ?? '?'} ${c.created_at}`, c.body.trim()]) : ['(なし)']));
   out.push('', '=== PR の状態（参考。合体版の段階0の材料）', renderPrState(facts.prState));
+  if (facts.stack !== undefined) out.push('', '=== スタック（Stacked PR の層。参考：積む必要性の検査の材料）', ...renderStack(facts.stack));
   out.push('', '=== 過去の PR のコメント（参考。合体版の④の材料。変更ファイルを触った Merge 済みの PR のコラボレーターのコメント。App・Claude の目印のものを除く）');
   out.push(...renderPastPrs(config, facts.pastPrs));
   out.push('', `=== 範囲照合（${CHECKS.scope}）`, describeScope(config, facts.checkRuns));
@@ -339,7 +383,7 @@ export function renderJudgeInput(config: HarnessConfig, facts: JudgeFacts): stri
   out.push('', '=== 前回の判定');
   out.push(prev ? [`headSha: ${prev.headSha}`, 'blocking:', JSON.stringify(prev.blocking, null, 2)].join('\n') : '(なし)');
   if (broken.length > 0) out.push(`(注) これより新しい判定コメントのブロックが壊れていたため飛ばしました：${broken.join(', ')}`);
-  if (prev) out.push('', '=== 再レビューの範囲（補足）', renderRange(facts.commits, prev.headSha));
+  if (prev) out.push('', '=== 再レビューの範囲（補足）', renderRange(facts.commits, prev.headSha, facts.pr.baseRef ?? config.defaultBranch));
   return `${out.join('\n')}\n`;
 }
 
