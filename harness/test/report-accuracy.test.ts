@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { loadConfig } from '../lib/config.ts';
+import { JEV_QUESTION_SET } from '../lib/jev.ts';
 import type { Acceptance, JevRecord } from '../lib/merge-route.ts';
 import { JEV_ENFORCE_CRITERIA, fixPrsFor, isFixPr, isJevLow, renderReport, summarize } from '../lib/report.ts';
 import type { MergedPr, ReportRow } from '../lib/report.ts';
@@ -14,7 +15,7 @@ const at = (ms: number) => new Date(T0 + ms).toISOString();
 
 /** Jev の記録。low を渡すと status ok で q1_risk.low を入れる */
 function jevOk(low: number, allows: boolean): JevRecord {
-  return { status: 'ok', allows, answers: { q1_risk: { low, medium: 1 - low, high: 0, critical: 0 } } };
+  return { status: 'ok', allows, answers: { q1_risk: { low, medium: 1 - low, high: 0, critical: 0 } }, questionSet: JEV_QUESTION_SET };
 }
 
 /** 受け付け記録の fake（必須フィールドを埋める） */

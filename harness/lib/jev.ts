@@ -11,14 +11,54 @@ import { RISK_QUESTIONS, type Verdict } from './verdict.ts';
 
 const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 
-const QUESTION_TEXT: Record<string, string> = {
-  q2_revertible: 'If this change is reverted with `git revert`, is every effect of it completely undone (no lingering data, external state, or published artifacts)?',
-  q3_publicInterface: 'Judging from `diff` only: does this change modify something that is exported, that other modules may use, or the shape of a configuration, schema, API, or event format? If so, answer yes.',
-  q4_tested: 'Is every behavior change in `diff` matched by a test added or modified in `diff` (a test file listed in `changed_files`)? If you cannot confirm this from `diff`, answer no. If `diff` changes no runtime behavior at all (for example documentation only), answer yes.',
-  q5_persistentData: 'Does this change write, delete, or migrate persistent data (databases, files kept across runs, external storage)?',
-  q6_authBillingSecrets: 'Does this change touch authentication, authorization, billing, or secrets?',
-  q7_dependencies: 'Does this change add or update dependencies (package manifests or lockfiles)?',
-  q8_harnessConfig: 'Does this change touch a guardrail: a file matching `guardrail_paths` (the `guardrailPaths` of `harness.config.json`) and not matching `guardrail_exclude`? `harness.config.json` itself is always a guardrail. In the patterns, `*` matches within one path segment and `**` matches any depth.',
+/**
+ * 問いの版。問いの文や criteria を変えたら上げる（受け付けの記録の `questionSet` に残し、集計を版ごとに分ける）。
+ * 版 1 は Q87 より前の問い（記録に `questionSet` が無いもの）。
+ */
+export const JEV_QUESTION_SET = 2;
+
+/**
+ * q2〜q8 の Noul の問い。Jev は文字どおりに読むので、条件を直接書き、境界の例を `criteria` に置く（Q87）。
+ * `criteria` の形は Noul の API（https://docs.typesafe.ai/primitives/noul の Request structure）に合わせる。
+ */
+export const JEV_NOUL_QUESTIONS: Record<string, { instructions: string; criteria?: { true: string; false: string } }> = {
+  q2_revertible: {
+    instructions: 'Would running `git revert` on this change restore the state from before the change?',
+    criteria: {
+      true: 'Every change in `diff` is an edit to files in this repository (documentation, tests, source code, or configuration), and the changed code does not write stored data, call an external service, send messages, or publish or deploy anything when it runs. Changes that only edit documentation or tests are yes.',
+      false: '`diff` adds or changes code that, when it runs, writes, deletes, or migrates stored data, calls an external service that changes remote state, sends messages, or publishes, deploys, or releases something. Reverting the files does not undo those effects. This includes changes to CI or deployment workflow files that publish, deploy, or release something when they run.',
+    },
+  },
+  q3_publicInterface: {
+    instructions: 'Judging from `diff` only: does this change modify something that is exported, that other modules may use, or the shape of a configuration, schema, API, or event format? If so, answer yes.',
+    criteria: {
+      true: '`diff` changes the name, parameters, or return value of an exported function, type, or class, or changes the fields, keys, or allowed values of a configuration file, schema, API, command-line option, or event or comment format.',
+      false: '`diff` changes only explanatory documentation, tests, code comments, or code that is not exported, and changes no configuration, schema, API, command-line option, or event or comment format.',
+    },
+  },
+  q4_tested: {
+    instructions: 'Is every behavior change in `diff` matched by a test added or modified in `diff` (a test file listed in `changed_files`)? If you cannot confirm this from `diff`, answer no. If `diff` changes no runtime behavior at all (for example documentation only), answer yes.',
+  },
+  q5_persistentData: {
+    instructions: 'Does `diff` add or change code that writes, deletes, or migrates persistent data?',
+    criteria: {
+      true: '`diff` adds or changes code that, when it runs, writes to, deletes from, or changes the schema of a database, files that the program keeps between runs, or external storage.',
+      false: '`diff` changes only documentation, tests, or code that does not write stored data. The edits to repository files shown in `diff` are not themselves persistent data writes.',
+    },
+  },
+  q6_authBillingSecrets: {
+    instructions: 'Does this change touch authentication, authorization, billing, or secrets?',
+    criteria: {
+      true: '`diff` changes code or configuration that checks identity or permissions, handles tokens, keys, or passwords, stores or reads secrets, or charges money.',
+      false: '`diff` changes no such code or configuration. Documentation that only mentions these topics without changing how they work is no.',
+    },
+  },
+  q7_dependencies: {
+    instructions: 'Does this change add or update dependencies (package manifests or lockfiles)?',
+  },
+  q8_harnessConfig: {
+    instructions: 'Does this change touch a guardrail: a file matching `guardrail_paths` (the `guardrailPaths` of `harness.config.json`) and not matching `guardrail_exclude`? `harness.config.json` itself is always a guardrail. In the patterns, `*` matches within one path segment and `**` matches any depth.',
+  },
 };
 
 /**
@@ -39,7 +79,8 @@ export function buildJevRequest(config: HarnessConfig, diff: string, changedFile
     },
   };
   for (const q of RISK_QUESTIONS) {
-    questions[q.key] = { type: 'noul', instructions: QUESTION_TEXT[q.key] };
+    const { instructions, criteria } = JEV_NOUL_QUESTIONS[q.key]!;
+    questions[q.key] = { type: 'noul', instructions, ...(criteria ? { criteria } : {}) };
   }
   return {
     model: config.jev.model,
@@ -60,15 +101,26 @@ interface JevResponse {
   usage?: { input_tokens: number; output_tokens: number };
 }
 
+/**
+ * 記録用の形（`flattenAnswers` の結果。q1_risk は選択肢ごとの確率、Noul は yes の確率）から、しきい値で落ちた問いのキーを返す。
+ * 値が無い・有限でない（答えの無い Noul は NaN）問いも落ちたとする。ゲートの判定（`jevAllows`）と集計（report.ts）で同じ解釈にするため1か所にまとめる。
+ */
+export function jevFailures(config: HarnessConfig, flat: Record<string, Record<string, number>> | undefined): string[] {
+  const { lowProbability, noulSafe } = config.jev.thresholds;
+  const out: string[] = [];
+  const low = flat?.q1_risk?.low;
+  if (typeof low !== 'number' || !Number.isFinite(low) || low < lowProbability) out.push('q1_risk');
+  for (const q of RISK_QUESTIONS) {
+    const p = flat?.[q.key]?.yes;
+    const ok = typeof p === 'number' && Number.isFinite(p) && (q.safe === 'yes' ? p >= noulSafe : p <= 1 - noulSafe);
+    if (!ok) out.push(q.key);
+  }
+  return out;
+}
+
 /** Jev の答えが自動 Merge を許すか（切り替え後の判定規則。シャドー期間は記録のみ） */
 export function jevAllows(config: HarnessConfig, answers: JevResponse['answers']): boolean {
-  const { lowProbability, noulSafe } = config.jev.thresholds;
-  if ((answers.q1_risk?.probabilities?.low ?? 0) < lowProbability) return false;
-  return RISK_QUESTIONS.every((q) => {
-    const p = answers[q.key]?.noul;
-    if (typeof p !== 'number') return false;
-    return q.safe === 'yes' ? p >= noulSafe : p <= 1 - noulSafe;
-  });
+  return jevFailures(config, flattenAnswers(answers)).length === 0;
 }
 
 export type JevAnswers = JevResponse['answers'];
@@ -126,7 +178,7 @@ export async function callJev(
   }
   const r = await askJev(apiKey, buildJevRequest(config, diff, changedFiles, facts), fetchImpl);
   if (r.status === 'error') return r;
-  return { status: 'ok', detail: r.model, allows: jevAllows(config, r.answers), answers: flattenAnswers(r.answers) };
+  return { status: 'ok', detail: r.model, allows: jevAllows(config, r.answers), answers: flattenAnswers(r.answers), questionSet: JEV_QUESTION_SET };
 }
 
 /** ログやコメントに秘密が出ないよう伏せ字にする */
