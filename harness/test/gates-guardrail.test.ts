@@ -41,13 +41,13 @@ test('一覧自身（harness.config.json）の変更と、ガードレールか�
 });
 
 test('ガードレールに触れない PR は、従来どおり Risk Agent の答えで決まる', async () => {
-  const low = fakeWith(['harness/scripts/agent.ts', 'CLAUDE.md'], [{ filename: 'harness/scripts/agent.ts' }, { filename: 'CLAUDE.md' }]);
+  const low = fakeWith(['docs/operations.md', 'CLAUDE.md'], [{ filename: 'docs/operations.md' }, { filename: 'CLAUDE.md' }]);
   await onComment(ctxFor(low, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
   assert.ok(low.writes().includes('enablePullRequestAutoMerge'));
   assert.match(acceptanceBody(low), /\| ガードレール \| 触れない \|/);
   assert.doesNotMatch(acceptanceBody(low), /ガードレールに触れます/);
 
-  const medium = fakeWith(['harness/scripts/agent.ts'], [{ filename: 'harness/scripts/agent.ts' }]);
+  const medium = fakeWith(['docs/operations.md'], [{ filename: 'docs/operations.md' }]);
   await onComment(ctxFor(medium, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict({ risk: { ...verdict().risk, level: 'medium' } })))));
   assert.ok(!medium.writes().includes('enablePullRequestAutoMerge'));
   assert.doesNotMatch(acceptanceBody(medium), /ガードレールに触れます/);

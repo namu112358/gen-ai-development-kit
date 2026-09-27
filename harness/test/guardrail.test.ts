@@ -23,15 +23,15 @@ test('guardrailPaths が無い設定では、すべてのファイルとパタ�
 });
 
 test('初期の一覧：Issue の表どおり', () => {
-  const hit = ['.github/workflows/gate.yml', '.github/ISSUE_TEMPLATE/agent-task.yml', '.claude/settings.json', 'harness/templates/x.json', '.claude/agents/reviewer.md', '.claude/agents/risk-agent.md', 'docs/risk-policy.md', 'harness/gates/run.ts', 'harness/lib/plan.ts', 'harness/lib/epic.ts', 'harness/lib/test-tamper.ts', 'harness/lib/guardrail.ts', 'harness/scripts/setup.ts', 'harness.config.json', 'package.json', 'package-lock.json', '.node-version', 'tsconfig.json', '.claude/hooks/pre.sh', '.mcp.json', 'CODEOWNERS', 'docs/CODEOWNERS', '.github/CODEOWNERS'];
-  const miss = ['harness/lib/usage.ts', 'harness/lib/classify.ts', 'harness/lib/worktree.ts', 'harness/lib/issue-triage.ts', 'harness/lib/queue.ts', 'harness/lib/facts.ts', 'harness/lib/concurrency.ts', 'harness/scripts/agent.ts', 'harness/scripts/report.ts', 'harness/test/plan.test.ts', '.claude/routine.md', '.claude/agents/plan-critic.md', '.claude/agents/test-designer.md', '.claude/skills/x/SKILL.md', 'CLAUDE.md', 'docs/plan.md'];
+  const hit = ['.github/workflows/gate.yml', '.github/ISSUE_TEMPLATE/agent-task.yml', '.claude/settings.json', 'harness/templates/x.json', '.claude/agents/reviewer.md', '.claude/agents/risk-agent.md', 'docs/risk-policy.md', 'harness/gates/run.ts', 'harness/lib/plan.ts', 'harness/lib/epic.ts', 'harness/lib/test-tamper.ts', 'harness/lib/guardrail.ts', 'harness/scripts/setup.ts', 'harness/scripts/agent.ts', '.claude/skills/judge/SKILL.md', '.claude/skills/plan/SKILL.md', '.claude/routine.md', '.claude/agents/plan-critic.md', '.claude/agents/test-designer.md', 'harness/lib/facts.ts', 'harness.config.json', 'package.json', 'package-lock.json', '.node-version', 'tsconfig.json', '.claude/hooks/pre.sh', '.mcp.json', 'CODEOWNERS', 'docs/CODEOWNERS', '.github/CODEOWNERS'];
+  const miss = ['harness/lib/usage.ts', 'harness/lib/classify.ts', 'harness/lib/worktree.ts', 'harness/lib/issue-triage.ts', 'harness/lib/queue.ts', 'harness/lib/concurrency.ts', 'harness/scripts/report.ts', 'harness/test/plan.test.ts', '.claude/skills/x/SKILL.md', 'CLAUDE.md', 'docs/plan.md'];
   assert.deepEqual(guardrailFiles(config, [...hit, ...miss]), [...hit].sort());
 });
 
 test('計画のパターン：重なりうれば当たり、除外に完全に含まれるときだけ外す', () => {
   const r = (p: string) => guardrailPatterns(config, [p]).length > 0;
   for (const p of ['harness/lib/**', 'harness/**', 'harness/lib/*.ts', 'harness/scripts/*.ts', 'docs/**', 'docs/*.md', '.github/workflows/x.yml', 'harness.config.json', 'harness/gates/**/a.ts']) assert.equal(r(p), true, p);
-  for (const p of ['harness/lib/usage.ts', 'harness/test/**', 'harness/scripts/agent.ts', 'docs/plan.md', 'src/**', '.claude/routine.md', 'CLAUDE.md']) assert.equal(r(p), false, p);
+  for (const p of ['harness/lib/usage.ts', 'harness/test/**', 'harness/scripts/report.ts', 'docs/plan.md', 'src/**', '.claude/skills/x/SKILL.md', 'CLAUDE.md']) assert.equal(r(p), false, p);
   assert.equal(guardrailPatterns({ guardrailPaths: ['a/**'], guardrailExclude: ['a/b/**'] }, ['a/b/**']).length, 0, '除外と同じパターン');
   assert.equal(guardrailPatterns({ guardrailPaths: ['a/**'], guardrailExclude: ['a/b/**'] }, ['a/b/*.ts']).length, 1, '除外に含まれうるワイルドカードでも同じパターンでなければ当たる');
   assert.equal(guardrailPatterns({ guardrailPaths: ['a/**'], guardrailExclude: ['harness.config.json'] }, ['harness.config.json']).length, 1, '一覧自身');
