@@ -123,4 +123,5 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev }` |
 | `verdict-rejected` | PR | 判定を受け付けなかった理由 |
 | `fix-request` | PR（レビュー） | Reviewer のブロッキング指摘（修正回数はこの数で数える） |
-| `human-review` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `auto-merge-stopped` / `dashboard` | 各所 | 通知・記録 |
+| `issue-triage` | Issue | Jev による分類の提案と、その確率 |
+| `human-review` / `priority-conflict` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `auto-merge-stopped` / `dashboard` | 各所 | 通知・記録 |
