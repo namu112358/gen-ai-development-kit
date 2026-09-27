@@ -100,3 +100,32 @@ export function evaluatePlanGate(plan: Plan, issueNumber: number, guardrail: Gua
   }
   return { pass: reasons.length === 0, reasons, ...extra };
 }
+
+/** Planner が人の判断を求めているか（needsHuman・AC の変更提案・未解決の質問のどれか） */
+export function plannerRequestsHuman(plan: Plan): boolean {
+  return plan.needsHuman || plan.acChangeProposed || plan.openQuestions.length > 0;
+}
+
+/** agent:plan-review の出どころ。gate は App のゲートの停止、planner は Planner の申告か人が付けた印 */
+export type PlanReviewOrigin = 'gate' | 'planner';
+
+/**
+ * 停止の記録に書く出どころ。labelBefore は、App が判定する時点で agent:plan-review が付いていて、
+ * 前の印を解かなかったか（Planner が先に付けた、または人が付けた印）。
+ */
+export function planReviewOrigin(plan: Plan, labelBefore: boolean): PlanReviewOrigin {
+  return plannerRequestsHuman(plan) || labelBefore ? 'planner' : 'gate';
+}
+
+/**
+ * 計画の出し直しで、前の agent:plan-review を理由に止めないか。
+ * Issue に印があり、App の最新の計画ゲートの記録がゲートの停止（planReviewOrigin: gate）で、
+ * 最後に印を付けたのが App のときだけ true。出どころの無い古い記録は人が外すまで止める。
+ */
+export function priorPlanReviewReleased(
+  hasLabel: boolean,
+  previous: { pass: boolean; planReviewOrigin?: PlanReviewOrigin } | null | undefined,
+  lastLabeledByApp: boolean,
+): boolean {
+  return hasLabel && previous?.pass === false && previous.planReviewOrigin === 'gate' && lastLabeledByApp;
+}

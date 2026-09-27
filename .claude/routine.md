@@ -43,7 +43,7 @@
    - `revise`：必須の `fixes` を反映して計画を直し、もう一度批評させる。回数だけでは止めない。次のどちらかに当たったら止める：**前回と同じ必須の指摘が直っていない**（堂々巡り）、**3回目でも必須が残る**（上限）。Routine（無人）では `render-block needs-decision <理由>` で人に返す（有人セッションでの扱いは CLAUDE.md）。
    - `split`：分け方の案に従い、計画ブロックに `split`（子課題ごとの title・goal・requirements・acceptanceCriteria・files・dependsOn。書式は [docs/formats.md](../docs/formats.md)）を書き、`critique` の `verdict` を `split` にして次へ（案に無い requirements・acceptanceCriteria は Issue から補う。兄弟の `files` は重ならないように分ける）。分け方の検査に通れば App が子 Issue を作り、子課題ごとの計画でまた批評する。
    - `drop`：`render-block needs-decision <理由>` で人に返す。
-5. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。
+5. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。`addLabels` の `agent:plan-review` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）のときだけ。App のゲートの停止の後に出し直した計画は、止めた理由が当たらなければ App が `agent:plan-review` を外して通す（Planner の申告や人が付けた印は人が外すまで残る）。
 6. 実装は**しない**。
 
 ### implement（実装）

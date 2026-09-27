@@ -90,6 +90,8 @@ export interface PlanGateRecord {
   planCommentId: number;
   pass: boolean;
   reasons: string[];
+  /** 停止の出どころ（gate：App のゲートの停止、planner：Planner の申告か人が付けた印）。古い記録には無い */
+  planReviewOrigin?: 'gate' | 'planner';
 }
 
 export function latestPlanGate(config: HarnessConfig, comments: IssueComment[]): { comment: IssueComment; value: PlanGateRecord } | null {

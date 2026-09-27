@@ -10,7 +10,7 @@ import { computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
 import { fleetStatus, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
-import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
+import { evaluatePlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
 import type { Claim } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
 import {
@@ -133,7 +133,7 @@ function renderPlan(n: number, file: string): { body: string; addLabels: string[
   const risks = (['low', 'medium', 'high', 'critical'] as const).map(riskLabel);
   return {
     body: readBlockFile(file),
-    addLabels: [riskLabel(plan.risk), ...(gate.pass ? [] : [LABELS.planReview])],
+    addLabels: [riskLabel(plan.risk), ...(plannerRequestsHuman(plan) ? [LABELS.planReview] : [])],
     removeLabels: risks.filter((r) => r !== riskLabel(plan.risk)),
     expectedGate: gate,
   };
