@@ -1,4 +1,5 @@
 import { RISK_LEVELS, type RiskLevel } from './config.ts';
+import { parseSplit, validateSplit, type SplitChild } from './epic.ts';
 import { validateScopePattern } from './scope.ts';
 import { Checker } from './validate.ts';
 
@@ -15,6 +16,8 @@ export interface Plan {
   acChangeProposed: boolean;
   openQuestions: string[];
   files: string[];
+  /** Epic として子課題に分けるとき（2件以上）。あれば files は空でよく、Risk では止めない */
+  split?: SplitChild[];
   /** 投稿前の批評の結果（記録用。ゲートの判断には使わない） */
   critique?: { verdict: CritiqueVerdict; rounds: number };
 }
@@ -40,6 +43,7 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
     // 触るファイル一覧が欠けていてもゲートで止められるよう、ここでは空配列を許す
     files: o.files === undefined ? [] : c.stringArray(o.files, 'plan.files'),
   };
+  if (o.split !== undefined) plan.split = parseSplit(c, o.split);
   if (o.critique !== undefined) {
     const k = c.object(o.critique, 'plan.critique');
     if (k) {
@@ -54,20 +58,30 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
 export interface GateResult {
   pass: boolean;
   reasons: string[];
+  /** split の検査で止まったか（理由コード split-invalid） */
+  splitInvalid?: boolean;
 }
 
-/** 計画ゲート：どれかに該当すれば plan-review で停止 */
+/**
+ * 計画ゲート：どれかに該当すれば plan-review で停止。
+ * split がある計画は Risk と files の欠落では止めず、分け方の検査（harness/lib/epic.ts）で止める。
+ */
 export function evaluatePlanGate(plan: Plan, issueNumber: number): GateResult {
   const reasons: string[] = [];
   if (plan.issue !== issueNumber) reasons.push(`計画の issue 番号（#${plan.issue}）がこの Issue（#${issueNumber}）と一致しません`);
   if (plan.needsHuman) reasons.push('Planner が人間の判断が必要と申告しています');
   if (plan.acChangeProposed) reasons.push('要件・AC の変更提案があります');
   if (plan.openQuestions.length > 0) reasons.push(`未解決の質問が ${plan.openQuestions.length} 件あります`);
-  if (plan.risk === 'high' || plan.risk === 'critical') reasons.push(`想定 Risk が ${plan.risk} です`);
-  if (plan.files.length === 0) reasons.push('触るファイル一覧（files）がありません');
+  if (!plan.split && (plan.risk === 'high' || plan.risk === 'critical')) reasons.push(`想定 Risk が ${plan.risk} です`);
+  if (!plan.split && plan.files.length === 0) reasons.push('触るファイル一覧（files）がありません');
   for (const pattern of plan.files) {
     const problem = validateScopePattern(pattern);
     if (problem) reasons.push(`files「${pattern}」: ${problem}`);
+  }
+  if (plan.split) {
+    const problems = validateSplit(plan.split);
+    reasons.push(...problems);
+    if (problems.length > 0) return { pass: false, reasons, splitInvalid: true };
   }
   return { pass: reasons.length === 0, reasons };
 }

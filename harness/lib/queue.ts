@@ -88,6 +88,8 @@ export function decideIssue(f: IssueFacts, opts: QueueOptions): Action {
   for (const stop of [LABELS.hold, LABELS.blocked, LABELS.planReview, LABELS.waiting]) {
     if (has(f.labels, stop)) return { kind: 'skip', target, reason: `\`${stop}\`` };
   }
+  // Epic は PR を持たない。計画・実装は子課題で進める
+  if (has(f.labels, LABELS.epic)) return { kind: 'skip', target, reason: 'Epic（子課題で進める）' };
   if (!has(f.labels, LABELS.ready)) return { kind: 'skip', target, reason: '`agent:ready` がありません' };
   if (f.openPr !== null) return { kind: 'skip', target, reason: `PR #${f.openPr} の段階です` };
   const claimed = claimedByOther(f.claim, opts);

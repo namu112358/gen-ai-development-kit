@@ -48,9 +48,32 @@ Claude（Routine・人のセッション）と App は、コメントに JSON �
 | `acChangeProposed` | 真偽値 | 要件・AC の変更提案があるか |
 | `openQuestions` | 文字列の配列 | 人に確認したいこと |
 | `files` | 文字列の配列 | **触るファイル一覧（必須）**。`*` と `**` が使える（`?` は文字どおり）。最初の階層にワイルドカードがあるものは不可 |
+| `split` | 配列（任意） | Epic として子課題に分けるとき（2件以上）。下記 |
 | `critique` | オブジェクト（任意） | 投稿前の批評の結果。`verdict`（`go` / `revise` / `split` / `drop`）と、批評させた回数 `rounds`（1以上の整数）。記録用で、ゲートの判断には使わない |
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている。
+
+### 子課題に分ける（split）
+
+大きな課題は、計画に `split` を足して Epic にする。分け方は人が承認しない。ゲートの検査に通れば、App が子 Issue を作る（流れは [operations.md](operations.md#epic大きな課題を分ける)）。
+
+```json
+"files": [],
+"split": [
+  { "title": "feat(api): 認証の土台", "goal": "…", "requirements": ["…"], "acceptanceCriteria": ["…"], "files": ["src/auth/**"], "dependsOn": [] },
+  { "title": "feat(ui): ログイン画面", "goal": "…", "requirements": ["…"], "acceptanceCriteria": ["…"], "files": ["web/login/**"], "dependsOn": [0] }
+]
+```
+
+| フィールド | 型 | 意味 |
+| --- | --- | --- |
+| `title` | 文字列 | 子 Issue のタイトル（Conventional Commits） |
+| `goal` | 文字列 | 子 Issue の Goal |
+| `requirements` / `acceptanceCriteria` | 文字列の配列 | 子 Issue の Requirements・AC（1件以上） |
+| `files` | 文字列の配列 | 子課題で触るファイル（`files` と同じ規則、1件以上）。兄弟どうしで重ならないこと |
+| `dependsOn` | 整数の配列（省略可） | 先に終わらせる兄弟の添字。自分より前に並ぶものだけ（循環しない） |
+
+`split` がある計画では、`files` は空でよく、`risk` は子課題の中で最も高いものを書く（表示用。Risk と空の `files` では止めない）。`needsHuman`・`acChangeProposed`・`openQuestions`・`issue` 不一致は通常どおり止める。次のどれかに当たると、理由コード `split-invalid` で `agent:plan-review` にする：2件未満、タイトルの形式違い、Requirements・AC・`files` が空、`files` の規則違反、兄弟の `files` の重なり（同じパス、片方のパターンがもう片方に一致する、または両方がワイルドカードを含み、最初のワイルドカードより前の部分の片方がもう片方の先頭に一致する。例：`src/**/a.ts` と `src/x/**`）、`dependsOn` が自分より前の兄弟でない。
 
 ## 判定（agent-verdict）
 
@@ -125,9 +148,10 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | kind | 置き場所 | 内容 |
 | --- | --- | --- |
 | `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan }`。`plan` はゲート時点の計画の写し |
+| `epic-split` | Issue（Epic の親） | `{ planCommentId, children }`。作った（または使い回した）子 Issue の番号を `split` の順に |
 | `queue` | ダッシュボードの本文 | `{ computedAt, actions, skipped }`。Routine が次にやること |
 | `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev }` |
 | `verdict-rejected` | PR | 判定を受け付けなかった理由 |
 | `fix-request` | PR（レビュー） | Reviewer のブロッキング指摘（修正回数はこの数で数える） |
 | `issue-triage` | Issue | Jev による分類の提案と、その確率 |
-| `human-review` / `priority-conflict` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `auto-merge-stopped` / `dashboard` | 各所 | 通知・記録 |
+| `human-review` / `priority-conflict` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `epic-inherit` / `epic-split-failed` / `auto-merge-stopped` / `dashboard` | 各所 | 通知・記録 |
