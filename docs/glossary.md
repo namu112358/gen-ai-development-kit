@@ -84,6 +84,10 @@ PR の変更ファイルが計画の触るファイル一覧に収まるかを A
 
 App が書く必須チェック。auto-merge が付いていない PR は通し（Human Merge）、付いている PR は、現在の差分に対する判定が自動 Merge の条件を満たすときだけ通す。詳細：[risk-policy.md](risk-policy.md#自動-merge-の条件)
 
+### `agent/plan-link`
+
+App が書く必須チェック。計画のある Issue を `Closes` しない PR を止める。人が出す PR も対象になる。詳細：[operations.md](operations.md#人が関わる場面)
+
 ### Human Merge / 自動 Merge
 
 Human Merge は人が PR を Merge する経路で、Risk が medium 以上の PR はこちらになる。自動 Merge は、low で条件をすべて満たす PR に App が auto-merge を付け、必須チェックが揃うと GitHub が Merge する経路。詳細：[risk-policy.md](risk-policy.md#自動-merge-の条件)
