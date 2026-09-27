@@ -25,9 +25,9 @@ const openPr = (n: number, patch: Partial<FleetPr> = {}, facts: Partial<PrFacts>
 });
 const mergedPr = (n: number): FleetPr => ({ number: n, merged: true, draft: false, autoMerge: false, humanReview: false, behindMain: false, facts: null });
 const fi = (facts: IssueFacts, planFiles: string[] | null = null, prs: FleetPr[] = [], closed = false): FleetIssue => ({ facts, closed, planFiles, prs });
-const facts = (issues: FleetIssue[], openPrLabels: string[][] = []): FleetFacts => ({ issues, openPrLabels });
+const facts = (issues: FleetIssue[], prConflicts: FleetFacts['prConflicts'] = []): FleetFacts => ({ issues, prConflicts });
 const one = (i: FleetIssue, extra: FleetIssue[] = []) => fleetStatus(facts([i, ...extra]))[0]!;
-const select = (f: FleetFacts, max = 3) => selectFleet(config, f, fleetStatus(f), max);
+const select = (f: FleetFacts, max: number | null = null) => selectFleet(config, f, fleetStatus(f), max);
 
 test('段階：計画なし → 計画ゲート待ち → plan-review / plan-ok（実装待ち）', () => {
   assert.deepEqual([one(fi(issueFacts(1))).stage, one(fi(issueFacts(1))).next], ['no-plan', 'plan']);
@@ -96,26 +96,22 @@ test('選び方：優先度の順に、人が1回にさばける数（max）ま�
     fi(planOk(4, { labels: ['agent:ready', 'agent:plan-ok', 'priority:high'] })),
     fi(planOk(5, { labels: ['agent:ready', 'agent:plan-ok', 'priority:lowest'] }), null, [openPr(50)]),
   ]);
-  assert.deepEqual(select(f).selected, [5, 2, 4]);
+  assert.deepEqual(select(f, 3).selected, [5, 2, 4]);
   assert.deepEqual(select(f, 5).selected, [5, 2, 4, 3, 1]);
   assert.deepEqual(select(f, 1).selected, [5]);
   assert.match(select(f, 1).excluded.get(2)!, /さばける数（1）/);
 });
 
-test('選び方：同じ領域の候補が上限を超えるときは、開いた PR と既に選んだ分を合わせて上限までしか選ばない', () => {
+test('選び方：同じ領域の候補が領域の上限を超えても、領域の上限では除外しない', () => {
   const f = facts([
     fi(planOk(1), ['harness/lib/a.ts']),
     fi(planOk(2), ['harness/lib/b.ts']),
     fi(planOk(3), ['harness/lib/c.ts']),
     fi(planOk(4), ['docs/x.md']),
   ]);
-  const s = select(f, 5);
-  assert.deepEqual(s.selected, [1, 2, 4], 'area:harness の上限 2');
-  assert.match(s.excluded.get(3)!, /area:harness.*上限（2\/2）/);
-  assert.deepEqual(s.areas, [{ area: 'harness', open: 0, selected: 2, limit: 2 }]);
-  const withOpen = select(facts(f.issues, [['area:harness']]), 5);
-  assert.deepEqual(withOpen.selected, [1, 4], '開いた PR が1本あれば、あと1本');
-  assert.deepEqual(select(facts([fi(planOk(1)), fi(planOk(2)), fi(planOk(3))], [['area:harness'], ['area:harness']])).selected, [1, 2, 3], '計画の無い Issue は上限の判定から外す');
+  const s = select(f);
+  assert.deepEqual(s.selected, [1, 2, 3, 4], 'area:harness の上限 2 は fleet では見ない');
+  assert.equal(s.excluded.size, 0);
 });
 
 test('選び方：計画の files が既に選んだ Issue や PR 段階の Issue と重なれば選ばず、重なりを表示する', () => {
@@ -153,13 +149,13 @@ test('選び方：計画の無い Issue は重なりの判定から外して選�
   assert.match(t, /\| #2 t2 \| — \| plan-ok（実装待ち） \| implement \| 待つ：#1 と触るファイルが重なるため待つ \| #1 \|/);
 });
 
-test('表：Issue・PR ごとの段階・次にやること・重なり・領域の上限を1つにまとめる', () => {
-  const f = facts([fi(planOk(1), ['harness/lib/a.ts'], [openPr(10)]), fi(issueFacts(2))], [['area:harness']]);
-  const t = renderFleetStatus(fleetStatus(f), select(f), 3);
+test('表：Issue・PR ごとの段階・次にやること・重なりを1つにまとめる（領域の表は出さない）', () => {
+  const f = facts([fi(planOk(1), ['harness/lib/a.ts'], [openPr(10)]), fi(issueFacts(2))]);
+  const t = renderFleetStatus(fleetStatus(f), select(f), null);
   assert.match(t, /\| #1 t1 \| #10 \| 判定待ち \| judge \| 選ぶ \|/);
   assert.match(t, /\| #2 t2 \| — \| 計画なし \| plan \| 選ぶ \|/);
-  assert.match(t, /選んだ数：2\/3/);
-  assert.match(t, /\| `area:harness` \| 1 \| 0 \| 2 \|/);
+  assert.match(t, /選んだ数：2（/);
+  assert.doesNotMatch(t, /area:harness/);
 });
 
 test('CLAUDE.md が fleet を案内する', () => {
