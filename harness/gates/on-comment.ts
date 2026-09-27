@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { extractBlock } from '../lib/blocks.ts';
 import { LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
 import type { IssueComment } from '../lib/github.ts';
-import { guardrailFiles } from '../lib/guardrail.ts';
+import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
 import { callJev } from '../lib/jev.ts';
 import { eligibility, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
@@ -189,7 +189,8 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
       ? { ok: jev.status === 'ok' && jev.allows === true, reason: `Jev が自動 Merge を許可していません（${jev.status}${jev.detail ? `: ${jev.detail}` : ''}）` }
       : undefined;
   const guardrail = guardrailFiles(ctx.config, files);
-  const elig = eligibility({ reviewPass: verdict.review.pass, risk, scopeOk: scope.ok, outside: scope.outside, jevGate, guardrail });
+  const humanMerge = humanMergeFiles(ctx.config, files);
+  const elig = eligibility({ reviewPass: verdict.review.pass, risk, scopeOk: scope.ok, outside: scope.outside, jevGate, guardrail, humanMerge });
   if (!agent) {
     elig.autoEligible = false;
     elig.reasons.unshift('Agent の PR ではない（人の PR は人が Merge する）');
@@ -205,6 +206,7 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     scopeOk: scope.ok,
     outside: scope.outside,
     guardrail,
+    humanMerge,
     autoEligible: elig.autoEligible,
     reasons: elig.reasons,
     jev,
@@ -236,6 +238,7 @@ function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string
     `| Risk（Claude） | ${a.riskLevel}${a.riskOk ? '' : '（自動 Merge 不可）'} |`,
     `| 範囲照合 | ${a.scopeOk ? 'OK' : `範囲外: ${a.outside.join(', ')}`} |`,
     `| ガードレール | ${a.guardrail?.length ? `触れる（Human Merge）: ${a.guardrail.join(', ')}` : '触れない'} |`,
+    `| 人が Merge するパス | ${a.humanMerge?.length ? `触れる（Human Merge）: ${a.humanMerge.join(', ')}` : '触れない'} |`,
     `| Jev | ${a.jev?.status ?? '-'}${a.jev?.allows === undefined ? '' : a.jev.allows ? '（可）' : '（不可）'} |`,
     ...(a.reasons.length > 0 ? ['', '自動 Merge しない理由:', ...a.reasons.map((r) => `- ${r}`)] : []),
   ].join('\n');

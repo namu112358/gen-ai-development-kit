@@ -35,3 +35,14 @@ export function guardrailPatterns(config: GuardrailConfig, patterns: string[]): 
   const excluded = (p: string): boolean => exclude.some((e) => p === e || (!p.includes('*') && globToRegExp(e).test(p)));
   return uniqSorted(patterns.filter((p) => patternsOverlap(p, GUARDRAIL_SELF) || (paths.some((g) => patternsOverlap(p, g)) && !excluded(p))));
 }
+
+/**
+ * 変更ファイル（リネームは旧パスも渡す）のうち、`humanMergePaths`（導入先の製品で必ず人が Merge するパス）に当たるもの。
+ * ガードレールと違い、一覧が無い・空なら何も当たらない。`guardrailExclude` は見ない。PR の自動 Merge の判定だけに使い、計画ゲートには使わない。
+ */
+export function humanMergeFiles(config: Pick<HarnessConfig, 'humanMergePaths'>, files: string[]): string[] {
+  const paths = config.humanMergePaths ?? [];
+  if (paths.length === 0) return [];
+  const matchers = paths.map(globToRegExp);
+  return uniqSorted(files.filter((f) => matchers.some((m) => m.test(f))));
+}

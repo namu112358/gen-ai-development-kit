@@ -28,6 +28,11 @@ export interface HarnessConfig {
   guardrailPaths?: string[];
   /** guardrailPaths の中で普通に判定するもの（harness.config.json は外せない） */
   guardrailExclude?: string[];
+  /**
+   * 導入先の製品で必ず人が Merge するパス（認証・マイグレーション・課金など。範囲パターンの書式、harness/lib/scope.ts）。
+   * 触れる PR は Risk に関わらず自動 Merge しない。計画ゲートには効かない。無ければ何もしない
+   */
+  humanMergePaths?: string[];
   fixLoop: { normalLimit: number; criticalLimit: number };
   staleHours: number;
   dashboardIssueTitle: string;
