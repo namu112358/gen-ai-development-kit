@@ -37,8 +37,13 @@
    - `files`：**触るファイルをすべて**列挙する（テスト・docs を含む）
    - `needsHuman`・`acChangeProposed`・`openQuestions`：人の判断が要るなら正直に書く（ゲートで止まる）
    - `risk`：想定 Risk（[docs/risk-policy.md](../docs/risk-policy.md) の目安）
-4. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。
-5. 実装は**しない**。
+4. **plan-critic** サブエージェントに批評させる。サブエージェントは GitHub を読めないので、Issue 本文、コラボレーターのコメント、計画（本文と JSON）を指示に含めて渡す（自分の推論は渡さない）。判定ごとに：
+   - `go`：計画ブロックに `critique`（`verdict` と、批評させた回数 `rounds`）を書いて次へ。
+   - `revise`：`fixes` を反映して計画を直し、もう一度批評させる。2回続けて `revise` なら、`render-block needs-decision <理由>` で人に返す。
+   - `split`：Epic に分ける仕組みができるまでは、`render-block needs-decision <分け方の案>` で人に返す。
+   - `drop`：`render-block needs-decision <理由>` で人に返す。
+5. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。
+6. 実装は**しない**。
 
 ### implement（実装）
 

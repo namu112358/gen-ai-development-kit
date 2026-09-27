@@ -48,6 +48,7 @@ Claude（Routine・人のセッション）と App は、コメントに JSON �
 | `acChangeProposed` | 真偽値 | 要件・AC の変更提案があるか |
 | `openQuestions` | 文字列の配列 | 人に確認したいこと |
 | `files` | 文字列の配列 | **触るファイル一覧（必須）**。`*` と `**` が使える（`?` は文字どおり）。最初の階層にワイルドカードがあるものは不可 |
+| `critique` | オブジェクト（任意） | 投稿前の批評の結果。`verdict`（`go` / `revise` / `split` / `drop`）と、批評させた回数 `rounds`（1以上の整数）。記録用で、ゲートの判断には使わない |
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている。
 
