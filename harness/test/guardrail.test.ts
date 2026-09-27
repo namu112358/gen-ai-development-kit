@@ -23,8 +23,8 @@ test('guardrailPaths が無い設定では、すべてのファイルとパタ�
 });
 
 test('初期の一覧：Issue の表どおり', () => {
-  const hit = ['.github/workflows/gate.yml', '.github/ISSUE_TEMPLATE/agent-task.yml', '.claude/settings.json', 'harness/templates/x.json', '.claude/agents/reviewer.md', '.claude/agents/risk-agent.md', 'docs/risk-policy.md', 'harness/gates/run.ts', 'harness/lib/plan.ts', 'harness/lib/epic.ts', 'harness/lib/test-tamper.ts', 'harness/lib/guardrail.ts', 'harness/scripts/setup.ts', 'harness.config.json', 'package.json', 'package-lock.json'];
-  const miss = ['harness/lib/usage.ts', 'harness/lib/classify.ts', 'harness/lib/worktree.ts', 'harness/lib/issue-triage.ts', 'harness/lib/queue.ts', 'harness/lib/facts.ts', 'harness/lib/concurrency.ts', 'harness/scripts/agent.ts', 'harness/scripts/report.ts', 'harness/test/plan.test.ts', '.claude/routine.md', '.claude/agents/plan-critic.md', '.claude/agents/test-designer.md', '.claude/skills/x/SKILL.md', 'CLAUDE.md', 'docs/plan.md', 'tsconfig.json'];
+  const hit = ['.github/workflows/gate.yml', '.github/ISSUE_TEMPLATE/agent-task.yml', '.claude/settings.json', 'harness/templates/x.json', '.claude/agents/reviewer.md', '.claude/agents/risk-agent.md', 'docs/risk-policy.md', 'harness/gates/run.ts', 'harness/lib/plan.ts', 'harness/lib/epic.ts', 'harness/lib/test-tamper.ts', 'harness/lib/guardrail.ts', 'harness/scripts/setup.ts', 'harness.config.json', 'package.json', 'package-lock.json', '.node-version', 'tsconfig.json', '.claude/hooks/pre.sh', '.mcp.json', 'CODEOWNERS', 'docs/CODEOWNERS', '.github/CODEOWNERS'];
+  const miss = ['harness/lib/usage.ts', 'harness/lib/classify.ts', 'harness/lib/worktree.ts', 'harness/lib/issue-triage.ts', 'harness/lib/queue.ts', 'harness/lib/facts.ts', 'harness/lib/concurrency.ts', 'harness/scripts/agent.ts', 'harness/scripts/report.ts', 'harness/test/plan.test.ts', '.claude/routine.md', '.claude/agents/plan-critic.md', '.claude/agents/test-designer.md', '.claude/skills/x/SKILL.md', 'CLAUDE.md', 'docs/plan.md'];
   assert.deepEqual(guardrailFiles(config, [...hit, ...miss]), [...hit].sort());
 });
 

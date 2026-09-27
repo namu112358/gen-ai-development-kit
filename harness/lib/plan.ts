@@ -68,10 +68,10 @@ export interface GateResult {
 /**
  * 計画ゲート：どれかに該当すれば plan-review で停止。
  * split がある計画は Risk と files の欠落では止めず、分け方の検査（harness/lib/epic.ts）で止める。
- * guardrail を渡すと、files（split なら子課題ごとの files も）がガードレールに触れる計画を想定 Risk に関わらず止める。
- * App と render-plan は必ず設定を渡す（省略はガードレールを見ない）。
+ * files（split なら子課題ごとの files も）がガードレールに触れる計画は、想定 Risk に関わらず止める。
+ * guardrail は必須（省略でガードレールを見落とさないため）。一覧が無い設定はすべてを当たりとする（harness/lib/guardrail.ts）。
  */
-export function evaluatePlanGate(plan: Plan, issueNumber: number, guardrail?: GuardrailConfig): GateResult {
+export function evaluatePlanGate(plan: Plan, issueNumber: number, guardrail: GuardrailConfig): GateResult {
   const reasons: string[] = [];
   if (plan.issue !== issueNumber) reasons.push(`計画の issue 番号（#${plan.issue}）がこの Issue（#${issueNumber}）と一致しません`);
   if (plan.needsHuman) reasons.push('Planner が人間の判断が必要と申告しています');
@@ -83,7 +83,7 @@ export function evaluatePlanGate(plan: Plan, issueNumber: number, guardrail?: Gu
     const problem = validateScopePattern(pattern);
     if (problem) reasons.push(`files「${pattern}」: ${problem}`);
   }
-  const guarded = guardrail ? guardrailPatterns(guardrail, [...plan.files, ...(plan.split ?? []).flatMap((c) => c.files)]) : [];
+  const guarded = guardrailPatterns(guardrail, [...plan.files, ...(plan.split ?? []).flatMap((c) => c.files)]);
   if (guarded.length > 0) reasons.push(`ガードレールに触れます（人が実装して Merge する）: ${guarded.join(', ')}`);
   const extra = guarded.length > 0 ? { guardrail: guarded } : {};
   if (plan.split) {

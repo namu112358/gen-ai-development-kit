@@ -22,7 +22,13 @@
     "harness/scripts/setup.ts",
     "harness.config.json",
     "package.json",
-    "package-lock.json"
+    "package-lock.json",
+    ".node-version",
+    "tsconfig.json",
+    ".claude/hooks/**",
+    ".mcp.json",
+    "CODEOWNERS",
+    "docs/CODEOWNERS"
   ],
   "guardrailExclude": [
     "harness/lib/usage.ts",

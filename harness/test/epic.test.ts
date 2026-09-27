@@ -5,6 +5,9 @@ import { parseIssueBody, acceptanceItems } from '../lib/issue-form.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
 import { decideIssue, type IssueFacts } from '../lib/queue.ts';
 
+/** ガードレールを問わないテスト用（一覧自身だけが当たる） */
+const noGuardrail = { guardrailPaths: [] };
+
 const child = (patch: Partial<SplitChild> = {}): SplitChild => ({
   title: 'feat(x): 子', goal: 'g', requirements: ['r'], acceptanceCriteria: ['a'], files: ['src/a.ts'], dependsOn: [], ...patch,
 });
@@ -65,16 +68,16 @@ test('兄弟のファイルの重なり：同じパス、片方のパターン�
 });
 
 test('計画ゲート：split の計画は Risk と空の files では止めず、分け方の検査で止める', () => {
-  assert.deepEqual(evaluatePlanGate(plan, 7), { pass: true, reasons: [] }, 'critical でも files が空でも通る');
-  const overlap = evaluatePlanGate({ ...plan, split: [split[0]!, child({ files: ['src/**'] })] }, 7);
+  assert.deepEqual(evaluatePlanGate(plan, 7, noGuardrail), { pass: true, reasons: [] }, 'critical でも files が空でも通る');
+  const overlap = evaluatePlanGate({ ...plan, split: [split[0]!, child({ files: ['src/**'] })] }, 7, noGuardrail);
   assert.equal(overlap.pass, false);
   assert.equal(overlap.splitInvalid, true);
-  const human = evaluatePlanGate({ ...plan, needsHuman: true, openQuestions: ['?'] }, 7);
+  const human = evaluatePlanGate({ ...plan, needsHuman: true, openQuestions: ['?'] }, 7, noGuardrail);
   assert.equal(human.pass, false, '人の判断・未解決の質問は通常どおり止める');
   assert.equal(human.splitInvalid, undefined);
-  assert.equal(evaluatePlanGate({ ...plan, issue: 8 }, 7).pass, false);
-  assert.equal(evaluatePlanGate({ ...plan, files: ['../x'] }, 7).pass, false, 'files があれば規則は検査する');
-  assert.equal(evaluatePlanGate({ ...plan, split: undefined }, 7).pass, false, 'split が無ければ従来どおり');
+  assert.equal(evaluatePlanGate({ ...plan, issue: 8 }, 7, noGuardrail).pass, false);
+  assert.equal(evaluatePlanGate({ ...plan, files: ['../x'] }, 7, noGuardrail).pass, false, 'files があれば規則は検査する');
+  assert.equal(evaluatePlanGate({ ...plan, split: undefined }, 7, noGuardrail).pass, false, 'split が無ければ従来どおり');
 });
 
 test('子 Issue の本文：Issue Form の見出しで読め、目印を持つ', () => {
