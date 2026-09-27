@@ -79,3 +79,17 @@
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる |
 
 判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。
+
+## よくある質問
+
+### Q. 急ぎの Issue を先に進めたいときはどうするか
+
+Issue に `priority:high` を付ける。queue は優先度 → `agent:ready` が付いた順に並ぶので、次の Routine の実行で先に処理される。PR の段階は元の Issue の優先度を引き継ぐ。
+
+### Q. 自動 Merge を一時的に止めたいときはどうするか
+
+「Agent ダッシュボード」Issue に `agent:auto-merge-stopped` を付ける。App が全 PR の auto-merge を外し、merge-route が自動経路を failure にする（Human Merge は通る）。再開は同じラベルを外すだけ。
+
+### Q. 特定の PR だけ自動 Merge を止めたいときはどうするか
+
+その PR に `agent:hold` を付ける。merge-route が自動経路を failure にし、他の PR には影響しない。再開は同じラベルを外すだけ。
