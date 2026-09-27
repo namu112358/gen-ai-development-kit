@@ -30,6 +30,8 @@ export const BLOCKING_KINDS = [
   'data-destruction',
   'secret-leak',
   'regression',
+  'bug',
+  'claude-md',
 ] as const;
 export type BlockingKind = (typeof BLOCKING_KINDS)[number];
 

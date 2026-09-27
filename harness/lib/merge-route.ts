@@ -44,6 +44,8 @@ export interface MergeRouteInput {
   autoMergeMode: boolean;
   /** 現在の patch-id と一致する最新の受け付け記録 */
   acceptance: Acceptance | null;
+  /** base が既定ブランチでない（Stacked PR など）。真なら自動経路を通さない（省略時は偽） */
+  stacked?: boolean;
 }
 
 export interface CheckOutcome {
@@ -60,6 +62,7 @@ export function evaluateMergeRoute(input: MergeRouteInput): CheckOutcome {
   if (!input.isAgentPr) reasons.push('Agent の PR ではありません（自動経路は Agent の PR のみ）');
   if (input.hold) reasons.push('`agent:hold` が付いています');
   if (!input.autoMergeMode) reasons.push('自動 Merge モードが無効です');
+  if (input.stacked) reasons.push('base が既定ブランチではありません（Stacked PR は Human Merge）');
   if (!input.acceptance) {
     reasons.push('現在の差分に対して有効な判定がありません');
   } else if (!input.acceptance.autoEligible) {
