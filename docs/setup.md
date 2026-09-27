@@ -14,7 +14,7 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 | `.github/ISSUE_TEMPLATE/agent-task.yml` | Issue Form |
 | `.claude/`、`CLAUDE.md` | 付き添いのセッションの skill、サブエージェント、deny、Routine の手順 |
 
-既存の CI がある場合は、そのジョブ名を手順 4 の必須チェックに使う（このリポジトリでは `ci.yml` の `ci`）。
+導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。
 
 `harness.config.json` の `guardrailPaths` に、Agent が自分を縛る仕組み（ゲート、判定の基準、deny、依存など）のパスを範囲パターンで並べ、その中で普通に判定するものを `guardrailExclude` に並べる。触れる PR は自動 Merge せず、触れる計画は計画ゲートで止まる（[risk-policy.md](risk-policy.md#ガードレール)）。`harness.config.json` 自身は常にガードレール。`guardrailPaths` を書かないと、すべてのファイルがガードレールとして扱われ自動 Merge が起きない。
 
@@ -60,9 +60,9 @@ node harness/scripts/setup.ts all <owner>/<repo> <app-id>
 | ラベル | `agent:*`、`risk:*`、`agent:auto-merge-stopped` |
 | マージ | squash のみ、auto-merge 許可、Merge 後にブランチ削除 |
 | Actions | `GITHUB_TOKEN` の既定権限は read |
-| Ruleset | 既定ブランチの削除・force push 禁止、PR 必須（承認 0）、必須チェック `ci`（GitHub Actions）・`agent/review`・`merge-route`・`agent/plan-link`・`agent/title`・`agent/tests`（App）、main への追従必須、bypass なし |
+| Ruleset | 既定ブランチの削除・force push 禁止、PR 必須（承認 0）、必須チェック `projectChecks` のもの（既定は `ci`、GitHub Actions）・`agent/review`・`merge-route`・`agent/plan-link`・`agent/title`・`agent/tests`（App）、main への追従必須、bypass なし |
 
-CI のジョブ名が `ci` でない場合は `harness/scripts/setup.ts` の `rulesetBody` を直す。
+`projectChecks` の書式の誤り（名前が空、重複、ハーネスのチェックと同じ名前など）は、ゲートでは検出されず、`setup.ts ruleset` の実行時にエラーになる。`projectChecks` を変えたら `ruleset` を実行し直す。
 
 ## 5. 動作確認
 

@@ -4,6 +4,7 @@
   "defaultBranch": "main",
   "agentBranchPrefix": "claude/",
   "mergeMethod": "SQUASH",
+  "projectChecks": [{ "context": "ci" }],
   "routine": {
     "maxItemsPerRun": 5,
     "humanClaimStaleHours": 6,
