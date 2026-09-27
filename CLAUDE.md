@@ -35,4 +35,5 @@ GitHub Issues × Claude Code の自律開発ハーネス。概要は [README.md]
 - TypeScript をビルドせずに Node 24 で実行する。型注釈を剥がすだけで消えない構文（`enum` など）は使わない。
 - 相対 import は拡張子 `.ts` まで書く。実行時の依存パッケージは追加しない。
 - ゲートは PR の head を checkout・実行しない。イベントの中身は `GITHUB_EVENT_PATH` から読む。
+- 新しいテストは既存ファイルの末尾に足さず、機能・ハンドラーごとのファイルに書く。共有の補助は `harness/test/support/` に置く（`*.test.ts` にしない）。
 - `npm run check`（型検査＋テスト）を通す。
