@@ -25,7 +25,7 @@ App も組織へ移管すると slug と ID が変わらず、App の記録（�
 - コメントできるのがリポジトリにアクセスできる人だけになり、外部からの偽の計画・判定コメントの心配がなくなる。
 - 組織では `author_association` の MEMBER が組織メンバー全員を指す。組織の Base permissions を No permission にし、リポジトリの権限を絞る。
 - private の fork を禁止できる。ただし「ゲートは PR の head を実行しない」前提は変えない。
-- Merge queue が使えるようになる。使う場合は、App のチェック（`agent/review`・`merge-route`・`agent/plan-link`）を Merge queue の一時コミット（`merge_group` イベント）にも書くようゲートを直す必要がある。直さずに有効にすると、必須チェックが揃わず Merge されない。
+- Merge queue が使えるようになる。使う場合は、App のチェック（`agent/review`・`merge-route`・`agent/plan-link`・`agent/title`・`agent/tests`）を Merge queue の一時コミット（`merge_group` イベント）にも書くようゲートを直す必要がある。直さずに有効にすると、必須チェックが揃わず Merge されない。
 - Actions が課金対象になる。目安は 1 Issue あたり約 11 分と停滞検知の月 240 分（月 100 Issue で約 1,350 分）。
 
 ## 手順

@@ -19,6 +19,8 @@ export interface HarnessConfig {
   };
   mergeMethod: 'SQUASH' | 'MERGE' | 'REBASE';
   routine: { maxItemsPerRun: number; humanClaimStaleHours: number; routineClaimTakeoverMinutes: number };
+  /** テストファイルのパターン（harness/lib/scope.ts の書式）。agent/tests が改ざんを検査する。無ければ既定（harness/lib/test-tamper.ts） */
+  testPatterns?: string[];
   /** area 名 → 同時に開いてよい PR の数。上限に達した領域の Issue には新しく着手しない（無い領域は無制限） */
   areaConcurrency?: Record<string, number>;
   fixLoop: { normalLimit: number; criticalLimit: number };
@@ -93,6 +95,7 @@ export const CHECKS = {
   mergeRoute: 'merge-route',
   planLink: 'agent/plan-link',
   title: 'agent/title',
+  tests: 'agent/tests',
 } as const;
 
 /** 人の PR を判定を待たずに通すラベル（人だけが付ける） */
@@ -100,6 +103,9 @@ export const REVIEW_EXEMPT_LABEL = 'review:exempt';
 
 /** 計画のある Issue を Closes しない PR を例外として通すラベル（人だけが付ける） */
 export const PLAN_EXEMPT_LABEL = 'plan:exempt';
+
+/** テストを弱める変更を例外として通すラベル（人だけが付ける） */
+export const TEST_EXEMPT_LABEL = 'test:exempt';
 
 /** ラベルの定義（setup-labels が使う） */
 export const LABEL_DEFS: { name: string; color: string; description: string }[] = [
@@ -114,6 +120,7 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: PRIORITY_LABELS.low, color: 'c5def5', description: '人: queue で後に処理する' },
   { name: 'review:exempt', color: 'fef2c0', description: '人: 判定を待たずに agent/review を通す' },
   { name: 'plan:exempt', color: 'fef2c0', description: '人: 計画のある Issue に紐付かない PR を例外として通す' },
+  { name: TEST_EXEMPT_LABEL, color: 'fef2c0', description: '人: テストを弱める変更を例外として agent/tests を通す' },
   { name: 'agent:auto-merge-stopped', color: '000000', description: 'ダッシュボード専用: 自動 Merge モードの停止スイッチ' },
   { name: riskLabel('low'), color: 'c2e0c6', description: '計画時の想定 Risk（表示用）' },
   { name: riskLabel('medium'), color: 'fef2c0', description: '計画時の想定 Risk（表示用）' },
