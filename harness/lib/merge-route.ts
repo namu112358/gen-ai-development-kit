@@ -33,6 +33,8 @@ export interface JevRecord {
   /** 自動 Merge を許すと Jev が判定したか（閾値は harness.config.json の `jev.thresholds`、判定の式は harness/lib/jev.ts の `jevAllows`） */
   allows?: boolean;
   answers?: Record<string, Record<string, number>>;
+  /** 問いの版（harness/lib/jev.ts の `JEV_QUESTION_SET`）。無い古い記録は版 1 */
+  questionSet?: number;
 }
 
 export interface MergeRouteInput {

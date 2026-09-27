@@ -1,11 +1,14 @@
 import type { HarnessConfig } from './config.ts';
+import { JEV_QUESTION_SET, jevFailures } from './jev.ts';
 import type { Acceptance, JevRecord } from './merge-route.ts';
+import { RISK_QUESTIONS } from './verdict.ts';
 
 /**
  * 判定の集計（Jev の切り替え判断用）の純粋関数。GitHub は呼ばない（集めるのは harness/scripts/report.ts）。
  *
  * 「外れ」＝ Merge 後 7 日以内に revert された、または同じファイルを直す fix の PR が Merge された。
  * 比べる相手は Claude ではなく結果。基準の意味は docs/security.md の「Jev」。
+ * Jev の数と切り替えの基準は、今の問いの版（`JEV_QUESTION_SET`）の記録だけで数える（Q88）。
  */
 
 const WEEK = 7 * 86400_000;
@@ -71,13 +74,83 @@ export function isJevLow(config: HarnessConfig, jev: JevRecord | null | undefine
  */
 export const JEV_ENFORCE_CRITERIA = { minNegatives: 20, maxJevLowMisses: 0, maxJevOnly: 0 } as const;
 
+/** 記録の問いの版（`questionSet` の無い古い記録は版 1） */
+const questionSetOf = (jev: JevRecord) => jev.questionSet ?? 1;
+
+/** 問いごとの確率の分布と、しきい値で落とした件数（q1_risk は P(low)、q2〜q8 は yes の確率） */
+export interface JevQuestionStat {
+  key: string;
+  /** 値が有限の記録の数 */
+  count: number;
+  min: number | null;
+  q25: number | null;
+  median: number | null;
+  q75: number | null;
+  max: number | null;
+  /** しきい値で落とした記録の数（`jevFailures` に含まれた数。値が無い記録も含む） */
+  failed: number;
+  /** その問いだけで落とした記録の数 */
+  onlyFailed: number;
+}
+
+export interface JevQuestionSetStats {
+  questionSet: number;
+  records: number;
+  questions: JevQuestionStat[];
+}
+
+/** 小さい順に並べた位置 round(p×(n−1)) の値 */
+const quantile = (sorted: number[], p: number) => (sorted.length === 0 ? null : sorted[Math.round(p * (sorted.length - 1))]!);
+
+/**
+ * 各 PR の最後の受け付け記録のうち Jev が ok のものを、問いの版ごとに分けて、問いごとの確率の分布と落とした件数を出す。
+ * しきい値の解釈はゲートと同じ `jevFailures`。
+ */
+export function jevQuestionStats(config: HarnessConfig, rows: ReportRow[]): JevQuestionSetStats[] {
+  const bySet = new Map<number, JevRecord[]>();
+  for (const r of rows) {
+    const jev = r.acceptance?.jev;
+    if (jev?.status !== 'ok') continue;
+    const set = questionSetOf(jev);
+    bySet.set(set, [...(bySet.get(set) ?? []), jev]);
+  }
+  const keys = [{ key: 'q1_risk', field: 'low' }, ...RISK_QUESTIONS.map((q) => ({ key: q.key, field: 'yes' }))];
+  return [...bySet.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([questionSet, records]) => {
+      const failures = records.map((j) => jevFailures(config, j.answers));
+      const questions = keys.map(({ key, field }) => {
+        const values = records
+          .map((j) => j.answers?.[key]?.[field])
+          .filter((v): v is number => typeof v === 'number' && Number.isFinite(v))
+          .sort((a, b) => a - b);
+        return {
+          key,
+          count: values.length,
+          min: quantile(values, 0),
+          q25: quantile(values, 0.25),
+          median: quantile(values, 0.5),
+          q75: quantile(values, 0.75),
+          max: quantile(values, 1),
+          failed: failures.filter((f) => f.includes(key)).length,
+          onlyFailed: failures.filter((f) => f.length === 1 && f[0] === key).length,
+        };
+      });
+      return { questionSet, records: records.length, questions };
+    });
+}
+
 export interface ReportSummary {
   total: number;
   /** 判定を受け付けた PR */
   judged: number;
-  /** 否定側（Claude が自動 Merge 不可） */
+  /** 否定側（Claude が自動 Merge 不可。表示用、版に関わらず数える） */
   negatives: number;
-  /** Jev の応答あり */
+  /** 基準の否定側：Claude が不可で、今の問いの版で Jev が応答した PR */
+  negativesJev: number;
+  /** Jev の数から除いた、今の版でない Jev の記録 */
+  jevOtherSets: number;
+  /** Jev の応答あり（今の問いの版） */
   jevOk: number;
   jevLow: number;
   jevLowMisses: number;
@@ -96,6 +169,8 @@ export interface ReportSummary {
   stallMedianHours: number | null;
   rejectedTotal: number;
   criteria: { met: boolean; unmet: string[] };
+  /** 問いごとの確率（版ごと）と、使ったしきい値 */
+  jevQuestions: { sets: JevQuestionSetStats[]; lowProbability: number; noulSafe: number };
 }
 
 const isMiss = (r: ReportRow) => r.reverted || r.fixedBy.length > 0;
@@ -110,7 +185,10 @@ function median(values: number[]): number | null {
 export function summarize(config: HarnessConfig, rows: ReportRow[]): ReportSummary {
   const judged = rows.filter((r) => r.acceptance !== null);
   const negatives = judged.filter((r) => r.acceptance!.autoEligible === false).length;
-  const jevOk = judged.filter((r) => r.acceptance!.jev?.status === 'ok');
+  const jevAll = judged.filter((r) => r.acceptance!.jev?.status === 'ok');
+  // Jev の数は今の問いの版の記録だけで数える（版の違う記録を混ぜると、今の問いを見ないまま基準を満たしうるため）
+  const jevOk = jevAll.filter((r) => questionSetOf(r.acceptance!.jev!) === JEV_QUESTION_SET);
+  const negativesJev = jevOk.filter((r) => r.acceptance!.autoEligible === false).length;
   const jevLow = jevOk.filter((r) => isJevLow(config, r.acceptance!.jev));
   const jevLowMisses = jevLow.filter(isMiss).length;
   const jevLowMissRate = jevLow.length === 0 ? null : jevLowMisses / jevLow.length;
@@ -126,7 +204,7 @@ export function summarize(config: HarnessConfig, rows: ReportRow[]): ReportSumma
 
   const c = JEV_ENFORCE_CRITERIA;
   const unmet: string[] = [];
-  if (negatives < c.minNegatives) unmet.push(`否定側が ${negatives} 件（${c.minNegatives} 件以上が要る）`);
+  if (negativesJev < c.minNegatives) unmet.push(`否定側が ${negativesJev} 件（${c.minNegatives} 件以上が要る）`);
   if (jevLowMisses > c.maxJevLowMisses) unmet.push(`Jev の low の外れが ${jevLowMisses} 件（${c.maxJevLowMisses} 件であること）`);
   if (jevOnly > c.maxJevOnly) unmet.push(`Jev だけが「可」が ${jevOnly} 件（${c.maxJevOnly} 件であること）`);
 
@@ -134,6 +212,8 @@ export function summarize(config: HarnessConfig, rows: ReportRow[]): ReportSumma
     total: rows.length,
     judged: judged.length,
     negatives,
+    negativesJev,
+    jevOtherSets: jevAll.length - jevOk.length,
     jevOk: jevOk.length,
     jevLow: jevLow.length,
     jevLowMisses,
@@ -148,11 +228,13 @@ export function summarize(config: HarnessConfig, rows: ReportRow[]): ReportSumma
     stallMedianHours: median(stalls),
     rejectedTotal: rows.reduce((a, r) => a + r.rejected, 0),
     criteria: { met: unmet.length === 0, unmet },
+    jevQuestions: { sets: jevQuestionStats(config, rows), ...config.jev.thresholds },
   };
 }
 
 const pct = (v: number | null) => (v === null ? '-' : `${Math.round(v * 1000) / 10}%`);
 const num = (v: number | null) => (v === null ? '-' : `${Math.round(v * 10) / 10}`);
+const prob = (v: number | null) => (v === null ? '-' : `${Math.round(v * 100) / 100}`);
 const yn = (v: boolean | null | undefined) => (v === null || v === undefined ? '-' : v ? '可' : '不可');
 
 export function renderReport(summary: ReportSummary, rows: ReportRow[], days: number): string {
@@ -170,13 +252,28 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
     const end = r.mergedAt ?? r.closedAt;
     return end ? num((new Date(end).getTime() - new Date(r.createdAt).getTime()) / HOUR) : '-';
   };
+  const { lowProbability, noulSafe } = s.jevQuestions;
+  const questionSections = s.jevQuestions.sets.flatMap((set) => [
+    '',
+    `### 問いの版 ${set.questionSet}（${set.records} 件）`,
+    '',
+    '| 問い | 件数 | 最小 | 25% | 中央 | 75% | 最大 | 落とした件数 | その問いだけで落とした件数 |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...set.questions.map(
+      (q) => `| ${q.key} | ${q.count} | ${prob(q.min)} | ${prob(q.q25)} | ${prob(q.median)} | ${prob(q.q75)} | ${prob(q.max)} | ${q.failed} | ${q.onlyFailed} |`,
+    ),
+  ]);
   return [
     `# 判定の集計（直近 ${days} 日、Agent PR ${s.total} 件）`,
+    '',
+    `Jev の数は問いの版 ${JEV_QUESTION_SET} の記録だけで数える（docs/security.md の「Jev」）。`,
     '',
     '| 指標 | 値 |',
     '| --- | --- |',
     `| 判定を受け付けた PR | ${s.judged} |`,
     `| 否定側（Claude が自動 Merge 不可） | ${s.negatives} |`,
+    `| 否定側のうち今の問いの版で Jev が応答したもの | ${s.negativesJev} |`,
+    `| Jev の数から除いた、版の違う記録 | ${s.jevOtherSets} |`,
     `| Jev の応答あり | ${s.jevOk} |`,
     `| Jev の low | ${s.jevLow} |`,
     `| Jev の low の外れ（revert / fix） | ${s.jevLowMisses} |`,
@@ -198,5 +295,10 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
       (r) =>
         `| #${r.pr} | ${r.mergedAt?.slice(0, 10) ?? '-'} | ${yn(r.acceptance?.autoEligible)} | ${jevCell(r)} | ${r.reverted ? '○' : ''} | ${r.fixedBy.map((n) => `#${n}`).join(' ')} | ${r.fixRequests || ''} | ${stall(r)} | ${r.rejected || ''} |`,
     ),
+    '',
+    '## 問いごとの確率（Jev）',
+    '',
+    `しきい値：P(low) ≥ ${lowProbability}、yes が安全な問いは yes ≥ ${noulSafe}、no が安全な問いは yes ≤ ${Math.round((1 - noulSafe) * 1000) / 1000}（q1_risk は P(low)、ほかは yes の確率。落とした件数には値の無い記録も含む）`,
+    ...(s.jevQuestions.sets.length === 0 ? ['', 'Jev が応答した記録はありません。'] : questionSections),
   ].join('\n');
 }
