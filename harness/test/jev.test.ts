@@ -4,14 +4,17 @@ import { loadConfig } from '../lib/config.ts';
 import { buildJevRequest, callJev, jevAllows, redact } from '../lib/jev.ts';
 
 const config = loadConfig();
-const facts = { references: 'none', tests: 'none', fileKinds: 'docs' };
+const facts = { references: 'FACT-REF-104', tests: 'FACT-TESTS-104', fileKinds: 'FACT-KINDS-104' };
 
-test('8問を1回の呼び出しにまとめ、Claude の判定は state に含めない', () => {
+test('8問を1回の呼び出しにまとめ、state は App が集めたもの（diff・変更ファイル・ガードレール）だけで、セッションが書いた facts・判定は含めない', () => {
   const req = buildJevRequest(config, 'diff --git a/x b/x', ['x'], facts);
   assert.equal(Object.keys(req.questions).length, 8);
   assert.equal((req.questions.q1_risk as { type: string }).type, 'choice');
+  assert.deepEqual(Object.keys(req.state).sort(), ['changed_files', 'diff', 'guardrail_exclude', 'guardrail_paths']);
   const s = JSON.stringify(req.state);
-  assert.ok(!s.includes('"level"') && !s.includes('answers'));
+  for (const v of Object.values(facts)) assert.ok(!s.includes(v), `facts の値 ${v} が state に含まれている`);
+  assert.ok(!s.includes('"level"'));
+  assert.ok(!s.includes('answers'));
 });
 
 test('Jev の許可判定：P(low) と各 Noul の閾値', () => {

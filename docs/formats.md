@@ -130,7 +130,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 - `review.humanNotes`（任意）：人にレビューを依頼するときの懸念点（`concerns`）と見てほしい箇所（`checkPoints`）。App の Human Merge の依頼コメントに載る
 - `risk.answers` は `yes` / `no` / `unsure` の3択。安全側の答えは [risk-policy.md](risk-policy.md)
 - `risk.probabilities` は記録のみ
-- `facts` は Jev に渡す事実（英語）。Claude の判定を含めない
+- `facts` は記録と人の確認用の事実（日本語）。Jev には渡さない。Claude の判定を含めない
 
 
 ## 着手宣言（agent-claim）
