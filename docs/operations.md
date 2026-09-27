@@ -77,7 +77,12 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | 子を持つ Issue（Epic） | `epic`・`area:*`・`priority:*`（`type:*` は付けない） |
 | PR | `type:*`・`area:*`・`size:*` |
 
-人が付けたラベルは上書きしない（足りないものだけを足す）。足りないラベルを付ける仕組み（`classification.issueTriage` の `label`）は #99、必須ラベルの検査は #98 で入る。
+人が付けたラベルは上書きしない（足りないものだけを足す）。足りないラベルを付ける仕組み（`classification.issueTriage` の `label`）は #99 で入る。
+
+必須ラベルの検査（`harness/lib/label-rules.ts`）は、足りないラベルと次の違反を返す：優先度（`priority:*`）が2つ以上、子（Sub-issues）を持つのに `epic` が無い、Epic に `type:*` がある、`type:*` がタイトルの type と食い違う（`type:*` が2つ以上を含む）、タイトルが `type(scope): 説明` の形式でない。`epic` が付いた Issue は、子課題を作る途中で子が 0 でも Epic として扱う。`area:*` と `size:*` は `harness.config.json` にある名前だけを数える。
+
+- ダッシュボードの「ラベルが足りない Issue・PR」の節：定期実行のたびに、開いた Issue のうち `agent:*` か `epic` の付いたものと Agent PR を検査し、番号・タイトル・足りないもの・違反を1行ずつ出す（人がまだ整えていない Issue、人や bot の PR は出さない）。
+- `node harness/scripts/agent.ts label-audit [番号..]`：同じ検査の一覧を出す。番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲。ship の skill は最後に扱った Issue・PR をこれで確かめ、見つかったものを人がすることの一覧に書く。
 
 ## Epic（大きな課題を分ける）
 
@@ -150,6 +155,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 修正回数の上限 | PR に `agent:blocked` | 指摘を確認して人が直すか Close |
 | 判定が古い | App の `verdict-rejected` | 何もしない（次の実行で判定し直す） |
 | コンフリクト・停滞 | ダッシュボードの各一覧 | 人が解消する |
+| ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | 人が足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す） |
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる |
 
 判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。

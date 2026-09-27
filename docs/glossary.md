@@ -116,7 +116,7 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ### ダッシュボード
 
-App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR を3時間ごとに一覧にする。詳細：[operations.md](operations.md#止める仕組み)
+App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR、必須ラベルが足りない（または規則に反する）Issue・PR を3時間ごとに一覧にする。詳細：[operations.md](operations.md#止める仕組み)
 
 ## 外部
 

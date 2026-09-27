@@ -31,11 +31,13 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - Human Merge：App のコメント（本文に `kind=human-review`、作成者が App）が PR に付いたこと（[docs/operations.md](../../../docs/operations.md) の「Human Merge の依頼」）。
    - 数分待ってもどちらも無ければ、App の記録（`kind=acceptance` の `autoEligible` と `reasons`）を読んで人に返す。
 7. 続けて使わなければ `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` で worktree を消す。
-8. 人に**人がすること**の一覧を出す。
+8. `node harness/scripts/agent.ts label-audit <Issue番号> <PR番号>` で、扱った Issue・PR（Epic なら親と子課題も）に必須ラベルの不足や違反が無いかを確かめる。あれば手順9の一覧に書く（ラベルは付け外ししない）。
+9. 人に**人がすること**の一覧を出す。
    - Merge：Human Merge なら PR を確認して Merge する。自動 Merge なら何もしない（止めたければ `agent:hold`）。
    - 例外ラベル：`test:exempt`・`review:exempt` を付けるかの判断と、その理由を書いた場所（Issue か PR のコメント）
    - `node harness/scripts/setup.ts` の実行が要る変更か（ラベル・Ruleset・Environment・App の設定を変えた）
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
+   - ラベルの不足・違反（手順8で見つかったもの。付けるか直すかは人が決める）
 
 ## 終わりの状態
 
