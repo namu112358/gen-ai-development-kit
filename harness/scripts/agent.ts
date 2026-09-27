@@ -10,7 +10,11 @@ import { computeQueue } from '../lib/facts.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
 import type { Claim } from '../lib/queue.ts';
-import { composeVerdict, judgedHeadOf, renderCriticInput, renderJudgeInput, type CheckRun, type JudgeFacts } from '../lib/session-inputs.ts';
+import { parseChildMarker } from '../lib/epic.ts';
+import {
+  checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, splitArgs,
+  type CheckRun, type JudgeFacts, type ParentEpic, type PrCommit,
+} from '../lib/session-inputs.ts';
 import { closingIssues, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
@@ -38,12 +42,18 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿
  *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿
- *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント、計画ゲートの記録の計画、PR 本文、agent/scope の結果、前回の判定の head とブロッキング指摘）をファイルに書き、パスを出力
+ *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの agent-plan ブロックは省く〕、
+ *                                                           Epic の子課題なら親 Epic〔子課題の一覧と Validation Requirements〕、計画ゲートの記録の計画、PR 本文、
+ *                                                           PR のコラボレーターのコメント〔判定コメントを除く〕、agent/scope の結果、前回の判定の head とブロッキング指摘、
+ *                                                           前回の head の後の main の取り込みの有無）をファイルに書き、パスを出力
  *   node harness/scripts/agent.ts compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>]
  *                                                           サブエージェントの出力から判定コメントを作って検査し、ファイルのパスを出力（投稿は post-verdict）。
+ *                                                           オプションの位置は問わない。judge-input のファイルの PR 番号が <pr> と違えば止まる。
  *                                                           判定した head は judge-input のファイルの headSha。現在の head と違えば止まる。
  *                                                           metrics.judgedBy はセッション URL（無ければ「付き添いのセッション」）
- *   node harness/scripts/agent.ts critic-input <issue> <plan-file>  plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画）をファイルに書き、パスを出力
+ *   node harness/scripts/agent.ts critic-input <issue> <plan-file> [--previous <critique.json>]
+ *                                                           plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画。
+ *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
@@ -183,26 +193,57 @@ function writeTemp(name: string, text: string): string {
   return path;
 }
 
+type IssueItem = { number: number; title: string; body: string | null };
+
+/** Epic の子課題なら親を読む。子課題の一覧は App の epic-split の記録から、無ければ Sub-issues の API から */
+async function parentEpic(gh: GitHub, body: string | null): Promise<ParentEpic | undefined> {
+  const mark = parseChildMarker(body);
+  if (!mark) return undefined;
+  const parent = await gh.get<IssueItem>(`/issues/${mark.parent}`);
+  const recorded = epicChildrenFromRecords(config, await gh.listComments(mark.parent));
+  if (recorded === null) {
+    const subs = await gh.paginate<IssueItem>(`/issues/${mark.parent}/sub_issues`);
+    return { number: mark.parent, title: parent.title, body: parent.body, children: subs.map((c) => ({ number: c.number, title: c.title })), childrenSource: 'sub-issues' };
+  }
+  const children: ParentEpic['children'] = [];
+  for (const c of recorded) children.push({ number: c, title: (await gh.get<IssueItem>(`/issues/${c}`)).title });
+  return { number: mark.parent, title: parent.title, body: parent.body, children, childrenSource: 'record' };
+}
+
 async function judgeInput(gh: GitHub, n: number): Promise<string> {
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
   const issues: JudgeFacts['issues'] = [];
   for (const i of await closingIssues(gh, n)) {
-    const issue = await gh.get<{ number: number; title: string; body: string | null }>(`/issues/${i}`);
-    issues.push({ number: i, title: issue.title, body: issue.body, comments: await gh.listComments(i) });
+    const issue = await gh.get<IssueItem>(`/issues/${i}`);
+    const epic = await parentEpic(gh, issue.body);
+    issues.push({ number: i, title: issue.title, body: issue.body, comments: await gh.listComments(i), ...(epic ? { epic } : {}) });
   }
   const text = renderJudgeInput(config, {
     pr: { number: n, headSha: pr.head.sha, body: pr.body },
     issues,
     prComments: await gh.listComments(n),
     checkRuns: await gh.paginate<CheckRun>(`/commits/${pr.head.sha}/check-runs`),
+    commits: await gh.paginate<PrCommit>(`/pulls/${n}/commits`),
   });
   return writeTemp(`judge-input-${n}.txt`, text);
 }
 
-async function criticInput(gh: GitHub, n: number, planFile: string | undefined): Promise<string> {
-  if (!planFile) fail(['critic-input <issue> <plan-file>']);
-  const issue = await gh.get<{ number: number; title: string; body: string | null }>(`/issues/${n}`);
-  return writeTemp(`critic-input-${n}.txt`, renderCriticInput(issue, await gh.listComments(n), readFileSync(planFile, 'utf8')));
+async function criticInput(gh: GitHub, args: string[]): Promise<string> {
+  const usage = 'critic-input <issue> <plan-file> [--previous <critique.json>]';
+  const a = splitArgs(args, ['--previous']);
+  if (!a.ok) fail([...a.errors, usage]);
+  const [issueArg, planFile] = a.value.positional;
+  if (a.value.positional.length !== 2 || !issueArg || !planFile || !/^\d+$/.test(issueArg)) fail([usage]);
+  const n = Number(issueArg);
+  const previousFile = a.value.options['--previous'];
+  let previous;
+  if (previousFile) {
+    const p = parsePreviousCritique(readFileSync(previousFile, 'utf8'));
+    if (!p.ok) fail(p.errors.map((e) => `${previousFile}: ${e}`));
+    previous = p.value;
+  }
+  const issue = await gh.get<IssueItem>(`/issues/${n}`);
+  return writeTemp(`critic-input-${n}.txt`, renderCriticInput(issue, await gh.listComments(n), readFileSync(planFile, 'utf8'), previous));
 }
 
 function readJson(file: string): unknown {
@@ -213,25 +254,20 @@ function readJson(file: string): unknown {
   }
 }
 
-function optionValue(args: string[], name: string): string | undefined {
-  const i = args.indexOf(name);
-  return i >= 0 ? args[i + 1] : undefined;
-}
-
-async function composeVerdictFile(gh: GitHub, n: number, args: string[]): Promise<string> {
-  const [, reviewerFile, riskFile] = args;
-  const inputFile = optionValue(args, '--judge-input');
-  if (!reviewerFile || !riskFile || !inputFile) fail(['compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>]']);
-  const judgedHead = judgedHeadOf(readFileSync(inputFile, 'utf8'));
-  if (!judgedHead) fail([`${inputFile} に headSha の行がありません`]);
+async function composeVerdictFile(gh: GitHub, args: string[]): Promise<string> {
+  const a = parseComposeArgs(args);
+  if (!a.ok) fail(a.errors);
+  const { pr: n, reviewerFile, riskFile, judgeInput: inputFile, model } = a.value;
+  const judged = checkJudgeInput(readFileSync(inputFile, 'utf8'), n);
+  if (!judged.ok) fail(judged.errors.map((e) => `${inputFile}: ${e}`));
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
   const r = composeVerdict({
     pr: n,
-    judgedHead,
+    judgedHead: judged.value,
     currentHead: pr.head.sha,
     reviewer: readJson(reviewerFile),
     risk: readJson(riskFile),
-    meta: { model: optionValue(args, '--model'), judgedBy: sessionUrl() ?? '付き添いのセッション' },
+    meta: { model, judgedBy: sessionUrl() ?? '付き添いのセッション' },
   });
   if (!r.ok) fail(r.errors);
   return writeTemp(`verdict-${n}.md`, r.value);
@@ -325,8 +361,8 @@ async function main(): Promise<void> {
     case 'post-plan': return postPlan(gh, n, args[1]!);
     case 'post-verdict': return postVerdict(gh, n, args[1]!);
     case 'judge-input': return void console.log(await judgeInput(gh, n));
-    case 'critic-input': return void console.log(await criticInput(gh, n, args[1]));
-    case 'compose-verdict': return void console.log(await composeVerdictFile(gh, n, args));
+    case 'critic-input': return void console.log(await criticInput(gh, args));
+    case 'compose-verdict': return void console.log(await composeVerdictFile(gh, args));
     case 'footer': {
       const [, stage, model, minutes, tokens] = args;
       const pr = await gh.get<PullRequest>(`/pulls/${n}`);
