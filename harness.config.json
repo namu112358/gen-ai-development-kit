@@ -40,7 +40,7 @@
     "harness/lib/concurrency.ts"
   ],
   "areaConcurrency": {
-    "harness": 2
+    "harness": 3
   },
   "fixLoop": {
     "normalLimit": 2,
