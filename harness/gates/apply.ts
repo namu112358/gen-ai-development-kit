@@ -2,7 +2,7 @@ import { appLogin, CHECKS, LABELS } from '../lib/config.ts';
 import { evaluateMergeRoute, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, autoMergeMode, hasLabel, isAgentPr, isSameRepoPr, prDiff, type PullRequest, type Review } from '../lib/state.ts';
-import { appComment, enableAutoMerge, getPr, markReady, writeCheck, type GateContext } from './context.ts';
+import { appComment, enableAutoMerge, getPr, markReady, updateBranchIfBehind, writeCheck, type GateContext } from './context.ts';
 
 /**
  * 受け付けた判定を PR に反映する。順序が安全性の要：
@@ -56,6 +56,8 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
     await writeMergeRoute(ctx, after, acceptance, mode, pr.head.sha);
   }
   if (wantAuto && !armed) await mergeDirectly(ctx, after, pr.head.sha);
+  // auto-merge を付けた時点で main より遅れていると、追従のきっかけ（main への push）が来るまで止まるため、その場で追従させる
+  if (armed) await updateBranchIfBehind(ctx, after);
 }
 
 /**
