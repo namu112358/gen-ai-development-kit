@@ -7,17 +7,27 @@ import {
   askJevWithUsage,
   brierScore,
   buildJevRequest,
+  buildSummaryReport,
   buildTriageRequest,
   cjkRatio,
+  combineMean,
+  combineRate,
   estimateCost,
+  mergeManifestEntries,
   pairedDifferences,
+  pendingRuns,
   renderSummary,
+  requestCharLength,
   runToRunSpread,
   stratifyByTokens,
+  titleDescription,
+  titlePrefix,
   tokenRatio,
   translationProblems,
+  triageTypeFromLabel,
   type ItemResult,
   type ItemUsage,
+  type ManifestEntry,
   type ManifestItem,
 } from '../scripts/jev-language.ts';
 
@@ -442,4 +452,147 @@ test('buildTriageRequest の re-export: harness/lib/issue-triage.ts のものを
     acceptanceCriteria: 'a',
   } as never);
   assert.equal(Object.keys(req.questions).length, 5);
+});
+
+// ---- レビューの指摘への対応（#136 の fix） ----
+
+test('titlePrefix・titleDescription: type(scope): の部分と説明部分を分ける', () => {
+  assert.equal(titlePrefix('feat(harness): 日本語の説明'), 'feat(harness): ');
+  assert.equal(titleDescription('feat(harness): 日本語の説明'), '日本語の説明');
+  assert.equal(titleDescription('feat(harness): '), '', '説明部分が空なら空文字');
+  assert.equal(titlePrefix('type(scope) が無いタイトル'), '', '形式でないタイトルは prefix なし');
+});
+
+test('translationProblems: 英訳版のタイトルの説明部分が空（訳し忘れ）を検出する', () => {
+  const items: ManifestItem[] = [
+    {
+      id: 'title-untranslated',
+      translationReviewed: true,
+      jaText: '',
+      enText: '',
+      jaDiff: '',
+      enDiff: '',
+      jaTitle: 'feat(harness): 日本語の説明',
+      enTitle: 'feat(harness): ',
+    },
+  ];
+  const problems = translationProblems(items, 0.1);
+  assert.equal(problems.length, 1);
+  assert.equal(problems[0]!.id, 'title-untranslated');
+  assert.ok(problems[0]!.reasons.some((r) => r.includes('タイトル')));
+});
+
+test('translationProblems: 英訳版のタイトルの説明部分があれば問題にしない', () => {
+  const items: ManifestItem[] = [
+    {
+      id: 'title-translated',
+      translationReviewed: true,
+      jaText: '',
+      enText: '',
+      jaDiff: '',
+      enDiff: '',
+      jaTitle: 'feat(harness): 日本語の説明',
+      enTitle: 'feat(harness): English description',
+    },
+  ];
+  assert.equal(translationProblems(items, 0.1).length, 0);
+});
+
+test('requestCharLength: state と questions の両方の文字数を数える', () => {
+  const len = requestCharLength({ state: { diff: 'abcde' }, questions: { q1: { instructions: 'xy' } } });
+  assert.equal(len, JSON.stringify({ diff: 'abcde' }).length + JSON.stringify({ q1: { instructions: 'xy' } }).length);
+  assert.ok(len > JSON.stringify({ diff: 'abcde' }).length, 'questions の分も足されている');
+});
+
+test('pendingRuns: 既に結果がある回を除く', () => {
+  const existing = new Set(['item1|ja|run1']);
+  assert.deepEqual(pendingRuns('item1', 'ja', existing), ['run2']);
+  assert.deepEqual(pendingRuns('item1', 'en', existing), ['run1', 'run2']);
+  assert.deepEqual(pendingRuns('item1', 'ja', new Set(['item1|ja|run1', 'item1|ja|run2'])), []);
+});
+
+test('triageTypeFromLabel: type:* ラベルの値を issue-triage.ts の TYPES の選択肢名に合わせる', () => {
+  assert.equal(triageTypeFromLabel('feat'), 'feature');
+  assert.equal(triageTypeFromLabel('fix'), 'bug');
+  assert.equal(triageTypeFromLabel('docs'), 'docs');
+  assert.equal(triageTypeFromLabel('chore'), 'chore');
+  assert.equal(triageTypeFromLabel('perf'), 'refactor');
+  assert.equal(triageTypeFromLabel(undefined), undefined);
+  assert.equal(triageTypeFromLabel('unknown-type'), 'unknown-type', '対応が無ければそのまま返す');
+});
+
+test('mergeManifestEntries: 既存の translationReviewed・truth を新しい項目に引き継ぐ', () => {
+  const previous: ManifestEntry[] = [
+    { kind: 'pr', id: 'pr-1', number: 1, changedFiles: ['a.ts'], jaFile: 'pr-1.ja.diff', enFile: 'pr-1.en.diff', translationReviewed: true, truth: { q1_risk: 'low' } },
+  ];
+  const fresh: ManifestEntry[] = [
+    { kind: 'pr', id: 'pr-1', number: 1, changedFiles: ['a.ts', 'b.ts'], jaFile: 'pr-1.ja.diff', enFile: 'pr-1.en.diff', translationReviewed: false, truth: { q1_risk: '', q2_revertible: '' } },
+  ];
+  const merged = mergeManifestEntries(previous, fresh);
+  assert.equal(merged.length, 1);
+  const item = merged[0]!;
+  assert.equal(item.translationReviewed, true, 'translationReviewed を引き継ぐ');
+  assert.equal(item.truth.q1_risk, 'low', '人が入れた truth を引き継ぐ');
+  assert.equal(item.truth.q2_revertible, '', '新しい項目にしか無いキーは新しい値のまま');
+  assert.deepEqual((item as { changedFiles: string[] }).changedFiles, ['a.ts', 'b.ts'], '内容自体は新しい取得結果を使う');
+});
+
+test('mergeManifestEntries: 既存に無い項目はそのまま', () => {
+  const fresh: ManifestEntry[] = [
+    { kind: 'pr', id: 'pr-2', number: 2, changedFiles: [], jaFile: '', enFile: '', translationReviewed: false, truth: {} },
+  ];
+  const merged = mergeManifestEntries([], fresh);
+  assert.deepEqual(merged, fresh);
+});
+
+test('combineMean・combineRate: run1・run2 を件数で重みづけして1つに合わせる', () => {
+  const a = { q1: { mean: 0.2, count: 2 } };
+  const b = { q1: { mean: 0.5, count: 1 } };
+  const combined = combineMean(a, b);
+  // (0.2*2 + 0.5*1) / 3 = 0.9/3 = 0.3
+  assert.ok(Math.abs(combined.q1!.mean - 0.3) < 1e-9);
+  assert.equal(combined.q1!.count, 3);
+
+  const ra = { q1: { rate: 1, count: 2 } };
+  const rb = { q1: { rate: 0, count: 2 } };
+  const combinedRate = combineRate(ra, rb);
+  assert.ok(Math.abs(combinedRate.q1!.rate - 0.5) < 1e-9);
+  assert.equal(combinedRate.q1!.count, 4);
+});
+
+test('buildSummaryReport: Brier score・一致率が run1 だけでなく run2 も合わせ、回ごとのぶれ・長さの層の節も出す', () => {
+  const items: ItemResult[] = [
+    {
+      id: 'item1',
+      questionKinds: { q_noul_a: 'noul' },
+      truth: { q_noul_a: 'yes' },
+      ja: { run1: { q_noul_a: { yes: 1 } }, run2: { q_noul_a: { yes: 0.5 } } },
+      en: { run1: { q_noul_a: { yes: 1 } }, run2: { q_noul_a: { yes: 1 } } },
+    },
+    {
+      id: 'item2',
+      questionKinds: { q_noul_a: 'noul' },
+      truth: { q_noul_a: 'yes' },
+      ja: { run1: { q_noul_a: { yes: 1 } }, run2: { q_noul_a: { yes: 1 } } },
+      en: { run1: { q_noul_a: { yes: 1 } }, run2: { q_noul_a: { yes: 1 } } },
+    },
+    {
+      id: 'item3',
+      questionKinds: { q_noul_a: 'noul' },
+      truth: { q_noul_a: 'yes' },
+      ja: { run1: { q_noul_a: { yes: 1 } }, run2: { q_noul_a: { yes: 1 } } },
+      en: { run1: { q_noul_a: { yes: 1 } }, run2: { q_noul_a: { yes: 1 } } },
+    },
+  ];
+  const usages: ItemUsage[] = [
+    { id: 'item1', ja: { run1: 100, run2: 100 }, en: { run1: 50, run2: 50 } },
+    { id: 'item2', ja: { run1: 500, run2: 500 }, en: { run1: 250, run2: 250 } },
+    { id: 'item3', ja: { run1: 900, run2: 900 }, en: { run1: 450, run2: 450 } },
+  ];
+  const report = buildSummaryReport(items, usages);
+  // run1 だけなら item1 の ja Brier score は 0（(1-1)^2）、run2 も合わせると (0.5-1)^2=0.25 が効いて 0 より大きくなる
+  assert.ok(report.includes('回ごとのぶれ'), '回ごとのぶれの節がある');
+  assert.ok(report.includes('q_noul_a='), '回ごとのぶれに問いの内訳が出る');
+  assert.ok(report.includes('長さとの交絡'), '長さの層の節がある');
+  assert.ok(report.includes('短い層') || report.includes('件数0'), '層のラベルが出る');
 });

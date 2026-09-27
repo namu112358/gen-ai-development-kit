@@ -1,7 +1,8 @@
 /**
  * 日本語の材料と英訳した材料を同じ問いで Jev（TypeSafe AI）に投げ比べる、手で実行する実験用スクリプト。ゲート（gate.yml）には組み込まない。
  *
- *   node harness/scripts/jev-language.ts prepare <owner/repo> <出力先> --prs <番号,…> --issues <番号,…>   gh で材料を集めて manifest を作る
+ *   node harness/scripts/jev-language.ts prepare <owner/repo> <出力先> --prs <番号,…> --issues <番号,…> [--force]
+ *                                                                                                        gh で材料を集めて manifest を作る（既にあれば translationReviewed・truth を引き継ぐ。--force で引き継がず作り直す）
  *   node harness/scripts/jev-language.ts check <manifest>                                                 訳の未確認・残る日本語・diff の食い違いを一覧にする
  *   node harness/scripts/jev-language.ts run <manifest> <結果の出力先> --confirm                          Jev に投げる（--confirm と JEV_API_KEY が無ければ見積もりだけ）
  *   node harness/scripts/jev-language.ts summarize <manifest> <結果>                                      集計して Markdown の表を出す
@@ -16,11 +17,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
-import { flattenAnswers, redact, type JevAnswers } from '../lib/jev.ts';
-import { buildJevRequest } from '../lib/jev.ts';
+import { buildJevRequest, flattenAnswers, redact, type JevAnswers } from '../lib/jev.ts';
 import { buildTriageRequest } from '../lib/issue-triage.ts';
 import { parseIssueBody } from '../lib/issue-form.ts';
-import { parseTitle } from '../lib/title.ts';
 import { RISK_QUESTIONS } from '../lib/verdict.ts';
 import { changedFiles, prDiff, type PullRequest } from '../lib/state.ts';
 
@@ -254,6 +253,9 @@ export interface ManifestItem {
   enText: string;
   jaDiff: string;
   enDiff: string;
+  /** Issue のタイトル（あれば）。英訳版の説明部分が空（訳し忘れ）かを見る */
+  jaTitle?: string;
+  enTitle?: string;
 }
 
 /** diff の各行の先頭（`+`・`-`）だけを取り出した並び。行数が違えば長さも違う */
@@ -265,7 +267,19 @@ function diffShape(diff: string): string {
     .join('');
 }
 
-/** 訳が済んでいない項目、英訳版に日本語が残る項目、diff の行数・並びが食い違う項目を一覧にする */
+/** `type(scope): ` の部分（無ければ空文字） */
+const TITLE_PREFIX_RE = /^[a-z]+(?:\([a-z0-9][a-z0-9._/-]*\))?!?: /;
+export function titlePrefix(title: string): string {
+  const m = title.match(TITLE_PREFIX_RE);
+  return m ? m[0] : '';
+}
+
+/** `type(scope):` を除いた、説明部分だけ（trim 済み） */
+export function titleDescription(title: string): string {
+  return title.slice(titlePrefix(title).length).trim();
+}
+
+/** 訳が済んでいない項目、英訳版に日本語が残る項目、diff の行数・並びが食い違う項目、タイトルの説明部分が訳し忘れの項目を一覧にする */
 export function translationProblems(items: ManifestItem[], cjkThreshold: number): { id: string; reasons: string[] }[] {
   const out: { id: string; reasons: string[] }[] = [];
   for (const item of items) {
@@ -274,6 +288,9 @@ export function translationProblems(items: ManifestItem[], cjkThreshold: number)
     const ratio = cjkRatio(item.enText);
     if (ratio >= cjkThreshold) reasons.push(`英訳版に日本語らしき文字が残っています（CJK 比率 ${(ratio * 100).toFixed(1)}%）`);
     if (diffShape(item.jaDiff) !== diffShape(item.enDiff)) reasons.push('diff の行数・+/- の並びが日本語版と英訳版で食い違います');
+    if (item.jaTitle !== undefined && titleDescription(item.jaTitle).length > 0 && titleDescription(item.enTitle ?? '').length === 0) {
+      reasons.push('英訳版のタイトルの説明部分が空です（訳し忘れの可能性）');
+    }
     if (reasons.length > 0) out.push({ id: item.id, reasons });
   }
   return out;
@@ -287,6 +304,42 @@ export function estimateCost(input: { lang: 'ja' | 'en'; charCount: number; pric
   const tokens = input.charCount / CHARS_PER_TOKEN[input.lang];
   const price = input.pricePerInputToken ?? DEFAULT_PRICE_PER_INPUT_TOKEN;
   return { tokens, costUsd: tokens * price };
+}
+
+/** Jev への要求全体（state だけでなく questions の instructions・criteria も）の見積もり用の文字数 */
+export function requestCharLength(request: { state: unknown; questions: Record<string, unknown> }): number {
+  return JSON.stringify(request.state).length + JSON.stringify(request.questions).length;
+}
+
+/** まだ結果が無い回（run1・run2 のうち）。既に結果がある項目・言語・回は見積もり・送信の両方から外して再開できるようにする */
+export function pendingRuns(itemId: string, lang: 'ja' | 'en', existing: ReadonlySet<string>): ('run1' | 'run2')[] {
+  return (['run1', 'run2'] as const).filter((run) => !existing.has(`${itemId}|${lang}|${run}`));
+}
+
+/** 問いごとの `{mean,count}` を件数で重みづけして1つに合わせる（run1・run2 をまとめて見るときに使う） */
+export function combineMean(a: Record<string, { mean: number; count: number }>, b: Record<string, { mean: number; count: number }>): Record<string, { mean: number; count: number }> {
+  const out: Record<string, { mean: number; count: number }> = {};
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const av = a[key];
+    const bv = b[key];
+    const count = (av?.count ?? 0) + (bv?.count ?? 0);
+    const sum = (av ? av.mean * av.count : 0) + (bv ? bv.mean * bv.count : 0);
+    out[key] = { mean: count > 0 ? sum / count : NaN, count };
+  }
+  return out;
+}
+
+/** 問いごとの `{rate,count}` を件数で重みづけして1つに合わせる（combineMean の一致率版） */
+export function combineRate(a: Record<string, { rate: number; count: number }>, b: Record<string, { rate: number; count: number }>): Record<string, { rate: number; count: number }> {
+  const out: Record<string, { rate: number; count: number }> = {};
+  for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
+    const av = a[key];
+    const bv = b[key];
+    const count = (av?.count ?? 0) + (bv?.count ?? 0);
+    const sum = (av ? av.rate * av.count : 0) + (bv ? bv.rate * bv.count : 0);
+    out[key] = { rate: count > 0 ? sum / count : NaN, count };
+  }
+  return out;
 }
 
 const JEV_ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
@@ -347,7 +400,7 @@ export function renderSummary(input: SummaryInput): string {
 // prepare / check / run / summarize（CLI。import.meta.main の中だけで動く）
 // ==========================================================================
 
-interface ManifestPrItem {
+export interface ManifestPrItem {
   kind: 'pr';
   id: string;
   number: number;
@@ -360,7 +413,7 @@ interface ManifestPrItem {
   skipped?: string;
 }
 
-interface ManifestIssueItem {
+export interface ManifestIssueItem {
   kind: 'issue';
   id: string;
   number: number;
@@ -372,15 +425,51 @@ interface ManifestIssueItem {
   translationReviewed: boolean;
   labels: string[];
   /** type・area・priority。ラベルからの下書き（人が確かめる） */
-  truth: { type?: string; area?: string; priority?: string };
+  truth: Record<string, string>;
 }
 
-type ManifestEntry = ManifestPrItem | ManifestIssueItem;
+export type ManifestEntry = ManifestPrItem | ManifestIssueItem;
 
-interface Manifest {
+export interface Manifest {
   version: 1;
   repository: string;
   items: ManifestEntry[];
+}
+
+/**
+ * 既存の manifest（あれば）の `translationReviewed`・`truth` を新しく作った項目に引き継ぐ（人が入れた値を prepare の再実行で消さない）。
+ * 同じ id（`pr-<番号>`・`issue-<番号>`）の項目だけ対象。新しい項目にしか無いキーの `truth` はそのまま残す
+ */
+export function mergeManifestEntries(previous: ManifestEntry[], fresh: ManifestEntry[]): ManifestEntry[] {
+  const byId = new Map(previous.map((p) => [p.id, p]));
+  return fresh.map((item) => {
+    const old = byId.get(item.id);
+    if (!old) return item;
+    const truth: Record<string, string> = { ...item.truth };
+    for (const [k, v] of Object.entries(old.truth)) if (v) truth[k] = v;
+    return { ...item, translationReviewed: old.translationReviewed, truth };
+  });
+}
+
+/** issue-triage.ts の TYPES（feature/bug/docs/refactor/test/chore）と type:* ラベル（Conventional Commits の type）の対応表 */
+const TYPE_LABEL_TO_TRIAGE: Record<string, string> = {
+  feat: 'feature',
+  fix: 'bug',
+  docs: 'docs',
+  refactor: 'refactor',
+  test: 'test',
+  chore: 'chore',
+  ci: 'chore',
+  build: 'chore',
+  perf: 'refactor',
+  style: 'refactor',
+  revert: 'chore',
+};
+
+/** `type:<TITLE_TYPES>` ラベルの値を、issue-triage.ts の TYPES の選択肢名に合わせる（対応が無ければそのまま返す） */
+export function triageTypeFromLabel(labelValue: string | undefined): string | undefined {
+  if (!labelValue) return undefined;
+  return TYPE_LABEL_TO_TRIAGE[labelValue] ?? labelValue;
 }
 
 function writeText(dir: string, name: string, content: string): string {
@@ -391,10 +480,7 @@ function writeText(dir: string, name: string, content: string): string {
 
 /** 人の決定（2026-09-27）：Issue タイトルは `type(scope):` の部分を残し、後ろの説明だけを英訳する */
 function draftTitleTranslation(title: string): { jaTitle: string; enTitleDraft: string } {
-  const parsed = parseTitle(title);
-  if (!parsed.ok) return { jaTitle: title, enTitleDraft: title };
-  const prefix = title.slice(0, title.length - parsed.subject.length);
-  return { jaTitle: title, enTitleDraft: `${prefix}` }; // 説明部分は人/セッションが後ろに書く
+  return { jaTitle: title, enTitleDraft: titlePrefix(title) }; // 説明部分は人/セッションが後ろに書く
 }
 
 /** area:* ラベルからの下書き（実在する area 名かは人が確かめる） */
@@ -402,7 +488,7 @@ function areaFromLabels(labels: string[]): string | undefined {
   return labels.find((l) => l.startsWith('area:'))?.slice('area:'.length);
 }
 
-async function prepare(repository: string, outDir: string, prNumbers: number[], issueNumbers: number[]): Promise<void> {
+async function prepare(repository: string, outDir: string, prNumbers: number[], issueNumbers: number[], force: boolean): Promise<void> {
   const config = loadConfig();
   const gh = new GitHub(transportFromEnv(), repository);
   mkdirSync(outDir, { recursive: true });
@@ -437,7 +523,13 @@ async function prepare(repository: string, outDir: string, prNumbers: number[], 
     const enBodyFile = `${id}.body.en.md`;
     if (!existsSync(join(outDir, enBodyFile))) writeFileSync(join(outDir, enBodyFile), '');
     const priority = labels.find((l) => l.startsWith('priority:'))?.slice('priority:'.length);
-    const type = labels.find((l) => l.startsWith('type:'))?.slice('type:'.length);
+    const typeLabelValue = labels.find((l) => l.startsWith('type:'))?.slice('type:'.length);
+    const type = triageTypeFromLabel(typeLabelValue);
+    const area = areaFromLabels(labels);
+    const truth: Record<string, string> = {};
+    if (type) truth.type = type;
+    if (area) truth.area = area;
+    if (priority) truth.priority = priority;
     items.push({
       kind: 'issue',
       id,
@@ -449,13 +541,24 @@ async function prepare(repository: string, outDir: string, prNumbers: number[], 
       enBodyFile,
       translationReviewed: false,
       labels,
-      truth: { type, area: areaFromLabels(labels), priority },
+      truth,
     });
   }
 
-  const manifest: Manifest = { version: 1, repository, items };
-  writeFileSync(join(outDir, 'manifest.json'), JSON.stringify(manifest, null, 2));
-  console.log(`manifest を書きました: ${join(outDir, 'manifest.json')}（PR ${prNumbers.length} 件、Issue ${issueNumbers.length} 件）`);
+  const manifestPath = join(outDir, 'manifest.json');
+  let finalItems = items;
+  if (existsSync(manifestPath)) {
+    if (force) {
+      console.log('既存の manifest.json を --force で作り直します（translationReviewed・truth は引き継ぎません）');
+    } else {
+      finalItems = mergeManifestEntries(loadManifest(manifestPath).items, items);
+      console.log('既存の manifest.json の translationReviewed・truth を引き継ぎました（--force で作り直せます）');
+    }
+  }
+
+  const manifest: Manifest = { version: 1, repository, items: finalItems };
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+  console.log(`manifest を書きました: ${manifestPath}（PR ${prNumbers.length} 件、Issue ${issueNumbers.length} 件）`);
 }
 
 function loadManifest(path: string): Manifest {
@@ -486,6 +589,8 @@ function checkCommand(manifestPath: string): void {
             enText: `${readIfExists(dir, i.enTitleFile)}\n${readIfExists(dir, i.enBodyFile)}`,
             jaDiff: '',
             enDiff: '',
+            jaTitle: readIfExists(dir, i.jaTitleFile),
+            enTitle: readIfExists(dir, i.enTitleFile),
           },
     );
   const problems = translationProblems(targets, 0.05);
@@ -552,11 +657,9 @@ async function runCommand(manifestPath: string, resultsPath: string, confirm: bo
         console.error(`${item.id} ${lang}: Issue Form の形で読めないため見送ります`);
         continue;
       }
-      estimatedChars[lang] += JSON.stringify(request.state).length * 2; // run1・run2 の2回ぶん
-      for (const run of ['run1', 'run2'] as const) {
-        if (existing.has(`${item.id}|${lang}|${run}`)) continue;
-        planned.push({ item, lang, run, request });
-      }
+      const pending = pendingRuns(item.id, lang, existing);
+      estimatedChars[lang] += requestCharLength(request) * pending.length; // 終わっていない回ぶんだけ数える（state だけでなく questions も）
+      for (const run of pending) planned.push({ item, lang, run, request });
     }
   }
 
@@ -615,34 +718,93 @@ function toItemUsages(items: ItemResult[], results: ResultLine[]): ItemUsage[] {
   return items.map((it) => ({ id: it.id, ja: { run1: find(it.id, 'ja', 'run1'), run2: find(it.id, 'ja', 'run2') }, en: { run1: find(it.id, 'en', 'run1'), run2: find(it.id, 'en', 'run2') } }));
 }
 
-function overallMean(byQuestion: Record<string, { mean: number; count: number }> | Record<string, { rate: number; count: number }>, field: 'mean' | 'rate'): number {
+/** `{mean,count}`・`{rate,count}` の Record から、問いをまたいだ単純平均（件数の重みづけはしない。全体のごく大まかな要約用） */
+export function overallMean(byQuestion: Record<string, { mean: number; count: number }> | Record<string, { rate: number; count: number }>, field: 'mean' | 'rate'): number {
   const values = Object.values(byQuestion)
     .map((v) => (v as Record<string, number>)[field])
     .filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : NaN;
 }
 
+function overallMeanAbs(byQuestion: Record<string, PairedDiffStat>): number {
+  const values = Object.values(byQuestion)
+    .map((v) => v.meanAbs)
+    .filter((v) => Number.isFinite(v));
+  return values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : NaN;
+}
+
+/** 日本語版の input_tokens（run1+run2 の合計）で項目を3層に分け、層ごとに対の差（|差|平均の問いをまたいだ平均）を出す行を作る */
+function renderLengthStrata(items: ItemResult[], usages: ItemUsage[]): string[] {
+  const tokensById = new Map(usages.map((u) => [u.id, (u.ja.run1 ?? 0) + (u.ja.run2 ?? 0)]));
+  const withTokens = items.filter((it) => (tokensById.get(it.id) ?? 0) > 0);
+  if (withTokens.length < 3) {
+    return ['長さとの交絡：層分けできるだけの件数（日本語版の input_tokens が分かる項目、3件以上）がありません。'];
+  }
+  const { boundaries } = stratifyByTokens(withTokens.map((it) => tokensById.get(it.id)!), 3);
+  const strataItems: ItemResult[][] = [[], [], []];
+  for (const it of withTokens) {
+    const v = tokensById.get(it.id)!;
+    const idx = v <= (boundaries[0] ?? -Infinity) ? 0 : v <= (boundaries[1] ?? Infinity) ? 1 : 2;
+    strataItems[idx]!.push(it);
+  }
+  const labels = ['短い層', '中くらいの層', '長い層'];
+  const out = ['長さとの交絡（日本語版の input_tokens で3層）:'];
+  strataItems.forEach((groupItems, i) => {
+    if (groupItems.length === 0) {
+      out.push(`  ${labels[i]}: 件数0`);
+      return;
+    }
+    const p = pairedDifferences(groupItems);
+    out.push(`  ${labels[i]}: 件数=${groupItems.length} 問いをまたいだ |差|平均の平均=${Number.isFinite(overallMeanAbs(p.byQuestion)) ? overallMeanAbs(p.byQuestion).toFixed(4) : '-'}`);
+  });
+  return out;
+}
+
+/**
+ * 集計結果をまとめた Markdown・テキストの報告を作る（純粋関数。ネットワーク・GitHub を呼ばない）。
+ * Brier score・一致率は run1・run2 をまとめ（combineMean・combineRate で件数の重みづけ）、回ごとのぶれ（runToRunSpread）・
+ * 長さとの交絡（日本語版の input_tokens で3層）も出す（Issue #136 の Requirements）。
+ */
+export function buildSummaryReport(items: ItemResult[], usages: ItemUsage[]): string {
+  const paired = pairedDifferences(items);
+  const brierJa = combineMean(brierScore(items, 'ja', 'run1').byQuestion, brierScore(items, 'ja', 'run2').byQuestion);
+  const brierEn = combineMean(brierScore(items, 'en', 'run1').byQuestion, brierScore(items, 'en', 'run2').byQuestion);
+  const agreeJa = combineRate(agreementRate(items, 'ja', 'run1').byQuestion, agreementRate(items, 'ja', 'run2').byQuestion);
+  const agreeEn = combineRate(agreementRate(items, 'en', 'run1').byQuestion, agreementRate(items, 'en', 'run2').byQuestion);
+  const spreadJa = runToRunSpread(items, 'ja');
+  const spreadEn = runToRunSpread(items, 'en');
+  const ratio = tokenRatio(usages);
+
+  const lines: string[] = [
+    renderSummary({
+      brier: { ja: overallMean(brierJa, 'mean'), en: overallMean(brierEn, 'mean') },
+      agreement: { ja: overallMean(agreeJa, 'rate'), en: overallMean(agreeEn, 'rate') },
+      tokenRatio: ratio.totalRatio,
+    }),
+    '',
+    '問いごとの対の差（日本語 − 英訳）:',
+    ...Object.entries(paired.byQuestion).map(
+      ([key, stat]) =>
+        `  ${key}: 件数=${stat.count} 平均=${stat.mean.toFixed(4)} |差|平均=${stat.meanAbs.toFixed(4)} 日本語が上回り=${stat.jaHigher} 英訳が上回り=${stat.enHigher}（除外=${paired.excluded[key] ?? 0}）`,
+    ),
+    '',
+    '回ごとのぶれ（1回目と2回目の差の平均。問いごと）:',
+    `  日本語: ${Object.entries(spreadJa.byQuestion).map(([k, v]) => `${k}=${v.meanAbsDiff.toFixed(4)}（件数${v.count}）`).join(' / ') || '(データなし)'}`,
+    `  英訳: ${Object.entries(spreadEn.byQuestion).map(([k, v]) => `${k}=${v.meanAbsDiff.toFixed(4)}（件数${v.count}）`).join(' / ') || '(データなし)'}`,
+    '',
+    `input_tokens の比：合計 ${Number.isFinite(ratio.totalRatio) ? ratio.totalRatio.toFixed(3) : '-'}、項目ごとの中央値 ${Number.isFinite(ratio.medianItemRatio) ? ratio.medianItemRatio.toFixed(3) : '-'}`,
+    '',
+    ...renderLengthStrata(items, usages),
+  ];
+  return lines.join('\n');
+}
+
 function summarizeCommand(manifestPath: string, resultsPath: string): void {
   const manifest = loadManifest(manifestPath);
   const results = loadResults(resultsPath);
   const items = toItemResults(manifest, results);
-
-  const paired = pairedDifferences(items);
-  const brierJa1 = brierScore(items, 'ja', 'run1');
-  const brierEn1 = brierScore(items, 'en', 'run1');
-  const agreeJa1 = agreementRate(items, 'ja', 'run1');
-  const agreeEn1 = agreementRate(items, 'en', 'run1');
   const usages = toItemUsages(items, results);
-  const ratio = tokenRatio(usages);
-
-  console.log(renderSummary({ brier: { ja: overallMean(brierJa1.byQuestion, 'mean'), en: overallMean(brierEn1.byQuestion, 'mean') }, agreement: { ja: overallMean(agreeJa1.byQuestion, 'rate'), en: overallMean(agreeEn1.byQuestion, 'rate') }, tokenRatio: ratio.totalRatio }));
-  console.log('');
-  console.log('問いごとの対の差（日本語 − 英訳）:');
-  for (const [key, stat] of Object.entries(paired.byQuestion)) {
-    console.log(`  ${key}: 件数=${stat.count} 平均=${stat.mean.toFixed(4)} |差|平均=${stat.meanAbs.toFixed(4)} 日本語が上回り=${stat.jaHigher} 英訳が上回り=${stat.enHigher}（除外=${paired.excluded[key] ?? 0}）`);
-  }
-  console.log('');
-  console.log(`input_tokens の比：合計 ${Number.isFinite(ratio.totalRatio) ? ratio.totalRatio.toFixed(3) : '-'}、項目ごとの中央値 ${Number.isFinite(ratio.medianItemRatio) ? ratio.medianItemRatio.toFixed(3) : '-'}`);
+  console.log(buildSummaryReport(items, usages));
 }
 
 if (import.meta.main) {
@@ -661,10 +823,10 @@ if (import.meta.main) {
   if (cmd === 'prepare') {
     const [repository, outDir] = args;
     if (!repository || !outDir) {
-      console.error('usage: node harness/scripts/jev-language.ts prepare <owner/repo> <出力先> --prs <番号,…> --issues <番号,…>');
+      console.error('usage: node harness/scripts/jev-language.ts prepare <owner/repo> <出力先> --prs <番号,…> --issues <番号,…> [--force]');
       process.exit(1);
     }
-    await prepare(repository, outDir, parseList(flag('prs')), parseList(flag('issues')));
+    await prepare(repository, outDir, parseList(flag('prs')), parseList(flag('issues')), args.includes('--force'));
   } else if (cmd === 'check') {
     const manifestPath = args[0];
     if (!manifestPath) {
