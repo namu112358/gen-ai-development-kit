@@ -302,3 +302,71 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
     ...(s.jevQuestions.sets.length === 0 ? ['', 'Jev が応答した記録はありません。'] : questionSections),
   ].join('\n');
 }
+
+/**
+ * 日本語の割合（受け付けの記録の `jev.size.jaRatio`）の区分。下限を含み上限を含まない（Q90）。
+ * `jaRatio` は要求全体（英語の問いの文とガードレールの一覧を含む）での割合なので、diff だけの割合より薄まる。
+ */
+export const JA_RATIO_BUCKETS = [
+  { label: '0〜5%', min: 0, max: 0.05 },
+  { label: '5〜20%', min: 0.05, max: 0.2 },
+  { label: '20〜50%', min: 0.2, max: 0.5 },
+  { label: '50%以上', min: 0.5, max: Infinity },
+] as const;
+
+export interface TokenRatioRow {
+  label: string;
+  count: number;
+  /** 文字数の合計 */
+  chars: number;
+  /** トークン数（`usage.input_tokens`）の合計 */
+  tokens: number;
+  /** 文字数の合計 / トークン数の合計（件数 0 なら null） */
+  ratio: number | null;
+}
+
+export interface TokenRatios {
+  buckets: TokenRatioRow[];
+  /** Jev の記録はあるが数えなかった件数（Jev が応答しなかった、大きさの無い古い記録、トークン数が報告されなかった） */
+  skipped: number;
+}
+
+/**
+ * 各 PR の最後の受け付け記録から、日本語の割合の区分ごとに「文字数 / トークン数」を出す（上限をトークンで見積もる方式を決めるための実測。Q90）。
+ * `summarize` とは独立（切り替えの基準には関わらない）。
+ */
+export function tokenRatios(rows: ReportRow[]): TokenRatios {
+  const buckets: TokenRatioRow[] = JA_RATIO_BUCKETS.map((b) => ({ label: b.label, count: 0, chars: 0, tokens: 0, ratio: null }));
+  let skipped = 0;
+  for (const r of rows) {
+    const jev = r.acceptance?.jev;
+    if (!jev) continue;
+    const size = jev.size;
+    const tokens = size?.inputTokens;
+    if (jev.status !== 'ok' || !size || typeof tokens !== 'number' || !Number.isInteger(tokens) || tokens <= 0) {
+      skipped++;
+      continue;
+    }
+    const i = JA_RATIO_BUCKETS.findIndex((b) => size.jaRatio >= b.min && size.jaRatio < b.max);
+    const bucket = buckets[i === -1 ? 0 : i]!;
+    bucket.count++;
+    bucket.chars += size.chars;
+    bucket.tokens += tokens;
+  }
+  for (const b of buckets) b.ratio = b.count === 0 ? null : b.chars / b.tokens;
+  return { buckets, skipped };
+}
+
+export function renderTokenRatios(r: TokenRatios): string {
+  return [
+    '## 文字数とトークン数の比（Jev の受け付けの記録）',
+    '',
+    '文字数は Jev に送った state と問いを JSON にした文字数、トークン数は応答の `usage.input_tokens`。日本語の割合は要求全体での割合（diff だけの割合より薄まる）。',
+    '',
+    '| 区分 | 件数 | 文字数 | トークン数 | 文字数/トークン |',
+    '| --- | --- | --- | --- | --- |',
+    ...r.buckets.map((b) => `| ${b.label} | ${b.count} | ${b.chars} | ${b.tokens} | ${b.ratio === null ? '-' : Math.round(b.ratio * 100) / 100} |`),
+    '',
+    `数えなかった記録（Jev が応答しなかった、大きさの無い古い記録、トークン数が報告されなかった）：${r.skipped} 件`,
+  ].join('\n');
+}

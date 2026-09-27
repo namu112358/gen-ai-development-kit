@@ -35,6 +35,12 @@ export interface JevRecord {
   answers?: Record<string, Record<string, number>>;
   /** 問いの版（harness/lib/jev.ts の `JEV_QUESTION_SET`）。無い古い記録は版 1 */
   questionSet?: number;
+  /**
+   * Jev に送った材料の大きさ（Jev が応答したときだけ。Q90）。`chars` は state と問いを JSON にした文字数、
+   * `jaRatio` はそのうち日本語の文字の割合、`inputTokens` は応答の `usage.input_tokens`（報告されなければ null）、
+   * `diffChars` は diff の文字数（`jev.maxDiffChars` と比べる値）。集計は harness/lib/report.ts の `tokenRatios`
+   */
+  size?: { chars: number; jaRatio: number; inputTokens: number | null; diffChars?: number };
 }
 
 export interface MergeRouteInput {
