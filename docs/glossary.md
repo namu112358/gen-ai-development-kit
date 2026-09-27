@@ -86,7 +86,7 @@ App が書く必須チェック。auto-merge が付いていない PR は通し�
 
 ### `agent/plan-link`
 
-App が書く必須チェック。計画のある Issue を `Closes` しない PR を止める。人が出す PR も対象になる。詳細：[operations.md](operations.md#人が関わる場面)
+App が書く必須チェック。計画のある Issue を `Closes` しない PR を止める。人の PR も対象になる。詳細：[operations.md](operations.md#人が関わる場面)
 
 ### Human Merge / 自動 Merge
 
