@@ -11,12 +11,38 @@ export const appMark = (kind: string): string => `<!-- agent-harness:app kind=${
 
 export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel';
 
+/**
+ * 書いたセッションの ID を入れた目印（ID が無ければ CLAUDE_MARK）。
+ * ID は呼び出し側（harness/scripts/agent.ts）が環境から渡す。lib の関数は環境を読まない
+ */
+export function claudeMark(session: string | null = null): string {
+  return session ? `<!-- agent-harness:claude session=${session} -->` : CLAUDE_MARK;
+}
+
 /** MCP 経由の投稿で `<` `>` が HTML エンティティに変わることがあるため、その形も目印として扱う */
-const CLAUDE_MARK_ESCAPED = '&lt;!-- agent-harness:claude --&gt;';
+const MARK_RE = /(?:<|&lt;)!-- agent-harness:claude(?: session=([^\s<>&]+))? --(?:>|&gt;)/;
+const PLAIN_MARK_RE = /(?:<|&lt;)!-- agent-harness:claude --(?:>|&gt;)/;
 
 export function hasClaudeMark(body: string | null | undefined): boolean {
-  const text = body ?? '';
-  return text.includes(CLAUDE_MARK) || text.includes(CLAUDE_MARK_ESCAPED);
+  return MARK_RE.test(body ?? '');
+}
+
+/** 目印に入ったセッション ID（ID の無い目印・目印が無ければ null） */
+export function claudeMarkSession(body: string | null | undefined): string | null {
+  return (body ?? '').match(MARK_RE)?.[1] ?? null;
+}
+
+/** 本文の ID の無い目印を ID 付きに置き換える。ID 付きの目印があればそのまま、目印が無ければ先頭に足す */
+export function withClaudeMark(body: string, session: string | null): string {
+  if (claudeMarkSession(body) !== null) return body;
+  if (PLAIN_MARK_RE.test(body)) return body.replace(PLAIN_MARK_RE, claudeMark(session));
+  return `${claudeMark(session)}\n${body}`;
+}
+
+/** 表示用の短いセッション ID。URL なら最後の部分から接頭辞（session_・cse_）を除いた先頭8文字、それ以外は先頭8文字 */
+export function shortSession(session: string): string {
+  const last = session.slice(session.lastIndexOf('/') + 1).replace(/^(?:session_|cse_)/, '');
+  return last.slice(0, 8);
 }
 
 export function appMarkKind(body: string | null | undefined): string | null {

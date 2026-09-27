@@ -1,6 +1,6 @@
 import { LABELS, priorityRank, type HarnessConfig } from './config.ts';
 import { patternsOverlap } from './epic.ts';
-import type { IssueFacts, PrFacts } from './queue.ts';
+import { describeClaim, isOwnClaim, type IssueFacts, type PrFacts } from './queue.ts';
 
 /**
  * fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。GitHub から集めた事実だけを入力にする純粋関数。
@@ -146,13 +146,13 @@ function filesOverlap(a: string[], b: string[]): boolean {
 
 /**
  * 並行して進める Issue を選ぶ。PR のある Issue（既に進めているもの）を先に、残りを優先度 → agent:ready が付いた順に、
- * 止まる印・依存・ほかのセッションの着手宣言のあるものを除いて、衝突しない範囲で選ぶ。本数は max（--max）を渡したときだけ制限する。
+ * 止まる印・依存・ほかのセッションの着手宣言（currentSession と同じ session の手動の宣言は自分のもの）のあるものを除いて、衝突しない範囲で選ぶ。本数は max（--max）を渡したときだけ制限する。
  * 領域の上限（areaConcurrency）は見ない（config は呼び出しの形を保つために受け取るだけ）。
  * 両方に PR がある組は、実際に試して衝突した組（prConflicts）だけ、既に選んだ PR と衝突する後の側が待つ。
  * PR がまだ無い Issue は、既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
  * 計画の無い Issue は重なりが分からないので、その判定から外して選ぶ（計画の後に重なれば、後から選んだほうが待つ）。
  */
-export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null): FleetSelection {
+export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null): FleetSelection {
   const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
   const rowOf = new Map(rows.map((r) => [r.issue, r]));
   const inFlight = (r: FleetRow): boolean => r.pr !== null && r.stage !== 'merged';
@@ -180,7 +180,11 @@ export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: Fle
     const i = byNumber.get(r.issue)!;
     if (r.stage === 'merged') { excluded.set(r.issue, 'Merge 済み'); continue; }
     if (r.stage === 'stopped') { excluded.set(r.issue, r.note ?? '止まる印あり'); continue; }
-    if (!inFlight(r) && i.facts.claim !== null) { excluded.set(r.issue, '着手宣言あり（ほかのセッションが着手中）'); continue; }
+    if (!inFlight(r) && i.facts.claim !== null && !isOwnClaim(i.facts.claim, currentSession)) {
+      const detail = describeClaim(i.facts.claim);
+      excluded.set(r.issue, `着手宣言あり（ほかのセッションが着手中${detail ? `・${detail}` : ''}）`);
+      continue;
+    }
     if (max !== null && selected.length >= max) { excluded.set(r.issue, `--max で指定した、人が1回にさばける数（${max}）に達した`); continue; }
     const pr = openPrOf(i);
     if (pr !== null) {
@@ -209,7 +213,12 @@ export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: Fle
     });
     if (hits.length > 0) overlaps.set(a.facts.number, hits.map((b) => b.facts.number));
     const untested = pa === null ? [] : live.filter((b) => { const pb = openPrOf(b); return b !== a && pb !== null && conflictOf(pa, pb)?.untested === true; });
-    if (untested.length > 0) notes.set(a.facts.number, `${untested.map((b) => `#${b.facts.number}`).join(', ')} との衝突は試せなかったため衝突ありとして扱う`);
+    const noteParts: string[] = [];
+    if (untested.length > 0) noteParts.push(`${untested.map((b) => `#${b.facts.number}`).join(', ')} との衝突は試せなかったため衝突ありとして扱う`);
+    // 着手宣言の段階（自分の宣言も、ほかのセッションの宣言も）
+    const claim = a.facts.claim;
+    if (claim && !claim.released) noteParts.push(`着手宣言${isOwnClaim(claim, currentSession) ? '（このセッション）' : ''}${describeClaim(claim) ? `：${describeClaim(claim)}` : ''}`);
+    if (noteParts.length > 0) notes.set(a.facts.number, noteParts.join('。'));
   }
 
   return { selected: selected.map((i) => i.facts.number), excluded, overlaps, notes };

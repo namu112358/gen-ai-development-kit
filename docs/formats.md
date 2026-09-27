@@ -12,7 +12,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 
 共通ルール：
 
-- Claude のコメントは先頭に `<!-- agent-harness:claude -->` を付ける。
+- Claude のコメントは先頭に `<!-- agent-harness:claude -->` を付ける。書いたセッションの ID が分かるときは `<!-- agent-harness:claude session=<id> -->` にする（付き添いのセッションは SessionStart の hook が書く `AGENT_HARNESS_SESSION`、Routine はセッションの URL）。どちらの形も目印として読む。
 - 1つのコメントに同じ種類のフェンスは1つだけ（2つあれば曖昧として拒否）。フェンスはバッククォート（```）のみ（`~~~` は読まない）。
 - 信頼するのは App の名義で書かれた記録だけ。本文の目印は区別のためであり、信頼の根拠ではない。
 
@@ -140,6 +140,16 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 ```agent-claim
 { "by": "routine", "session": "https://claude.ai/code/session_...", "at": "2026-09-26T12:00:00.000Z" }
 ```
+
+付き添いのセッションの宣言（`claim <番号> --manual [--stage <段階>]`）には、任意で `session`（セッションの ID）と `stage`（`plan`・`plan-critique`・`plan-gate`・`implement`・`judge`・`fix`・`sync`）が入る。古い宣言（どちらも無い）も読む。
+
+```agent-claim
+{ "by": "manual", "session": "3f2a9c1e-…", "stage": "plan-critique", "at": "2026-09-27T12:00:00.000Z" }
+```
+
+- 宣言の `session` が今のセッションの ID と同じ（どちらも空でない）なら自分の宣言として扱い、`fleet-status`・`queue` は「ほかのセッションが着手中」にしない。段階とセッションの短い形は、`fleet-status` の表とダッシュボードの理由に出る。
+- `claim --manual` は、ほかのセッションの有効な手動の宣言があれば止まる（期限を過ぎていても）。同じセッションなら段階の更新として通る。引き継ぐのは人が決めたときだけ `--takeover`（`--force` は領域の上限だけを飛ばす）。
+- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）は、このセッションの宣言が無いと止まる（Routine では確かめない）。`post-plan` は投稿の後に段階 `plan-gate` の宣言を出し直す。
 
 `"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 

@@ -26,7 +26,7 @@ App が次に Routine がやることを計算してダッシュボード Issue 
 
 ### claim（着手宣言）
 
-Routine か付き添いのセッションが作業の前に残す、着手者を記録したコメント（```` ```agent-claim ````）。付き添いのセッションの着手（`manual`）は Routine が奪わない。詳細：[formats.md](formats.md#着手宣言agent-claim)
+Routine か付き添いのセッションが作業の前に残す、着手者を記録したコメント（```` ```agent-claim ````）。付き添いのセッションの着手（`manual`）は Routine が奪わない。付き添いのセッションの宣言には段階（`stage`）とセッションの ID（`session`）が入り、ほかのセッションからどの段階かが見える。詳細：[formats.md](formats.md#着手宣言agent-claim)
 
 ## 計画
 

@@ -1,4 +1,4 @@
-import { CLAUDE_MARK, extractBlock, hasClaudeMark, renderBlock } from './blocks.ts';
+import { claudeMark, extractBlock, hasClaudeMark, renderBlock } from './blocks.ts';
 import { CHECKS, type HarnessConfig } from './config.ts';
 import type { IssueComment } from './github.ts';
 import { parseIssueBody } from './issue-form.ts';
@@ -467,6 +467,8 @@ function checkKeys(raw: unknown, name: string, keys: { required: string[]; optio
 }
 
 export interface ComposeInput {
+  /** 目印に入れるセッション ID（省略時は null） */
+  session?: string | null;
   pr: number;
   /** 判定した head（判定入力の headSha） */
   judgedHead: string;
@@ -479,7 +481,8 @@ export interface ComposeInput {
 }
 
 /** Reviewer と Risk Agent の出力から判定コメントを作り、書式を検査する */
-export function composeVerdict(input: ComposeInput): Parsed<string> {
+/** session は目印に入れるセッション ID（agent.ts が環境から渡す。既定は null で ID の無い目印） */
+export function composeVerdict(input: ComposeInput, session: string | null = input.session ?? null): Parsed<string> {
   if (input.judgedHead !== input.currentHead) {
     return { ok: false, errors: [`判定した head（${input.judgedHead}）と現在の head（${input.currentHead}）が違う。判定し直す`] };
   }
@@ -497,7 +500,7 @@ export function composeVerdict(input: ComposeInput): Parsed<string> {
   const v = parsed.value;
   const unsafe = RISK_QUESTIONS.filter((q) => v.risk.answers[q.key] !== q.safe).map((q) => `- ${q.text}：${v.risk.answers[q.key]}`);
   const body = [
-    CLAUDE_MARK,
+    claudeMark(session),
     '## 判定',
     '',
     `- Reviewer：${v.review.pass ? '合格' : '不合格'}（ブロッキング指摘 ${v.review.blocking.length} 件）`,
