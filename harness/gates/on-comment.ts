@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { extractBlock } from '../lib/blocks.ts';
 import { LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
 import type { IssueComment } from '../lib/github.ts';
+import { guardrailFiles } from '../lib/guardrail.ts';
 import { callJev } from '../lib/jev.ts';
 import { eligibility, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
@@ -66,7 +67,7 @@ async function onPlan(
   }
 
   const plan = parsed.value;
-  const gate = evaluatePlanGate(plan, issue.number);
+  const gate = evaluatePlanGate(plan, issue.number, ctx.config);
   if (hasLabel(issue, LABELS.planReview) && gate.pass) {
     gate.pass = false;
     gate.reasons.push('`agent:plan-review` が付いています（Planner が人の判断を求めています）');
@@ -98,6 +99,7 @@ async function onPlan(
 
 function stopCode(plan: Plan, gate: GateResult): ReasonCode {
   if (gate.splitInvalid) return 'split-invalid';
+  if (gate.guardrail) return 'high-risk';
   return !plan.split && (plan.risk === 'high' || plan.risk === 'critical') ? 'high-risk' : 'needs-decision';
 }
 
@@ -178,7 +180,8 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     ctx.config.jev.mode === 'enforce'
       ? { ok: jev.status === 'ok' && jev.allows === true, reason: `Jev が自動 Merge を許可していません（${jev.status}${jev.detail ? `: ${jev.detail}` : ''}）` }
       : undefined;
-  const elig = eligibility({ reviewPass: verdict.review.pass, risk, scopeOk: scope.ok, outside: scope.outside, jevGate });
+  const guardrail = guardrailFiles(ctx.config, files);
+  const elig = eligibility({ reviewPass: verdict.review.pass, risk, scopeOk: scope.ok, outside: scope.outside, jevGate, guardrail });
   if (!agent) {
     elig.autoEligible = false;
     elig.reasons.unshift('Agent の PR ではない（人の PR は人が Merge する）');
@@ -193,6 +196,7 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     riskOk: risk.ok,
     scopeOk: scope.ok,
     outside: scope.outside,
+    guardrail,
     autoEligible: elig.autoEligible,
     reasons: elig.reasons,
     jev,
@@ -223,6 +227,7 @@ function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string
     `| Reviewer | ${a.reviewPass ? '合格' : `ブロッキング ${v.review.blocking.length} 件`} |`,
     `| Risk（Claude） | ${a.riskLevel}${a.riskOk ? '' : '（自動 Merge 不可）'} |`,
     `| 範囲照合 | ${a.scopeOk ? 'OK' : `範囲外: ${a.outside.join(', ')}`} |`,
+    `| ガードレール | ${a.guardrail?.length ? `触れる（Human Merge）: ${a.guardrail.join(', ')}` : '触れない'} |`,
     `| Jev | ${a.jev?.status ?? '-'}${a.jev?.allows === undefined ? '' : a.jev.allows ? '（可）' : '（不可）'} |`,
     ...(a.reasons.length > 0 ? ['', '自動 Merge しない理由:', ...a.reasons.map((r) => `- ${r}`)] : []),
   ].join('\n');

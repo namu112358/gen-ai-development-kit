@@ -17,7 +17,7 @@ const QUESTION_TEXT: Record<string, string> = {
   q5_persistentData: 'Does this change write, delete, or migrate persistent data (databases, files kept across runs, external storage)?',
   q6_authBillingSecrets: 'Does this change touch authentication, authorization, billing, or secrets?',
   q7_dependencies: 'Does this change add or update dependencies (package manifests or lockfiles)?',
-  q8_harnessConfig: 'Does this change touch the automation harness itself: `.claude/**`, `CLAUDE.md`, `CODEOWNERS`, `.github/**`, `harness/**`, or `harness.config.json`?',
+  q8_harnessConfig: 'Does this change touch a guardrail: a file matching `guardrail_paths` (the `guardrailPaths` of `harness.config.json`) and not matching `guardrail_exclude`? `harness.config.json` itself is always a guardrail. In the patterns, `*` matches within one path segment and `**` matches any depth.',
 };
 
 export function buildJevRequest(config: HarnessConfig, diff: string, changedFiles: string[], facts: Verdict['facts']) {
@@ -29,7 +29,7 @@ export function buildJevRequest(config: HarnessConfig, diff: string, changedFile
         low: 'If broken, no user data, authentication, billing, or external integration is affected, and revert fully restores it. Docs, typos, isolated UI, small refactors that do not change behavior.',
         medium: 'May change business logic or API behavior, but revert fully restores it.',
         high: 'May have effects that revert cannot undo, or a wide blast radius: migrations, data writes or deletes, authentication, billing, infrastructure.',
-        critical: 'Touches the automation harness itself, permissions, secrets, or dependencies.',
+        critical: 'Touches a guardrail (`guardrailPaths` in `harness.config.json`), permissions, secrets, or dependencies.',
       },
     },
   };
@@ -44,6 +44,9 @@ export function buildJevRequest(config: HarnessConfig, diff: string, changedFile
       references_to_changed_code: facts.references,
       related_tests: facts.tests,
       changed_file_kinds: facts.fileKinds,
+      // 質問8の基準（設定であって Claude の判定ではない）。一覧が無ければすべてがガードレール
+      guardrail_paths: config.guardrailPaths ?? ['**'],
+      guardrail_exclude: config.guardrailExclude ?? [],
     },
     questions,
   };

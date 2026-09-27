@@ -23,6 +23,7 @@ tools: Read, Grep, Glob, Bash
 3. 変更されたシンボルの参照元を Grep で調べ、影響範囲を見積もる。
 4. 変更箇所を検証するテスト（既存・追加）があるかを調べる。
 5. 8問に答える。Noul（質問2〜8）は `yes` / `no` / `unsure` の3択。**少しでも迷ったら `unsure`**。
+   質問8のガードレールは、既定ブランチの `harness.config.json` の `guardrailPaths`（`git show origin/main:harness.config.json`）に当たり `guardrailExclude` に当たらないファイルと、`harness.config.json` 自身。ハーネスのファイルでも一覧に無いもの（`.claude/routine.md` など）は質問8では `no` と答え、ほかの質問で判断する。キー名 `q8_harnessConfig` は互換のため残している。
    質問4は挙動を変える変更についてだけ聞いている。docs・コメント・typo など実行時の挙動を一切変えない変更だけなら `yes` と答える（挙動を変えるか迷うなら `unsure`）。
 6. 次の JSON だけを出力する（前後に説明文を付けない）。
 

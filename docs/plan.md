@@ -31,7 +31,7 @@ GitHub Issues を開発状態の SSoT とし、Claude Code が Issue を起点�
 | 自動 Merge | Phase 4 で R0/R1 から検討 | low は Phase 4 で即有効化 | 運用方針 |
 | 計画承認 | 初期は全件 | 人間の判断が必要な場合のみ。承認＝人が手元でセッションを立てる | 名義が同一のため、ラベル承認は偽装を防げない |
 | 書き込み | Safe Outputs | Routine は `claude/` ブランチ・PR・コメントまで。信頼が必要なラベル、Check Run、merge-route、auto-merge は専用 GitHub App のみ（既定ブランチの YAML から） | 本人名義と区別でき、PR 側から偽装できないのは App だけ。`GITHUB_TOKEN` は後続 workflow を起動せず、`github-actions[bot]` は PR 側から名乗れる |
-| Protected Files | パス保護 | Risk ポリシーで critical（パスによる下限は置かない） | 決定論的な Merge ゲートは置かない方針 |
+| Protected Files | パス保護 | ガードレール（`guardrailPaths`）に触れる PR は App がパスで自動 Merge から外す（Q82） | 保護するのは Agent が自分を縛る仕組みだけ |
 
 ## アーキテクチャ
 
@@ -137,14 +137,14 @@ Issue Forms は `###` 見出しで出力される。フォームの定義とゲ�
 | 5 | 永続データの書き込み・削除・移行を伴うか | Noul | はい・迷う |
 | 6 | 認証・認可・課金・秘密情報に関わるか | Noul | はい・迷う |
 | 7 | 依存関係（パッケージ・lockfile）を追加・更新するか | Noul | はい・迷う |
-| 8 | この仕組み自体の設定（`.claude/**`、`CLAUDE.md`、CODEOWNERS、`.github/**`）に触れるか | Noul | はい・迷う |
+| 8 | ガードレール（`harness.config.json` の `guardrailPaths`）に触れるか（Q82） | Noul | はい・迷う |
 
 レベルの目安は次のとおり。
 
 - **low**（R0+R1）：壊れても利用者のデータ・認証・課金・外部連携に影響せず、revert で完全に戻る。docs、typo、独立した UI、挙動を変えない小さなリファクタ
 - **medium**：業務ロジックや API の挙動が変わり得るが、revert で戻る
 - **high**：revert しても戻らない影響があり得る、または影響が広い。マイグレーション、データの書き込み・削除、認証、課金、インフラ
-- **critical**：この仕組み自体、権限、秘密情報、依存関係
+- **critical**：ガードレール、権限、秘密情報、依存関係
 
 **Claude 判定期間**：Noul は「はい／いいえ／迷う」の3択で答える。1つでも止める答えがあれば自動 Merge しない。Claude には確率も出させるが、較正の保証がないため判定には使わず記録のみとする。
 
@@ -161,7 +161,7 @@ Issue Forms は `###` 見出しで出力される。フォームの定義とゲ�
 
 `agent/risk` は Required にしない。常に成功とし、判定結果はサマリーに書く。medium 以上を自動経路から外す役割は merge-route が担う。
 
-**保護対象**：`.github/**`、`.claude/**`、`CLAUDE.md`、CODEOWNERS などの保護対象も、パスによる決定論的な下限は置かず、Risk Agent の判定（質問8）に任せる（Q4・Q50）。
+**ガードレール**：Agent が自分を縛る仕組み（App が機械的に強制している部分）を `harness.config.json` の `guardrailPaths` に並べ、App がパスで判定する。触れる PR は Risk Agent の答えに関わらず自動 Merge から外し（Human Merge）、触れる計画は想定 Risk に関わらず計画ゲートで止める。それ以外のハーネスの変更（`.claude/**`・`CLAUDE.md`・docs など）は通常の判定で進める（Q82。Q4・Q50 を改める）。
 
 ## Jev への段階移行
 
@@ -207,14 +207,14 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
 | 秘密 | App の鍵と Jev の鍵はリポジトリ Secret ではなく Environment（例：`gate`）の Secret に置き、その Environment の実行を既定ブランチに限定する。PR の中で足された workflow（PR のブランチ上で動く）からは読めない。鍵を使うジョブは PR のコードを実行しない。Actions がコメントやログを書くときは秘密を伏せ字にする |
 | 二重着手 | `agent:working` による着手宣言（事故防止であり安全の境界ではない） |
 
-**要確認**：`.github/workflows/**` には App を使うゲートの定義が入る。既定ブランチの YAML しか App のトークンを使えない形にしたので、PR で書き換えても Merge されるまで効かない。Merge を防ぐ守りは Risk Agent の判定（質問8）になるため、Phase 0 で Routine が workflow ファイルを push できるかも確認しておく。
+**要確認**：`.github/workflows/**` には App を使うゲートの定義が入る。既定ブランチの YAML しか App のトークンを使えない形にしたので、PR で書き換えても Merge されるまで効かない。`.github/**` はガードレールなので、書き換える PR は App が自動 Merge から外す（Q82）。Phase 0 で Routine が workflow ファイルを push できるかも確認しておく。
 
 **受け入れるリスク**：次は把握したうえで、対策を入れないと決めたもの。
 
 | リスク | 内容 | 残る守り | 決定 |
 | --- | --- | --- | --- |
-| 既存 CI の緑の偽装 | 既存 CI は `pull_request` で PR 側の YAML が動くため、`ci.yml` を書き換えた PR は自分の CI を緑にできる | Risk Agent の質問8（`.github/**` に触れるか） | Q57 |
-| 保護対象のパス下限なし | `.github/**`・`.claude/**`・CODEOWNERS などを触る PR も、パスでは自動 Merge から外さない | Risk Agent の質問8 | Q4・Q50 |
+| 既存 CI の緑の偽装 | 既存 CI は `pull_request` で PR 側の YAML が動くため、`ci.yml` を書き換えた PR は自分の CI を緑にできる | `.github/**` はガードレールで、App が自動 Merge から外す（人が Merge する） | Q57・Q82 |
+| ガードレールの外のハーネス | `.claude/routine.md`・`CLAUDE.md`・`harness/scripts/agent.ts`・テストなど、ガードレールに入れないハーネスの変更は low なら自動 Merge され得る | Risk Agent の判定、テストの改ざんの検査（`agent/tests`）、一覧は人が PR で決める | Q82 |
 | low にリファクタを含む | 挙動を変えないと称したリファクタや独立した UI も low になり得る | Risk Agent の質問2・4、Reviewer の退行の指摘 | Q51 |
 | パブリック期間のコメント | パブリック期間はだれのコメントでもゲートが起動し、偽の計画・判定コメントを置かれる余地がある。受け付け条件、編集への対応、`${{ }}` の埋め込み対策は入れない | private 移行後はメンバーのみがコメント可能 | Q58（実装では作成者チェックを追加。Q60） |
 | 直接マージ | 本人名義の API 直接マージは GitHub 側では止められない | `.claude/settings.json` の deny（コマンドパターンのため完全ではない） | Q47 |
@@ -322,7 +322,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q1 | Risk 段階 | low=R0+R1 / medium / high / critical、付与は Agent のみ | 有効 |
 | Q2 | low の範囲 | low はすべて自動 Merge | 有効 |
 | Q3 | low 判定の方式 | Risk 判定専用の Agent を置く | 有効 |
-| Q4 | 決定論的チェック | 併置せず Risk Agent の判定のみ | 有効 |
+| Q4 | 決定論的チェック | 併置せず Risk Agent の判定のみ | ガードレールのパスだけ App が判定する（Q82） |
 | Q5 | Risk Agent の入力 | diff＋リポジトリ＋ポリシー（自然言語の主張は見せない） | 有効 |
 | Q6 | Merge への接続 | head SHA 紐付け＋決定論的ジョブ | 有効（Actions が SHA 検証） |
 | Q7・Q8 | 計画承認 | 要判断または high 以上のみ停止 | 有効（ゲートは Actions） |
@@ -362,7 +362,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q47 | 2. medium を Routine がマージできる | merge-route を必須チェックに＋`.claude/settings.json` で直接マージを deny、bypass なし |
 | Q48 | 9. SHA 紐付けと main 追従の衝突 | `git patch-id` が同じなら過去の判定を有効 |
 | Q49 | 11. 人と Routine の二重着手 | `agent:working` の着手宣言＋期限、各段階は冪等 |
-| Q50 | 3. 決定論的な下限 | 置かない（Q4 のまま） |
+| Q50 | 3. 決定論的な下限 | 置かない（Q4 のまま）。Q82 でガードレールだけ置く |
 | Q51 | 4. low の定義 | 今の定義のまま |
 | Q52 | 5. BLOCKING の範囲 | 型・テスト失敗、データ破壊、秘密の漏えい、AC 外の退行も常にブロッキング。敵対的レビューは入れない |
 | Q53 | 6. 計画ゲートの入力が自己申告 | 計画に触るファイル一覧を必須化し、実装後の diff を App が照合 |
@@ -378,7 +378,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 
 | # | 指摘 | 決定 |
 | --- | --- | --- |
-| Q57 | B. 既存 CI は PR 側の YAML で動き、緑を偽れる | merge-route にパスの下限は入れない（Q50 のまま）。受け入れるリスクとして明記 |
+| Q57 | B. 既存 CI は PR 側の YAML で動き、緑を偽れる | merge-route にパスの下限は入れない（Q50 のまま）。受け入れるリスクとして明記。Q82 で `.github/**` はガードレールになった |
 | Q58 | C. `issue_comment` はだれのコメントでも起動する | private 移行を前提に、受け付け条件・編集対応・埋め込み対策は入れない。受け入れるリスクとして明記 |
 | Q59 | E. hold と working の弱点 | `agent:hold` が外されたら App が通知。終了済みの Routine の `agent:working` は次の Routine が引き継ぐ |
 | — | D. 時刻による比較 | 対応不要（判定の受け付けは patch-id による比較で、時刻を使っていない） |
@@ -395,7 +395,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | --- | --- | --- |
 | Q60 | Q58 の作成者チェック | ゲートは `author_association` が OWNER / MEMBER / COLLABORATOR のコメントのみ受け付ける（1行で済むため追加）。`${{ }}` 埋め込みはイベント JSON をファイルから読む実装で発生しない |
 | Q61 | 実装言語 | TypeScript（ビルドなし、Node 24 の type stripping、実行時依存ゼロ、`tsc --noEmit`＋`node:test`） |
-| Q62 | 質問8の対象 | `harness/**`・`harness.config.json` を追加 |
+| Q62 | 質問8の対象 | `harness/**`・`harness.config.json` を追加（Q82 でガードレールに置き換え） |
 | Q63 | コードの置き場所 | ハーネスは `harness/` に置き、導入先の製品コードと分ける |
 | Q64 | 自動 Merge モード | ダッシュボード Issue の `agent:auto-merge-stopped` ラベルで持つ（App の権限で変数を書けないため）。ダッシュボードが無ければ停止 |
 | Q65 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。それ以外は `agent/review` を判定対象外で通し、自動経路に乗せない |
@@ -409,6 +409,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q79 | タイトルの形式 | Issue と PR のタイトルを Conventional Commits にそろえる。Issue は agent:ready で検査、PR は必須チェック `agent/title`。Routine は PR とコミットに Issue のタイトルを使う |
 | Q80 | 作業場所と処理量 | 作業は常に worktree（リポジトリの外）で行う。1回の実行で進める件数は 5 |
 | Q81 | Merge 衝突 | main が進むたびにすべての Agent PR を追従させ、衝突したものは Routine が main を取り込んで解消する（触るファイルの重なりは許す） |
+| Q82 | ガードレール | critical を「Agent が自分を縛る仕組み（ガードレール）を変える変更」に絞る。一覧は `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）。触れる PR は App がパスで自動 Merge から外し、触れる計画は計画ゲートで止める。質問8は「ガードレールに触れるか」に言い換える（キー名は互換のため残す）。Q4・Q50・Q57・Q62 の「パスによる下限は置かない／質問8に任せる」を改める |
 | Q78 | 人の PR の判定 | 計画のある Issue に紐付いた人の PR も Routine が判定し、判定が出るまで `agent/review` を通さない（自動 Merge はしない、修正は人）。例外は人が付ける `review:exempt` |
 | Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt` |
 | Q76 | 状態ラベルの整理 | `agent:working`・`agent:in-pr` を廃止し、着手宣言コメントと開いた PR から判断する。止めるときは理由コード必須。ラベル定義はコードで一元管理し、文書との一致をテストで検査、定義に無いラベルは `setup.ts` が消す |
