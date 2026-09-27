@@ -69,6 +69,7 @@
     }
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
+  "humanMergePaths": [],
   "classification": {
     "sizes": [
       [
