@@ -21,7 +21,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
 2. 計画が無ければ plan の skill で計画を書いて投稿する。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
    - `agent:plan-ok`：次へ。
-   - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：理由を人に示す。付き添いのセッションなので、人が進めてよいと言えば次へ（CLAUDE.md の規則どおり）。言わなければ人に返す。
+   - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：理由を人に示す。付き添いのセッションなので、人が進めてよいと言えば次へ（CLAUDE.md の規則どおり）。言わなければ人に返す。止めた理由が計画で直せる（ゲートの停止）なら、計画を直して出し直す選択肢も人に示す（plan の skill の出し直しの扱い）。
    - `epic`：手順1の `epic` に戻る。
 3. implement の skill で実装し、Draft PR を出す。worktree は消さずに続ける。
 4. judge の skill で判定する。現在の head にコラボレーターのレビューがあれば、先に fix の skill をする。
