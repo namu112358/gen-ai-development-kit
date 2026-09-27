@@ -5,7 +5,7 @@
 <!-- readme:generated start -->
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
-| `formats.md` | Claude（Routine・人のセッション）と App は、コメントに JSON のフェンスを埋め込んで状態を受け渡す。 |  |
+| `formats.md` | Claude（Routine・付き添いのセッション）と App は、コメントに JSON のフェンスを埋め込んで状態を受け渡す。 |  |
 | `glossary.md` | ハーネスで使う用語を、Issue が流れる順に並べる。 |  |
 | `migration.md` | 個人の public リポジトリから組織の private リポジトリへの移行の手順。 |  |
 | `operations.md` | 運用：Issue の書き方、ラベル、人が関わる場面、止める仕組み、困ったときの対応。 |  |
