@@ -8,6 +8,7 @@ import type { GateContext } from '../gates/context.ts';
 import { onComment } from '../gates/on-comment.ts';
 import { onPullRequest } from '../gates/on-pr.ts';
 import { onIssue } from '../gates/on-issue.ts';
+import { onMainPush } from '../gates/on-main-push.ts';
 
 /** 偽の GitHub。呼び出しを記録し、ルートごとの応答を返す */
 class FakeGitHub implements Transport {
@@ -54,7 +55,7 @@ function ctxFor(fake: FakeGitHub, eventName: string, event: unknown): GateContex
 
 function pr(patch: Record<string, unknown> = {}) {
   return {
-    number: 5, state: 'open', draft: true, node_id: 'PR_5', title: 't', body: 'Closes #3', html_url: 'u', updated_at: '2026-09-26T00:00:00Z',
+    number: 5, state: 'open', draft: true, node_id: 'PR_5', title: 'docs: t', body: 'Closes #3', html_url: 'u', updated_at: '2026-09-26T00:00:00Z',
     auto_merge: null, labels: [], user: { login: 'me' },
     head: { ref: 'claude/issue-3', sha: HEAD, repo: { full_name: 'o/r' } }, base: { ref: 'main', sha: 'b'.repeat(40) }, ...patch,
   };
@@ -313,7 +314,7 @@ test('plan-link：計画のある Issue を Closes しない PR は failure、pl
   const none = acceptanceFake({ pr: pr({ head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }) })
     .on('POST', /\/graphql/, (_m, body) => (String(body.query).includes('closingIssuesReferences') ? { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [] } } } } } : { data: {} }));
   await onPullRequest(ctxFor(none, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
-  assert.equal(none.writes()[0], 'check:agent/plan-link=failure');
+  assert.ok(none.writes().includes('check:agent/plan-link=failure'));
 
   const exempt = acceptanceFake({ pr: pr({ labels: [{ name: 'plan:exempt' }], head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }) });
   await onPullRequest(ctxFor(exempt, 'pull_request_target', { action: 'labeled', label: { name: 'plan:exempt' }, sender: { login: 'me' }, pull_request: { number: 5 } }));
@@ -356,4 +357,29 @@ test('判定前に Ready で出された PR は Draft に戻す。判定を引�
   const carried = acceptanceFake({ pr: pr({ draft: false }), dashboardLabels: [], prComments });
   await onPullRequest(ctxFor(carried, 'pull_request_target', { action: 'synchronize', pull_request: { number: 5 } }));
   assert.ok(!carried.writes().includes('convertPullRequestToDraft'));
+});
+
+test('agent/title：PR のタイトルの形式を検査する', async () => {
+  const ok = acceptanceFake({ pr: pr({ title: 'fix(harness): 直す' }), dashboardLabels: [] });
+  await onPullRequest(ctxFor(ok, 'pull_request_target', { action: 'edited', pull_request: { number: 5 } }));
+  assert.equal(ok.writes()[0], 'check:agent/title=success');
+  const ng = acceptanceFake({ pr: pr({ title: '直す' }), dashboardLabels: [] });
+  await onPullRequest(ctxFor(ng, 'pull_request_target', { action: 'edited', pull_request: { number: 5 } }));
+  assert.equal(ng.writes()[0], 'check:agent/title=failure');
+});
+
+test('形式でない Issue タイトルは agent:ready で blocked になる', async () => {
+  const fake = acceptanceFake({ pr: pr() });
+  const body = ['Goal', 'Requirements', 'Acceptance Criteria'].map((h) => `### ${h}\n\nx`).join('\n\n');
+  await onIssue(ctxFor(fake, 'issues', { action: 'labeled', label: { name: 'agent:ready' }, sender: { login: 'me' }, issue: { number: 3, title: '用語集に追加', body, labels: [], state: 'open' } }));
+  assert.deepEqual(fake.writes(), ['label+agent:blocked', 'comment:form-error']);
+});
+
+test('main への push で、auto-merge 待ちでない Agent PR も main に追従させる', async () => {
+  const fake = acceptanceFake({ pr: pr({ draft: false }), dashboardLabels: [], behindBy: 2 });
+  fake.on('GET', /\/pulls\?state=open/, () => [pr()]);
+  let updated = false;
+  fake.on('PUT', /\/pulls\/5\/update-branch/, () => (updated = true));
+  await onMainPush(ctxFor(fake, 'push', { commits: [{ id: 'x', message: 'docs: 何か' }] }));
+  assert.equal(updated, true);
 });

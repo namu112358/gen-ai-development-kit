@@ -7,7 +7,7 @@ import { ensureDashboard } from './stale.ts';
 /**
  * main への push：
  * - 自動 Merge された PR の revert を検知したら自動 Merge モードを切る（人が戻すまで再開しない）
- * - auto-merge 待ちの Agent PR を main に追従させる（差分が同じなら判定は引き継がれる）
+ * - Agent PR を main に追従させる（差分が同じなら判定は引き継がれる。衝突したものは Routine が解消する）
  */
 export async function onMainPush(ctx: GateContext): Promise<void> {
   const commits = (ctx.event.commits ?? []) as { id: string; message: string }[];
@@ -60,7 +60,8 @@ async function stopAutoMerge(ctx: GateContext, prs: number[]): Promise<void> {
 async function updateWaitingBranches(ctx: GateContext): Promise<void> {
   const open = await ctx.gh.paginate<PullRequest>('/pulls?state=open');
   for (const item of open) {
-    if (!item.auto_merge || !isAgentPr(ctx.config, item, ctx.repository)) continue;
+    // auto-merge 待ちに限らず、すべての Agent PR を早めに追従させる（衝突を小さいうちに見つけ、Routine が解消する）
+    if (!isAgentPr(ctx.config, item, ctx.repository)) continue;
     await updateBranchIfBehind(ctx, await getPr(ctx, item.number));
   }
 }

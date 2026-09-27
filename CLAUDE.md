@@ -8,6 +8,7 @@ GitHub Issues × Claude Code の自律開発ハーネス。概要は [README.md]
 - 定期 Routine として起動されたら [.claude/routine.md](.claude/routine.md) に従う。
 - 人のセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。計画は critical でゲートに止まり、人のセッションで実装する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。
+- 作業は常に worktree で行う（`node harness/scripts/agent.ts worktree <ブランチ>`。置き場所はリポジトリの外）。作業ツリーを複数の作業で共有しない。
 
 ## やってはいけないこと
 

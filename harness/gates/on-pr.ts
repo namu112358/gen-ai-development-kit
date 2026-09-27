@@ -1,6 +1,7 @@
 import { areaLabels, classificationChanges, sizeLabel, type ChangedFile } from '../lib/classify.ts';
 import { CHECKS, LABELS, PLAN_EXEMPT_LABEL, REVIEW_EXEMPT_LABEL } from '../lib/config.ts';
 import { writePlanLink } from './plan-link.ts';
+import { parseTitle } from '../lib/title.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { checkScope } from '../lib/scope.ts';
 import { acceptanceForPatch, changedFiles, hasLabel, isSameRepoPr, plannedFilesForPr, prDiff } from '../lib/state.ts';
@@ -24,6 +25,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   const pr = await getPr(ctx, number);
   if (pr.state !== 'open') return;
   const label = ctx.event.label?.name as string | undefined;
+  if (['opened', 'reopened', 'synchronize', 'edited'].includes(action)) await writeTitleCheck(ctx, pr);
   if (['opened', 'reopened', 'synchronize', 'edited'].includes(action) || label === PLAN_EXEMPT_LABEL) await writePlanLink(ctx, pr);
   if ((action === 'labeled' || action === 'unlabeled') && label === PLAN_EXEMPT_LABEL) {
     await appComment(ctx, number, 'plan-exempt', `\`${PLAN_EXEMPT_LABEL}\` が @${ctx.event.sender?.login} により${action === 'labeled' ? '付けられました' : '外されました'}（記録）。`);
@@ -101,4 +103,12 @@ async function classifyPr(ctx: GateContext, pr: { number: number; labels: { name
   const change = classificationChanges(pr.labels.map((l) => l.name), sizeLabel(ctx.config, files), areaLabels(ctx.config, names));
   for (const l of change.remove) await ctx.gh.removeLabel(pr.number, l);
   if (change.add.length > 0) await ctx.gh.addLabels(pr.number, change.add);
+}
+
+/** 必須チェック agent/title：PR のタイトルが Conventional Commits の形式か（squash Merge のコミットのタイトルになる） */
+async function writeTitleCheck(ctx: GateContext, pr: { title: string; head: { sha: string } }): Promise<void> {
+  const r = parseTitle(pr.title);
+  await writeCheck(ctx, pr.head.sha, CHECKS.title, r.ok
+    ? { conclusion: 'success', title: `${r.type}${r.scope ? `(${r.scope})` : ''}${r.breaking ? '!' : ''}`, summary: '' }
+    : { conclusion: 'failure', title: 'タイトルが Conventional Commits の形式ではありません', summary: `${r.error}\n\n例：\`fix(harness): queue の更新漏れを直す\`` });
 }
