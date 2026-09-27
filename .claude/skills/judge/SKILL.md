@@ -10,7 +10,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 ## 入力
 
 - PR 番号
-- `node harness/scripts/agent.ts judge-input <PR番号>` が書くファイル（head、Closes する Issue の本文とコラボレーターのコメント、計画ゲートの記録の計画、PR 本文、`agent/scope` の結果、前回の判定の head とブロッキング指摘）
+- `node harness/scripts/agent.ts judge-input <PR番号>` が書くファイル（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの `agent-plan` ブロックは省く〕、Epic の子課題なら親 Epic の子課題の一覧と Validation Requirements、計画ゲートの記録の計画、PR 本文、PR のコラボレーターのコメント〔判定コメントを除く〕、`agent/scope` の結果〔無い・未完了・結論〕、前回の判定の head とブロッキング指摘、再レビューの範囲の補足）
 
 ## 手順
 
@@ -27,6 +27,8 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 ### 修正後の再レビュー
 
 前回の判定がある PR では、judge-input の「前回の判定」に head とブロッキング指摘が入り、reviewer はそれを受けて、前回の head からの差分（`git diff <前回の head>...<headSha>`）と前回の指摘が直ったかだけをブロッキングの対象にする（[.claude/agents/reviewer.md](../../agents/reviewer.md) の再レビュー）。前回の head から変わっていない行への新しい指摘は `nonBlocking` にする。型検査・テストの失敗はどの行でもブロッキング。
+
+judge-input の「再レビューの範囲（補足）」には、前回の head の後に main の取り込みがあったかが入る。取り込みがあれば、前回の head からの差分には main から来た変更も入る。PR 自身の変更は、それぞれの head で `git diff origin/main...<head>` を取って比べると分かる（差分の取り方は reviewer.md のまま）。最新の判定コメントのブロックが壊れていれば、それを飛ばした前の正しい判定が「前回の判定」に入り、そのことが注記される。
 
 ## 終わりの状態
 

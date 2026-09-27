@@ -23,8 +23,8 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `risk`：想定 Risk（[docs/risk-policy.md](../../../docs/risk-policy.md) の目安）
    - 1つの PR に収まらなければ `split` で子課題に分ける
 4. `node harness/scripts/agent.ts check <ファイル>` で書式を確かめる。
-5. `node harness/scripts/agent.ts critic-input <番号> <ファイル>` で批評の入力を作る（出力はファイルのパス）。
-6. **plan-critic** サブエージェントに、そのファイルの中身を指示に含めて渡す（自分の推論は渡さない）。2回目以降は前回の批評の結果も渡す。
+5. `node harness/scripts/agent.ts critic-input <番号> <ファイル>` で批評の入力を作る（出力はファイルのパス）。2回目以降は、前回の plan-critic の出力の JSON を書き換えずにファイル（scratchpad）に保存し、`node harness/scripts/agent.ts critic-input <番号> <ファイル> --previous <前回の批評の JSON>` で作る（前回の必須の指摘が「前回の批評」に入る）。
+6. **plan-critic** サブエージェントに、そのファイルの中身を指示に含めて渡す（自分の推論は渡さない）。
 7. 判定ごとの扱いと止める条件は、[.claude/routine.md](../../routine.md) の plan の手順4と [.claude/agents/plan-critic.md](../../agents/plan-critic.md) の出力の節に従う（ここに写さない）。
    - `go`：計画ブロックに `critique`（`verdict` と `rounds`）を書いて次へ。
    - `revise`：指摘を反映して直し、手順5からやり直す。
