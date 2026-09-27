@@ -16,6 +16,22 @@
 
 `agent:ready` を付けると、App が Jev に種類・領域・優先度・AC の書き方を問い、提案をコメントする（ラベルは付けない。`classification.issueTriage`）。Risk と Priority は本文に書かない。急ぐものには `priority:high` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
 
+## 付き添いのセッションで進める
+
+Issue を進めるのは、人が付き添う Claude のセッション。「#番号 を ship して」と頼むと、ship の skill（[.claude/skills/ship/SKILL.md](../.claude/skills/ship/SKILL.md)）が Issue の状態を読み、段階ごとの skill を次の順につなぐ。
+
+| skill | 段階 |
+| --- | --- |
+| plan | 計画を書き、plan-critic に批評させて投稿する。App の計画ゲートの結果を待つ |
+| implement | 計画ゲートを通った計画を実装し、Draft PR を出す |
+| judge | Reviewer と Risk Agent に判定させ、判定コメントを投稿する。合格なら App が Ready にする |
+| fix | ブロッキング指摘や人のレビューを直し、判定をやり直す |
+| sync | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
+
+ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-review` のコメントを付けた）か、人の判断待ち（計画ゲートで止まった、修正の上限、判断できない衝突など）で止まり、人がすること（Merge、例外ラベルを付けるかの判断、`setup.ts` の実行が要るか、Merge 後の確かめ）を一覧にする。段階を1つだけ頼めば、その skill だけを行う。
+
+毎時の Routine（[.claude/routine.md](../.claude/routine.md)）が queue に従って同じ段階を進めるのは将来の構想。この文書の「Routine」は、付き添いのセッションで同じ段階を行うときはそのセッションに読み替える。
+
 ## ラベル
 
 | ラベル | 付ける者 | 意味 |
@@ -97,10 +113,10 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 場面 | 操作 |
 | --- | --- |
 | PR を出すとき（人のセッションを含む） | Issue を立てて計画を投稿し、PR 本文に `Closes #番号` を書く。計画のある Issue に紐付かない PR は必須チェック `agent/plan-link` で止まる |
-| `agent:plan-review` の Issue | 人が付き添う Claude のセッションで `node harness/scripts/agent.ts claim <番号> --manual` してから実装し、`claude/` ブランチで同じ書式の PR を出す（Agent PR として判定される）。やめるときは `release <番号>` |
-| Agent PR に直してほしい点がある | PR の Review を **Comment として Submit** する（同じ名義の PR には Request changes を付けられない）。最後の push 以降のレビューを Routine が修正依頼として扱う |
+| `agent:plan-review` の Issue | 人が付き添う Claude のセッションで、人が進めてよいと言えば ship が続きを進める（`node harness/scripts/agent.ts claim <番号> --manual` してから実装し、`claude/` ブランチで同じ書式の PR を出す。Agent PR として判定される）。やめるときは `release <番号>` |
+| Agent PR に直してほしい点がある | PR の Review を **Comment として Submit** する（同じ名義の PR には Request changes を付けられない）。最後の push 以降のレビューを fix が修正依頼として扱う |
 | Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を確認して Merge する |
-| 人が自分で書いた PR（`claude/` 以外のブランチ） | 計画のある Issue に紐付いていれば Routine が判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
+| 人が自分で書いた PR（`claude/` 以外のブランチ） | 計画のある Issue に紐付いていれば judge の skill で判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
 | `agent:blocked` | 理由のコメントを読み、直してからラベルを外す |
 
 ## 止める仕組み
@@ -133,7 +149,7 @@ PR に残る実行メトリクスのトークン数と推定料金（`harness.co
 
 ### Q. 急ぎの Issue を先に進めたいときはどうするか
 
-Issue に `priority:high` を付ける。queue は優先度 → `agent:ready` が付いた順に並ぶので、次の Routine の実行で先に処理される。PR の段階は元の Issue の優先度を引き継ぐ。
+Issue に `priority:high` を付ける。queue（`node harness/scripts/agent.ts queue`）は優先度 → `agent:ready` が付いた順に並ぶので、先に処理される。PR の段階は元の Issue の優先度を引き継ぐ。
 
 ### Q. 自動 Merge を一時的に止めたいときはどうするか
 
