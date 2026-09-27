@@ -3,6 +3,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { basename, dirname, resolve } from 'node:path';
 
 /**
+ * 作業用の git worktree（リポジトリの外の作業場所）の作成と削除。
  * 作業は常に git worktree で行う。置き場所はリポジトリの外（`../<リポジトリ名>.worktrees/<ブランチ名>`）にし、
  * 作業中の変更やほかの作業ツリーがコミットに紛れ込まないようにする。
  */

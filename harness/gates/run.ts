@@ -6,7 +6,10 @@ import { onMainPush } from './on-main-push.ts';
 import { onPullRequest } from './on-pr.ts';
 import { publishQueue } from './publish-queue.ts';
 
-/** ゲートの入口。workflow から `node harness/gates/run.ts` で呼ぶ */
+/**
+ * ゲートの入口で、イベントの種類ごとに処理を選び、最後に queue を公開し直す。
+ * workflow から `node harness/gates/run.ts` で呼ぶ。
+ */
 const ctx = createContext();
 const handlers: Record<string, (c: typeof ctx) => Promise<void>> = {
   issue_comment: onComment,

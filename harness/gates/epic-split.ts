@@ -5,6 +5,10 @@ import type { Plan } from '../lib/plan.ts';
 import { appRecords, type PlanGateRecord } from '../lib/state.ts';
 import { appComment, type GateContext } from './context.ts';
 
+/**
+ * Epic の子 Issue を作り、Sub-issues と依存を登録する。
+ */
+
 interface IssueItem {
   id: number;
   number: number;

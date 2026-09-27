@@ -1,5 +1,7 @@
 # 運用
 
+運用：Issue の書き方、ラベル、人が関わる場面、止める仕組み、困ったときの対応。
+
 ## Issue の書き方
 
 「Agent タスク」の Issue Form で作り、着手してよければ `agent:ready` を付ける。タイトルは Conventional Commits の形式（`type(scope): 説明`、type は feat / fix / docs / refactor / test / chore / ci / build / perf / style / revert）で、PR とコミットのタイトルにもそのまま使われる。タイトルの形式や見出しが違うとゲートが読めず `agent:blocked` になる。PR のタイトルは必須チェック `agent/title` で検査される。
