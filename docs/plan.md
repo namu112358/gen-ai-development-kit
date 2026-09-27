@@ -161,7 +161,7 @@ Issue Forms は `###` 見出しで出力される。フォームの定義とゲ�
 
 `agent/risk` は Required にしない。常に成功とし、判定結果はサマリーに書く。medium 以上を自動経路から外す役割は merge-route が担う。
 
-**ガードレール**：Agent が自分を縛る仕組み（App が機械的に強制している部分）を `harness.config.json` の `guardrailPaths` に並べ、App がパスで判定する。触れる PR は Risk Agent の答えに関わらず自動 Merge から外し（Human Merge）、触れる計画は想定 Risk に関わらず計画ゲートで止める（Epic に分ける計画は子課題の files を見ず、子課題の計画で止める。Q83）。判定の連鎖（`harness/scripts/agent.ts`、judge・plan の skill、`.claude/routine.md`、plan-critic・test-designer の定義）も一覧に入る（Q85）。それ以外のハーネスの変更（`CLAUDE.md`・ほかの skill・docs など）は通常の判定で進める（Q82。Q4・Q50 を改める）。
+**ガードレール**：Agent が自分を縛る仕組み（App が機械的に強制している部分）を `harness.config.json` の `guardrailPaths` に並べ、App がパスで判定する。触れる PR は Risk Agent の答えに関わらず自動 Merge から外し（Human Merge）、触れる計画は想定 Risk に関わらず計画ゲートで止める（Epic に分ける計画は子課題の files を見ず、子課題の計画で止める。Q83）。判定の連鎖（`harness/scripts/agent.ts`、judge・plan・sync・fix・ship の skill、`.claude/routine.md`、`CLAUDE.md`、plan-critic・test-designer の定義、Jev の切り替えの集計 `harness/scripts/report.ts`）も一覧に入る（Q85・Q86）。それ以外のハーネスの変更（implement・fleet の skill・テスト・docs など）は通常の判定で進める（Q82。Q4・Q50 を改める）。
 
 ## Jev への段階移行
 
@@ -214,7 +214,7 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
 | リスク | 内容 | 残る守り | 決定 |
 | --- | --- | --- | --- |
 | 既存 CI の緑の偽装 | 既存 CI は `pull_request` で PR 側の YAML が動くため、`ci.yml` を書き換えた PR は自分の CI を緑にできる | `.github/**` はガードレールで、App が自動 Merge から外す（人が Merge する） | Q57・Q82 |
-| ガードレールの外のハーネス | `CLAUDE.md`・テスト・ほかの skill など、ガードレールに入れないハーネスの変更は low なら自動 Merge され得る | Risk Agent の判定、テストの改ざんの検査（`agent/tests`）、一覧は人が PR で決める | Q82 |
+| ガードレールの外のハーネス | implement・fleet の skill・テストなど、ガードレールに入れないハーネスの変更は low なら自動 Merge され得る | Risk Agent の判定、テストの改ざんの検査（`agent/tests`）、一覧は人が PR で決める | Q82 |
 | low にリファクタを含む | 挙動を変えないと称したリファクタや独立した UI も low になり得る | Risk Agent の質問2・4、Reviewer の退行の指摘 | Q51 |
 | パブリック期間のコメント | パブリック期間はだれのコメントでもゲートが起動し、偽の計画・判定コメントを置かれる余地がある。受け付け条件、編集への対応、`${{ }}` の埋め込み対策は入れない | private 移行後はメンバーのみがコメント可能 | Q58（実装では作成者チェックを追加。Q60） |
 | 直接マージ | 本人名義の API 直接マージは GitHub 側では止められない | `.claude/settings.json` の deny（コマンドパターンのため完全ではない） | Q47 |
@@ -412,7 +412,8 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q82 | ガードレール | critical を「Agent が自分を縛る仕組み（ガードレール）を変える変更」に絞る。一覧は `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）。触れる PR は App がパスで自動 Merge から外し、触れる計画は計画ゲートで止める。質問8は「ガードレールに触れるか」に言い換える（キー名は互換のため残す）。Q4・Q50・Q57・Q62 の「パスによる下限は置かない／質問8に任せる」を改める |
 | Q83 | Epic とガードレール | Epic に分ける計画（`split`）では、子課題の files がガードレールに触れても計画ゲートで止めない。分ける段階では子 Issue を作るだけで、子課題はそれぞれの計画でゲートがガードレールを判定する（Q82 の「触れる計画は止める」を、split の子課題については子課題の計画で行う） |
 | Q84 | ラベルの規則 | 必須ラベルは、Issue が `type:*`・`area:*`・`priority:*`、PR が `type:*`・`area:*`・`size:*`。子を持つ Issue は `epic` が必須で `type:*` を付けない。`type:*` はタイトルの type と同じ一覧。人が付けたラベルは上書きしない。`classification.issueTriage` に `label`（足りないラベルを Jev が付ける。確率の下限は `jev.thresholds.labelProbability`）を足す（Q75 のシャドーのみを改める。付与は #99、検査は #98 で入る） |
-| Q85 | 判定の連鎖とガードレール | 判定の入力の作り方・組み立て・手順を変える変更も人が Merge する。`guardrailPaths` に `harness/scripts/agent.ts`、judge・plan の skill、`.claude/routine.md`、plan-critic・test-designer の定義を足し、`guardrailExclude` から `harness/lib/facts.ts`（Risk Agent と Jev に渡す事実を作る）を外す。残りの除外（usage・classify・worktree・issue-triage・queue・concurrency）は判定の材料を作らないので残す。`harness/lib/session-inputs.ts` は `harness/lib/**` で既に入っていて扱いを変えない。導入先で人が Merge するパスを足す仕組みは `humanMergePaths` を採る（#105）。Jev の切り替えの基準は docs/security.md に置く（#104）。Q82 の「保護するのは Agent が自分を縛る仕組みだけ」を、判定の連鎖と導入先の下限に広げる |
+| Q85 | 判定の連鎖とガードレール | 判定の入力の作り方・組み立て・手順を変える変更も人が Merge する。`guardrailPaths` に `harness/scripts/agent.ts`、judge・plan の skill、`.claude/routine.md`、plan-critic・test-designer の定義を足し、`guardrailExclude` から `harness/lib/facts.ts`（queue が judge・fix を決める材料として、判定の受け付け・人のレビューなどの事実を集める）を外す。残りの除外（usage・classify・worktree・issue-triage・queue・concurrency）は判定の材料を作らないので残す。`harness/lib/session-inputs.ts` は `harness/lib/**` で既に入っていて扱いを変えない。導入先で人が Merge するパスを足す仕組みは `humanMergePaths` を採る（#105）。Jev の切り替えの基準は docs/security.md に置く（#104）。Q82 の「保護するのは Agent が自分を縛る仕組みだけ」を、判定の連鎖と導入先の下限に広げる |
+| Q86 | 判定の連鎖の残り | `guardrailPaths` に sync・fix・ship の skill、`CLAUDE.md`、`harness/scripts/report.ts` を足す（判定の引き継ぎ、再レビューの範囲とテストの改ざん検査、段階のつなぎ、有人セッションで計画の批評の止める条件を上書きする規則、Jev の切り替えの集計を緩められるため）。`harness/lib/queue.ts` は `guardrailExclude` に残す：queue は次にやること（いつ judge・fix するか）を決めるだけで、Merge の条件は App が確かめる（判定は `agent/review` の必須チェックと patch-id に結び付き、範囲照合は計画ゲートを通った計画だけを使い、修正回数は App の `fix-request` で数える）。緩めても判定・修正をしない／余計にするだけで、判定なしの Merge にはならない。事実を集める `harness/lib/facts.ts` はガードレールに入っている（Q85）。implement・fleet の skill はこの決定の対象外 |
 | Q78 | 人の PR の判定 | 計画のある Issue に紐付いた人の PR も Routine が判定し、判定が出るまで `agent/review` を通さない（自動 Merge はしない、修正は人）。例外は人が付ける `review:exempt` |
 | Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt` |
 | Q76 | 状態ラベルの整理 | `agent:working`・`agent:in-pr` を廃止し、着手宣言コメントと開いた PR から判断する。止めるときは理由コード必須。ラベル定義はコードで一元管理し、文書との一致をテストで検査、定義に無いラベルは `setup.ts` が消す |

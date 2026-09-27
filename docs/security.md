@@ -36,7 +36,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | リスク | 内容 | 残る守り |
 | --- | --- | --- |
 | 既存 CI の偽装 | `pull_request` の CI は PR 側の YAML で動くため、CI を書き換えた PR は自分の CI を緑にできる | `.github/**` はガードレールで、App が自動 Merge から外す（人が Merge する） |
-| ガードレールの外のハーネス | `CLAUDE.md`・テスト・ほかの skill など、ガードレールに入れないハーネスの変更は low なら自動 Merge され得る | Risk の判定、`agent/tests`、一覧は人が PR で決める |
+| ガードレールの外のハーネス | implement・fleet の skill・テストなど、ガードレールに入れないハーネスの変更は low なら自動 Merge され得る | Risk の判定、`agent/tests`、一覧は人が PR で決める |
 | 本人名義の操作 | 直接マージ、`agent:hold` の解除、偽の判定コメントは GitHub 側では防げない | deny、App による記録、段階を別の実行に分けること、将来は Jev を Actions から呼ぶ |
 | auto-merge 付与と CI 完了の競合 | 本人名義で medium の PR に auto-merge を付け、ゲートが merge-route を書き換える前に CI が終わると Merge され得る（数秒） | deny |
 | `GITHUB_TOKEN` による auto-merge | PR 側の workflow が `GITHUB_TOKEN` で別の PR に auto-merge を付けるとゲートが起動しない | 定期照合（最大3時間） |
