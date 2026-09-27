@@ -279,9 +279,9 @@ export function translationProblems(items: ManifestItem[], cjkThreshold: number)
   return out;
 }
 
-/** 文字数からトークン数への換算（日本語・英語で分ける、目安）。単価の出どころは docs/security.md（https://docs.typesafe.ai/models） */
+/** 文字数からトークン数への換算（日本語・英語で分ける、目安）。単価の出どころは docs/security.md（https://docs.typesafe.ai/models。jev-1.13.0 は入力 $0.042 / 100万トークン、出力は無料） */
 const CHARS_PER_TOKEN: Record<'ja' | 'en', number> = { ja: 1.5, en: 4 };
-const DEFAULT_PRICE_PER_INPUT_TOKEN = 4 / 1_000_000;
+const DEFAULT_PRICE_PER_INPUT_TOKEN = 0.042 / 1_000_000;
 
 export function estimateCost(input: { lang: 'ja' | 'en'; charCount: number; pricePerInputToken?: number }): { tokens: number; costUsd: number } {
   const tokens = input.charCount / CHARS_PER_TOKEN[input.lang];
