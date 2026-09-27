@@ -37,14 +37,21 @@ tools: Read, Grep, Glob, Bash
 {
   "verdict": "go | revise | split | drop",
   "reasons": ["判定の理由（観点の番号を付ける）"],
-  "fixes": ["revise のとき：計画のどこをどう直すか"],
+  "fixes": [{ "severity": "must | should", "text": "計画のどこをどう直すか" }],
   "split": [{ "title": "type(scope): 説明", "goal": "…", "files": ["…"], "dependsOn": [] }]
 }
 ```
 
-- `go`：直すべき点が無い（細かい提案は `reasons` に書いてよいが、`fixes` は空）。
-- `revise`：直せば進められる。`fixes` に具体的に書く。
+`fixes` の `severity`：
+
+- `must`（必須）：要件との食い違い、正しい入力・出力を壊す、安全を損なう、AC を確かめられない、触るファイルの漏れ。
+- `should`（推奨）：読みやすさや細部の提案。呼び出し元は計画に注記して先に進め、実装とレビューで拾う。
+
+- `go`：必須の指摘が無い。推奨だけなら `fixes` に `should` として残す。
+- `revise`：必須の指摘がある（`must` が1件以上）。直せば進められる。`fixes` に具体的に書く。推奨だけで `revise` にしない。
 - `split`：分けるべき。`split` に子課題の案を書く（`dependsOn` は `split` の中の添字）。
 - `drop`：やる価値が無い、または Issue の前提が崩れている。人に返す。
+
+2回目以降は、前回の必須の指摘それぞれが直ったかを `reasons` の先頭に書く（直っていない指摘は、同じ指摘だと分かるように前回と同じ言い方で `fixes` に残す）。
 
 判定は厳しめに。ただし、スタイルや好みの違いだけで revise にしない。
