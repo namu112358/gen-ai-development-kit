@@ -2,12 +2,13 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
+import { describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { computeQueue } from '../lib/facts.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
 import type { Claim } from '../lib/queue.ts';
-import { latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
+import { closingIssues, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
 import { mainRepoRoot, worktreePath } from '../lib/worktree.ts';
@@ -29,7 +30,7 @@ import { mainRepoRoot, worktreePath } from '../lib/worktree.ts';
  *
  * ■ 人のセッション用（gh の認証で GitHub API を呼ぶ）
  *   node harness/scripts/agent.ts queue                     次にやること（JSON）
- *   node harness/scripts/agent.ts claim <n> [--manual]      着手宣言のコメント
+ *   node harness/scripts/agent.ts claim <n> [--manual] [--force]  着手宣言のコメント。--manual は、計画の触るファイルの領域の開いた PR が上限（areaConcurrency）に達していれば止まる（--force で着手）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿
@@ -79,7 +80,19 @@ function blockBody(code: string, text: string): string {
   return [CLAUDE_MARK, reasonMark(code as ReasonCode), `\`agent:blocked\` にしました（${REASON_CODES[code as ReasonCode]}）。人の対応が必要です。`, '', text].join('\n');
 }
 
-async function claim(gh: GitHub, n: number, manual: boolean): Promise<void> {
+async function claim(gh: GitHub, n: number, manual: boolean, force: boolean): Promise<void> {
+  if (manual && !force) {
+    const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
+    const repository = `${gh.owner}/${gh.repo}`;
+    const labels: string[][] = [];
+    for (const p of await gh.paginate<PullRequest>('/pulls?state=open')) {
+      // この Issue を閉じる PR（続きの作業）は数えない
+      if (!isSameRepoPr(p, repository) || (await closingIssues(gh, p.number)).includes(n)) continue;
+      labels.push(p.labels.map((l) => l.name));
+    }
+    const full = fullAreas(config, gate?.value.plan?.files ?? [], labels);
+    if (full.length > 0) fail([`${describeFullAreas(full)}。どれかが Merge されてから着手してください（急ぐなら --force）`]);
+  }
   await gh.comment(n, claimBody(manual));
 }
 
@@ -254,7 +267,7 @@ async function main(): Promise<void> {
   const n = Number(args[0]);
   switch (cmd) {
     case 'queue': return void console.log(JSON.stringify(await computeQueue(gh, config, sessionUrl()), null, 2));
-    case 'claim': return claim(gh, n, args.includes('--manual'));
+    case 'claim': return claim(gh, n, args.includes('--manual'), args.includes('--force'));
     case 'release': return void (await gh.comment(n, claimBody(true, true)));
     case 'show-plan': return showPlan(gh, n);
     case 'post-plan': return postPlan(gh, n, args[1]!);

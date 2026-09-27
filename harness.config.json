@@ -9,6 +9,9 @@
     "humanClaimStaleHours": 6,
     "routineClaimTakeoverMinutes": 90
   },
+  "areaConcurrency": {
+    "harness": 2
+  },
   "fixLoop": {
     "normalLimit": 2,
     "criticalLimit": 3

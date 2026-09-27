@@ -1,4 +1,5 @@
 import { extractBlock, hasClaudeMark } from './blocks.ts';
+import { describeFullAreas, fullAreas } from './concurrency.ts';
 import { appLogin, CHECKS, LABELS, REVIEW_EXEMPT_LABEL, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
 import { patchId } from './patch-id.ts';
@@ -53,7 +54,13 @@ async function openBlockers(gh: GitHub, n: number): Promise<number[]> {
   return data.repository.issue.blockedBy.nodes.filter((b) => b.state === 'OPEN').map((b) => b.number);
 }
 
-export async function issueFacts(gh: GitHub, cfg: HarnessConfig, issue: { number: number; title: string; labels: { name: string }[] }, prByIssue: Map<number, number>): Promise<IssueFacts> {
+export async function issueFacts(
+  gh: GitHub,
+  cfg: HarnessConfig,
+  issue: { number: number; title: string; labels: { name: string }[] },
+  prByIssue: Map<number, number>,
+  openPrLabels: string[][] = [],
+): Promise<IssueFacts> {
   const [events, comments] = await Promise.all([timeline(gh, issue.number), gh.listComments(issue.number)]);
   const gate = latestPlanGate(cfg, comments);
   const plan = latestClaudeBlockAt(comments, 'agent-plan');
@@ -69,7 +76,15 @@ export async function issueFacts(gh: GitHub, cfg: HarnessConfig, issue: { number
     latestPlanAt: plan?.created_at ?? null,
     planOkByApp: planOk?.actor?.login === appLogin(cfg),
     openPr: prByIssue.get(issue.number) ?? null,
+    areaFull: areaFullFor(cfg, gate, openPrLabels),
   };
+}
+
+/** 計画ゲートを通過した計画の触るファイルが、上限に達した領域に入るなら、その説明 */
+function areaFullFor(cfg: HarnessConfig, gate: ReturnType<typeof latestPlanGate>, openPrLabels: string[][]): string | null {
+  const files = (gate?.value as (PlanGateRecord & { plan?: { files: string[] } }) | undefined)?.plan?.files ?? [];
+  const full = fullAreas(cfg, files, openPrLabels);
+  return full.length > 0 ? describeFullAreas(full) : null;
 }
 
 /** 判定コメントへの App の返答をこれ以上待たない時間（ゲートの実行が落ちた場合に判定し直す） */
@@ -138,13 +153,16 @@ export async function computeQueue(gh: GitHub, config: HarnessConfig, currentSes
   // Agent PR と、計画のある Issue を Closes する人の PR（例外ラベル付きは除く）を判定の対象にする
   const repository = `${gh.owner}/${gh.repo}`;
   const prs: PullRequest[] = [];
-  for (const p of await gh.paginate<PullRequest>('/pulls?state=open')) {
+  const openPrs = await gh.paginate<PullRequest>('/pulls?state=open');
+  // 領域ごとの上限には、Agent PR 以外も含めて同じリポジトリの開いた PR をすべて数える
+  const openPrLabels = openPrs.filter((p) => isSameRepoPr(p, repository)).map((p) => p.labels.map((l) => l.name));
+  for (const p of openPrs) {
     if (isAgentPr(config, p, repository)) prs.push(p);
     else if (isSameRepoPr(p, repository) && !hasLabel(p, REVIEW_EXEMPT_LABEL) && (await planLinkedIssues(gh, config, p.number)).linked.length > 0) prs.push(p);
   }
   const prByIssue = new Map<number, number>();
   for (const pr of prs) for (const n of await closingIssues(gh, pr.number)) prByIssue.set(n, pr.number);
-  const iFacts = await Promise.all(issues.map((i) => issueFacts(gh, config, i, prByIssue)));
+  const iFacts = await Promise.all(issues.map((i) => issueFacts(gh, config, i, prByIssue, openPrLabels)));
   const readyAt = new Map(iFacts.map((f) => [f.number, f.readyAt]));
   const issueLabels = new Map(iFacts.map((f) => [f.number, f.labels]));
   const pFacts = await Promise.all(prs.map((p) => prFacts(gh, config, p, readyAt, issueLabels)));
