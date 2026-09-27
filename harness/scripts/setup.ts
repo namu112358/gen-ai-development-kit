@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { allLabelDefs, CHECKS, loadConfig } from '../lib/config.ts';
+import { allLabelDefs, CHECKS, loadConfig, MANAGED_PREFIXES } from '../lib/config.ts';
 import { GhTransport, GitHub } from '../lib/github.ts';
 
 /**
@@ -18,9 +18,6 @@ import { GhTransport, GitHub } from '../lib/github.ts';
 const GITHUB_ACTIONS_APP_ID = 15368;
 const ENVIRONMENT = 'gate';
 const RULESET_NAME = 'agent-harness-main';
-
-/** ハーネスが管理するラベルの接頭辞。定義に無いものは消す（廃止したラベルを残さない） */
-const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'size:', 'area:', 'plan:', 'review:', 'test:'];
 
 async function labels(gh: GitHub): Promise<void> {
   const defs = allLabelDefs(loadConfig());

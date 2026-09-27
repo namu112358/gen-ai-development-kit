@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { TITLE_TYPES } from './title.ts';
 import type { PricingTable } from './usage.ts';
 
 export interface HarnessConfig {
@@ -14,8 +15,8 @@ export interface HarnessConfig {
     sizeExclude: string[];
     /** area 名 → パスのパターン（harness/lib/scope.ts の書式） */
     areas: Record<string, string[]>;
-    /** Issue の分類を Jev に問うか（shadow は提案コメントのみ） */
-    issueTriage: 'off' | 'shadow';
+    /** Issue の分類を Jev に問うか（shadow は提案コメントのみ、label は足りないラベルを Jev が付ける） */
+    issueTriage: 'off' | 'shadow' | 'label';
   };
   mergeMethod: 'SQUASH' | 'MERGE' | 'REBASE';
   routine: { maxItemsPerRun: number; humanClaimStaleHours: number; routineClaimTakeoverMinutes: number };
@@ -30,7 +31,7 @@ export interface HarnessConfig {
   fixLoop: { normalLimit: number; criticalLimit: number };
   staleHours: number;
   dashboardIssueTitle: string;
-  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; thresholds: { lowProbability: number; noulSafe: number } };
+  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;
 }
@@ -79,15 +80,28 @@ export function reasonOf(body: string | null | undefined): ReasonCode | null {
   return code && code in REASON_CODES ? (code as ReasonCode) : null;
 }
 
-/** queue の並び順を変える優先度ラベル（付いていなければ通常） */
-export const PRIORITY_LABELS = { high: 'priority:high', low: 'priority:low' } as const;
+/** queue の並び順を変える優先度ラベル（高い順。付いていなければ medium） */
+export const PRIORITY_LABELS = {
+  highest: 'priority:highest',
+  high: 'priority:high',
+  medium: 'priority:medium',
+  low: 'priority:low',
+  lowest: 'priority:lowest',
+} as const;
 
-/** 小さいほど先に処理する */
+const PRIORITY_ORDER: string[] = Object.values(PRIORITY_LABELS);
+
+/** 小さいほど先に処理する（highest=0 … lowest=4）。複数付いていれば最も高いもの、無ければ medium */
 export function priorityRank(labels: string[]): number {
-  if (labels.includes(PRIORITY_LABELS.high)) return 0;
-  if (labels.includes(PRIORITY_LABELS.low)) return 2;
-  return 1;
+  const ranks = labels.map((l) => PRIORITY_ORDER.indexOf(l)).filter((r) => r >= 0);
+  return ranks.length > 0 ? Math.min(...ranks) : PRIORITY_ORDER.indexOf(PRIORITY_LABELS.medium);
 }
+
+/** 課題の種類のラベル（タイトルの type と同じ一覧） */
+export const typeLabel = (type: (typeof TITLE_TYPES)[number]): string => `type:${type}`;
+
+/** ハーネスが管理するラベルの接頭辞。setup-labels は定義に無いものを消す（廃止したラベルを残さない） */
+export const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'type:', 'size:', 'area:', 'plan:', 'review:', 'test:'];
 
 export const RISK_LEVELS = ['low', 'medium', 'high', 'critical'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
@@ -122,8 +136,12 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: LABELS.blocked, color: 'b60205', description: '人の対応が必要' },
   { name: LABELS.hold, color: '000000', description: '人: 個別停止' },
   { name: LABELS.epic, color: '3e4b9e', description: 'App: 子課題に分けた親 Issue（queue は飛ばす）' },
-  { name: PRIORITY_LABELS.high, color: 'b60205', description: '人: queue で先に処理する' },
-  { name: PRIORITY_LABELS.low, color: 'c5def5', description: '人: queue で後に処理する' },
+  { name: PRIORITY_LABELS.highest, color: '5c0000', description: '人/App: queue で最も先に処理する' },
+  { name: PRIORITY_LABELS.high, color: 'b60205', description: '人/App: queue で先に処理する' },
+  { name: PRIORITY_LABELS.medium, color: 'fbca04', description: '人/App: 通常（優先度の無い Issue もこの扱い）' },
+  { name: PRIORITY_LABELS.low, color: 'c5def5', description: '人/App: queue で後に処理する' },
+  { name: PRIORITY_LABELS.lowest, color: 'ededed', description: '人/App: queue で最も後に処理する' },
+  ...TITLE_TYPES.map((t) => ({ name: typeLabel(t), color: 'd4c5f9', description: `人/App: 課題の種類（タイトルの type が ${t}）。Epic には付けない` })),
   { name: 'review:exempt', color: 'fef2c0', description: '人: 判定を待たずに agent/review を通す' },
   { name: 'plan:exempt', color: 'fef2c0', description: '人: 計画のある Issue に紐付かない PR を例外として通す' },
   { name: TEST_EXEMPT_LABEL, color: 'fef2c0', description: '人: テストを弱める変更を例外として agent/tests を通す' },
