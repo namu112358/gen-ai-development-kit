@@ -1,6 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
@@ -8,6 +10,7 @@ import { computeQueue } from '../lib/facts.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
 import type { Claim } from '../lib/queue.ts';
+import { composeVerdict, judgedHeadOf, renderCriticInput, renderJudgeInput, type CheckRun, type JudgeFacts } from '../lib/session-inputs.ts';
 import { closingIssues, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
@@ -35,6 +38,12 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿
  *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿
+ *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント、計画ゲートの記録の計画、PR 本文、agent/scope の結果、前回の判定の head とブロッキング指摘）をファイルに書き、パスを出力
+ *   node harness/scripts/agent.ts compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>]
+ *                                                           サブエージェントの出力から判定コメントを作って検査し、ファイルのパスを出力（投稿は post-verdict）。
+ *                                                           判定した head は judge-input のファイルの headSha。現在の head と違えば止まる。
+ *                                                           metrics.judgedBy はセッション URL（無ければ「付き添いのセッション」）
+ *   node harness/scripts/agent.ts critic-input <issue> <plan-file>  plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画）をファイルに書き、パスを出力
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
@@ -167,6 +176,67 @@ async function showPlan(gh: GitHub, n: number): Promise<void> {
   }, null, 2));
 }
 
+/** 一時ディレクトリにファイルを書き、パスを返す */
+function writeTemp(name: string, text: string): string {
+  const path = join(mkdtempSync(join(tmpdir(), 'agent-harness-')), name);
+  writeFileSync(path, text);
+  return path;
+}
+
+async function judgeInput(gh: GitHub, n: number): Promise<string> {
+  const pr = await gh.get<PullRequest>(`/pulls/${n}`);
+  const issues: JudgeFacts['issues'] = [];
+  for (const i of await closingIssues(gh, n)) {
+    const issue = await gh.get<{ number: number; title: string; body: string | null }>(`/issues/${i}`);
+    issues.push({ number: i, title: issue.title, body: issue.body, comments: await gh.listComments(i) });
+  }
+  const text = renderJudgeInput(config, {
+    pr: { number: n, headSha: pr.head.sha, body: pr.body },
+    issues,
+    prComments: await gh.listComments(n),
+    checkRuns: await gh.paginate<CheckRun>(`/commits/${pr.head.sha}/check-runs`),
+  });
+  return writeTemp(`judge-input-${n}.txt`, text);
+}
+
+async function criticInput(gh: GitHub, n: number, planFile: string | undefined): Promise<string> {
+  if (!planFile) fail(['critic-input <issue> <plan-file>']);
+  const issue = await gh.get<{ number: number; title: string; body: string | null }>(`/issues/${n}`);
+  return writeTemp(`critic-input-${n}.txt`, renderCriticInput(issue, await gh.listComments(n), readFileSync(planFile, 'utf8')));
+}
+
+function readJson(file: string): unknown {
+  try {
+    return JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    fail([`${file}: JSON として読めません: ${(e as Error).message}`]);
+  }
+}
+
+function optionValue(args: string[], name: string): string | undefined {
+  const i = args.indexOf(name);
+  return i >= 0 ? args[i + 1] : undefined;
+}
+
+async function composeVerdictFile(gh: GitHub, n: number, args: string[]): Promise<string> {
+  const [, reviewerFile, riskFile] = args;
+  const inputFile = optionValue(args, '--judge-input');
+  if (!reviewerFile || !riskFile || !inputFile) fail(['compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>]']);
+  const judgedHead = judgedHeadOf(readFileSync(inputFile, 'utf8'));
+  if (!judgedHead) fail([`${inputFile} に headSha の行がありません`]);
+  const pr = await gh.get<PullRequest>(`/pulls/${n}`);
+  const r = composeVerdict({
+    pr: n,
+    judgedHead,
+    currentHead: pr.head.sha,
+    reviewer: readJson(reviewerFile),
+    risk: readJson(riskFile),
+    meta: { model: optionValue(args, '--model'), judgedBy: sessionUrl() ?? '付き添いのセッション' },
+  });
+  if (!r.ok) fail(r.errors);
+  return writeTemp(`verdict-${n}.md`, r.value);
+}
+
 const FOOTER_START = '<!-- agent-harness:metrics -->';
 
 /** PR 本文末尾のメトリクス表（段階・モデル・所要時間・トークン使用量）に1行追記する */
@@ -254,6 +324,9 @@ async function main(): Promise<void> {
     case 'show-plan': return showPlan(gh, n);
     case 'post-plan': return postPlan(gh, n, args[1]!);
     case 'post-verdict': return postVerdict(gh, n, args[1]!);
+    case 'judge-input': return void console.log(await judgeInput(gh, n));
+    case 'critic-input': return void console.log(await criticInput(gh, n, args[1]));
+    case 'compose-verdict': return void console.log(await composeVerdictFile(gh, n, args));
     case 'footer': {
       const [, stage, model, minutes, tokens] = args;
       const pr = await gh.get<PullRequest>(`/pulls/${n}`);
