@@ -3,7 +3,7 @@ import { appLogin, LABELS, PRIORITY_LABELS, riskLabel, RISK_LEVELS, typeLabel, t
 import type { IssueComment } from '../lib/github.ts';
 import { parseIssueBody } from '../lib/issue-form.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage, type TriageSummary } from '../lib/issue-triage.ts';
-import { askJev, flattenAnswers } from '../lib/jev.ts';
+import { askJev, flattenAnswers, measureRequest } from '../lib/jev.ts';
 import { auditLabels } from '../lib/label-rules.ts';
 import { appRecords, isAgentPr, lastLabeled, latestPlanGate, type PlanGateRecord, type PullRequest, type TimelineEvent } from '../lib/state.ts';
 import { parseTitle, TITLE_TYPES } from '../lib/title.ts';
@@ -215,7 +215,8 @@ export async function triageLabels(
   if (!opts.proposal && !needs.priority && !needs.area) return false;
   const form = parseIssueBody(issue.body);
   if (!form.ok) return false;
-  const r = await (ctx.askJev ?? askJev)(apiKey, buildTriageRequest(ctx.config, issue.title, form.contract));
+  const request = buildTriageRequest(ctx.config, issue.title, form.contract);
+  const r = await (ctx.askJev ?? askJev)(apiKey, request);
   if (r.status !== 'ok') {
     ctx.log(`#${issue.number} の分類に失敗しました: ${r.detail}`);
     return true;
@@ -231,6 +232,8 @@ export async function triageLabels(
     threshold: ctx.config.jev.thresholds.labelProbability ?? null,
     added: add,
     notApplied: results.filter((x) => !x.applied).map(({ question, choice, probability, label, reason }) => ({ question, choice, probability, label, reason })),
+    // Jev に送った材料の大きさ（Q90。inputTokens は応答の usage.input_tokens、無ければ null）
+    size: { ...measureRequest(request), inputTokens: r.inputTokens ?? null },
   });
   return true;
 }
