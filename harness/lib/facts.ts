@@ -67,7 +67,7 @@ export async function issueFacts(gh: GitHub, cfg: HarnessConfig, issue: { number
 /** 判定コメントへの App の返答をこれ以上待たない時間（ゲートの実行が落ちた場合に判定し直す） */
 const GATE_REPLY_TIMEOUT_MS = 30 * 60_000;
 
-export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, readyAt: Map<number, string | null>): Promise<PrFacts> {
+export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, readyAt: Map<number, string | null>, issueLabels: Map<number, string[]>): Promise<PrFacts> {
   const [comments, reviews, commit, checks, issues] = await Promise.all([
     gh.listComments(pr.number),
     gh.paginate<Review>(`/pulls/${pr.number}/reviews`),
@@ -97,6 +97,7 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
     claim: claimOf(comments),
     issue,
     readyAt: issue ? (readyAt.get(issue) ?? null) : null,
+    issueLabels: issue ? (issueLabels.get(issue) ?? []) : [],
     labels: pr.labels.map((l) => l.name),
     headSha: pr.head.sha,
     headPushedAt: pushedAt,
@@ -120,7 +121,8 @@ export async function computeQueue(gh: GitHub, config: HarnessConfig, currentSes
   for (const pr of prs) for (const n of await closingIssues(gh, pr.number)) prByIssue.set(n, pr.number);
   const iFacts = await Promise.all(issues.map((i) => issueFacts(gh, config, i, prByIssue)));
   const readyAt = new Map(iFacts.map((f) => [f.number, f.readyAt]));
-  const pFacts = await Promise.all(prs.map((p) => prFacts(gh, config, p, readyAt)));
+  const issueLabels = new Map(iFacts.map((f) => [f.number, f.labels]));
+  const pFacts = await Promise.all(prs.map((p) => prFacts(gh, config, p, readyAt, issueLabels)));
   const result = buildQueue(iFacts, pFacts, { currentSession, now, routineClaimTakeoverMinutes: config.routine.routineClaimTakeoverMinutes }, config.routine.maxItemsPerRun);
   const actions = await Promise.all(result.actions.map(async (a) => {
     if (a.kind !== 'implement') return a;
