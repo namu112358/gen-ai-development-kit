@@ -31,6 +31,8 @@ export interface PrFacts {
   number: number;
   /** Agent PR（claude/ ブランチ）か。人の PR は判定だけで、修正は人が行う */
   agent: boolean;
+  /** main と衝突している（mergeable_state が dirty） */
+  conflicted: boolean;
   /** PR が Close する Issue のラベル（優先度を引き継ぐ） */
   issueLabels: string[];
   claim: Claim | null;
@@ -53,6 +55,7 @@ export type Action =
   | { kind: 'wait-dependency'; issue: number; blockers: number[] }
   | { kind: 'judge'; pr: number; issue: number | null; headSha: string }
   | { kind: 'fix'; pr: number; issue: number | null; reason: 'review' | 'human' }
+  | { kind: 'resolve-conflict'; pr: number; issue: number | null }
   | { kind: 'skip'; target: string; reason: string };
 
 export interface QueueOptions {
@@ -109,6 +112,8 @@ export function decidePr(f: PrFacts, opts: QueueOptions): Action {
     if (!f.acceptance) return { kind: 'judge', pr: f.number, issue: f.issue, headSha: f.headSha };
     return { kind: 'skip', target, reason: f.acceptance.reviewPass ? '判定済み（人の Merge 待ち）' : '判定済み（人の修正待ち）' };
   }
+  // 衝突していると CI も判定の反映も進まないので、何より先に解消する
+  if (f.conflicted) return { kind: 'resolve-conflict', pr: f.number, issue: f.issue };
   if (f.humanFeedbackSincePush > 0) return { kind: 'fix', pr: f.number, issue: f.issue, reason: 'human' };
   if (f.verdictAwaitingGate) return { kind: 'skip', target, reason: '判定の受け付け待ち' };
   if (!f.acceptance) return { kind: 'judge', pr: f.number, issue: f.issue, headSha: f.headSha };

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import type { PricingTable } from './usage.ts';
 
 export interface HarnessConfig {
   appSlug: string;
@@ -22,6 +23,8 @@ export interface HarnessConfig {
   staleHours: number;
   dashboardIssueTitle: string;
   jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; thresholds: { lowProbability: number; noulSafe: number } };
+  /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
+  pricing?: PricingTable;
 }
 
 const CONFIG_PATH = fileURLToPath(new URL('../../harness.config.json', import.meta.url));
@@ -84,6 +87,7 @@ export const CHECKS = {
   scope: 'agent/scope',
   mergeRoute: 'merge-route',
   planLink: 'agent/plan-link',
+  title: 'agent/title',
 } as const;
 
 /** 人の PR を判定を待たずに通すラベル（人だけが付ける） */
