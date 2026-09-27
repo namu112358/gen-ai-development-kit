@@ -13,7 +13,7 @@ on:
   issues:
     types: [opened, edited, labeled, unlabeled, closed]
   pull_request_target:
-    types: [opened, reopened, synchronize, edited, labeled, unlabeled, auto_merge_enabled, auto_merge_disabled]
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled, auto_merge_enabled, auto_merge_disabled, ready_for_review, stacked]
   push:
     branches: [main]
   schedule:
@@ -30,6 +30,7 @@ jobs:
     # - コメント：構造化ブロックを含むものだけ（着手宣言は queue の更新のため）
     # - Issue：作成、タイトルの編集（本文の編集では動かない。type:* を付け直す。Sub-issue の追加は定期実行の label-apply で拾う）、Close と、意味のあるラベル（plan-ok はこの App 以外が付けたときだけ）
     # - PR：ラベルは hold と例外ラベル（plan / review / test:exempt）だけ。auto-merge の変化はこの App 以外によるものだけ
+    # - PR：Ready への切り替え（ready_for_review）はこの App 以外によるものだけ（App 自身が Ready にしたときは起動しない）。スタックへの組み込み（stacked）でも起動する
     # 「この App」はリポジトリ変数 AGENT_APP_SLUG で判定する（他の Bot の操作は起動する）。
     # どの実行も最後に queue（次に Routine がやること）をダッシュボードに公開し直す。
     # GITHUB_TOKEN による操作は workflow を起動しないため、定期実行でも merge-route を照合し直す
@@ -56,7 +57,8 @@ jobs:
         github.event.label.name == 'plan:exempt' ||
         github.event.label.name == 'review:exempt' ||
         github.event.label.name == 'test:exempt' ||
-        (startsWith(github.event.action, 'auto_merge_') && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG)))
+        (startsWith(github.event.action, 'auto_merge_') && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG))) &&
+      (github.event_name != 'pull_request_target' || github.event.action != 'ready_for_review' || github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG))
     runs-on: ubuntu-latest
     environment: gate
     timeout-minutes: 5

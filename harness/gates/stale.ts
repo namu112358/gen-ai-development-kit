@@ -3,7 +3,8 @@ import { LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
 import { labelAuditRows, renderAuditLines } from '../lib/label-rules.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
-import { refreshMergeRoute } from './apply.ts';
+import { classifyBase } from '../lib/stack.ts';
+import { enforceBase, refreshMergeRoute, resumeFromOrphan } from './apply.ts';
 import { appComment, disableAutoMerge, getPr, updateBranchIfBehind, type GateContext } from './context.ts';
 
 /**
@@ -48,7 +49,9 @@ async function reconcileAutoMerge(ctx: GateContext): Promise<number> {
     const pr = await getPr(ctx, item.number);
     const agent = isAgentPr(ctx.config, pr, ctx.repository);
     const acceptance = agent ? acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patchId(await prDiff(ctx.gh, pr))) : null;
-    if (agent && mode && !hasLabel(pr, LABELS.hold) && acceptance?.autoEligible) {
+    // base が既定ブランチでない PR（Stacked PR・orphan-base）の auto-merge は外す（stacked のイベントを取りこぼした場合の戻り道）
+    const onDefault = classifyBase(pr, ctx.config.defaultBranch) === 'default';
+    if (agent && mode && !hasLabel(pr, LABELS.hold) && acceptance?.autoEligible && onDefault) {
       await updateBranchIfBehind(ctx, pr);
       continue;
     }
@@ -58,6 +61,27 @@ async function reconcileAutoMerge(ctx: GateContext): Promise<number> {
     fixed++;
   }
   return fixed;
+}
+
+/**
+ * base の見直し（stacked のイベントを取りこぼした場合の戻り道）。一覧の stack・base で default でない PR だけ取り直し、
+ * orphan-base なら Draft に留め、orphan-base の記録のまま orphan-base でなくなっていれば通常の流れに戻す。
+ */
+async function reconcileBases(ctx: GateContext, items: PullRequest[]): Promise<number> {
+  let touched = 0;
+  for (const item of items) {
+    if (classifyBase(item, ctx.config.defaultBranch) === 'default') continue;
+    const pr = await getPr(ctx, item.number);
+    if (pr.state !== 'open') continue;
+    const kind = classifyBase(pr, ctx.config.defaultBranch);
+    if (kind === 'orphan-base') {
+      await enforceBase(ctx, pr);
+      touched++;
+    } else if (await resumeFromOrphan(ctx, pr, kind)) {
+      touched++;
+    }
+  }
+  return touched;
 }
 
 export async function onSchedule(ctx: GateContext, now: Date = new Date()): Promise<void> {
@@ -79,6 +103,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   const byReason = [...needsHuman].sort((a, b) => reasons.get(a.number)!.localeCompare(reasons.get(b.number)!));
 
   const prs = await ctx.gh.paginate<PullRequest>('/pulls?state=open', 5);
+  const bases = await reconcileBases(ctx, prs);
   const conflicts: PullRequest[] = [];
   const stalePrs: PullRequest[] = [];
   for (const item of prs.filter((p) => isAgentPr(ctx.config, p, ctx.repository))) {
@@ -114,5 +139,5 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
   const kept = queueStart >= 0 ? `${withMode}\n\n${existing.slice(queueStart)}` : withMode;
   await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: kept } });
-  ctx.log(`auto-merge reconciled=${reconciled}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} stalePRs=${stalePrs.length} staleIssues=${stale.length} labelProblems=${labelProblems.length}`);
+  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} stalePRs=${stalePrs.length} staleIssues=${stale.length} labelProblems=${labelProblems.length}`);
 }

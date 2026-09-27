@@ -3,12 +3,12 @@ import { CHECKS, LABELS, PLAN_EXEMPT_LABEL, REVIEW_EXEMPT_LABEL, TEST_EXEMPT_LAB
 import { writePlanLink } from './plan-link.ts';
 import { parseTitle } from '../lib/title.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { checkScope } from '../lib/scope.ts';
+import { classifyBase } from '../lib/stack.ts';
 import { DEFAULT_TEST_PATTERNS, detectTestTampering } from '../lib/test-tamper.ts';
 import { EXEMPT_KINDS, EXEMPT_STALE_KIND, exemptRecords, exemptState, staleNotified, type ExemptRecord, type ExemptStaleRecord, type ExemptState } from '../lib/exempt.ts';
 import type { IssueComment } from '../lib/github.ts';
-import { acceptanceForPatch, changedFiles, hasLabel, isAgentPr, isSameRepoPr, plannedFilesForPr, prDiff, type PullRequest } from '../lib/state.ts';
-import { applyAcceptance, refreshMergeRoute } from './apply.ts';
+import { acceptanceForPatch, hasLabel, isAgentPr, isSameRepoPr, prDiff, type PullRequest } from '../lib/state.ts';
+import { applyAcceptance, enforceBase, refreshMergeRoute, resumeFromOrphan, writeScopeCheck } from './apply.ts';
 import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
 import { applyAppLabels } from './label-apply.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
@@ -22,6 +22,9 @@ import { testsHumanMerge, testsOutcome } from './tests-check.ts';
  * - テストの改ざん検査（agent/tests、必須。fork の PR も）
  * - 例外ラベル（review:exempt・test:exempt）は付けた時点の差分（patch-id）にだけ効かせる
  * - hold・auto-merge の変化で merge-route を書き直す
+ * - base の見分け（stack.ts）：スタックでないのに base が既定ブランチ以外（orphan-base）なら Draft に留め、
+ *   スタックに組み込まれたら（stacked・base の付け替え）通常の流れに戻す
+ * - 人が Ready にしたとき（ready_for_review）は、判定前なら Draft に戻す
  */
 export async function onPullRequest(ctx: GateContext): Promise<void> {
   const action = ctx.event.action as string;
@@ -33,6 +36,32 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   }
   const pr = await getPr(ctx, number);
   if (pr.state !== 'open') return;
+
+  // base の見分け。スタックに入るのは PR を作った後なので、作成・push・Ready・stacked・base の付け替えのたびに見る
+  const baseChanged = action === 'edited' && Boolean(ctx.event.changes?.base);
+  if (['opened', 'reopened', 'synchronize', 'ready_for_review', 'stacked'].includes(action) || baseChanged) {
+    const kind = classifyBase(pr, ctx.config.defaultBranch);
+    if (kind === 'orphan-base') {
+      // 先に Draft にしておくので、この後の draft-until-judged のコメントは重ならない
+      await enforceBase(ctx, pr);
+    } else if (action === 'stacked' || baseChanged) {
+      if (await resumeFromOrphan(ctx, pr, kind)) return;
+      if (action === 'stacked') {
+        // 最初から問題の無かった PR：スタックでない PR として書かれた plan-link と scope を書き直す
+        await writePlanLink(ctx, pr);
+        await writeScopeCheck(ctx, number, pr.head.sha);
+        await refreshMergeRoute(ctx, pr);
+        return;
+      }
+    }
+    if (action === 'stacked') return;
+    if (action === 'ready_for_review') {
+      if (kind !== 'orphan-base') await draftUntilJudged(ctx, pr);
+      await refreshMergeRoute(ctx, pr);
+      return;
+    }
+  }
+
   const label = ctx.event.label?.name as string | undefined;
   if (['opened', 'reopened', 'synchronize', 'edited'].includes(action)) await writeTitleCheck(ctx, pr);
   if (['opened', 'reopened', 'synchronize', 'edited'].includes(action) || label === PLAN_EXEMPT_LABEL) await writePlanLink(ctx, pr);
@@ -172,16 +201,18 @@ async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () =>
   await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons));
 }
 
-async function writeScopeCheck(ctx: GateContext, number: number, headSha: string): Promise<void> {
-  const planned = await plannedFilesForPr(ctx.gh, ctx.config, number);
-  if ('missing' in planned) {
-    await writeCheck(ctx, headSha, CHECKS.scope, { conclusion: 'neutral', title: '範囲照合できません', summary: `${planned.missing}。自動 Merge の対象外です。` });
-    return;
-  }
-  const result = checkScope(planned.files, await changedFiles(ctx.gh, number));
-  await writeCheck(ctx, headSha, CHECKS.scope, result.ok
-    ? { conclusion: 'success', title: '計画の範囲内です', summary: planned.files.map((p) => `- \`${p}\``).join('\n') }
-    : { conclusion: 'neutral', title: `計画の範囲外のファイルが ${result.outside.length} 件`, summary: ['自動 Merge の対象外です（Human Merge は可）。', '', ...result.outside.map((f) => `- \`${f}\``)].join('\n') });
+/**
+ * 人が Ready にした PR（ready_for_review）：判定前なら Draft に戻す（opened などと同じ条件）。
+ * 同じリポジトリの PR で、現在の差分に受け付けが無く、review:exempt が効いていないとき。fork の PR は判定しないので戻さない。
+ */
+async function draftUntilJudged(ctx: GateContext, pr: PullRequest): Promise<void> {
+  if (pr.draft || !isSameRepoPr(pr, ctx.repository)) return;
+  const patch = patchId(await prDiff(ctx.gh, pr));
+  const comments = await ctx.gh.listComments(pr.number);
+  if (acceptanceForPatch(ctx.config, comments, patch)) return;
+  if (exemptState(exemptRecords(ctx.config, comments, REVIEW_EXEMPT_LABEL), hasLabel(pr, REVIEW_EXEMPT_LABEL), patch) === 'valid') return;
+  await convertToDraft(ctx, pr);
+  await appComment(ctx, pr.number, 'draft-until-judged', '判定がまだ無いため Draft に戻しました。Reviewer と Risk Agent の判定に合格すると、App が Ready にします。');
 }
 
 /** 表示用の size:* と area:* を差分から付ける（Agent 以外の PR にも付ける） */

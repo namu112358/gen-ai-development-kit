@@ -8,6 +8,7 @@ import { eligibility, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { evaluatePlanGate, parsePlan, planReviewOrigin, priorPlanReviewReleased, type GateResult, type Plan } from '../lib/plan.ts';
 import { checkScope } from '../lib/scope.ts';
+import { classifyBase, type BaseKind } from '../lib/stack.ts';
 import {
   changedFiles,
   fixRequestCount,
@@ -160,7 +161,7 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
     return;
   }
 
-  const acceptance = await buildAcceptance(ctx, pr.number, verdict, comment.id, currentPatch, diff, isAgentPr(ctx.config, pr, ctx.repository));
+  const acceptance = await buildAcceptance(ctx, pr.number, verdict, comment.id, currentPatch, diff, isAgentPr(ctx.config, pr, ctx.repository), classifyBase(pr, ctx.config.defaultBranch));
   // Jev の呼び出し中などに push されていたら、新しい head の差分でも同じときだけ続ける
   const current = await getPr(ctx, prNumber);
   if (current.head.sha !== pr.head.sha && patchId(await prDiff(ctx.gh, current)) !== currentPatch) {
@@ -194,7 +195,7 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
   if (risk.add.length > 0) await ctx.gh.addLabels(prNumber, risk.add);
 }
 
-async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, verdictCommentId: number, currentPatch: string, diff: string, agent: boolean): Promise<Acceptance> {
+async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, verdictCommentId: number, currentPatch: string, diff: string, agent: boolean, base: BaseKind): Promise<Acceptance> {
   const files = await changedFiles(ctx.gh, prNumber);
   const planned = await plannedFilesForPr(ctx.gh, ctx.config, prNumber);
   let scope = 'files' in planned ? checkScope(planned.files, files) : { ok: false, outside: [`（${planned.missing}）`] };
@@ -213,6 +214,14 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
   if (!agent) {
     elig.autoEligible = false;
     elig.reasons.unshift('Agent の PR ではない（人の PR は人が Merge する）');
+  }
+  // base が既定ブランチでない PR は自動の経路に乗せない（Stacked PR には auto-merge も Merge API も使えない）
+  if (base === 'stacked') {
+    elig.autoEligible = false;
+    elig.reasons.unshift('Stacked PR のため Human Merge（GitHub の auto-merge と Merge API が使えない）');
+  } else if (base === 'orphan-base') {
+    elig.autoEligible = false;
+    elig.reasons.unshift('スタックでないのに base が既定ブランチ以外（`orphan-base`。Draft に留めています）');
   }
   return {
     version: 1,
