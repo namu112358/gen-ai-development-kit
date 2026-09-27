@@ -13,12 +13,12 @@ const ENDPOINT = 'https://api.typesafe.ai/v1/systemone';
 
 /**
  * 問いの版。問いの文や criteria を変えたら上げる（受け付けの記録の `questionSet` に残し、集計を版ごとに分ける）。
- * 版 1 は Q87 より前の問い（記録に `questionSet` が無いもの）。
+ * 版 1 は Q88 より前の問い（記録に `questionSet` が無いもの）。
  */
 export const JEV_QUESTION_SET = 2;
 
 /**
- * q2〜q8 の Noul の問い。Jev は文字どおりに読むので、条件を直接書き、境界の例を `criteria` に置く（Q87）。
+ * q2〜q8 の Noul の問い。Jev は文字どおりに読むので、条件を直接書き、境界の例を `criteria` に置く（Q88）。
  * `criteria` の形は Noul の API（https://docs.typesafe.ai/primitives/noul の Request structure）に合わせる。
  */
 export const JEV_NOUL_QUESTIONS: Record<string, { instructions: string; criteria?: { true: string; false: string } }> = {

@@ -8,7 +8,7 @@ import { RISK_QUESTIONS } from './verdict.ts';
  *
  * 「外れ」＝ Merge 後 7 日以内に revert された、または同じファイルを直す fix の PR が Merge された。
  * 比べる相手は Claude ではなく結果。基準の意味は docs/security.md の「Jev」。
- * Jev の数と切り替えの基準は、今の問いの版（`JEV_QUESTION_SET`）の記録だけで数える（Q87）。
+ * Jev の数と切り替えの基準は、今の問いの版（`JEV_QUESTION_SET`）の記録だけで数える（Q88）。
  */
 
 const WEEK = 7 * 86400_000;
