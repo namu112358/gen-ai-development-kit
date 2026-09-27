@@ -42,6 +42,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | `GITHUB_TOKEN` による auto-merge | PR 側の workflow が `GITHUB_TOKEN` で別の PR に auto-merge を付けるとゲートが起動しない | 定期照合（最大3時間） |
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |
+| 外部のプラグイン | 登録したマーケットプレイスの skill・agent の中身がセッションの文脈に入る | コミットに固定・`autoUpdate: false`、更新は人が差分を読んで PR（[setup.md](setup.md#8-プラグイン全員に同じ版で入れる)）、コードを動かす部品（hook・MCP）が無いことを更新のたびに確かめる、判定の担当（reviewer・risk-agent）は WebFetch を持たず判定は reviewer・risk-agent と App だけで決まる |
 
 ## Jev
 
