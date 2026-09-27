@@ -20,6 +20,12 @@
     "harness/gates/**",
     "harness/lib/**",
     "harness/scripts/setup.ts",
+    "harness/scripts/agent.ts",
+    ".claude/skills/judge/SKILL.md",
+    ".claude/skills/plan/SKILL.md",
+    ".claude/routine.md",
+    ".claude/agents/plan-critic.md",
+    ".claude/agents/test-designer.md",
     "harness.config.json",
     "package.json",
     "package-lock.json",
@@ -36,7 +42,6 @@
     "harness/lib/worktree.ts",
     "harness/lib/issue-triage.ts",
     "harness/lib/queue.ts",
-    "harness/lib/facts.ts",
     "harness/lib/concurrency.ts"
   ],
   "areaConcurrency": {
