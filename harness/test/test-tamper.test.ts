@@ -89,3 +89,8 @@ test('引用符付きのパスの見出しがあっても、前後のファイ�
 test('import assert の行の削除はアサーションの変更とみなさない', () => {
   assert.deepEqual(kinds(fileDiff('a.test.ts', ["-import assert from 'node:assert/strict';", "+import assert from 'node:assert';"])), []);
 });
+
+test('空白を含むパスのバイナリのテストファイルの削除も検出する', () => {
+  const diff = 'diff --git a/test/a b.snap b/test/a b.snap\ndeleted file mode 100644\nBinary files a/test/a b.snap and /dev/null differ\n';
+  assert.deepEqual(detectTestTampering(diff, P).map((f) => [f.kind, f.file]), [['deleted-file', 'test/a b.snap']]);
+});

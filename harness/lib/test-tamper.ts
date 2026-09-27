@@ -134,6 +134,12 @@ function unquote(path: string): string {
 
 /** `diff --git` の見出しから、変更前後のパスを読む（引用符付きの形も受け付ける。読めなければ null） */
 function headerPaths(line: string): [string, string] | null {
+  const rest = line.slice('diff --git '.length);
+  // 引用符の無い見出しで前後が同じパス（空白を含んでもよい）なら、git と同じく真ん中で分ける
+  const half = (rest.length - 5) / 2;
+  if (Number.isInteger(half) && half > 0 && rest.startsWith('a/') && rest.slice(2, 2 + half) === rest.slice(half + 5) && rest.slice(2 + half, half + 5) === ' b/') {
+    return [rest.slice(2, 2 + half), rest.slice(half + 5)];
+  }
   const m = line.match(/^diff --git ("(?:[^"\\]|\\.)*"|\S+) ("(?:[^"\\]|\\.)*"|\S+)$/);
   if (!m) return null;
   return [unquote(m[1]!).replace(/^a\//, ''), unquote(m[2]!).replace(/^b\//, '')];
