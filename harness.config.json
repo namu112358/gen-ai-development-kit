@@ -10,6 +10,35 @@
     "routineClaimTakeoverMinutes": 90
   },
   "testPatterns": ["**/*.test.*", "**/*.spec.*", "**/test/**", "**/tests/**", "**/__tests__/**"],
+  "guardrailPaths": [
+    ".github/**",
+    ".claude/settings.json",
+    "harness/templates/**",
+    ".claude/agents/reviewer.md",
+    ".claude/agents/risk-agent.md",
+    "docs/risk-policy.md",
+    "harness/gates/**",
+    "harness/lib/**",
+    "harness/scripts/setup.ts",
+    "harness.config.json",
+    "package.json",
+    "package-lock.json",
+    ".node-version",
+    "tsconfig.json",
+    ".claude/hooks/**",
+    ".mcp.json",
+    "CODEOWNERS",
+    "docs/CODEOWNERS"
+  ],
+  "guardrailExclude": [
+    "harness/lib/usage.ts",
+    "harness/lib/classify.ts",
+    "harness/lib/worktree.ts",
+    "harness/lib/issue-triage.ts",
+    "harness/lib/queue.ts",
+    "harness/lib/facts.ts",
+    "harness/lib/concurrency.ts"
+  ],
   "areaConcurrency": {
     "harness": 2
   },

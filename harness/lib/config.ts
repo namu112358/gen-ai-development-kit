@@ -23,6 +23,10 @@ export interface HarnessConfig {
   testPatterns?: string[];
   /** area 名 → 同時に開いてよい PR の数。上限に達した領域の Issue には新しく着手しない（無い領域は無制限） */
   areaConcurrency?: Record<string, number>;
+  /** ガードレール（Agent が自分を縛る仕組み）のパターン。触れる PR は自動 Merge せず、触れる計画は計画ゲートで止める（harness/lib/guardrail.ts）。無ければすべてのファイルをガードレールとして扱う */
+  guardrailPaths?: string[];
+  /** guardrailPaths の中で普通に判定するもの（harness.config.json は外せない） */
+  guardrailExclude?: string[];
   fixLoop: { normalLimit: number; criticalLimit: number };
   staleHours: number;
   dashboardIssueTitle: string;

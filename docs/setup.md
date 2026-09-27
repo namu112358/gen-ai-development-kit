@@ -16,6 +16,8 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 
 既存の CI がある場合は、そのジョブ名を手順 4 の必須チェックに使う（このリポジトリでは `ci.yml` の `ci`）。
 
+`harness.config.json` の `guardrailPaths` に、Agent が自分を縛る仕組み（ゲート、判定の基準、deny、依存など）のパスを範囲パターンで並べ、その中で普通に判定するものを `guardrailExclude` に並べる。触れる PR は自動 Merge せず、触れる計画は計画ゲートで止まる（[risk-policy.md](risk-policy.md#ガードレール)）。`harness.config.json` 自身は常にガードレール。`guardrailPaths` を書かないと、すべてのファイルがガードレールとして扱われ自動 Merge が起きない。
+
 ## 2. GitHub App を作る
 
 ```bash

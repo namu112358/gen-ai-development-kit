@@ -110,7 +110,7 @@ function renderPlan(n: number, file: string): { body: string; addLabels: string[
   const checked = checkFile(file);
   if (checked.kind !== 'plan' || checked.errors.length > 0) fail(checked.errors);
   const plan = checked.value as Plan;
-  const gate = evaluatePlanGate(plan, n);
+  const gate = evaluatePlanGate(plan, n, config);
   const risks = (['low', 'medium', 'high', 'critical'] as const).map(riskLabel);
   return {
     body: readBlockFile(file),

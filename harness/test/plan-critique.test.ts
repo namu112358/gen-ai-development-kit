@@ -3,6 +3,9 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { evaluatePlanGate, parsePlan } from '../lib/plan.ts';
 
+/** ガードレールを問わないテスト用（一覧自身だけが当たる） */
+const noGuardrail = { guardrailPaths: [] };
+
 const base = { version: 1, issue: 7, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['src/lib/foo.ts'] };
 
 test('critique は任意。あれば verdict と rounds を読む', () => {
@@ -24,7 +27,7 @@ test('critique の書式違いは拒否する', () => {
 test('critique はゲートの判断に使わない（revise のままでも他の条件だけで決まる）', () => {
   const r = parsePlan({ ...base, critique: { verdict: 'revise', rounds: 1 } });
   assert.ok(r.ok);
-  assert.deepEqual(r.ok && evaluatePlanGate(r.value, 7), { pass: true, reasons: [] });
+  assert.deepEqual(r.ok && evaluatePlanGate(r.value, 7, noGuardrail), { pass: true, reasons: [] });
 });
 
 test('plan-critic の定義と、plan 段階の手順がある', () => {

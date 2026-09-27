@@ -15,6 +15,8 @@ export interface Acceptance {
   riskOk: boolean;
   scopeOk: boolean;
   outside: string[];
+  /** ガードレールに当たった変更ファイル（無い記録は古い受け付け） */
+  guardrail?: string[];
   autoEligible: boolean;
   reasons: string[];
   jev?: JevRecord;
@@ -70,10 +72,12 @@ export function evaluateMergeRoute(input: MergeRouteInput): CheckOutcome {
 }
 
 /** 受け付け時に、自動 Merge 条件のうち判定に由来する部分をまとめる */
-export function eligibility(parts: { reviewPass: boolean; risk: { ok: boolean; reasons: string[] }; scopeOk: boolean; outside: string[]; jevGate?: { ok: boolean; reason: string } }): { autoEligible: boolean; reasons: string[] } {
+export function eligibility(parts: { reviewPass: boolean; risk: { ok: boolean; reasons: string[] }; scopeOk: boolean; outside: string[]; jevGate?: { ok: boolean; reason: string }; guardrail: string[] }): { autoEligible: boolean; reasons: string[] } {
   const reasons: string[] = [];
   if (!parts.reviewPass) reasons.push('Reviewer のブロッキング指摘があります');
   reasons.push(...parts.risk.reasons);
+  // Risk Agent の答えに関わらず、ガードレールに触れる PR は人が Merge する
+  if (parts.guardrail.length > 0) reasons.push(`ガードレールに触れます（人が Merge する）: ${parts.guardrail.join(', ')}`);
   if (!parts.scopeOk) reasons.push(`計画の範囲外のファイルがあります: ${parts.outside.join(', ')}`);
   if (parts.jevGate && !parts.jevGate.ok) reasons.push(parts.jevGate.reason);
   return { autoEligible: reasons.length === 0, reasons };

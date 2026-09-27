@@ -7,7 +7,7 @@ import { APP, acceptanceFake, ctxFor, pr } from './support/gate-fixtures.ts';
 
 const split: SplitChild[] = [
   { title: 'feat(x): 一つ目', goal: 'g1', requirements: ['r1'], acceptanceCriteria: ['a1'], files: ['src/a.ts'], dependsOn: [] },
-  { title: 'docs: 二つ目', goal: 'g2', requirements: ['r2'], acceptanceCriteria: ['a2'], files: ['docs/**'], dependsOn: [0] },
+  { title: 'docs: 二つ目', goal: 'g2', requirements: ['r2'], acceptanceCriteria: ['a2'], files: ['docs/guide/**'], dependsOn: [0] },
 ];
 const plan = { version: 1, issue: 3, risk: 'critical', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: [], split };
 const event = (p: unknown) => ({
