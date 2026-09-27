@@ -8,13 +8,14 @@ import type { GateContext } from '../gates/context.ts';
 import { onComment } from '../gates/on-comment.ts';
 import { onPullRequest } from '../gates/on-pr.ts';
 import { onIssue } from '../gates/on-issue.ts';
+import { onMainPush } from '../gates/on-main-push.ts';
 
 /** 偽の GitHub。呼び出しを記録し、ルートごとの応答を返す */
 class FakeGitHub implements Transport {
   calls: { method: string; path: string; body?: any }[] = [];
-  private routes: [string, RegExp, (m: RegExpMatchArray, body: any) => unknown][] = [];
+  private routes: [string, RegExp, (m: RegExpMatchArray, body: any, opts: RequestOptions) => unknown][] = [];
 
-  on(method: string, pattern: RegExp, reply: (m: RegExpMatchArray, body: any) => unknown): this {
+  on(method: string, pattern: RegExp, reply: (m: RegExpMatchArray, body: any, opts: RequestOptions) => unknown): this {
     this.routes.unshift([method, pattern, reply]);
     return this;
   }
@@ -23,7 +24,7 @@ class FakeGitHub implements Transport {
     this.calls.push({ method, path, body: opts.body });
     for (const [m, re, reply] of this.routes) {
       const match = path.match(re);
-      if (m === method && match) return reply(match, opts.body);
+      if (m === method && match) return reply(match, opts.body, opts);
     }
     throw new Error(`unrouted: ${method} ${path}`);
   }
@@ -54,7 +55,7 @@ function ctxFor(fake: FakeGitHub, eventName: string, event: unknown): GateContex
 
 function pr(patch: Record<string, unknown> = {}) {
   return {
-    number: 5, state: 'open', draft: true, node_id: 'PR_5', title: 't', body: 'Closes #3', html_url: 'u', updated_at: '2026-09-26T00:00:00Z',
+    number: 5, state: 'open', draft: true, node_id: 'PR_5', title: 'docs: t', body: 'Closes #3', html_url: 'u', updated_at: '2026-09-26T00:00:00Z',
     auto_merge: null, labels: [], user: { login: 'me' },
     head: { ref: 'claude/issue-3', sha: HEAD, repo: { full_name: 'o/r' } }, base: { ref: 'main', sha: 'b'.repeat(40) }, ...patch,
   };
@@ -76,12 +77,12 @@ function verdict(patch: Partial<Verdict> = {}): Verdict {
 }
 
 /** 判定の受け付けに必要な応答を揃えた偽の GitHub */
-function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabels?: string[]; prComments?: unknown[]; allowAutoMerge?: boolean }): FakeGitHub {
+function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabels?: string[]; prComments?: unknown[]; allowAutoMerge?: boolean; behindBy?: number }): FakeGitHub {
   let autoMerge: unknown = state.pr.auto_merge;
   return new FakeGitHub()
     .on('GET', /\/repos\/o\/r$/, () => ({ allow_auto_merge: state.allowAutoMerge ?? true }))
     .on('GET', /\/pulls\/5$/, () => ({ ...state.pr, auto_merge: autoMerge }))
-    .on('GET', /\/compare\//, () => DIFF)
+    .on('GET', /\/compare\//, (_m, _b, o) => (o.raw ? DIFF : { behind_by: state.behindBy ?? 0 }))
     .on('GET', /\/pulls\/5\/files/, () => [{ filename: 'docs/a.md', additions: 1, deletions: 1 }])
     .on('GET', /\/pulls\/5\/reviews/, () => [])
     .on('GET', /\/issues\/3\/comments/, () => [planGateComment])
@@ -160,7 +161,7 @@ test('コラボレーター以外の判定コメントは無視する（Q60）',
 
 test('差分が変わった後の判定は受け付けない', async () => {
   const fake = acceptanceFake({ pr: pr({ head: { ref: 'claude/issue-3', sha: 'c'.repeat(40), repo: { full_name: 'o/r' } } }), dashboardLabels: [] })
-    .on('GET', /\/compare\/main\.\.\.c+$/, () => DIFF.replace('+b', '+changed'));
+    .on('GET', /\/compare\/main\.\.\.c+$/, (_m, _b, o) => (o.raw ? DIFF.replace('+b', '+changed') : { behind_by: 0 }));
   await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
   assert.deepEqual(fake.writes(), ['comment:verdict-rejected']);
 });
@@ -313,9 +314,55 @@ test('plan-link：計画のある Issue を Closes しない PR は failure、pl
   const none = acceptanceFake({ pr: pr({ head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }) })
     .on('POST', /\/graphql/, (_m, body) => (String(body.query).includes('closingIssuesReferences') ? { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [] } } } } } : { data: {} }));
   await onPullRequest(ctxFor(none, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
-  assert.equal(none.writes()[0], 'check:agent/plan-link=failure');
+  assert.ok(none.writes().includes('check:agent/plan-link=failure'));
 
   const exempt = acceptanceFake({ pr: pr({ labels: [{ name: 'plan:exempt' }], head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }) });
   await onPullRequest(ctxFor(exempt, 'pull_request_target', { action: 'labeled', label: { name: 'plan:exempt' }, sender: { login: 'me' }, pull_request: { number: 5 } }));
   assert.deepEqual(exempt.writes(), ['check:agent/plan-link=success', 'comment:plan-exempt']);
+});
+
+test('auto-merge を付けたとき main より遅れていれば、その場で追従させる', async () => {
+  for (const [behindBy, expected] of [[1, true], [0, false]] as const) {
+    const fake = acceptanceFake({ pr: pr(), dashboardLabels: [], behindBy });
+    let updated = false;
+    fake.on('PUT', /\/pulls\/5\/update-branch/, () => (updated = true));
+    await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
+    assert.ok(fake.writes().includes('enablePullRequestAutoMerge'));
+    assert.equal(updated, expected, `behind_by=${behindBy}`);
+  }
+});
+
+test('人へのレビュー依頼に、懸念点・見てほしい箇所・Risk の根拠を載せる', async () => {
+  const fake = acceptanceFake({ pr: pr(), dashboardLabels: [] });
+  const v = verdict({ risk: { ...verdict().risk, level: 'medium', rationale: 'API の挙動が変わる' }, review: { pass: true, blocking: [], nonBlocking: [], humanNotes: { concerns: ['空配列のとき例外になりうる'], checkPoints: ['src/a.ts の parse'] } } });
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', v))));
+  const body = fake.calls.find((c) => String(c.body?.body ?? '').includes('kind=human-review'))!.body.body as string;
+  assert.match(body, /### 懸念点\n- 空配列のとき例外になりうる/);
+  assert.match(body, /### 見てほしい箇所\n- src\/a.ts の parse/);
+  assert.match(body, /API の挙動が変わる/);
+});
+
+test('agent/title：PR のタイトルの形式を検査する', async () => {
+  const ok = acceptanceFake({ pr: pr({ title: 'fix(harness): 直す' }), dashboardLabels: [] });
+  await onPullRequest(ctxFor(ok, 'pull_request_target', { action: 'edited', pull_request: { number: 5 } }));
+  assert.equal(ok.writes()[0], 'check:agent/title=success');
+  const ng = acceptanceFake({ pr: pr({ title: '直す' }), dashboardLabels: [] });
+  await onPullRequest(ctxFor(ng, 'pull_request_target', { action: 'edited', pull_request: { number: 5 } }));
+  assert.equal(ng.writes()[0], 'check:agent/title=failure');
+});
+
+test('形式でない Issue タイトルは agent:ready で blocked になる', async () => {
+  const fake = acceptanceFake({ pr: pr() });
+  const body = ['Goal', 'Requirements', 'Acceptance Criteria'].map((h) => `### ${h}\n\nx`).join('\n\n');
+  await onIssue(ctxFor(fake, 'issues', { action: 'labeled', label: { name: 'agent:ready' }, sender: { login: 'me' }, issue: { number: 3, title: '用語集に追加', body, labels: [], state: 'open' } }));
+  assert.deepEqual(fake.writes(), ['label+agent:blocked', 'comment:form-error']);
+});
+
+test('main への push で、auto-merge 待ちでない Agent PR も main に追従させる', async () => {
+  const fake = acceptanceFake({ pr: pr({ draft: false }), dashboardLabels: [], behindBy: 2 });
+  fake.on('GET', /\/pulls\?state=open/, () => [pr()]);
+  let updated = false;
+  fake.on('PUT', /\/pulls\/5\/update-branch/, () => (updated = true));
+  await onMainPush(ctxFor(fake, 'push', { commits: [{ id: 'x', message: 'docs: 何か' }] }));
+  assert.equal(updated, true);
 });

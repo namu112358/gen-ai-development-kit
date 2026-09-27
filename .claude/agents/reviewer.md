@@ -32,7 +32,11 @@ GitHub の読み取りは、Routine では GitHub の MCP ツール（`mcp__gith
   "blocking": [
     { "kind": "ac-unmet | out-of-scope | typecheck-test-failure | data-destruction | secret-leak | regression", "file": "path（任意）", "detail": "何が問題で、どう直すべきか" }
   ],
-  "nonBlocking": ["スタイルや改善提案（Merge を止めない）"]
+  "nonBlocking": ["スタイルや改善提案（Merge を止めない）"],
+  "humanNotes": {
+    "concerns": ["壊れるとしたらどこか、何を確かめきれていないか"],
+    "checkPoints": ["人に見てほしいファイル・関数・観点"]
+  }
 }
 ```
 
@@ -48,3 +52,5 @@ GitHub の読み取りは、Routine では GitHub の MCP ツール（`mcp__gith
 | `regression` | AC の外で既存の挙動が変わる |
 
 スタイル、命名、より良い書き方の提案は `nonBlocking` に書きます。`pass` は `blocking` が空のときだけ `true` です。
+
+`humanNotes` は、人が Merge する前に読むレビュー依頼の中身です。ハーネス自体の変更、公開インターフェースやデータに触れる変更、テストで確かめきれていない変更では必ず書きます。`concerns` には懸念点を具体的に（「〜の場合に〜が起きうる」）、`checkPoints` には確かめてほしいファイル・関数・観点を書きます。

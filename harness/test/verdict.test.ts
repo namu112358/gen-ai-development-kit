@@ -73,3 +73,9 @@ test('eligibility：Reviewer・Risk・範囲照合・Jev（enforce 時）', () =
   assert.equal(eligibility({ reviewPass: true, risk, scopeOk: false, outside: ['x'] }).autoEligible, false);
   assert.equal(eligibility({ reviewPass: true, risk, scopeOk: true, outside: [], jevGate: { ok: false, reason: 'jev' } }).autoEligible, false);
 });
+
+test('humanNotes は任意で、文字列の配列として検査する', () => {
+  const withNotes = parseVerdict({ ...verdict, review: { ...verdict.review, humanNotes: { concerns: ['a'], checkPoints: ['b'] } } });
+  assert.ok(withNotes.ok && withNotes.value.review.humanNotes?.concerns[0] === 'a');
+  assert.ok(!parseVerdict({ ...verdict, review: { ...verdict.review, humanNotes: { concerns: [1] } } }).ok);
+});

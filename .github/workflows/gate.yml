@@ -27,7 +27,7 @@ permissions:
 jobs:
   gate:
     # 関係のないイベントでは起動しない（Actions はジョブごとに1分単位で課金されるため）
-    # - コメント：構造化ブロックを含むものだけ
+    # - コメント：構造化ブロックを含むものだけ（着手宣言は queue の更新のため）
     # - Issue：Close と、意味のあるラベル（plan-ok はこの App 以外が付けたときだけ）
     # - PR：ラベルは hold だけ。auto-merge の変化はこの App 以外によるものだけ
     # 「この App」はリポジトリ変数 AGENT_APP_SLUG で判定する（他の Bot の操作は起動する）。
@@ -36,7 +36,8 @@ jobs:
     if: >-
       (github.event_name != 'issue_comment' ||
         contains(github.event.comment.body, '```agent-plan') ||
-        contains(github.event.comment.body, '```agent-verdict')) &&
+        contains(github.event.comment.body, '```agent-verdict') ||
+        contains(github.event.comment.body, '```agent-claim')) &&
       (github.event_name != 'issues' ||
         github.event.action == 'closed' ||
         github.event.label.name == 'agent:ready' ||

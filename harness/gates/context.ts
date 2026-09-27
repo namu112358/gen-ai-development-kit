@@ -102,3 +102,18 @@ export async function convertToDraft(ctx: GateContext, pr: PullRequest): Promise
   await ctx.gh.graphql(`mutation($id:ID!){convertPullRequestToDraft(input:{pullRequestId:$id}){clientMutationId}}`, { id: pr.node_id });
   pr.draft = true;
 }
+
+/**
+ * PR が base より遅れていれば update-branch する（必須チェックで main への追従を求めているため、遅れた auto-merge 待ちの PR は止まる）。
+ * push 直後は mergeable_state が unknown になりやすいので、compare で遅れを直接調べる。
+ */
+export async function updateBranchIfBehind(ctx: GateContext, pr: PullRequest): Promise<void> {
+  const cmp = await ctx.gh.get<{ behind_by: number }>(`/compare/${encodeURIComponent(pr.base.ref)}...${pr.head.sha}`);
+  if (cmp.behind_by === 0) return;
+  try {
+    await ctx.gh.request('PUT', `/pulls/${pr.number}/update-branch`, { body: { expected_head_sha: pr.head.sha } });
+    ctx.log(`#${pr.number} を ${pr.base.ref} に追従させました`);
+  } catch (e) {
+    ctx.log(`#${pr.number} の追従に失敗: ${(e as Error).message}`);
+  }
+}

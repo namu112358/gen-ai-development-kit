@@ -75,8 +75,19 @@ export async function issueFacts(gh: GitHub, cfg: HarnessConfig, issue: { number
 /** 判定コメントへの App の返答をこれ以上待たない時間（ゲートの実行が落ちた場合に判定し直す） */
 const GATE_REPLY_TIMEOUT_MS = 30 * 60_000;
 
+/**
+ * 現在の head に対する人（コラボレーターで、Claude・App 以外）のレビュー。時刻ではなく、レビューの commit_id で判定する
+ * （push の直後、App が範囲照合を書く前に出したレビューも取りこぼさないため）。
+ */
+export function humanFeedback(reviews: Review[], headSha: string, app: string): Review[] {
+  return reviews.filter(
+    (r) => r.commit_id === headSha && r.user?.login !== app && isTrustedComment(r) && !hasClaudeMark(r.body) && ['COMMENTED', 'CHANGES_REQUESTED'].includes(r.state),
+  );
+}
+
 export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, readyAt: Map<number, string | null>, issueLabels: Map<number, string[]>): Promise<PrFacts> {
-  const [comments, reviews, commit, checks, issues] = await Promise.all([
+  const [detail, comments, reviews, commit, checks, issues] = await Promise.all([
+    gh.get<PullRequest>(`/pulls/${pr.number}`),
     gh.listComments(pr.number),
     gh.paginate<Review>(`/pulls/${pr.number}/reviews`),
     gh.get<{ commit: { committer: { date: string } } }>(`/commits/${pr.head.sha}`),
@@ -96,13 +107,12 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
   const verdictBlock = verdict ? extractBlock(verdict.body, 'agent-verdict') : null;
   const verdictForHead = verdictBlock?.found && verdictBlock.ok && (verdictBlock.value as { headSha?: string }).headSha === pr.head.sha;
   const verdictFresh = verdict !== null && Date.now() - new Date(verdict.created_at).getTime() < GATE_REPLY_TIMEOUT_MS;
-  const human = reviews.filter(
-    (r) => r.user?.login !== appLogin(cfg) && isTrustedComment(r) && !hasClaudeMark(r.body) && ['COMMENTED', 'CHANGES_REQUESTED'].includes(r.state) && r.submitted_at > pushedAt,
-  );
+  const human = humanFeedback(reviews, pr.head.sha, appLogin(cfg));
   const issue = issues[0] ?? null;
   return {
     number: pr.number,
     agent: isAgentPr(cfg, pr, `${gh.owner}/${gh.repo}`),
+    conflicted: detail.mergeable_state === 'dirty',
     claim: claimOf(comments),
     issue,
     readyAt: issue ? (readyAt.get(issue) ?? null) : null,

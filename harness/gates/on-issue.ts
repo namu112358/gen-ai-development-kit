@@ -1,5 +1,6 @@
 import { appLogin, LABELS, PRIORITY_LABELS, reasonMark } from '../lib/config.ts';
 import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
+import { parseTitle } from '../lib/title.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage } from '../lib/issue-triage.ts';
 import { askJev, flattenAnswers } from '../lib/jev.ts';
 import { patchId } from '../lib/patch-id.ts';
@@ -21,11 +22,14 @@ export async function onIssue(ctx: GateContext): Promise<void> {
   const label = ctx.event.label?.name as string | undefined;
 
   if (action === 'labeled' && label === LABELS.ready) {
-    const parsed = parseIssueBody(issue.body);
-    if (parsed.ok) await triageIssue(ctx, issue.number, (ctx.event.issue as { title: string }).title, parsed.contract);
+    const title = (ctx.event.issue as { title: string }).title;
+    const body = parseIssueBody(issue.body);
+    const titleCheck = parseTitle(title);
+    const parsed = titleCheck.ok || title === ctx.config.dashboardIssueTitle ? body : { ok: false as const, errors: [...(body.ok ? [] : body.errors), titleCheck.ok ? '' : titleCheck.error].filter(Boolean) };
+    if (parsed.ok) await triageIssue(ctx, issue.number, title, parsed.contract);
     if (!parsed.ok) {
       await ctx.gh.addLabels(issue.number, [LABELS.blocked]);
-      await appComment(ctx, issue.number, 'form-error', [reasonMark('form-error'), 'Issue 本文を Issue Form の書式として読めませんでした。`agent:blocked` にしました。本文を直して `agent:blocked` を外してください。', '', ...parsed.errors.map((e) => `- ${e}`)].join('\n'));
+      await appComment(ctx, issue.number, 'form-error', [reasonMark('form-error'), 'Issue のタイトルか本文が書式に合いません。`agent:blocked` にしました。直してから `agent:blocked` を外してください。', '', ...parsed.errors.map((e) => `- ${e}`)].join('\n'));
     }
     return;
   }

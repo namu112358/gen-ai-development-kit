@@ -182,6 +182,8 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     autoEligible: elig.autoEligible,
     reasons: elig.reasons,
     jev,
+    humanNotes: verdict.review.humanNotes,
+    riskRationale: verdict.risk.rationale,
   };
 }
 

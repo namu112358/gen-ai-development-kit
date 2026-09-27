@@ -406,6 +406,9 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q70 | patch-id | `--verbatim` を使う（`--stable` は空白を無視する） |
 | Q71 | 質問4 の範囲 | 「挙動を変える変更がテストで検証されているか（挙動を変えない変更だけなら yes）」に言い換え |
 | Q72 | Routine の GitHub 操作 | GitHub MCP ツールのみ（Routine の環境に `gh` と API 用トークンがない）。queue は App が計算してダッシュボードに公開し、Routine はそれに従う。メトリクスは PR コメントに残す |
+| Q79 | タイトルの形式 | Issue と PR のタイトルを Conventional Commits にそろえる。Issue は agent:ready で検査、PR は必須チェック `agent/title`。Routine は PR とコミットに Issue のタイトルを使う |
+| Q80 | 作業場所と処理量 | 作業は常に worktree（リポジトリの外）で行う。1回の実行で進める件数は 5 |
+| Q81 | Merge 衝突 | main が進むたびにすべての Agent PR を追従させ、衝突したものは Routine が main を取り込んで解消する（触るファイルの重なりは許す） |
 | Q78 | 人の PR の判定 | 計画のある Issue に紐付いた人の PR も Routine が判定し、判定が出るまで `agent/review` を通さない（自動 Merge はしない、修正は人）。例外は人が付ける `review:exempt` |
 | Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt` |
 | Q76 | 状態ラベルの整理 | `agent:working`・`agent:in-pr` を廃止し、着手宣言コメントと開いた PR から判断する。止めるときは理由コード必須。ラベル定義はコードで一元管理し、文書との一致をテストで検査、定義に無いラベルは `setup.ts` が消す |

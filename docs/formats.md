@@ -69,7 +69,11 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
   "review": {
     "pass": true,
     "blocking": [],
-    "nonBlocking": ["関数名は動詞で始めるとよい"]
+    "nonBlocking": ["関数名は動詞で始めるとよい"],
+    "humanNotes": {
+      "concerns": ["リンク先の見出しを変えるとアンカーが切れる"],
+      "checkPoints": ["docs/glossary.md のリンク"]
+    }
   },
   "risk": {
     "level": "low",
@@ -97,6 +101,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 - `review.blocking[].kind`：`ac-unmet` / `out-of-scope` / `typecheck-test-failure` / `data-destruction` / `secret-leak` / `regression`
 - `review.pass` は `blocking` が空のときだけ `true`（矛盾していれば拒否）
+- `review.humanNotes`（任意）：人にレビューを依頼するときの懸念点（`concerns`）と見てほしい箇所（`checkPoints`）。App の Human Merge の依頼コメントに載る
 - `risk.answers` は `yes` / `no` / `unsure` の3択。安全側の答えは [risk-policy.md](risk-policy.md)
 - `risk.probabilities` は記録のみ
 - `facts` は Jev に渡す事実（英語）。Claude の判定を含めない

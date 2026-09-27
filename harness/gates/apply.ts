@@ -2,7 +2,7 @@ import { appLogin, CHECKS, LABELS } from '../lib/config.ts';
 import { evaluateMergeRoute, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, autoMergeMode, hasLabel, isAgentPr, isSameRepoPr, prDiff, type PullRequest, type Review } from '../lib/state.ts';
-import { appComment, enableAutoMerge, getPr, markReady, writeCheck, type GateContext } from './context.ts';
+import { appComment, enableAutoMerge, getPr, markReady, updateBranchIfBehind, writeCheck, type GateContext } from './context.ts';
 
 /**
  * 受け付けた判定を PR に反映する。順序が安全性の要：
@@ -25,7 +25,7 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
       armed = await enableAutoMerge(ctx, pr);
     } else if (opts.fresh) {
       const why = [...acceptance.reasons, ...(hold ? ['`agent:hold` が付いています'] : []), ...(!mode ? ['自動 Merge モードが無効です'] : [])];
-      await appComment(ctx, pr.number, 'human-review', [`@${ctx.gh.owner} レビューをお願いします（Human Merge）。`, '', ...why.map((r) => `- ${r}`)].join('\n'));
+      await appComment(ctx, pr.number, 'human-review', renderHumanReview(ctx.gh.owner, acceptance, why));
     }
   }
   const before = await getPr(ctx, pr.number);
@@ -56,6 +56,8 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
     await writeMergeRoute(ctx, after, acceptance, mode, pr.head.sha);
   }
   if (wantAuto && !armed) await mergeDirectly(ctx, after, pr.head.sha);
+  // auto-merge を付けた時点で main より遅れていると、追従のきっかけ（main への push）が来るまで止まるため、その場で追従させる
+  if (armed) await updateBranchIfBehind(ctx, after);
 }
 
 /**
@@ -105,4 +107,27 @@ async function dismissFixRequests(ctx: GateContext, number: number): Promise<voi
       body: { message: '修正後の判定で Reviewer が合格としたため解除します。', event: 'DISMISS' },
     });
   }
+}
+
+/** 人へのレビュー依頼。何が懸念で、どこを見てほしいかを先に書く */
+export function renderHumanReview(owner: string, a: Acceptance, why: string[]): string {
+  const list = (items: string[] | undefined, empty: string) => (items && items.length > 0 ? items.map((x) => `- ${x}`) : [`- ${empty}`]);
+  return [
+    `@${owner} レビューをお願いします（Human Merge）。Reviewer は合格、Risk は ${a.riskLevel} です。`,
+    '',
+    '### 懸念点',
+    ...list(a.humanNotes?.concerns, '（Reviewer から特になし）'),
+    '',
+    '### 見てほしい箇所',
+    ...list(a.humanNotes?.checkPoints, '（Reviewer から特になし）'),
+    '',
+    '### Risk の根拠',
+    a.riskRationale ?? '（記録なし）',
+    '',
+    '<details><summary>自動 Merge しない理由</summary>',
+    '',
+    ...why.map((r) => `- ${r}`),
+    '',
+    '</details>',
+  ].join('\n');
 }

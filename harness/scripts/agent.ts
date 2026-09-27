@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { computeQueue } from '../lib/facts.ts';
@@ -8,7 +8,9 @@ import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
 import type { Claim } from '../lib/queue.ts';
 import { latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
+import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
+import { mainRepoRoot, worktreePath } from '../lib/worktree.ts';
 
 /**
  * Routine と人のセッションが使う CLI。書式は投稿前に検査する。
@@ -18,8 +20,11 @@ import { parseVerdict } from '../lib/verdict.ts';
  *   node harness/scripts/agent.ts render-block <reason-code> <text>       人に返すとき（agent:blocked）のコメント本文。理由コードは必須
  *   node harness/scripts/agent.ts render-plan <issue> <file>              計画コメントを検査し {body, addLabels, removeLabels}
  *   node harness/scripts/agent.ts render-verdict <pr> <headSha> <file>    判定コメントを検査し本文を出力
- *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> <tokens>  PR に残すメトリクスのコメント本文
+ *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金はセッション記録から自動で記入。読めなければ tokens か unknown）
+ *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）
  *   node harness/scripts/agent.ts check <file>                            plan / verdict ブロックの書式検査のみ
+ *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）
+ *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *   node harness/scripts/agent.ts session-url                             この実行のセッション URL
  *
  * ■ 人のセッション用（gh の認証で GitHub API を呼ぶ）
@@ -33,6 +38,8 @@ import { parseVerdict } from '../lib/verdict.ts';
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
  *   node harness/scripts/agent.ts footer <pr> <stage> <model> <minutes> <tokens>  PR 本文のメトリクス表に1行追記
+ *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）
+ *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *   node harness/scripts/agent.ts session-url               この実行のセッション URL
  *
  * リポジトリは GITHUB_REPOSITORY か git remote から決める。
@@ -158,6 +165,70 @@ export function appendFooter(body: string, row: { stage: string; model: string; 
   return `${body.trimEnd()}\n${line}`;
 }
 
+/**
+ * 作業用の worktree を作る。ブランチがリモートにあればそれを、無ければ origin/main から新しく作る。
+ * --detach は判定のテスト実行用（head SHA をそのまま取り出す）。
+ */
+function addWorktree(ref: string, detach: boolean): string {
+  const root = mainRepoRoot();
+  const path = worktreePath(root, ref);
+  if (existsSync(path)) return path;
+  const git = (...a: string[]) => {
+    const r = spawnSync('git', a, { cwd: root, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  git('fetch', '-q', 'origin');
+  if (detach) git('worktree', 'add', '-q', '--detach', path, ref);
+  else if (spawnSync('git', ['rev-parse', '--verify', '-q', `origin/${ref}`], { cwd: root }).status === 0) git('worktree', 'add', '-q', '-B', ref, path, `origin/${ref}`);
+  else git('worktree', 'add', '-q', '-b', ref, path, 'origin/main');
+  return path;
+}
+
+function removeWorktree(ref: string): void {
+  const root = mainRepoRoot();
+  spawnSync('git', ['worktree', 'remove', '--force', worktreePath(root, ref)], { cwd: root });
+  spawnSync('git', ['worktree', 'prune'], { cwd: root });
+}
+
+/** セッション記録の集計。記録が無ければ null（処理は止めない） */
+function usageReport(explicit?: string) {
+  const files = findSessionTranscripts(process.cwd(), explicit);
+  const lines: string[] = [];
+  for (const f of files) {
+    try {
+      lines.push(...readFileSync(f, 'utf8').split('\n'));
+    } catch {
+      // 読めないファイルは飛ばす
+    }
+  }
+  const summary = summarizeUsage(lines);
+  if (Object.keys(summary).length === 0) return null;
+  const cost = estimateCost(summary, config.pricing ?? {});
+  return {
+    files,
+    perModel: Object.fromEntries(Object.entries(summary).map(([m, tokens]) => [m, { tokens, estimatedUsd: cost.perModel[m] ?? null }])),
+    total: totalTokens(summary),
+    estimatedUsd: cost.totalUsd,
+    note: 'API で動かした場合の推定料金（USD）。サブスク利用ではトークン単位の請求はない',
+  };
+}
+
+function renderMetrics(stage: string, model: string, minutes: string, tokensArg?: string): string {
+  const u = usageReport();
+  const fmt = (n: number): string => n.toLocaleString('en-US');
+  const tokens = u ? [u.total.input, u.total.output, u.total.cacheWrite5m + u.total.cacheWrite1h, u.total.cacheRead].map(fmt).join(' / ') : (tokensArg ?? 'unknown');
+  const usd = !u ? 'unknown' : u.estimatedUsd === null ? '不明' : `$${u.estimatedUsd.toFixed(2)}`;
+  return [
+    CLAUDE_MARK,
+    '| 時刻 (UTC) | 段階 | モデル | 所要時間（分） | トークン（入力/出力/キャッシュ書込/キャッシュ読込） | 推定料金（USD） | セッション |',
+    '| --- | --- | --- | --- | --- | --- | --- |',
+    `| ${new Date().toISOString().slice(0, 16)} | ${stage} | ${model} | ${minutes} | ${tokens} | ${usd} | ${sessionUrl() ?? '手動'} |`,
+    '',
+    'トークン数と推定料金は、このセッションのここまでの累計（サブエージェントを含む）。サブスク利用ではトークン単位の請求はなく、API で動かした場合の目安。',
+  ].join('\n');
+}
+
 function fail(errors: string[]): never {
   console.error(['書式エラー:', ...errors.map((e) => `- ${e}`)].join('\n'));
   process.exit(2);
@@ -166,14 +237,14 @@ function fail(errors: string[]): never {
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === 'session-url') return void console.log(sessionUrl() ?? '(none)');
+  if (cmd === 'worktree') return void console.log(addWorktree(args[0]!, args.includes('--detach')));
+  if (cmd === 'worktree-remove') return removeWorktree(args[0]!);
   if (cmd === 'render-claim') return void console.log(claimBody(args.includes('--manual'), args.includes('--release')));
   if (cmd === 'render-block') return void console.log(blockBody(args[0]!, args.slice(1).join(' ')));
   if (cmd === 'render-plan') return void console.log(JSON.stringify(renderPlan(Number(args[0]), args[1]!), null, 2));
   if (cmd === 'render-verdict') return void console.log(renderVerdict(Number(args[0]), args[1]!, args[2]!));
-  if (cmd === 'render-metrics') {
-    const [stage, model, minutes, tokens] = args;
-    return void console.log(`${CLAUDE_MARK}\n| 時刻 (UTC) | 段階 | モデル | 所要時間（分） | トークン | セッション |\n| --- | --- | --- | --- | --- | --- |\n| ${new Date().toISOString().slice(0, 16)} | ${stage} | ${model} | ${minutes} | ${tokens} | ${sessionUrl() ?? '手動'} |`);
-  }
+  if (cmd === 'render-metrics') return void console.log(renderMetrics(args[0]!, args[1]!, args[2]!, args[3]));
+  if (cmd === 'usage') return void console.log(JSON.stringify(usageReport(args[0]) ?? { error: 'セッション記録が見つからないか、usage がありません' }, null, 2));
   if (cmd === 'check') {
     const r = checkFile(args[0]!);
     if (r.errors.length) fail(r.errors);
