@@ -3,10 +3,11 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
+import { appMarkKind, CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
-import { computeQueue } from '../lib/facts.ts';
+import { computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
+import { fleetStatus, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr } from '../lib/fleet.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
@@ -16,7 +17,7 @@ import {
   checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, splitArgs,
   type CheckRun, type JudgeFacts, type ParentEpic, type PrCommit,
 } from '../lib/session-inputs.ts';
-import { closingIssues, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
+import { closingIssues, isAppComment, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
 import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
@@ -57,6 +58,10 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力
  *   node harness/scripts/agent.ts label-audit [番号..]      必須ラベルの不足と違反の一覧（ダッシュボードの「ラベルが足りない Issue・PR」と同じ検査）。
  *                                                           番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲（agent:* か epic の開いた Issue と Agent PR）
+ *   node harness/scripts/agent.ts fleet-status [--max <n>] [<Issue 番号>...]
+ *                                                           fleet で並行して進める Issue・PR ごとの段階・次にやること・選ぶか（待つ理由）・触るファイルの重なり・
+ *                                                           領域の上限の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue。
+ *                                                           --max は人が1回にさばける数（既定 3）
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
@@ -268,6 +273,81 @@ async function labelAudit(gh: GitHub, args: string[]): Promise<string> {
   return lines.length > 0 ? lines.join('\n') : `ラベルの不足・違反はありません（${rows.length} 件を検査）`;
 }
 
+type FleetIssueItem = { number: number; title: string; state: string; labels: { name: string }[]; pull_request?: unknown };
+
+/** Issue を Closes する PR（開いたもの・Merge 済みのもの） */
+async function closingPrs(gh: GitHub, issue: number): Promise<{ number: number; state: string }[]> {
+  const data = await gh.graphql<{ repository: { issue: { closedByPullRequestsReferences: { nodes: { number: number; state: string; repository: { nameWithOwner: string } }[] } } } }>(
+    `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){closedByPullRequestsReferences(first:20,includeClosedPrs:true){nodes{number state repository{nameWithOwner}}}}}}`,
+    { owner: gh.owner, repo: gh.repo, n: issue },
+  );
+  return data.repository.issue.closedByPullRequestsReferences.nodes
+    .filter((p) => p.repository.nameWithOwner === `${gh.owner}/${gh.repo}` && (p.state === 'OPEN' || p.state === 'MERGED'))
+    .map((p) => ({ number: p.number, state: p.state }));
+}
+
+/** fleet の事実を GitHub から読み（書き込みはしない）、段階・選び方の表を返す。判断は harness/lib/fleet.ts の純粋関数 */
+async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
+  const usage = 'fleet-status [--max <n>] [<Issue 番号>...]';
+  const a = splitArgs(args, ['--max']);
+  if (!a.ok) fail([...a.errors, usage]);
+  const maxArg = a.value.options['--max'];
+  if ((maxArg !== undefined && !/^[1-9]\d*$/.test(maxArg)) || a.value.positional.some((p) => !/^\d+$/.test(p))) fail([usage]);
+  const max = maxArg === undefined ? 3 : Number(maxArg);
+  const targets = [LABELS.ready, LABELS.planOk, LABELS.planReview] as string[];
+  const items: FleetIssueItem[] = a.value.positional.length > 0
+    ? await Promise.all(a.value.positional.map((n) => gh.get<FleetIssueItem>(`/issues/${n}`)))
+    : (await gh.paginate<FleetIssueItem>('/issues?state=open', 10)).filter((i) => !i.pull_request && i.labels.some((l) => targets.includes(l.name)));
+  const nonIssue = items.find((i) => i.pull_request);
+  if (nonIssue) fail([`#${nonIssue.number} は PR です。Issue 番号を渡してください`]);
+
+  const repository = `${gh.owner}/${gh.repo}`;
+  const openPrs = (await gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isSameRepoPr(p, repository));
+  const openPrLabels = openPrs.map((p) => p.labels.map((l) => l.name));
+  const prsOf = new Map<number, { number: number; state: string }[]>();
+  for (const i of items) prsOf.set(i.number, await closingPrs(gh, i.number));
+  const prByIssue = new Map<number, number>();
+  for (const [n, prs] of prsOf) {
+    const open = prs.find((p) => p.state === 'OPEN');
+    if (open) prByIssue.set(n, open.number);
+  }
+  const iFacts = await Promise.all(items.map((i) => issueFacts(gh, config, i, prByIssue, openPrLabels)));
+  const readyAt = new Map(iFacts.map((f) => [f.number, f.readyAt]));
+  const issueLabels = new Map(iFacts.map((f) => [f.number, f.labels]));
+
+  const issues: FleetIssue[] = [];
+  for (const [idx, item] of items.entries()) {
+    const gate = latestPlanGate(config, await gh.listComments(item.number)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
+    const prs: FleetPr[] = [];
+    for (const ref of prsOf.get(item.number) ?? []) {
+      if (ref.state === 'MERGED') {
+        prs.push({ number: ref.number, merged: true, draft: false, autoMerge: false, humanReview: false, behindMain: false, facts: null });
+        continue;
+      }
+      const pr = openPrs.find((p) => p.number === ref.number) ?? await gh.get<PullRequest>(`/pulls/${ref.number}`);
+      const [facts, comments, compare] = await Promise.all([
+        prFacts(gh, config, pr, readyAt, issueLabels),
+        gh.listComments(pr.number),
+        gh.get<{ ahead_by: number }>(`/compare/${encodeURIComponent(pr.head.sha)}...${encodeURIComponent(config.defaultBranch)}`),
+      ]);
+      prs.push({
+        number: pr.number,
+        merged: false,
+        draft: pr.draft,
+        autoMerge: pr.auto_merge !== null && pr.auto_merge !== undefined,
+        humanReview: comments.some((c) => isAppComment(config, c) && appMarkKind(c.body) === 'human-review'),
+        behindMain: compare.ahead_by > 0,
+        facts,
+      });
+    }
+    issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs });
+  }
+
+  const facts = { issues, openPrLabels };
+  const rows = fleetStatus(facts);
+  return renderFleetStatus(rows, selectFleet(config, facts, rows, max), max);
+}
+
 function readJson(file: string): unknown {
   try {
     return JSON.parse(readFileSync(file, 'utf8'));
@@ -386,6 +466,7 @@ async function main(): Promise<void> {
     case 'critic-input': return void console.log(await criticInput(gh, args));
     case 'compose-verdict': return void console.log(await composeVerdictFile(gh, args));
     case 'label-audit': return void console.log(await labelAudit(gh, args));
+    case 'fleet-status': return void console.log(await fleetStatusText(gh, args));
     case 'footer': {
       const [, stage, model, minutes, tokens] = args;
       const pr = await gh.get<PullRequest>(`/pulls/${n}`);
