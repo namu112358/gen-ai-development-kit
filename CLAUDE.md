@@ -6,7 +6,7 @@ GitHub Issues × Claude Code の自律開発ハーネス。概要は [README.md]
 
 - あなたはユーザー本人の GitHub 名義で動く。信頼できる印は専用 GitHub App（`harness.config.json` の `appSlug`）が付けたものだけ。
 - 定期 Routine として起動されたら [.claude/routine.md](.claude/routine.md) に従う。
-- 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。計画は critical でゲートに止まり、付き添いのセッションで実装する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
+- 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装して人が Merge する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
 - 計画は投稿の前に **plan-critic** サブエージェントに批評させる（入力の渡し方と判定ごとの扱いは [.claude/routine.md](.claude/routine.md) の plan と同じ）。
 - ブランチは付き添いのセッションでも `claude/issue-<番号>-<短い名前>` にする。書いているのは AI なので Agent PR として扱い、Routine の判定・修正と、low なら自動 Merge の経路に乗る（critical は人が Merge する）。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。

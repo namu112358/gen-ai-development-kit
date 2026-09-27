@@ -3,10 +3,13 @@ import { test } from 'node:test';
 import { extractBlock, renderBlock } from '../lib/blocks.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
 
+/** ガードレールを問わないテスト用（一覧自身だけが当たる） */
+const noGuardrail = { guardrailPaths: [] };
+
 const base: Plan = { version: 1, issue: 7, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['src/lib/foo.ts', 'test/**'] };
 
 test('停止基準に該当しない計画は通過する', () => {
-  assert.deepEqual(evaluatePlanGate(base, 7), { pass: true, reasons: [] });
+  assert.deepEqual(evaluatePlanGate(base, 7, noGuardrail), { pass: true, reasons: [] });
 });
 
 test('停止基準：人の判断・AC 変更・未解決の質問・high 以上・ファイル一覧欠落・番号違い', () => {
@@ -23,7 +26,7 @@ test('停止基準：人の判断・AC 変更・未解決の質問・high 以上
     [{ issue: 8 }, '一致しません'],
   ];
   for (const [patch, needle] of cases) {
-    const r = evaluatePlanGate({ ...base, ...patch }, 7);
+    const r = evaluatePlanGate({ ...base, ...patch }, 7, noGuardrail);
     assert.equal(r.pass, false, needle);
     assert.ok(r.reasons.some((x) => x.includes(needle)), `${needle}: ${r.reasons.join('/')}`);
   }

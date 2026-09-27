@@ -13,7 +13,9 @@
 | 5 | `q5_persistentData` | 永続データの書き込み・削除・移行を伴うか | `no` |
 | 6 | `q6_authBillingSecrets` | 認証・認可・課金・秘密情報に関わるか | `no` |
 | 7 | `q7_dependencies` | 依存関係（パッケージ・lockfile）を追加・更新するか | `no` |
-| 8 | `q8_harnessConfig` | この仕組み自体（`.claude/**`、`CLAUDE.md`、CODEOWNERS、`.github/**`、`harness/**`、`harness.config.json`）に触れるか | `no` |
+| 8 | `q8_harnessConfig` | ガードレール（`harness.config.json` の `guardrailPaths`）に触れるか | `no` |
+
+キー名 `q8_harnessConfig` は過去の判定との互換のため残す。
 
 質問2〜8は `yes` / `no` / `unsure` の3択で、`unsure` は常に止める答え。1つでも安全側でなければ自動 Merge しない。確率は記録するだけで判定には使わない。
 
@@ -22,7 +24,7 @@
 - **low**：壊れても利用者のデータ・認証・課金・外部連携に影響せず、revert で完全に戻る。docs、typo、独立した UI、挙動を変えない小さなリファクタ
 - **medium**：業務ロジックや API の挙動が変わり得るが、revert で戻る
 - **high**：revert しても戻らない影響があり得る、または影響が広い。マイグレーション、データの書き込み・削除、認証、課金、インフラ
-- **critical**：この仕組み自体、権限、秘密情報、依存関係
+- **critical**：ガードレール、権限、秘密情報、依存関係
 
 ## 自動 Merge の条件
 
@@ -36,8 +38,16 @@
 6. 自動 Merge モードが有効（ダッシュボードに `agent:auto-merge-stopped` がない）
 7. `jev.mode` が `enforce` のときは Jev も許可
 
-merge-route（必須チェック）が 3〜7 をまとめて検査する。`agent/risk` は必須にせず、結果をサマリーに書く。PR の大きさに上限は置かない。保護対象のファイルにもパスによる下限は置かず、質問8に任せる。
+merge-route（必須チェック）が 3〜7 をまとめて検査する。`agent/risk` は必須にせず、結果をサマリーに書く。PR の大きさに上限は置かない。
+
+## ガードレール
+
+ガードレールは Agent が自分を縛る仕組み（App が機械的に強制している部分）で、既定ブランチの `harness.config.json` の `guardrailPaths` に並べる（範囲パターンの書式。`guardrailExclude` に当たるものは除く）。一覧自身（`harness.config.json`）は除外できない。一覧が無い設定では、すべてのファイルをガードレールとして扱う。
+
+- ガードレールに触れる PR は、Risk Agent の答えに関わらず自動 Merge の対象外にする（Human Merge）。App が PR の変更ファイル（リネームは旧パスも）から判定し、理由を受け付けのコメントに書く。
+- 計画の `files`（Epic なら子課題ごとの `files`）がガードレールに触れると、想定 Risk に関わらず計画ゲートで止める。
+- ガードレールに触れないハーネスの変更は、ほかの変更と同じく質問1〜8で判定する。
 
 ## Jev
 
-`jev.mode` が `shadow` の間は、Actions から Jev に同じ8問を1回で問い、結果を記録するだけにする。Jev に渡すのは diff と Risk Agent が集めた事実（`facts`）だけで、Claude の判定は渡さない。切り替え（`enforce`）の判断は `harness/scripts/report.ts` の集計で行う（[plan.md](plan.md#jev-への段階移行)）。
+`jev.mode` が `shadow` の間は、Actions から Jev に同じ8問を1回で問い、結果を記録するだけにする。Jev に渡すのは diff と Risk Agent が集めた事実（`facts`）とガードレールの一覧だけで、Claude の判定は渡さない。切り替え（`enforce`）の判断は `harness/scripts/report.ts` の集計で行う（[plan.md](plan.md#jev-への段階移行)）。

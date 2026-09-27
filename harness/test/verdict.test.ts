@@ -68,10 +68,10 @@ test('merge-route：auto-merge ありは全条件が揃ったときだけ通す'
 
 test('eligibility：Reviewer・Risk・範囲照合・Jev（enforce 時）', () => {
   const risk = riskAllowsAutoMerge(verdict.risk);
-  assert.equal(eligibility({ reviewPass: true, risk, scopeOk: true, outside: [] }).autoEligible, true);
-  assert.equal(eligibility({ reviewPass: false, risk, scopeOk: true, outside: [] }).autoEligible, false);
-  assert.equal(eligibility({ reviewPass: true, risk, scopeOk: false, outside: ['x'] }).autoEligible, false);
-  assert.equal(eligibility({ reviewPass: true, risk, scopeOk: true, outside: [], jevGate: { ok: false, reason: 'jev' } }).autoEligible, false);
+  assert.equal(eligibility({ reviewPass: true, risk, scopeOk: true, outside: [], guardrail: [] }).autoEligible, true);
+  assert.equal(eligibility({ reviewPass: false, risk, scopeOk: true, outside: [], guardrail: [] }).autoEligible, false);
+  assert.equal(eligibility({ reviewPass: true, risk, scopeOk: false, outside: ['x'], guardrail: [] }).autoEligible, false);
+  assert.equal(eligibility({ reviewPass: true, risk, scopeOk: true, outside: [], jevGate: { ok: false, reason: 'jev' }, guardrail: [] }).autoEligible, false);
 });
 
 test('humanNotes は任意で、文字列の配列として検査する', () => {

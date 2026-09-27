@@ -18,7 +18,7 @@ export const RISK_QUESTIONS = [
   { key: 'q5_persistentData', text: '永続データの書き込み・削除・移行を伴うか', safe: 'no' },
   { key: 'q6_authBillingSecrets', text: '認証・認可・課金・秘密情報に関わるか', safe: 'no' },
   { key: 'q7_dependencies', text: '依存関係（パッケージ・lockfile）を追加・更新するか', safe: 'no' },
-  { key: 'q8_harnessConfig', text: 'この仕組み自体の設定（.claude/**、CLAUDE.md、CODEOWNERS、.github/**、harness/**、harness.config.json）に触れるか', safe: 'no' },
+  { key: 'q8_harnessConfig', text: 'ガードレール（harness.config.json の guardrailPaths。guardrailExclude に当たるものを除き、harness.config.json 自身は常に含む）に触れるか', safe: 'no' },
 ] as const satisfies readonly { key: string; text: string; safe: Noul }[];
 
 export type RiskQuestionKey = (typeof RISK_QUESTIONS)[number]['key'];
