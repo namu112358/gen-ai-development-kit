@@ -39,7 +39,10 @@
     ".claude/hooks/**",
     ".mcp.json",
     "CODEOWNERS",
-    "docs/CODEOWNERS"
+    "docs/CODEOWNERS",
+    ".claude/agents/review-*.md",
+    ".claude/skills/review-panel/SKILL.md",
+    "harness/scripts/review-panel.ts"
   ],
   "guardrailExclude": [
     "harness/lib/usage.ts",
@@ -58,6 +61,7 @@
   },
   "staleHours": 24,
   "dashboardIssueTitle": "Agent ダッシュボード",
+  "reviewPanel": { "mode": "shadow" },
   "jev": {
     "mode": "shadow",
     "model": "jev-1.13.0",

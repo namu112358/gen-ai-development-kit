@@ -40,6 +40,7 @@ export interface HarnessConfig {
   fixLoop: { normalLimit: number; criticalLimit: number };
   staleHours: number;
   dashboardIssueTitle: string;
+  reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
   jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;

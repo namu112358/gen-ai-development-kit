@@ -136,9 +136,11 @@ export function stripPlanBlock(body: string): string {
   return body.replace(/\r\n/g, '\n').replace(PLAN_FENCE, '(agent-plan ブロックは省略。計画ゲートの記録の計画を参照)');
 }
 
-/** PR のコメントのうち判定に渡すもの：コラボレーターのコメント（着手宣言を除く）から、判定コメントと App のコメントを除く */
+/** PR のコメントのうち判定に渡すもの：コラボレーターのコメント（着手宣言を除く）から、判定コメント・合体版の記録と App のコメントを除く */
 export function prCommentsForJudge(config: HarnessConfig, comments: IssueComment[]): IssueComment[] {
-  return collaboratorComments(comments).filter((c) => !isAppComment(config, c) && !extractBlock(c.body, 'agent-verdict').found);
+  return collaboratorComments(comments).filter(
+    (c) => !isAppComment(config, c) && !extractBlock(c.body, 'agent-verdict').found && !extractBlock(c.body, 'agent-review-panel').found,
+  );
 }
 
 export interface PreviousVerdict {
