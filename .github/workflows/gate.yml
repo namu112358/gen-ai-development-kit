@@ -44,7 +44,8 @@ jobs:
         github.event.label.name == 'agent:blocked' ||
         (github.event.label.name == 'agent:plan-ok' && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG)) ||
         github.event.label.name == 'agent:hold' ||
-        github.event.label.name == 'agent:auto-merge-stopped') &&
+        github.event.label.name == 'agent:auto-merge-stopped' ||
+        startsWith(github.event.label.name, 'priority:')) &&
       (github.event_name != 'pull_request_target' ||
         (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
           github.event.action != 'auto_merge_enabled' && github.event.action != 'auto_merge_disabled') ||

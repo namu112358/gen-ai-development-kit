@@ -37,6 +37,16 @@ export const LABELS = {
   hold: 'agent:hold',
 } as const;
 
+/** queue の並び順を変える優先度ラベル（付いていなければ通常） */
+export const PRIORITY_LABELS = { high: 'priority:high', low: 'priority:low' } as const;
+
+/** 小さいほど先に処理する */
+export function priorityRank(labels: string[]): number {
+  if (labels.includes(PRIORITY_LABELS.high)) return 0;
+  if (labels.includes(PRIORITY_LABELS.low)) return 2;
+  return 1;
+}
+
 export const RISK_LEVELS = ['low', 'medium', 'high', 'critical'] as const;
 export type RiskLevel = (typeof RISK_LEVELS)[number];
 
@@ -59,6 +69,8 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: LABELS.waiting, color: 'c5def5', description: 'Routine/App: 依存待ち' },
   { name: LABELS.blocked, color: 'b60205', description: '人の対応が必要' },
   { name: LABELS.hold, color: '000000', description: '人: 個別停止' },
+  { name: PRIORITY_LABELS.high, color: 'b60205', description: '人: queue で先に処理する' },
+  { name: PRIORITY_LABELS.low, color: 'c5def5', description: '人: queue で後に処理する' },
   { name: 'agent:auto-merge-stopped', color: '000000', description: 'ダッシュボード専用: 自動 Merge モードの停止スイッチ' },
   { name: riskLabel('low'), color: 'c2e0c6', description: '計画時の想定 Risk（表示用）' },
   { name: riskLabel('medium'), color: 'fef2c0', description: '計画時の想定 Risk（表示用）' },
