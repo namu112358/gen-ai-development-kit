@@ -20,7 +20,7 @@ export interface Plan {
   /** Epic として子課題に分けるとき（2件以上）。あれば files は空でよく、Risk では止めない */
   split?: SplitChild[];
   /** 投稿前の批評の結果（記録用。ゲートの判断には使わない） */
-  critique?: { verdict: CritiqueVerdict; rounds: number };
+  critique?: { verdict: CritiqueVerdict; rounds: number; mustRemaining?: number };
 }
 
 export const CRITIQUE_VERDICTS = ['go', 'revise', 'split', 'drop'] as const;
@@ -51,6 +51,12 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
       const rounds = c.integer(k.rounds, 'plan.critique.rounds');
       if (Number.isInteger(k.rounds) && rounds < 1) c.errors.push('plan.critique.rounds: 1 以上ではありません');
       plan.critique = { verdict: c.oneOf(k.verdict, CRITIQUE_VERDICTS, 'plan.critique.verdict'), rounds };
+      // 最後の回の必須の指摘の件数（任意）
+      if (k.mustRemaining !== undefined) {
+        const must = c.integer(k.mustRemaining, 'plan.critique.mustRemaining');
+        if (Number.isInteger(k.mustRemaining) && must < 0) c.errors.push('plan.critique.mustRemaining: 0 以上ではありません');
+        plan.critique.mustRemaining = must;
+      }
     }
   }
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: plan };
