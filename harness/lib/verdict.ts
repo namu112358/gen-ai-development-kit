@@ -67,7 +67,7 @@ export interface Verdict {
     probabilities?: Record<string, number>;
     rationale: string;
   };
-  /** Jev に渡す事実（Claude の判定は含めない） */
+  /** 記録用の事実（Jev には渡さない。Claude の判定は含めない） */
   facts: {
     references: string;
     tests: string;
