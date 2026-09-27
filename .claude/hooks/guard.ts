@@ -8,9 +8,18 @@
  * 入出力（https://code.claude.com/docs/en/hooks.md）：stdin の JSON（tool_name・tool_input・cwd）を読み、
  * 止めるときは hookSpecificOutput.permissionDecision = "deny" と理由を stdout に出して exit 0。
  * 通すときは何も出さずに exit 0（通常の許可の流れ。permissions.deny もそのまま効く）。
- * stdin・設定・今のブランチが読めないときは、push・merge・保護ラベルの名前を含むものだけ止める。
+ * 安全側の判定：stdin の JSON が読めないときは、push・merge・保護ラベルの名前を含むものだけ止める（コマンドを取り出せないため）。
+ * 設定や今のブランチが読めない、または判定の途中で失敗したときは、Bash は通常と同じ判定を使い、`git … push` だけは
+ * 送り先に関わらず止める（送り先を確かめられないため）。MCP は設定が読めれば通常の判定、読めなければ名前の判定と Draft の解除の判定。
  *
- * 拾いきれない経路（スクリプトファイルの中身、別名、xargs など）はあるので、最後の砦は GitHub の Ruleset。
+ * 拾いきれない経路があるので、最後の砦は GitHub の Ruleset：
+ * - スクリプトファイルの中身、シェルの関数・別名（alias）
+ * - 引数としてコマンドを実行するもの（xargs・find -exec・parallel・flock・chrt・taskset・watch など。
+ *   sudo・doas・env・nice・timeout・stdbuf・setsid・ionice・command・nohup・time・exec は外して読む）
+ * - ファイルやすでにある git の設定（remote.*.push・remote.*.mirror・push.default・branch.*.merge・git の alias・include）
+ * - 前のコマンドで export した GIT_CONFIG_*（同じコマンドの前置きの代入は見る）
+ * - Bash・MCP 以外のツール（Edit・Write で設定ファイルを書き換えるなど）
+ * - git・gh 以外のクライアント（curl で API を呼ぶなど）
  */
 import { spawnSync } from 'node:child_process';
 import { isAbsolute, resolve } from 'node:path';
@@ -432,12 +441,81 @@ const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
 const KEYWORDS = new Set(['!', '{', '}', 'if', 'then', 'else', 'elif', 'fi', 'do', 'done', 'while', 'until']);
 const basename = (s: string): string => s.slice(s.lastIndexOf('/') + 1);
 
-/** 前置きの環境変数と env・command・nohup・time・exec を外した位置を返す。env -S の文字列は subScripts に足す */
-function commandStart(words: Word[], subScripts: string[]): number {
+/** コマンドを引数として実行するだけの前置き。shorts・longs は値をとるオプション、chdir は作業場所を変えるオプション */
+interface Prefix {
+  shorts: string;
+  longs: string[];
+  chdirShort?: string;
+  chdirLong?: string;
+}
+
+const PREFIXES = new Map<string, Prefix>([
+  [
+    'sudo',
+    {
+      shorts: 'ugCDhprtTUR',
+      longs: ['--user', '--group', '--close-from', '--chdir', '--host', '--prompt', '--role', '--type', '--command-timeout', '--other-user', '--chroot'],
+      chdirShort: 'D',
+      chdirLong: '--chdir',
+    },
+  ],
+  ['doas', { shorts: 'uCa', longs: [] }],
+  ['nice', { shorts: 'n', longs: ['--adjustment'] }],
+  ['timeout', { shorts: 'sk', longs: ['--signal', '--kill-after'] }],
+  ['stdbuf', { shorts: 'ioe', longs: ['--input', '--output', '--error'] }],
+  ['setsid', { shorts: '', longs: [] }],
+  ['ionice', { shorts: 'cnpPu', longs: ['--class', '--classdata', '--pid', '--pgid', '--uid'] }],
+]);
+
+interface Start {
+  /** コマンド名の位置 */
+  start: number;
+  /** 外した前置きの代入（`FOO=1 git …`・`env FOO=1 git …`）の語 */
+  assigns: string[];
+  /** `sudo -D`・`env -C` などで移る先（null は値が無い） */
+  chdirs: (Word | null)[];
+}
+
+/** 前置きのオプションを読み飛ばす。戻り値は次の位置 */
+function skipPrefixOptions(words: Word[], i: number, p: Prefix, chdirs: (Word | null)[]): number {
+  while (i < words.length) {
+    const w = words[i]!;
+    const t = w.text;
+    if (t === '--') return i + 1;
+    if (!t.startsWith('-') || t === '-') return i;
+    if (t.startsWith('--')) {
+      const eq = t.indexOf('=');
+      const name = eq < 0 ? t : t.slice(0, eq);
+      if (name === p.chdirLong) chdirs.push(eq < 0 ? (words[i + 1] ?? null) : { ...w, text: t.slice(eq + 1) });
+      i += p.longs.includes(name) && eq < 0 ? 2 : 1;
+      continue;
+    }
+    let step = 1;
+    for (let j = 1; j < t.length; j++) {
+      const c = t[j]!;
+      if (!p.shorts.includes(c)) continue;
+      const attached = t.slice(j + 1);
+      if (c === p.chdirShort) chdirs.push(attached !== '' ? { ...w, text: attached } : (words[i + 1] ?? null));
+      if (attached === '') step = 2;
+      break;
+    }
+    i += step;
+  }
+  return i;
+}
+
+/**
+ * 前置きの環境変数と env・command・nohup・time・exec・sudo・doas・nice・timeout・stdbuf・setsid・ionice を外した位置を返す。
+ * env -S の文字列は subScripts に足す
+ */
+function commandStart(words: Word[], subScripts: string[]): Start {
+  const assigns: string[] = [];
+  const chdirs: (Word | null)[] = [];
   let i = 0;
   while (i < words.length) {
     const w = words[i]!;
     if (!w.dynamic && /^[A-Za-z_]\w*\+?=/.test(w.text)) {
+      assigns.push(w.text);
       i++;
       continue;
     }
@@ -450,13 +528,26 @@ function commandStart(words: Word[], subScripts: string[]): number {
       i++;
       while (i < words.length && (words[i]!.text.startsWith('-') || /^[A-Za-z_]\w*=/.test(words[i]!.text))) {
         const t = words[i]!.text;
-        if (t === '-S' || t === '--split-string') {
+        if (t === '--') {
+          i++;
+          break;
+        }
+        if (!t.startsWith('-')) {
+          assigns.push(t);
+          i++;
+        } else if (t === '-S' || t === '--split-string') {
           subScripts.push(words[i + 1]?.text ?? '');
           i += 2;
         } else if (t.startsWith('-S') || t.startsWith('--split-string=')) {
           subScripts.push(t.replace(/^(-S|--split-string=)/, ''));
           i++;
-        } else if (['-u', '--unset', '-C', '--chdir'].includes(t)) i += 2;
+        } else if (t === '-C' || t === '--chdir') {
+          chdirs.push(words[i + 1] ?? null);
+          i += 2;
+        } else if (t.startsWith('-C') || t.startsWith('--chdir=')) {
+          chdirs.push({ ...words[i]!, text: t.replace(/^(-C|--chdir=)/, '') });
+          i++;
+        } else if (t === '-u' || t === '--unset') i += 2;
         else i++;
       }
       continue;
@@ -469,15 +560,23 @@ function commandStart(words: Word[], subScripts: string[]): number {
       }
       continue;
     }
+    const prefix = PREFIXES.get(name);
+    if (prefix) {
+      i = skipPrefixOptions(words, i + 1, prefix, chdirs);
+      if (name === 'timeout' && i < words.length) i++; // 秒数
+      continue;
+    }
     break;
   }
-  return i;
+  return { start: i, assigns, chdirs };
 }
 
 function checkPush(args: Word[], branch: string | null, ctx: GuardContext): string | null {
   const main = ctx.defaultBranch;
   const positional: Word[] = [];
   let endOpts = false;
+  /** `--repo` があると、git は位置引数をすべて refspec として読む */
+  let repo = false;
   for (let k = 0; k < args.length; k++) {
     const w = args[k]!;
     const t = w.text;
@@ -487,6 +586,7 @@ function checkPush(args: Word[], branch: string | null, ctx: GuardContext): stri
       const name = t.split('=')[0]!;
       if (['--force', '--force-with-lease', '--force-if-includes'].includes(name)) return role(`force push（git push ${t}）`);
       if (['--mirror', '--all', '--branches'].includes(name)) return role(`すべてのブランチの push（git push ${t}）は ${main} も書き換える`);
+      if (name === '--repo') repo = true;
       if (['--repo', '--receive-pack', '--exec', '--push-option'].includes(name) && !t.includes('=')) k++;
     } else if (!endOpts && t.startsWith('-') && t.length > 1) {
       const cluster = t.slice(1);
@@ -501,7 +601,7 @@ function checkPush(args: Word[], branch: string | null, ctx: GuardContext): stri
       positional.push(w);
     }
   }
-  const refspecs = positional.slice(1);
+  const refspecs = repo ? positional : positional.slice(1);
   for (const r of refspecs) {
     if (r.dynamic) return unknown(`git push の送り先（${r.text}）`);
     const t = r.text;
@@ -516,26 +616,78 @@ function checkPush(args: Word[], branch: string | null, ctx: GuardContext): stri
     if (dst.includes('*')) return role(`パターンの refspec（${t}）の push は ${main} も書き換えうる`);
     if (same(dst, main)) return role(`${main} への push（git push … ${t}）`);
   }
-  if (refspecs.length === 0) {
+  // --repo があっても、位置引数が1つ以下なら git は先頭をリモートとして読みうるので、refspec の無い push としても見る
+  if (refspecs.length === 0 || (repo && positional.length <= 1)) {
     if (branch === null) return unknown('refspec の無い git push の送り先（今のブランチ）');
     if (same(branch, main)) return role(`${main} にいるときの refspec の無い git push`);
   }
   return null;
 }
 
-function checkGit(args: Word[], where: Where, ctx: GuardContext): string | null {
+/** 送り先を変える git の設定のキー（remote.<何か>.mirror が true だと push は --mirror として動く） */
+const isRedirectKey = (key: string): boolean => /^remote\..+\.(push|mirror)$/i.test(key) || /^push\.default$/i.test(key);
+
+/** 前置きで付けると `git -c` と同じ働きをする環境変数 */
+const isConfigEnv = (name: string): boolean => /^(GIT_CONFIG_PARAMETERS|GIT_CONFIG_COUNT|GIT_CONFIG_KEY_\d+)$/.test(name);
+
+/** 安全側の判定のときの印（設定や今のブランチが読めない理由） */
+interface Ctx extends GuardContext {
+  strict?: string;
+}
+
+const strictPushReason = (why: string): string =>
+  `hook が止めました：${why}ため、git push は送り先を確かめられず止めています（CLAUDE.md の「やってはいけないこと」を守るため）。人に返してください。`;
+
+/** `git config` が送り先を変えるキーを書くか */
+function checkGitConfig(args: Word[]): string | null {
+  const readOnly = ['--get', '--get-all', '--get-regexp', '--get-urlmatch', '--get-color', '--get-colorbool', '-l', '--list', '--unset', '--unset-all', '--edit', '-e', '--rename-section', '--remove-section'];
+  const withValue = ['-f', '--file', '--blob', '--type', '--default', '--comment', '--value'];
+  const positional: Word[] = [];
+  let endOpts = false;
+  for (let k = 0; k < args.length; k++) {
+    const w = args[k]!;
+    const t = w.text;
+    if (!endOpts && t === '--') endOpts = true;
+    else if (!endOpts && !w.dynamic && t.startsWith('-') && t.length > 1) {
+      if (readOnly.includes(t)) return null;
+      if (withValue.includes(t)) k++;
+    } else positional.push(w);
+  }
+  let key: Word | undefined;
+  const first = positional[0];
+  if (first && !first.dynamic && ['get', 'list', 'unset', 'rename-section', 'remove-section', 'edit', 'get-color', 'get-colorbool'].includes(first.text)) return null;
+  if (first && !first.dynamic && first.text === 'set') key = positional[1];
+  else if (positional.length >= 2 || args.some((a) => a.text === '--add' || a.text === '--replace-all')) key = first;
+  if (!key) return null;
+  if (key.dynamic) return unknown(`git config のキー（${key.text}）`);
+  if (isRedirectKey(key.text)) return role(`push の送り先を変える git の設定（git config ${key.text}）の書き込み`);
+  return null;
+}
+
+function checkGit(args: Word[], where: Where, ctx: Ctx, assigns: string[]): string | null {
   let here: Where = where;
+  const redirect: string[] = [];
+  for (const a of assigns) {
+    const name = a.slice(0, a.indexOf('=')).replace(/\+$/, '');
+    if (isConfigEnv(name)) redirect.push(`前置きの ${name}`);
+    if (name === 'GIT_DIR' || name === 'GIT_WORK_TREE') here = { dir: undefined, branch: null };
+  }
   let j = 0;
   while (j < args.length && args[j]!.text.startsWith('-')) {
     const t = args[j]!.text;
     if (t === '-C') {
       here = moveTo(here, args[j + 1], ctx);
       j += 2;
-    } else if (t === '-c') {
-      const kv = args[j + 1];
-      if (kv && (kv.dynamic || /^alias\./i.test(kv.text))) return unknown(`git -c ${kv.text} の中身`);
-      j += 2;
-    } else if (['--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env', '--attr-source'].includes(t)) {
+    } else if (t === '-c' || t === '--config-env' || t.startsWith('--config-env=')) {
+      const kv = t === '-c' || t === '--config-env' ? args[j + 1] : { ...args[j]!, text: t.slice('--config-env='.length) };
+      if (kv && (kv.dynamic || /^alias\./i.test(kv.text))) return unknown(`git ${t === '-c' ? '-c' : '--config-env'} ${kv.text} の中身`);
+      if (kv) {
+        const eq = kv.text.indexOf('=');
+        const key = eq < 0 ? kv.text : kv.text.slice(0, eq);
+        if (isRedirectKey(key)) redirect.push(`git -c ${key}`);
+      }
+      j += t.startsWith('--config-env=') ? 1 : 2;
+    } else if (['--git-dir', '--work-tree', '--namespace', '--super-prefix', '--attr-source'].includes(t)) {
       if (t === '--git-dir' || t === '--work-tree') here = { dir: undefined, branch: null };
       j += 2;
     } else {
@@ -546,8 +698,17 @@ function checkGit(args: Word[], where: Where, ctx: GuardContext): string | null 
   const sub = args[j];
   if (!sub) return null;
   if (sub.dynamic) return unknown(`git のサブコマンド（${sub.text}）`);
+  const rest = args.slice(j + 1);
+  if (sub.text === 'config') return checkGitConfig(rest);
+  if (sub.text === 'remote' && rest[0]?.text === 'add') {
+    const mirror = rest.find((a) => a.text === '--mirror' || a.text === '--mirror=push');
+    if (mirror) return role(`push を --mirror にするリモートの追加（git remote add ${mirror.text}）は ${ctx.defaultBranch} も書き換える`);
+    return null;
+  }
   if (sub.text !== 'push') return null;
-  return checkPush(args.slice(j + 1), here.branch, ctx);
+  if (redirect.length > 0) return role(`push の送り先を変える設定（${redirect[0]}）を付けた git push`);
+  if (ctx.strict) return strictPushReason(ctx.strict);
+  return checkPush(rest, here.branch, ctx);
 }
 
 /** `--flag v`・`--flag=v`・`-l v`・`-lv` の値を集める */
@@ -684,11 +845,14 @@ function checkGh(args: Word[], ctx: GuardContext): string | null {
 
 function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: number, script: string): string | null {
   const nested: string[] = [];
-  const start = commandStart(seg.words, nested);
+  const { start, assigns, chdirs } = commandStart(seg.words, nested);
   for (const s of nested) {
     const r = analyze(s, { ...where }, ctx, depth + 1);
     if (r) return r;
   }
+  // sudo -D・env -C などで移る先は、このコマンドにだけ使う
+  let here: Where = where;
+  for (const d of chdirs) here = d ? moveTo(here, d, ctx) : { dir: undefined, branch: null };
   const head = seg.words[start];
   if (!head) return null;
   const args = seg.words.slice(start + 1);
@@ -722,11 +886,11 @@ function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: numb
       script2 = args[k];
       break;
     }
-    if (cflag) return script2 ? analyze(script2.text, { ...where }, ctx, depth + 1) : null;
+    if (cflag) return script2 ? analyze(script2.text, { ...here }, ctx, depth + 1) : null;
     if (script2) return null; // スクリプトファイルは読まない
     if (seg.heredocs.length > 0) {
       for (const body of seg.heredocs) {
-        const r = analyze(body, { ...where }, ctx, depth + 1);
+        const r = analyze(body, { ...here }, ctx, depth + 1);
         if (r) return r;
       }
       return null;
@@ -734,8 +898,8 @@ function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: numb
     // 標準入力からコマンドを読むシェル：前のコマンドの出力は分からないので、言葉の手がかりで判定する
     return keywordHit(script, ctx.protectedLabels) ? fallbackReason('標準入力から読むシェルの中身が分からない') : null;
   }
-  if (name === 'eval') return analyze(args.map((a) => a.text).join(' '), { ...where }, ctx, depth + 1);
-  if (name === 'git') return checkGit(args, where, ctx);
+  if (name === 'eval') return analyze(args.map((a) => a.text).join(' '), { ...here }, ctx, depth + 1);
+  if (name === 'git') return checkGit(args, here, ctx, assigns);
   if (name === 'gh') return checkGh(args, ctx);
   return null;
 }
@@ -772,10 +936,23 @@ function labelStrings(v: unknown, underLabel: boolean, out: string[]): string[] 
   return out;
 }
 
+/** GitHub の MCP の Draft の解除（update_pull_request の draft が true 以外、ready_for_review）。設定に頼らない */
+function checkMcpDraft(toolName: string, toolInput: unknown): string | null {
+  const name = toolName.toLowerCase();
+  if (!name.includes('github')) return null;
+  if (name.includes('ready_for_review')) return role(`Draft の解除（${toolName}）`);
+  if (name.includes('update_pull_request') && toolInput !== null && typeof toolInput === 'object' && Object.hasOwn(toolInput, 'draft')) {
+    if ((toolInput as Record<string, unknown>).draft !== true) return role(`Draft の解除（${toolName} の draft）`);
+  }
+  return null;
+}
+
 function checkMcp(toolName: string, toolInput: unknown, ctx: GuardContext): string | null {
   const name = toolName.toLowerCase();
   if (!name.includes('github')) return null;
   if (name.includes('merge')) return role(`Merge にかかわる MCP ツール（${toolName}）`);
+  const draft = checkMcpDraft(toolName, toolInput);
+  if (draft) return draft;
   const hit = labelStrings(toolInput, false, []).find((l) => isProtectedLabel(l, ctx.protectedLabels));
   if (hit !== undefined) return role(`保護ラベル ${hit.trim()} の付け外し（${toolName}）`);
   if (/push_files|create_or_update_file|delete_file/.test(name)) {
@@ -808,8 +985,11 @@ function fallback(text: string, labels: string[], why: string): Decision {
 }
 
 /**
- * stdin の文字列を判定する。JSON が読めない、設定（ctx が null）や今のブランチ（currentBranch が null）が読めないときは、
- * push・merge・保護ラベルの名前を含むものだけ止める。
+ * stdin の文字列を判定する。
+ * - JSON が読めないときは、push・merge・保護ラベルの名前を含むものだけ止める（コマンドを取り出せないため）。
+ * - Bash で、設定（ctx が null）や今のブランチ（currentBranch が null）が読めない、または判定の途中で失敗したときは、
+ *   通常と同じ判定を安全側の印を付けて動かす（違いは `git … push` を送り先に関わらず止めることだけ）。
+ * - MCP は、設定が読めれば通常の判定（今のブランチを使わない）、読めなければ名前の判定と Draft の解除の判定。
  */
 export function decideRaw(raw: string, ctx: GuardContext | null): Decision {
   const labels = ctx?.protectedLabels ?? FALLBACK_LABELS;
@@ -824,12 +1004,40 @@ export function decideRaw(raw: string, ctx: GuardContext | null): Decision {
   const toolName = typeof input.tool_name === 'string' ? input.tool_name : '';
   if (toolName !== 'Bash' && !toolName.startsWith('mcp__')) return ALLOW;
   const text = JSON.stringify([toolName, input.tool_input ?? null]);
-  if (!ctx) return fallback(text, labels, 'ハーネスの設定が読めない');
-  if (ctx.currentBranch === null) return fallback(text, labels, '今のブランチが読めない');
+
+  if (toolName.startsWith('mcp__')) {
+    if (!ctx) {
+      const d = fallback(text, labels, 'ハーネスの設定が読めない');
+      if (d.deny) return d;
+      const reason = checkMcpDraft(toolName, input.tool_input);
+      return reason ? { deny: true, reason } : ALLOW;
+    }
+    try {
+      const reason = checkMcp(toolName, input.tool_input, ctx);
+      return reason ? { deny: true, reason } : ALLOW;
+    } catch {
+      return fallback(text, labels, '判定の途中で失敗した');
+    }
+  }
+
+  let why: string;
+  if (!ctx) why = 'ハーネスの設定が読めない';
+  else if (ctx.currentBranch === null) why = '今のブランチが読めない';
+  else {
+    try {
+      return decide(input, ctx);
+    } catch {
+      why = '判定の途中で失敗した';
+    }
+  }
+  const command = input.tool_input !== null && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>).command : undefined;
+  if (typeof command !== 'string') return ALLOW;
+  const strict: Ctx = { defaultBranch: ctx?.defaultBranch ?? 'main', protectedLabels: labels, currentBranch: null, strict: why };
   try {
-    return decide(input, ctx);
+    const reason = analyze(command, { dir: typeof input.cwd === 'string' ? input.cwd : undefined, branch: null }, strict, 0);
+    return reason ? { deny: true, reason } : ALLOW;
   } catch {
-    return fallback(text, labels, '判定の途中で失敗した');
+    return fallback(text, labels, 'hook の途中で失敗した');
   }
 }
 
