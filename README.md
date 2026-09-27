@@ -5,19 +5,20 @@ GitHub Issues を開発状態の唯一の記録とし、Claude Code が Issue �
 ```mermaid
 flowchart LR
   H[人] -->|agent:ready| I[Issue]
+  H -->|Issue 番号| S[付き添いのセッション（ship）]
   G[gate.yml / App] -->|queue を公開| D[ダッシュボード]
-  R[毎時 Routine] -->|queue を読む| D
-  R -->|計画コメント| I
+  S -->|計画コメント| I
   I -->|issue_comment| G
   G -->|agent:plan-ok| I
-  R -->|push・Draft PR・判定コメント| P[PR]
+  S -->|push・Draft PR・判定コメント| P[PR]
   P -->|issue_comment / pull_request_target| G
   G -->|範囲照合・Check Run・merge-route・auto-merge| P
   P -->|必須チェック通過| M[Merge]
 ```
 
-- **Claude**（毎時の Routine か人のセッション）：計画・実装・判定（Reviewer と Risk Agent）・修正
+- **Claude**（人が付き添うセッション）：計画・実装・判定（Reviewer と Risk Agent）・修正。Issue 番号を渡すと、ship の skill（[.claude/skills/ship/SKILL.md](.claude/skills/ship/SKILL.md)）が各段階の skill をつなぎ、人の Merge 待ちか人の判断待ちまで進める
 - **専用 GitHub App**（Actions の数秒のジョブ）：段階ゲート、判定の受け付け、必須チェック、auto-merge の制御、次にやることの計算。Claude は動かさない
+- 毎時の Routine（[.claude/routine.md](.claude/routine.md)）で Claude を定期に動かすのは将来の構想
 - 信頼できる印は App が付けたものだけ。Claude は本人名義で動くため、名義では人と区別しない
 
 ## 文書
