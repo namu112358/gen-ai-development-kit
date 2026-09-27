@@ -1,5 +1,7 @@
 # GitHub Issues SSoT × Claude Code 自律開発 計画（改訂版）
 
+計画と決定ログ（なぜこの形にしたか）。
+
 Sep 26, 2026
 
 ## 目的と前提
@@ -420,3 +422,4 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q75 | 分類ラベル | PR の `size:*`・`area:*` は App が差分から付ける（area は足すだけ）。Issue の種類・領域・優先度・書き方は Jev が提案コメントだけ出す（シャドー） |
 | Q74 | 優先度 | `priority:*` の5段階（highest・high・medium・low・lowest）のラベルで queue を並べ替える（優先度 → 先着順）。付いていなければ medium、複数付いていれば最も高いもの。フォームには入れない（Q84 で `priority:high` / `priority:low` の2つから5段階に改めた） |
 | Q73 | 汎用化 | 固有名は `harness.config.json` と `setup.ts` の引数に寄せ、別のリポジトリに導入できるようにする |
+| Q87 | README の説明の生成 | README の表の「説明」は各ファイル・ディレクトリの先頭のコメントの1文目から生成する（新しいスクリプト `harness/scripts/readme.ts`。ガードレールの外に置き、`agent.ts` には足さない）。表が生成結果と食い違う、表の名前が実在しない、`overview.html` のラベルと設定が食い違う、をそれぞれテストで検査する（#132） |

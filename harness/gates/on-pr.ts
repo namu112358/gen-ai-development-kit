@@ -13,6 +13,7 @@ import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type G
 import { applyAppLabels } from './label-apply.ts';
 
 /**
+ * PR の出来事（作成・push・編集・ラベル）ごとの処理。
  * pull_request_target：PR の head は checkout せず、中身は API で読むだけ。
  * - push（synchronize）：まず auto-merge を解除し、差分が同じなら過去の判定を引き継ぐ
  * - 作成とタイトルの編集で type:* を付ける（App が前に付けたものだけ付け替える。label-apply.ts）

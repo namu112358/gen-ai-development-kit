@@ -9,6 +9,10 @@ import { applyAcceptance, refreshMergeRoute } from './apply.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
 import { applyAppLabels, triageLabels } from './label-apply.ts';
 
+/**
+ * Issue の出来事ごとの処理。
+ */
+
 const PRIORITY_VALUES: string[] = Object.values(PRIORITY_LABELS);
 
 /**

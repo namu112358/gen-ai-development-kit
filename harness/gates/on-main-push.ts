@@ -5,7 +5,7 @@ import { appComment, disableAutoMerge, getPr, updateBranchIfBehind, type GateCon
 import { ensureDashboard } from './stale.ts';
 
 /**
- * main への push：
+ * main に push されたときの処理。
  * - 自動 Merge された PR の revert を検知したら自動 Merge モードを切る（人が戻すまで再開しない）
  * - Agent PR を main に追従させる（差分が同じなら判定は引き継がれる。衝突したものは Routine が解消する）
  */
