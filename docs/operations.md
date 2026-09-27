@@ -82,6 +82,8 @@
 
 判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。
 
+PR に残る実行メトリクスのトークン数と推定料金（`harness.config.json` の `pricing` で計算）はセッションの累計による目安で、実際の請求額ではない。手元では `node harness/scripts/agent.ts usage` で確認できる。
+
 ## よくある質問
 
 ### Q. 急ぎの Issue を先に進めたいときはどうするか

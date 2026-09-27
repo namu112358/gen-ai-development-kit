@@ -48,7 +48,7 @@
 6. commit して `git push -u origin <ブランチ>`。
 7. MCP で **Draft** PR を作る（base は main）。本文は `.github/pull_request_template.md` に沿って書く（`Closes #<番号>`、計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
 8. Issue に `render-claim --release` の出力をコメントする。
-9. `node harness/scripts/agent.ts render-metrics implement <モデル名> <所要分> <トークン数 or unknown>` の出力を PR にコメントする。
+9. `node harness/scripts/agent.ts render-metrics implement <モデル名> <所要分>` の出力を PR にコメントする。トークン数と推定料金はセッション記録から自動で入る（トークン数の引数は不要。読めなければ unknown になる）。
 10. 判定は**しない**（次の実行で別の段階として行う）。
 
 ### judge（判定）
