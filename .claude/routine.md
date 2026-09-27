@@ -46,7 +46,7 @@
 4. `planFiles` の範囲で実装する。範囲外の変更が必要になったら、PR 本文に理由を書く（範囲照合で自動 Merge の対象外になる）。
 5. `npm ci`（初回のみ）と `npm run check` を通す。
 6. commit して `git push -u origin <ブランチ>`。
-7. MCP で **Draft** PR を作る（base は main）。本文には次を入れる：`Closes #<番号>`、計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、AC ごとの対応、範囲外の変更があればその理由。
+7. MCP で **Draft** PR を作る（base は main）。本文は `.github/pull_request_template.md` に沿って書く（`Closes #<番号>`、計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
 8. Issue に `render-claim --release` の出力をコメントする。
 9. `node harness/scripts/agent.ts render-metrics implement <モデル名> <所要分> <トークン数 or unknown>` の出力を PR にコメントする。
 10. 判定は**しない**（次の実行で別の段階として行う）。
@@ -58,7 +58,7 @@ Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同�
 1. MCP で PR の head SHA を読み、queue の `headSha` と同じか確かめる（違えば飛ばす）。
 2. **reviewer** サブエージェントに PR 番号・Issue 番号・head SHA を渡す。GitHub の読み取りは MCP ツールで行うよう伝える。
 3. **risk-agent** サブエージェントに PR 番号と head SHA **だけ**を渡す（Issue や PR の説明を渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
-4. 2つの結果を合わせて判定コメントを一時ファイルに書く（書式は [docs/formats.md](../docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
+4. 2つの結果を合わせて判定コメントを一時ファイルに書く（reviewer の `humanNotes` はそのまま `review.humanNotes` に入れる）（書式は [docs/formats.md](../docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
 5. `node harness/scripts/agent.ts render-verdict <PR番号> <headSha> <ファイル>` で検査し、出力を PR にコメントする。
 6. `render-metrics judge ...` の出力を PR にコメントする。
 7. Merge・Ready 化・auto-merge は App が行う。何もしない。

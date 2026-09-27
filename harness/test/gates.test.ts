@@ -330,3 +330,13 @@ test('auto-merge を付けたとき main より遅れていれば、その場で
     assert.equal(updated, expected, `behind_by=${behindBy}`);
   }
 });
+
+test('人へのレビュー依頼に、懸念点・見てほしい箇所・Risk の根拠を載せる', async () => {
+  const fake = acceptanceFake({ pr: pr(), dashboardLabels: [] });
+  const v = verdict({ risk: { ...verdict().risk, level: 'medium', rationale: 'API の挙動が変わる' }, review: { pass: true, blocking: [], nonBlocking: [], humanNotes: { concerns: ['空配列のとき例外になりうる'], checkPoints: ['src/a.ts の parse'] } } });
+  await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', v))));
+  const body = fake.calls.find((c) => String(c.body?.body ?? '').includes('kind=human-review'))!.body.body as string;
+  assert.match(body, /### 懸念点\n- 空配列のとき例外になりうる/);
+  assert.match(body, /### 見てほしい箇所\n- src\/a.ts の parse/);
+  assert.match(body, /API の挙動が変わる/);
+});

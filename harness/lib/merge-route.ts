@@ -18,6 +18,9 @@ export interface Acceptance {
   autoEligible: boolean;
   reasons: string[];
   jev?: JevRecord;
+  /** 人にレビューを依頼するときに載せる（判定の写し） */
+  humanNotes?: { concerns: string[]; checkPoints: string[] };
+  riskRationale?: string;
 }
 
 export interface JevRecord {
