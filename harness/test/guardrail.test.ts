@@ -48,14 +48,14 @@ test('計画ゲート：files がガードレールに触れると、想定 Risk
   assert.equal(evaluatePlanGate({ ...plan, files: ['harness.config.json'] }, 7, config).pass, false, '一覧自身の変更');
 });
 
-test('計画ゲート：split は子課題ごとの files を見る', () => {
+test('計画ゲート：split の子課題の files はガードレールの判定に使わない（#94）', () => {
   const child = (files: string[]) => ({ title: 'docs: x', goal: 'g', requirements: ['r'], acceptanceCriteria: ['a'], files, dependsOn: [] });
   const split = { ...plan, risk: 'critical' as const, files: [], split: [child(['docs/a.md']), child(['src/**'])] };
   assert.deepEqual(evaluatePlanGate(split, 7, config), { pass: true, reasons: [] });
   const guarded = evaluatePlanGate({ ...split, split: [child(['docs/a.md']), child(['harness/gates/x.ts'])] }, 7, config);
-  assert.equal(guarded.pass, false);
+  assert.equal(guarded.pass, true);
   assert.equal(guarded.splitInvalid, undefined);
-  assert.deepEqual(guarded.guardrail, ['harness/gates/x.ts']);
+  assert.equal(guarded.guardrail, undefined);
 });
 
 test('質問8の文言が risk-policy.md・verdict.ts・risk-agent.md・Jev でそろっている', () => {
