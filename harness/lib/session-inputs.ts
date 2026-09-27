@@ -38,6 +38,70 @@ export interface PrCommit {
   parents: { sha: string }[];
 }
 
+/** 過去の PR のレビュー（API の /pulls/{n}/reviews の形） */
+export interface PastPrReview {
+  id: number;
+  body: string | null;
+  state: string;
+  submitted_at: string | null;
+  html_url: string;
+  author_association: string;
+  user: IssueComment['user'];
+}
+
+/** 過去の PR のレビューコメント（API の /pulls/{n}/comments の形） */
+export interface PastPrReviewComment {
+  id: number;
+  body: string;
+  path: string;
+  line: number | null;
+  original_line?: number | null;
+  created_at: string;
+  html_url: string;
+  author_association: string;
+  user: IssueComment['user'];
+}
+
+/** 変更ファイルの履歴から集めた過去の PR の候補。files はこの PR の変更ファイルのうち、その PR が触ったもの */
+export interface PastPrCandidate {
+  number: number;
+  title: string;
+  mergedAt: string;
+  baseRefName: string;
+  merged: boolean;
+  files: string[];
+}
+
+/** 過去の PR とそのコメント・レビュー・レビューコメント（API から読んだそのまま） */
+export interface PastPr {
+  number: number;
+  title: string;
+  mergedAt: string;
+  files: string[];
+  comments: IssueComment[];
+  reviews: PastPrReview[];
+  reviewComments: PastPrReviewComment[];
+}
+
+/** changedFiles は PR の変更ファイルの総数、filesConsidered は履歴を調べた数 */
+export interface PastPrs {
+  changedFiles: number;
+  filesConsidered: number;
+  prs: PastPr[];
+}
+
+/** PR の状態（段階0の材料） */
+export interface PrState {
+  state: string;
+  draft: boolean;
+  merged?: boolean;
+}
+
+export const PAST_PR_FILE_LIMIT = 30;
+export const PAST_PR_LIMIT = 10;
+export const PAST_PR_ITEM_CHARS = 1500;
+export const PAST_PR_SECTION_CHARS = 20000;
+
 export interface JudgeFacts {
   pr: { number: number; headSha: string; body: string | null };
   /** PR が Closes する Issue。comments は Issue のコメント（App の計画ゲートの記録を含む）。epic は Epic の子課題なら親 */
@@ -47,6 +111,10 @@ export interface JudgeFacts {
   checkRuns: CheckRun[];
   /** PR のコミット（再レビューの範囲の判断に使う。無ければ判断しない） */
   commits?: PrCommit[];
+  /** PR の状態（無ければ「(集めていません)」） */
+  prState?: PrState;
+  /** 変更ファイルを触った Merge 済みの過去の PR（無ければ「(集めていません)」） */
+  pastPrs?: PastPrs;
 }
 
 /** コラボレーターのコメント（着手宣言を除く） */
@@ -150,6 +218,97 @@ function renderRange(commits: PrCommit[] | undefined, previousHead: string): str
   ].join('\n');
 }
 
+type HistoryPr = { number: number; title: string; merged: boolean; mergedAt: string | null; baseRefName: string };
+
+/**
+ * ファイルごとの履歴の PR から、既定のブランチへ Merge 済みの PR（この PR を除く）を番号でまとめ、
+ * Merge の新しい順（同じなら番号の大きい順）に limit 件を返す。files は触ったファイルの和集合（入力の順）
+ */
+export function selectPastPrs(histories: { path: string; prs: HistoryPr[] }[], self: number, defaultBranch: string, limit = PAST_PR_LIMIT): PastPrCandidate[] {
+  const byNumber = new Map<number, PastPrCandidate>();
+  for (const h of histories) {
+    for (const p of h.prs) {
+      if (!p.merged || !p.mergedAt || p.baseRefName !== defaultBranch || p.number === self) continue;
+      const found = byNumber.get(p.number);
+      if (!found) byNumber.set(p.number, { number: p.number, title: p.title, mergedAt: p.mergedAt, baseRefName: p.baseRefName, merged: true, files: [h.path] });
+      else if (!found.files.includes(h.path)) found.files.push(h.path);
+    }
+  }
+  return [...byNumber.values()]
+    .sort((a, b) => (a.mergedAt === b.mergedAt ? b.number - a.number : a.mergedAt < b.mergedAt ? 1 : -1))
+    .slice(0, limit);
+}
+
+export interface PastPrItem {
+  at: string;
+  heading: string;
+  body: string;
+}
+
+/**
+ * 過去の PR のうち判定に渡すもの：コラボレーターの、App でも Claude の目印でもない、本文が空白だけでないコメント・レビュー・レビューコメント。
+ * 過去の判定の指摘と App の変更要求はその PR の AC に対するもので、人が残した指摘に当たらないため外す。時刻順
+ */
+export function pastPrItemsForJudge(config: HarnessConfig, pr: PastPr): PastPrItem[] {
+  const keep = (c: { body: string | null; author_association: string; user: IssueComment['user'] }): boolean =>
+    isTrustedComment(c) && !isAppComment(config, c) && !hasClaudeMark(c.body ?? '') && (c.body ?? '').trim() !== '';
+  const login = (c: { user: IssueComment['user'] }): string => c.user?.login ?? '?';
+  const items: PastPrItem[] = [
+    ...pr.comments.filter(keep).map((c) => ({ at: c.created_at, heading: `- コメント ${login(c)} ${c.created_at}`, body: c.body })),
+    ...pr.reviews.filter(keep).map((r) => ({ at: r.submitted_at ?? '', heading: `- レビュー ${login(r)} ${r.state} ${r.submitted_at ?? '?'}`, body: r.body ?? '' })),
+    ...pr.reviewComments.filter(keep).map((c) => ({
+      at: c.created_at,
+      heading: `- レビューコメント ${login(c)} ${c.path}:${c.line ?? c.original_line ?? '?'} ${c.created_at}`,
+      body: c.body,
+    })),
+  ];
+  return items.sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
+}
+
+function clip(body: string): string {
+  const text = body.trim();
+  if (text.length <= PAST_PR_ITEM_CHARS) return text;
+  return `${text.slice(0, PAST_PR_ITEM_CHARS)}\n…（${PAST_PR_ITEM_CHARS} 字で切りました。元は ${text.length} 字）`;
+}
+
+/** 過去の PR のコメントの節。1件 1500 字、節全体 20000 字で切る（超える PR は古いものから PR 単位で省く） */
+export function renderPastPrs(config: HarnessConfig, pastPrs: PastPrs | undefined): string[] {
+  if (!pastPrs) return ['(集めていません)'];
+  const header = `調べた変更ファイル: ${pastPrs.filesConsidered} / ${pastPrs.changedFiles}${pastPrs.filesConsidered < pastPrs.changedFiles ? `（先頭 ${PAST_PR_FILE_LIMIT} 件だけ調べました）` : ''}`;
+  if (pastPrs.prs.length === 0) return [header, '(なし)'];
+  const out = [header];
+  let size = header.length;
+  const omitted: number[] = [];
+  for (const pr of pastPrs.prs) {
+    if (omitted.length > 0) {
+      omitted.push(pr.number);
+      continue;
+    }
+    const items = pastPrItemsForJudge(config, pr);
+    const lines = [
+      `--- PR #${pr.number} ${pr.title}（Merge ${pr.mergedAt}）`,
+      `触ったファイル（この PR の変更ファイルと重なるもの）: ${pr.files.join(', ')}`,
+      ...(items.length > 0 ? items.flatMap((i) => [i.heading, clip(i.body)]) : ['(コラボレーターのコメントなし)']),
+    ];
+    // 行を \n でつなぐので、1行ごとに1字（改行）を足して数える
+    const added = lines.reduce((n, l) => n + l.length + 1, 0);
+    if (size + added > PAST_PR_SECTION_CHARS) {
+      omitted.push(pr.number);
+      continue;
+    }
+    out.push(...lines);
+    size += added;
+  }
+  if (omitted.length > 0) out.push(`（節全体が ${PAST_PR_SECTION_CHARS} 字を超えるため、${omitted.map((n) => `PR #${n}`).join(', ')} を省きました）`);
+  return out;
+}
+
+/** PR の状態の1行（段階0の材料） */
+export function renderPrState(state: PrState | undefined): string {
+  if (!state) return '(集めていません)';
+  return `state: ${state.state} / draft: ${state.draft} / merged: ${state.merged ?? false}`;
+}
+
 /** 判定入力の先頭行 `headSha: <sha>` から判定する head を読む */
 export function judgedHeadOf(text: string): string | null {
   return text.match(/^headSha: ([0-9a-f]{40})$/m)?.[1] ?? null;
@@ -170,6 +329,9 @@ export function renderJudgeInput(config: HarnessConfig, facts: JudgeFacts): stri
   const prComments = prCommentsForJudge(config, facts.prComments);
   out.push('', '=== PR のコメント（コラボレーター。判定コメントを除く）');
   out.push(...(prComments.length > 0 ? prComments.flatMap((c) => [`--- ${c.user?.login ?? '?'} ${c.created_at}`, c.body.trim()]) : ['(なし)']));
+  out.push('', '=== PR の状態（参考。合体版の段階0の材料）', renderPrState(facts.prState));
+  out.push('', '=== 過去の PR のコメント（参考。合体版の④の材料。変更ファイルを触った Merge 済みの PR のコラボレーターのコメント。App・Claude の目印のものを除く）');
+  out.push(...renderPastPrs(config, facts.pastPrs));
   out.push('', `=== 範囲照合（${CHECKS.scope}）`, describeScope(config, facts.checkRuns));
   const { verdict: prev, broken } = previousVerdict(facts.prComments);
   out.push('', '=== 前回の判定');

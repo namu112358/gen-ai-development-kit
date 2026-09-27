@@ -14,8 +14,8 @@ import { evaluatePlanGate, parsePlan, plannerRequestsHuman, type Plan } from '..
 import type { Claim } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
 import {
-  checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, splitArgs,
-  type CheckRun, type JudgeFacts, type ParentEpic, type PrCommit,
+  checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, selectPastPrs, splitArgs,
+  PAST_PR_FILE_LIMIT, type CheckRun, type JudgeFacts, type ParentEpic, type PastPrReview, type PastPrReviewComment, type PastPrs, type PrCommit,
 } from '../lib/session-inputs.ts';
 import { closingIssues, isAppComment, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
@@ -47,7 +47,9 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの agent-plan ブロックは省く〕、
  *                                                           Epic の子課題なら親 Epic〔子課題の一覧と Validation Requirements〕、計画ゲートの記録の計画、PR 本文、
  *                                                           PR のコラボレーターのコメント〔判定コメントを除く〕、agent/scope の結果、前回の判定の head とブロッキング指摘、
- *                                                           前回の head の後の main の取り込みの有無）をファイルに書き、パスを出力
+ *                                                           前回の head の後の main の取り込みの有無、PR の状態、変更ファイル（先頭 30 件）を触った Merge 済みの過去の PR
+ *                                                           〔Merge の新しい順に最大 10 件〕のコラボレーターのコメント〔App・Claude の目印・空の本文を除き、
+ *                                                           1件 1500 字・節全体 20000 字で切る〕）をファイルに書き、パスを出力
  *   node harness/scripts/agent.ts compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>]
  *                                                           サブエージェントの出力から判定コメントを作って検査し、ファイルのパスを出力（投稿は post-verdict）。
  *                                                           オプションの位置は問わない。judge-input のファイルの PR 番号が <pr> と違えば止まる。
@@ -219,6 +221,44 @@ async function parentEpic(gh: GitHub, body: string | null): Promise<ParentEpic |
   return { number: mark.parent, title: parent.title, body: parent.body, children, childrenSource: 'record' };
 }
 
+type HistoryNode = { associatedPullRequests: { nodes: { number: number; title: string; merged: boolean; mergedAt: string | null; baseRefName: string }[] } };
+
+const FILE_HISTORY_QUERY = `query($owner: String!, $name: String!, $branch: String!, $path: String!) {
+  repository(owner: $owner, name: $name) {
+    object(expression: $branch) {
+      ... on Commit {
+        history(first: 5, path: $path) { nodes { associatedPullRequests(first: 5) { nodes { number title merged mergedAt baseRefName } } } }
+      }
+    }
+  }
+}`;
+
+/** 変更ファイル（先頭 30 件）を触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント。API のエラーはそのまま投げる */
+async function pastPrsFor(gh: GitHub, n: number): Promise<PastPrs> {
+  const changed = (await gh.paginate<{ filename: string }>(`/pulls/${n}/files`)).map((f) => f.filename);
+  const considered = changed.slice(0, PAST_PR_FILE_LIMIT);
+  const histories: Parameters<typeof selectPastPrs>[0] = [];
+  // ファイル名をクエリに埋め込まず変数で渡すため、ファイルごとに順に呼ぶ
+  for (const path of considered) {
+    const data = await gh.graphql<{ repository: { object: { history?: { nodes: HistoryNode[] } } | null } }>(
+      FILE_HISTORY_QUERY, { owner: gh.owner, name: gh.repo, branch: config.defaultBranch, path },
+    );
+    // 既定のブランチに無い新しいファイルは履歴が空
+    const nodes = data.repository.object?.history?.nodes ?? [];
+    histories.push({ path, prs: nodes.flatMap((c) => c.associatedPullRequests.nodes) });
+  }
+  const prs: PastPrs['prs'] = [];
+  for (const p of selectPastPrs(histories, n, config.defaultBranch)) {
+    prs.push({
+      number: p.number, title: p.title, mergedAt: p.mergedAt, files: p.files,
+      comments: await gh.listComments(p.number),
+      reviews: await gh.paginate<PastPrReview>(`/pulls/${p.number}/reviews`),
+      reviewComments: await gh.paginate<PastPrReviewComment>(`/pulls/${p.number}/comments`),
+    });
+  }
+  return { changedFiles: changed.length, filesConsidered: considered.length, prs };
+}
+
 async function judgeInput(gh: GitHub, n: number): Promise<string> {
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
   const issues: JudgeFacts['issues'] = [];
@@ -233,6 +273,8 @@ async function judgeInput(gh: GitHub, n: number): Promise<string> {
     prComments: await gh.listComments(n),
     checkRuns: await gh.paginate<CheckRun>(`/commits/${pr.head.sha}/check-runs`),
     commits: await gh.paginate<PrCommit>(`/pulls/${n}/commits`),
+    prState: { state: pr.state, draft: pr.draft, merged: pr.merged },
+    pastPrs: await pastPrsFor(gh, n),
   });
   return writeTemp(`judge-input-${n}.txt`, text);
 }
