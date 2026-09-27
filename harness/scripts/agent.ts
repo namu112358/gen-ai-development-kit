@@ -7,7 +7,7 @@ import { appMarkKind, CLAUDE_MARK, extractBlock, renderBlock } from '../lib/bloc
 import { describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
-import { fleetStatus, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr } from '../lib/fleet.ts';
+import { fleetStatus, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
@@ -60,8 +60,9 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *                                                           番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲（agent:* か epic の開いた Issue と Agent PR）
  *   node harness/scripts/agent.ts fleet-status [--max <n>] [<Issue 番号>...]
  *                                                           fleet で並行して進める Issue・PR ごとの段階・次にやること・選ぶか（待つ理由）・触るファイルの重なり・
- *                                                           領域の上限の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue。
- *                                                           --max は人が1回にさばける数（既定 3）
+ *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue。
+ *                                                           開いた PR 同士は head を fetch して git merge-tree で試し、衝突する組だけ後の側が待つ。
+ *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
@@ -286,6 +287,30 @@ async function closingPrs(gh: GitHub, issue: number): Promise<{ number: number; 
     .map((p) => ({ number: p.number, state: p.state }));
 }
 
+/**
+ * fleet の Issue の開いた PR 同士を git merge-tree で試し、衝突する組（試せなかった組を含む）を返す。
+ * PR ごとに head を fetch し（refs/pull/<n>/head）、組ごとに merge-tree を実行する。どちらもシェルを通さず、作業ツリーは変えない。
+ */
+function prConflicts(issues: FleetIssue[]): PrConflict[] {
+  const heads = issues.flatMap((i) => i.prs.filter((p) => !p.merged && p.facts !== null).map((p) => ({ number: p.number, sha: p.facts!.headSha })));
+  if (heads.length < 2) return [];
+  const fetched = new Map(heads.map((h) => [h.number, spawnSync('git', ['fetch', '--quiet', '--no-tags', 'origin', `refs/pull/${h.number}/head`], { encoding: 'utf8' }).status === 0]));
+  const out: PrConflict[] = [];
+  for (const [idx, a] of heads.entries()) {
+    for (const b of heads.slice(idx + 1)) {
+      let status: number | null = null;
+      if (fetched.get(a.number) && fetched.get(b.number)) {
+        const r = spawnSync('git', ['merge-tree', '--write-tree', '--no-messages', a.sha, b.sha], { encoding: 'utf8' });
+        // head が手元に無いときも終了コードは 1 になるが、木の ID を出さないので「試せなかった」に数える
+        status = r.status === 1 && (r.stdout ?? '').trim() === '' ? null : r.status;
+      }
+      const result = mergeTreeResult(status);
+      if (result !== 'clean') out.push({ prs: [a.number, b.number], untested: result === 'untested' });
+    }
+  }
+  return out;
+}
+
 /** fleet の事実を GitHub から読み（書き込みはしない）、段階・選び方の表を返す。判断は harness/lib/fleet.ts の純粋関数 */
 async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const usage = 'fleet-status [--max <n>] [<Issue 番号>...]';
@@ -293,7 +318,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   if (!a.ok) fail([...a.errors, usage]);
   const maxArg = a.value.options['--max'];
   if ((maxArg !== undefined && !/^[1-9]\d*$/.test(maxArg)) || a.value.positional.some((p) => !/^\d+$/.test(p))) fail([usage]);
-  const max = maxArg === undefined ? 3 : Number(maxArg);
+  const max = maxArg === undefined ? null : Number(maxArg);
   const targets = [LABELS.ready, LABELS.planOk, LABELS.planReview] as string[];
   const items: FleetIssueItem[] = a.value.positional.length > 0
     ? await Promise.all(a.value.positional.map((n) => gh.get<FleetIssueItem>(`/issues/${n}`)))
@@ -343,7 +368,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
     issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs });
   }
 
-  const facts = { issues, openPrLabels };
+  const facts = { issues, prConflicts: prConflicts(issues) };
   const rows = fleetStatus(facts);
   return renderFleetStatus(rows, selectFleet(config, facts, rows, max), max);
 }
