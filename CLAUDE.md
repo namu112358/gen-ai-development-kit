@@ -46,6 +46,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | `harness/test/` | `node:test` のテスト |
 | `.claude/skills/` | 付き添いのセッションの手順（ship / fleet / plan / implement / judge / fix / sync） |
 | `.claude/agents/` | reviewer / risk-agent / test-designer |
+| `overview.html` | 全体の図解（流れ・役割・ディレクトリの地図・ラベル）。外部を読み込まない1ファイル |
 
 ## コードの書き方
 
@@ -53,4 +54,5 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - 相対 import は拡張子 `.ts` まで書く。実行時の依存パッケージは追加しない。
 - ゲートは PR の head を checkout・実行しない。イベントの中身は `GITHUB_EVENT_PATH` から読む。
 - 新しいテストは既存ファイルの末尾に足さず、機能・ハンドラーごとのファイルに書く。共有の補助は `harness/test/support/` に置く（`*.test.ts` にしない）。
+- README のあるディレクトリの直下にファイルを足したら、その README に1行足す（`harness/test` を除く。`.github/` は root の README.md の節。`readme-index.test.ts` が検査する）。ラベル・役割・流れを変えたら `overview.html` も直す。
 - `npm run check`（型検査＋テスト）を通す。
