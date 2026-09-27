@@ -7,7 +7,7 @@ Claude Code（このリポジトリで作業する AI）への指示と設定。
 | `agents/` | サブエージェントの定義（Reviewer・Risk Agent・plan-critic・test-designer） |
 | `hooks/` | 見張りの hook（Claude の操作を実行前に確かめて止める） |
 | `routine.md` | 定期 Routine（毎時の Claude のクラウド実行。将来の構想）が従う手順。ガードレール |
-| `settings.json` | Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録。ガードレール |
+| `settings.json` | Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録、チームで使うプラグインの登録（版を固定）と外部のページの許可。ガードレール |
 | `skills/` | 付き添いのセッションの手順（ship・plan・implement・judge・fix・sync・fleet） |
 
 ここに無いファイル（`.claude/worktrees/` など）は git で管理しない。

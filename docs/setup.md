@@ -94,3 +94,28 @@ Routine の環境には `gh` も API 用のトークンもない。GitHub の操
 ## 7. 自動 Merge を有効にする
 
 止める仕組み（[operations.md](operations.md)）が効くことを確かめてから、ダッシュボードの `agent:auto-merge-stopped` を外す。
+
+## 8. プラグイン（全員に同じ版で入れる）
+
+`.claude/settings.json` の `extraKnownMarketplaces`・`enabledPlugins` で、マーケットプレイスをコミットに固定（`autoUpdate: false`）してメンバー全員に同じ版のプラグインを入れる。
+
+| マーケットプレイス | source | 固定するコミット | 有効にするプラグイン | 用途 |
+| --- | --- | --- | --- | --- |
+| `typesafe-ai` | github `typesafe-ai/skills` | `65a39f393687675ce170e6094757de20370365b9` | `typesafe` | Jev の問い・criteria・しきい値を書く計画・実装で使う |
+| `claude-plugins-official` | github `anthropics/claude-plugins-official` | `fa59bc9037741ecfa131aa27938272605710d7b2` | `skill-creator`、`pr-review-toolkit` | `skill-creator` はこのリポジトリの skill（ship・fleet など）の作成・改善と eval。`pr-review-toolkit` は判定（reviewer → App）の外での観点別の補助レビュー（判定コメントの材料にはしない） |
+
+**入り方**：リポジトリを信頼した対話のセッションで、上のマーケットプレイスが背景で登録され、次のセッション（または `/reload-plugins`）から使える。`/plugin` の Installed・Errors で確かめる。個人で外すときは `.claude/settings.local.json` に `false` を書く。クラウドのセッション・Routine では入らない（Non-goal のまま）。
+
+**導入先への引き継ぎ**：節1で `.claude/` をコピーすると、3つの登録と `WebFetch(domain:docs.typesafe.ai)` の許可も導入先に入る。要らなければ導入先の `.claude/settings.json` から `extraKnownMarketplaces`・`enabledPlugins`・`WebFetch(domain:docs.typesafe.ai)` の行を消す（その場合は `harness/test/settings-plugins.test.ts` も消す）。
+
+**注意**：`claude-plugins-official` は Claude Code が最初から登録している名前で、マーケットプレイスの登録（`~/.claude/plugins/known_marketplaces.json`）は利用者ごとに1つなので、このリポジトリでの固定はほかのプロジェクトでの公式マーケットプレイスの版と自動更新にも及びうる。
+
+**外部のページ**：`permissions.allow` の `WebFetch(domain:docs.typesafe.ai)` により、docs.typesafe.ai だけ確認なしで読める（計画・実装で `typesafe` の skill が最新のドキュメントを読むため）。ほかのドメインは今までどおり確認が出る。reviewer・risk-agent・plan-critic は定義の `tools` に WebFetch が無いので読まない。
+
+**更新の手順（3つ共通）**：
+
+1. 新しいコミットを選び、固定中のコミットとの差分（`typesafe` は `SKILL.md`、公式2つは `plugins/skill-creator/`・`plugins/pr-review-toolkit/` と `.claude-plugin/marketplace.json` の該当項目）を人が読む
+2. Issue を立て、PR で `.claude/settings.json` の `ref` と `harness/test/settings-plugins.test.ts` の期待値を上げる（ガードレールなので人が Merge する）
+3. Merge 後、main を取り込んだセッションで `/plugin` の一覧に出ることを確かめる
+
+`autoUpdate` は `true` にしない。
