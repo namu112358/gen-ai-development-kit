@@ -146,10 +146,10 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: 'plan:exempt', color: 'fef2c0', description: '人: 計画のある Issue に紐付かない PR を例外として通す' },
   { name: TEST_EXEMPT_LABEL, color: 'fef2c0', description: '人: テストを弱める変更を例外として agent/tests を通す' },
   { name: 'agent:auto-merge-stopped', color: '000000', description: 'ダッシュボード専用: 自動 Merge モードの停止スイッチ' },
-  { name: riskLabel('low'), color: 'c2e0c6', description: '計画時の想定 Risk（表示用）' },
-  { name: riskLabel('medium'), color: 'fef2c0', description: '計画時の想定 Risk（表示用）' },
-  { name: riskLabel('high'), color: 'f9d0c4', description: '計画時の想定 Risk（表示用）' },
-  { name: riskLabel('critical'), color: 'e99695', description: '計画時の想定 Risk（表示用）' },
+  { name: riskLabel('low'), color: 'c2e0c6', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
+  { name: riskLabel('medium'), color: 'fef2c0', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
+  { name: riskLabel('high'), color: 'f9d0c4', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
+  { name: riskLabel('critical'), color: 'e99695', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
 ];
 
 /** 設定から作るラベル（size:* と area:*）を含めた、導入先に作るラベルの一覧 */

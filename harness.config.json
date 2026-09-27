@@ -59,7 +59,8 @@
     "maxDiffChars": 80000,
     "thresholds": {
       "lowProbability": 0.9,
-      "noulSafe": 0.9
+      "noulSafe": 0.9,
+      "labelProbability": 0.8
     }
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
@@ -106,7 +107,7 @@
         "README.md"
       ]
     },
-    "issueTriage": "shadow"
+    "issueTriage": "label"
   },
   "pricing": {
     "$comment": "推定料金用の単価（100 万トークンあたり USD）。2026-09 時点の推定値なので、改定されたら更新する。キーはモデル ID（完全一致、無ければ前方一致）。",

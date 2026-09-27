@@ -156,4 +156,6 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | `exempt-stale` | PR | 例外ラベルが付いているが効いていないことの通知。`{ label, headSha, patchId, reason }`。`reason` は `stale`（付けた後に差分が変わった）/ `unrecorded`（付けた記録が無い）。同じ `label` と `headSha` には1回だけ書く |
 | `fix-request` | PR（レビュー） | Reviewer のブロッキング指摘（修正回数はこの数で数える） |
 | `issue-triage` | Issue | Jev による分類の提案と、その確率 |
+| `label-triage` | Issue | `classification.issueTriage` が `label` のときに Jev に問った結果と付けたラベル。`{ model, answers, threshold, added, notApplied }`。`notApplied` は付けなかったもの（確率が下限未満、下限が未設定、当たるラベルが無い）と理由。`issue-triage` か `label-triage` がある Issue には二度と問わない |
+| `label-mismatch` | Issue / PR | 人が付けた（App が付けたと確かめられない）`type:*` がタイトルと食い違う、または Epic に付いていることの通知。`{ title, labels }`。同じタイトルと同じラベルには1回だけ書く |
 | `human-review` / `priority-conflict` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `epic-inherit` / `epic-split-failed` / `auto-merge-stopped` / `dashboard` | 各所 | 通知・記録 |

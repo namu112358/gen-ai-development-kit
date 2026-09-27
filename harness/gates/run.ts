@@ -1,10 +1,10 @@
 import { createContext } from './context.ts';
+import { onScheduleWithLabels } from './label-apply.ts';
 import { onComment } from './on-comment.ts';
 import { onIssue } from './on-issue.ts';
 import { onMainPush } from './on-main-push.ts';
 import { onPullRequest } from './on-pr.ts';
 import { publishQueue } from './publish-queue.ts';
-import { onSchedule } from './stale.ts';
 
 /** ゲートの入口。workflow から `node harness/gates/run.ts` で呼ぶ */
 const ctx = createContext();
@@ -13,8 +13,9 @@ const handlers: Record<string, (c: typeof ctx) => Promise<void>> = {
   issues: onIssue,
   pull_request_target: onPullRequest,
   push: onMainPush,
-  schedule: onSchedule,
-  workflow_dispatch: onSchedule,
+  // 足りないラベルを付けてから（label-apply）ダッシュボードを書き直す
+  schedule: onScheduleWithLabels,
+  workflow_dispatch: onScheduleWithLabels,
 };
 
 const handler = handlers[ctx.eventName];
