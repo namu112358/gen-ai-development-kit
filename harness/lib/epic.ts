@@ -35,9 +35,21 @@ export function parseSplit(c: Checker, raw: unknown, path = 'plan.split'): Split
   });
 }
 
-/** 2つの範囲パターンが重なるか（同じパス、または片方のパターンがもう片方に一致する） */
+/** 最初のワイルドカードより前の固定部分（ワイルドカードが無ければ null） */
+function fixedPrefix(pattern: string): string | null {
+  const i = pattern.indexOf('*');
+  return i === -1 ? null : pattern.slice(0, i);
+}
+
+/**
+ * 2つの範囲パターンが重なるか（安全側に倒す）。同じパス、片方のパターンがもう片方に一致する、
+ * または両方がワイルドカードを含み、片方の固定部分がもう片方の固定部分の先頭に一致する（例：`src/*.ts` と `src/x/**`）
+ */
 export function patternsOverlap(a: string, b: string): boolean {
-  return a === b || globToRegExp(a).test(b) || globToRegExp(b).test(a);
+  if (a === b || globToRegExp(a).test(b) || globToRegExp(b).test(a)) return true;
+  const pa = fixedPrefix(a);
+  const pb = fixedPrefix(b);
+  return pa !== null && pb !== null && (pa.startsWith(pb) || pb.startsWith(pa));
 }
 
 /** 分け方の検査。問題があれば理由を返す（空なら通過） */

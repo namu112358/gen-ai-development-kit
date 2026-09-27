@@ -47,13 +47,19 @@ test('split の検査：件数・タイトル・空の項目・ファイルの�
   }
 });
 
-test('兄弟のファイルの重なり：同じパス、または片方のパターンがもう片方に一致する', () => {
+test('兄弟のファイルの重なり：同じパス、片方のパターンがもう片方に一致する、またはパターンどうしの固定部分の先頭が一致する', () => {
   assert.ok(patternsOverlap('src/a.ts', 'src/a.ts'));
   assert.ok(patternsOverlap('src/**', 'src/lib/a.ts'));
   assert.ok(patternsOverlap('src/lib/a.ts', 'src/*/a.ts'), '順序によらない');
   assert.ok(patternsOverlap('src/**', 'src/lib/*.ts'), 'パターンどうしでも、片方がもう片方に一致すれば重なる');
   assert.equal(patternsOverlap('src/a.ts', 'src/b.ts'), false);
   assert.equal(patternsOverlap('src/*.ts', 'src/lib/a.ts'), false, '* は1階層');
+  assert.ok(patternsOverlap('src/**/a.ts', 'src/x/**'), 'パターンどうしは固定部分の先頭が一致すれば重なるとみなす');
+  assert.ok(patternsOverlap('src/*.ts', 'src/a*'));
+  assert.ok(patternsOverlap('src/x/*.ts', 'src/*'), '順序によらない');
+  assert.equal(patternsOverlap('docs/**', 'harness/**'), false);
+  assert.equal(patternsOverlap('src/a/**', 'src/b/*.ts'), false);
+  assert.equal(patternsOverlap('src/x/**', 'src/a.ts'), false, '片方がパスなら一致だけで判断する');
   const reasons = validateSplit([child({ files: ['src/a.ts'] }), child({ files: ['docs/x.md'] }), child({ files: ['src/**'] })]);
   assert.deepEqual(reasons, ['split[0] と split[2] の files が重なります（「src/a.ts」と「src/**」）']);
 });

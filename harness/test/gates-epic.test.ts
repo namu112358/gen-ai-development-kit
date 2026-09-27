@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { extractBlock, renderBlock } from '../lib/blocks.ts';
+import { appMark, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { childMarker, type SplitChild } from '../lib/epic.ts';
 import { onComment } from '../gates/on-comment.ts';
 import { APP, acceptanceFake, ctxFor, pr } from './support/gate-fixtures.ts';
@@ -18,12 +18,30 @@ const event = (p: unknown) => ({
 
 interface Item { id: number; number: number; body: string; labels: { name: string }[]; user: { login: string } }
 
-/** 親 #3 の Sub-issues・App が作った Issue・依存を持つ偽の GitHub。子は #100 から番号を振る */
-function epicFake(state: { subs?: Item[]; created?: Item[]; blockedBy?: Record<number, number[]> } = {}) {
+interface Blocker { id: number; number: number; state: string; repository_url: string }
+
+/** App の記録コメント（親 #3 に既にあるもの） */
+const appRecord = (id: number, kind: string, value: unknown) => ({
+  id, created_at: '', updated_at: '', html_url: 'u', author_association: 'NONE', user: { login: APP, type: 'Bot' },
+  body: `${appMark(kind)}\nx\n${renderBlock('agent-app', value)}`,
+});
+
+/**
+ * 親 #3 の Sub-issues・App が作った Issue・依存・コメントを持つ偽の GitHub。子は #100 から番号を振る。
+ * #3 へ投稿したコメントは #3 のコメント一覧に積む。failOn に一致する POST は失敗させる
+ */
+function epicFake(state: { subs?: Item[]; created?: Item[]; blockedBy?: Record<number, number[]>; parentBlockers?: Blocker[]; comments?: unknown[]; failOn?: RegExp } = {}) {
   const subs = state.subs ?? [];
   const created = state.created ?? [];
+  const comments = state.comments ?? [];
   let next = 100 + subs.length + created.length;
-  return acceptanceFake({ pr: pr() })
+  const fake = acceptanceFake({ pr: pr() })
+    .on('GET', /\/issues\/3\/comments/, () => comments)
+    .on('POST', /\/issues\/3\/comments$/, (_m, body) => {
+      const c = { id: 500 + comments.length, body: body.body, html_url: 'u', created_at: '', updated_at: '', author_association: 'NONE', user: { login: APP, type: 'Bot' } };
+      comments.push(c);
+      return c;
+    })
     .on('GET', /\/issues\/3\/sub_issues/, () => subs)
     .on('GET', /\/issues\?state=all&creator=/, () => created)
     .on('POST', /\/repos\/o\/r\/issues$/, (_m, body) => {
@@ -33,7 +51,15 @@ function epicFake(state: { subs?: Item[]; created?: Item[]; blockedBy?: Record<n
     })
     .on('POST', /\/issues\/3\/sub_issues$/, () => ({}))
     .on('GET', /\/issues\/(\d+)\/dependencies\/blocked_by/, (m) => (state.blockedBy?.[Number(m[1])] ?? []).map((number) => ({ number })))
-    .on('POST', /\/issues\/\d+\/dependencies\/blocked_by$/, () => ({}));
+    .on('POST', /\/issues\/\d+\/dependencies\/blocked_by$/, () => ({}))
+    .on('GET', /\/issues\/3\/dependencies\/blocked_by/, () => state.parentBlockers ?? []);
+  const failOn = state.failOn;
+  if (failOn) {
+    fake.on('POST', failOn, (m) => {
+      throw new Error(`boom ${m.input}`);
+    });
+  }
+  return fake;
 }
 
 const posts = (fake: ReturnType<typeof epicFake>, re: RegExp) => fake.calls.filter((c) => c.method === 'POST' && re.test(c.path));
@@ -76,13 +102,86 @@ test('途中まで作られた状態から再実行しても、子 Issue を二�
     subs: [mk(100, 0, ['agent:ready', 'priority:high']), mk(50, 1, [], 'me')],
     created: [mk(100, 0, ['agent:ready', 'priority:high']), mk(101, 1), mk(102, 0), { ...mk(103, 0), body: childMarker(4, 1) }],
     blockedBy: { 101: [100] },
+    comments: [appRecord(1, 'plan-gate', { version: 1, planCommentId: 80, pass: true, reasons: [], plan })],
   });
   await onComment(ctxFor(fake, 'issue_comment', event(plan)));
+  assert.ok(!fake.writes().includes('comment:plan-gate'), '同じ計画の通過の記録は二重に残さない');
   assert.equal(posts(fake, /\/issues$/).length, 0, '作り直さない');
   assert.deepEqual(posts(fake, /sub_issues$/).map((c) => c.body), [{ sub_issue_id: 9101 }], '未登録の Sub-issue だけ登録する');
   assert.equal(posts(fake, /blocked_by$/).length, 0, '登録済みの依存は足さない');
   assert.deepEqual(posts(fake, /\/issues\/\d+\/labels$/).map((c) => c.path.match(/issues\/(\d+)/)![1]), ['3', '101']);
   assert.deepEqual(record(fake, 'epic-split').value.children, [100, 101]);
+});
+
+const mkChild = (number: number, index: number): Item => ({ id: 9000 + number, number, body: `b\n${childMarker(3, index)}`, labels: [], user: { login: APP } });
+
+test('親の停止（hold / blocked / waiting）と開いた blocker を、agent:ready より先に子へ引き継ぐ', async () => {
+  const blocker = (number: number, state = 'open', repo = 'o/r'): Blocker => ({ id: 7000 + number, number, state, repository_url: `https://api.github.com/repos/${repo}` });
+  const fake = epicFake({ parentBlockers: [blocker(40), blocker(41, 'closed'), blocker(42, 'open', 'o/other')], blockedBy: { 101: [40] } });
+  const ev = event(plan);
+  ev.issue.labels.push({ name: 'agent:hold' }, { name: 'agent:blocked' }, { name: 'agent:waiting' });
+  await onComment(ctxFor(fake, 'issue_comment', ev));
+  assert.deepEqual(fake.writes(), [
+    'label-agent:plan-ok', 'label+epic', 'comment:plan-gate',
+    'POST /repos/o/r/issues', 'POST /repos/o/r/issues/3/sub_issues',
+    'POST /repos/o/r/issues', 'POST /repos/o/r/issues/3/sub_issues',
+    'POST /repos/o/r/issues/100/dependencies/blocked_by',
+    'POST /repos/o/r/issues/101/dependencies/blocked_by',
+    'label+agent:hold,agent:blocked,agent:waiting', 'comment:epic-inherit',
+    'label+agent:hold,agent:blocked,agent:waiting', 'comment:epic-inherit',
+    'label+agent:ready,priority:high', 'label+agent:ready,priority:high',
+    'comment:epic-split', 'check:agent/plan-link=success',
+  ]);
+  const deps = posts(fake, /blocked_by$/).map((c) => `${c.path.match(/issues\/(\d+)/)![1]}<-${c.body.issue_id}`);
+  assert.deepEqual(deps, ['100<-7040', '101<-9100'], '親の開いた blocker を全部の子に。閉じた・別リポジトリのもの、登録済みのものは足さない');
+  const inherit = posts(fake, /\/issues\/100\/comments$/).map((c) => String(c.body.body));
+  assert.match(inherit[0]!, /reason code=other/, 'blocked を付けるときは理由コードを残す');
+});
+
+test('既に子課題に分けた Issue に別の計画が来たら、作らずに plan-review（理由コード resplit）', async () => {
+  for (const state of [
+    { comments: [appRecord(1, 'epic-split', { version: 1, planCommentId: 60, children: [100, 101] })] },
+    { created: [mkChild(100, 0)] },
+  ]) {
+    const fake = epicFake(state);
+    await onComment(ctxFor(fake, 'issue_comment', event(plan)));
+    assert.deepEqual(fake.writes(), ['label-agent:plan-ok', 'label+agent:plan-review', 'comment:plan-gate', 'check:agent/plan-link=success']);
+    const gate = record(fake, 'plan-gate');
+    assert.match(gate.body, /reason code=resplit/);
+    assert.equal(gate.value.pass, false);
+    assert.ok(gate.value.reasons.some((r: string) => r.includes('#100')));
+  }
+});
+
+test('同じ計画コメントの再実行は、分け直しとして止めずに続きから作る（epic-split の記録があっても）', async () => {
+  const fake = epicFake({
+    created: [mkChild(100, 0)],
+    comments: [appRecord(1, 'epic-split', { version: 1, planCommentId: 80, children: [100, 101] })],
+  });
+  await onComment(ctxFor(fake, 'issue_comment', event(plan)));
+  assert.ok(!fake.writes().includes('label+agent:plan-review'));
+  assert.equal(posts(fake, /\/issues$/).length, 1, '足りない子だけ作る');
+  assert.equal(record(fake, 'epic-split').value.planCommentId, 80);
+});
+
+test('子課題を作る途中で失敗したら、親を agent:blocked（理由コード split-failed）にして失敗を投げ直す。やり直しは続きから', async () => {
+  const fake = epicFake({ failOn: /\/issues\/101\/dependencies\/blocked_by$/ });
+  await assert.rejects(onComment(ctxFor(fake, 'issue_comment', event(plan))), /boom/);
+  const writes = fake.writes();
+  assert.deepEqual(writes.slice(-2), ['label+agent:blocked', 'comment:epic-split-failed']);
+  assert.match(posts(fake, /\/issues\/3\/comments$/).at(-1)!.body.body, /reason code=split-failed/);
+  assert.ok(!writes.some((w) => w.startsWith('label+agent:ready')), 'ready は付けない');
+
+  // 人が blocked を外してやり直す：作った子と投稿した記録はそのまま
+  const posted = posts(fake, /\/issues\/3\/comments$/).map((c, k) => ({ ...appRecord(500 + k, 'x', {}), body: String(c.body.body) }));
+  const retry = epicFake({ subs: [mkChild(100, 0), mkChild(101, 1)], created: [mkChild(100, 0), mkChild(101, 1)], blockedBy: {}, comments: posted });
+  await onComment(ctxFor(retry, 'issue_comment', event(plan)));
+  assert.deepEqual(retry.writes(), [
+    'label-agent:plan-ok', 'label+epic',
+    'POST /repos/o/r/issues/101/dependencies/blocked_by',
+    'label+agent:ready,priority:high', 'label+agent:ready,priority:high',
+    'comment:epic-split', 'check:agent/plan-link=success',
+  ]);
 });
 
 test('兄弟のファイルが重なる split は子 Issue を作らず plan-review（理由コード split-invalid）', async () => {

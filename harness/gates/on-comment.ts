@@ -21,7 +21,7 @@ import {
 } from '../lib/state.ts';
 import { fixAllowed, hasCriticalBlocking, parseVerdict, riskAllowsAutoMerge, type Verdict } from '../lib/verdict.ts';
 import { appComment, convertToDraft, getPr, type GateContext } from './context.ts';
-import { splitEpic } from './epic-split.ts';
+import { inspectEpic, splitEpic, type EpicState } from './epic-split.ts';
 import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
 
@@ -71,9 +71,15 @@ async function onPlan(
     gate.pass = false;
     gate.reasons.push('`agent:plan-review` が付いています（Planner が人の判断を求めています）');
   }
+  // 別の計画で既に分けていれば分け直さない（同じ計画コメントの再実行は続きから作る）
+  const epic: EpicState | null = gate.pass && plan.split ? await inspectEpic(ctx, issue.number, comment.id) : null;
+  if (epic?.resplit) {
+    gate.pass = false;
+    gate.reasons.push(epic.resplit);
+  }
   const record = { version: 1, planCommentId: comment.id, planBodySha256: sha256(comment.body), pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan; planBodySha256: string };
-  if (gate.pass && plan.split) {
-    await splitEpic(ctx, issue, comment, { ...plan, split: plan.split }, record);
+  if (gate.pass && plan.split && epic) {
+    await splitEpic(ctx, issue, comment, { ...plan, split: plan.split }, record, epic);
   } else if (gate.pass) {
     await ctx.gh.addLabels(issue.number, [LABELS.planOk]);
     await appComment(ctx, issue.number, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。`, record);
@@ -84,7 +90,7 @@ async function onPlan(
       ctx,
       issue.number,
       'plan-gate',
-      [reasonMark(stopCode(plan, gate)), `計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`, '', ...gate.reasons.map((r) => `- ${r}`)].join('\n'),
+      [reasonMark(epic?.resplit ? 'resplit' : stopCode(plan, gate)), `計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`, '', ...gate.reasons.map((r) => `- ${r}`)].join('\n'),
       record,
     );
   }
