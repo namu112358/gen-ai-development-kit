@@ -10,7 +10,7 @@ const issue = (patch: Partial<IssueFacts> = {}): IssueFacts => ({
   gate: null, latestPlanAt: null, planOkByApp: false, openPr: null, ...patch,
 });
 const pr = (patch: Partial<PrFacts> = {}): PrFacts => ({
-  number: 10, claim: null, issue: 1, readyAt: '2026-09-26T00:00:00Z', labels: [], headSha: 'h', headPushedAt: '2026-09-26T01:00:00Z',
+  number: 10, claim: null, issueLabels: [], issue: 1, readyAt: '2026-09-26T00:00:00Z', labels: [], headSha: 'h', headPushedAt: '2026-09-26T01:00:00Z',
   acceptance: null, verdictAwaitingGate: false, humanFeedbackSincePush: 0, ...patch,
 });
 
@@ -56,4 +56,18 @@ test('キュー：先着順・上限・skip は数えない', () => {
   );
   assert.deepEqual(q.actions.map((a) => ('issue' in a && a.kind !== 'judge' ? a.issue : 'pr' in a ? `pr${a.pr}` : '')), [1, 'pr10']);
   assert.equal(q.skipped.length, 1);
+});
+
+test('キュー：優先度ラベル → 先着順。PR は Issue の優先度を引き継ぐ', () => {
+  const q = buildQueue(
+    [
+      issue({ number: 1, readyAt: '2026-09-26T01:00:00Z' }),
+      issue({ number: 2, readyAt: '2026-09-26T02:00:00Z', labels: ['agent:ready', 'priority:high'] }),
+      issue({ number: 3, readyAt: '2026-09-26T00:00:00Z', labels: ['agent:ready', 'priority:low'] }),
+    ],
+    [pr({ number: 10, issue: 4, readyAt: '2026-09-26T03:00:00Z', issueLabels: ['agent:ready', 'priority:high'] })],
+    opts,
+    10,
+  );
+  assert.deepEqual(q.actions.map((a) => ('pr' in a ? `pr${a.pr}` : 'issue' in a ? a.issue : '')), [2, 'pr10', 1, 3]);
 });
