@@ -168,6 +168,15 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 - ガードレールとの違い：ガードレール（`guardrailPaths`）は Agent が自分を縛る仕組みで、計画ゲートでも止まり、一覧が無ければすべてのファイルが当たる。`humanMergePaths` は導入先の製品を守るためのもので、書かなければ何もしない。
 - ゲートは既定ブランチの `harness.config.json` を読む。PR の中で `humanMergePaths` を変えても、その PR の判定には効かない。
 
+## 必須チェック
+
+既定ブランチの Ruleset（`node harness/scripts/setup.ts ruleset` が作る）の必須チェックは2種類ある。
+
+- プロジェクトの CI が出すもの：`harness.config.json` の `projectChecks` に並べる（既定は GitHub Actions の `ci`）。プロジェクトが正しいか（lint・テスト・ビルドなど）は CI が判断し、ゲートは CI を動かさない。
+- ハーネスが出すもの：`agent/review`・`merge-route`・`agent/plan-link`・`agent/title`・`agent/tests`（App）。Merge してよいかの判断で、コードに固定していて設定から外せない。
+
+`projectChecks` の書式の誤りはゲートでは検出されず、`setup.ts ruleset` の実行時にエラーになる。変えたら `ruleset` を実行し直す（手順は [setup.md](setup.md)）。
+
 ## 人が関わる場面
 
 | 場面 | 操作 |
