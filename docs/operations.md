@@ -2,7 +2,7 @@
 
 ## Issue の書き方
 
-「Agent タスク」の Issue Form で作り、着手してよければ `agent:ready` を付ける。見出しを変えるとゲートが読めず `agent:blocked` になる。
+「Agent タスク」の Issue Form で作り、着手してよければ `agent:ready` を付ける。タイトルは Conventional Commits の形式（`type(scope): 説明`、type は feat / fix / docs / refactor / test / chore / ci / build / perf / style / revert）で、PR とコミットのタイトルにもそのまま使われる。タイトルの形式や見出しが違うとゲートが読めず `agent:blocked` になる。PR のタイトルは必須チェック `agent/title` で検査される。
 
 | 見出し | 必須 | 書くこと |
 | --- | --- | --- |

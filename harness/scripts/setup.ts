@@ -118,6 +118,7 @@ export function rulesetBody(appId: number) {
             { context: CHECKS.review, integration_id: appId },
             { context: CHECKS.mergeRoute, integration_id: appId },
             { context: CHECKS.planLink, integration_id: appId },
+            { context: CHECKS.title, integration_id: appId },
           ],
         },
       },
@@ -131,7 +132,7 @@ async function ruleset(gh: GitHub, appId: number): Promise<void> {
   const body = rulesetBody(appId);
   if (existing) await gh.request('PUT', `${gh.repoPath}/rulesets/${existing.id}`, { body });
   else await gh.request('POST', `${gh.repoPath}/rulesets`, { body });
-  console.log(`ruleset ${RULESET_NAME}: required = ci(GitHub Actions), ${CHECKS.review}・${CHECKS.mergeRoute}・${CHECKS.planLink}(App ${appId}); bypass なし`);
+  console.log(`ruleset ${RULESET_NAME}: required = ci(GitHub Actions), ${CHECKS.review}・${CHECKS.mergeRoute}・${CHECKS.planLink}・${CHECKS.title}(App ${appId}); bypass なし`);
 }
 
 function appManifest(repository: string, name: string): void {

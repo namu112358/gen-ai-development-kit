@@ -84,6 +84,7 @@ export const CHECKS = {
   scope: 'agent/scope',
   mergeRoute: 'merge-route',
   planLink: 'agent/plan-link',
+  title: 'agent/title',
 } as const;
 
 /** 人の PR を判定を待たずに通すラベル（人だけが付ける） */
