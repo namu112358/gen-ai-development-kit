@@ -4,13 +4,14 @@ import { writePlanLink } from './plan-link.ts';
 import { parseTitle } from '../lib/title.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { checkScope } from '../lib/scope.ts';
-import { DEFAULT_TEST_PATTERNS, detectTestTampering, renderTamperSummary } from '../lib/test-tamper.ts';
+import { DEFAULT_TEST_PATTERNS, detectTestTampering } from '../lib/test-tamper.ts';
 import { EXEMPT_KINDS, EXEMPT_STALE_KIND, exemptRecords, exemptState, staleNotified, type ExemptRecord, type ExemptStaleRecord, type ExemptState } from '../lib/exempt.ts';
 import type { IssueComment } from '../lib/github.ts';
-import { acceptanceForPatch, changedFiles, hasLabel, isSameRepoPr, plannedFilesForPr, prDiff, type PullRequest } from '../lib/state.ts';
+import { acceptanceForPatch, changedFiles, hasLabel, isAgentPr, isSameRepoPr, plannedFilesForPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute } from './apply.ts';
 import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
 import { applyAppLabels } from './label-apply.ts';
+import { testsHumanMerge, testsOutcome } from './tests-check.ts';
 
 /**
  * pull_request_target：PR の head は checkout せず、中身は API で読むだけ。
@@ -84,7 +85,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   // テストの改ざん検査（fork の PR にも書く）。例外は人が付ける test:exempt
   if (triggers || label === TEST_EXEMPT_LABEL) {
     const testExempt = await stateOf(TEST_EXEMPT_LABEL);
-    await writeTestsCheck(ctx, pr, getDiff, testExempt === 'valid');
+    await writeTestsCheck(ctx, pr, getDiff, testExempt === 'valid', getComments, getPatch);
     if (testExempt === 'stale' || testExempt === 'unrecorded') await notifyExemptNotApplied(ctx, pr, TEST_EXEMPT_LABEL, testExempt, CHECKS.tests, getComments, getPatch);
   }
 
@@ -99,7 +100,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
     // 自動 Merge の条件を満たす判定があれば、auto-merge を付け直す（hold 中は付けていないため）
     const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(number), patchId(await getDiff()));
     if (acceptance?.autoEligible) {
-      await applyAcceptance(ctx, pr, acceptance, { fresh: false });
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff() });
       return;
     }
   }
@@ -111,7 +112,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
     const acceptance = acceptanceForPatch(ctx.config, comments, patch);
     if (acceptance && action === 'synchronize') {
       ctx.log(`patch-id ${patch} は受け付け済みの判定と同じ。判定を引き継ぎます`);
-      await applyAcceptance(ctx, pr, acceptance, { fresh: false });
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff() });
       return;
     }
     // 判定前の PR は Draft にする（Draft＝判定前、Ready＝判定に合格して人のレビュー待ち）。出し方にかかわらずそろえる
@@ -151,16 +152,23 @@ async function notifyExemptNotApplied(ctx: GateContext, pr: PullRequest, label: 
   ].join('\n'), record);
 }
 
-/** 必須チェック agent/tests：テストの削除・skip の追加・アサーションの変更を差分から検出する */
-async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () => Promise<string>, exempt: boolean): Promise<void> {
+/**
+ * 必須チェック agent/tests：テストの削除・skip の追加・アサーションの変更を差分から検出する。
+ * 検出があっても、人が Merge する PR（Human Merge）なら止めずに neutral にする（tests-check.ts）。auto-merge が付いていれば緩めない。
+ */
+async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () => Promise<string>, exempt: boolean, getComments: () => Promise<IssueComment[]>, getPatch: () => Promise<string>): Promise<void> {
   if (exempt) {
     await writeCheck(ctx, pr.head.sha, CHECKS.tests, { conclusion: 'success', title: `例外（${TEST_EXEMPT_LABEL}）`, summary: '人がテストを弱める変更を例外として通しました。' });
     return;
   }
   const findings = detectTestTampering(await getDiff(), ctx.config.testPatterns ?? DEFAULT_TEST_PATTERNS);
-  await writeCheck(ctx, pr.head.sha, CHECKS.tests, findings.length === 0
-    ? { conclusion: 'success', title: 'テストを弱める変更はありません', summary: '' }
-    : { conclusion: 'failure', title: `テストを弱める変更が ${findings.length} 件`, summary: renderTamperSummary(findings, 100, TEST_EXEMPT_LABEL) });
+  let reasons: string[] = [];
+  if (findings.length > 0 && isAgentPr(ctx.config, pr, ctx.repository)) {
+    reasons = await testsHumanMerge(ctx, pr, acceptanceForPatch(ctx.config, await getComments(), await getPatch()));
+    // 書く直前に取り直し、auto-merge が付いていれば緩めない
+    if (reasons.length > 0 && (await getPr(ctx, pr.number)).auto_merge) reasons = [];
+  }
+  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons));
 }
 
 async function writeScopeCheck(ctx: GateContext, number: number, headSha: string): Promise<void> {
