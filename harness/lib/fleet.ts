@@ -1,5 +1,3 @@
-import { AREA_PREFIX, areaLabels } from './classify.ts';
-import { describeFullAreas, fullAreas } from './concurrency.ts';
 import { LABELS, priorityRank, type HarnessConfig } from './config.ts';
 import { patternsOverlap } from './epic.ts';
 import type { IssueFacts, PrFacts } from './queue.ts';
@@ -33,10 +31,25 @@ export interface FleetIssue {
   prs: FleetPr[];
 }
 
+/** git merge-tree で試して衝突した（または試せなかった）PR の組 */
+export interface PrConflict {
+  /** PR 番号の組 */
+  prs: [number, number];
+  /** 試せなかった（git が古い・fetch に失敗したなど）ため、衝突ありとして扱った */
+  untested: boolean;
+}
+
 export interface FleetFacts {
   issues: FleetIssue[];
-  /** 同じリポジトリの開いた PR のラベル（領域の上限に数える） */
-  openPrLabels: string[][];
+  /** fleet の Issue の開いた PR 同士のうち、衝突する（または試せなかった）組 */
+  prConflicts: PrConflict[];
+}
+
+/** `git merge-tree --write-tree` の終了コードの解釈。0＝衝突なし、1＝衝突、それ以外（git が 2.38 未満・head が無いなど）＝試せなかった */
+export function mergeTreeResult(status: number | null): 'clean' | 'conflict' | 'untested' {
+  if (status === 0) return 'clean';
+  if (status === 1) return 'conflict';
+  return 'untested';
 }
 
 export const FLEET_STAGES = {
@@ -121,10 +134,10 @@ export interface FleetSelection {
   selected: number[];
   /** 選ばなかった Issue と理由 */
   excluded: Map<number, string>;
-  /** 領域ごとの上限：開いた PR の数・この実行で選んだ（PR がまだ無い）Issue の数・上限 */
-  areas: { area: string; open: number; selected: number; limit: number }[];
-  /** 触るファイル（計画の files）が重なる Issue の組 */
+  /** 重なる Issue の組。両方に PR があれば実際に衝突する組、そうでなければ触るファイル（計画の files）が重なる組 */
   overlaps: Map<number, number[]>;
+  /** 表のメモの列に足す文（衝突を試せなかった組など） */
+  notes: Map<number, string>;
 }
 
 function filesOverlap(a: string[], b: string[]): boolean {
@@ -133,12 +146,13 @@ function filesOverlap(a: string[], b: string[]): boolean {
 
 /**
  * 並行して進める Issue を選ぶ。PR のある Issue（既に進めているもの）を先に、残りを優先度 → agent:ready が付いた順に、
- * 止まる印・依存・ほかのセッションの着手宣言のあるものを除いて、人が1回にさばける数（max）まで選ぶ。
- * PR がまだ無い Issue は、計画の files の領域が上限（開いた PR ＋ この実行で既に選んだ Issue）に達していれば選ばず、
- * 既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
- * 計画の無い Issue は領域・重なりが分からないので、その判定から外して選ぶ（計画の後に重なれば、後から選んだほうが待つ）。
+ * 止まる印・依存・ほかのセッションの着手宣言のあるものを除いて、衝突しない範囲で選ぶ。本数は max（--max）を渡したときだけ制限する。
+ * 領域の上限（areaConcurrency）は見ない（config は呼び出しの形を保つために受け取るだけ）。
+ * 両方に PR がある組は、実際に試して衝突した組（prConflicts）だけ、既に選んだ PR と衝突する後の側が待つ。
+ * PR がまだ無い Issue は、既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
+ * 計画の無い Issue は重なりが分からないので、その判定から外して選ぶ（計画の後に重なれば、後から選んだほうが待つ）。
  */
-export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number): FleetSelection {
+export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null): FleetSelection {
   const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
   const rowOf = new Map(rows.map((r) => [r.issue, r]));
   const inFlight = (r: FleetRow): boolean => r.pr !== null && r.stage !== 'merged';
@@ -153,8 +167,13 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
     const r = rowOf.get(i.facts.number);
     return r !== undefined && r.stage !== 'merged' && (inFlight(r) || i.facts.claim !== null);
   });
+  const openPrOf = (i: FleetIssue): number | null => {
+    const r = rowOf.get(i.facts.number);
+    return r !== undefined && inFlight(r) ? r.pr : null;
+  };
+  const conflictOf = (a: number, b: number): PrConflict | undefined =>
+    facts.prConflicts.find((c) => (c.prs[0] === a && c.prs[1] === b) || (c.prs[0] === b && c.prs[1] === a));
   const selected: FleetIssue[] = [];
-  const newAreaLabels: string[][] = [];
   const excluded = new Map<number, string>();
 
   for (const r of order) {
@@ -162,42 +181,44 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
     if (r.stage === 'merged') { excluded.set(r.issue, 'Merge 済み'); continue; }
     if (r.stage === 'stopped') { excluded.set(r.issue, r.note ?? '止まる印あり'); continue; }
     if (!inFlight(r) && i.facts.claim !== null) { excluded.set(r.issue, '着手宣言あり（ほかのセッションが着手中）'); continue; }
-    if (selected.length >= max) { excluded.set(r.issue, `人が1回にさばける数（${max}）に達した`); continue; }
-    if (!inFlight(r) && i.planFiles !== null) {
-      const full = fullAreas(config, i.planFiles, [...facts.openPrLabels, ...newAreaLabels]);
-      if (full.length > 0) { excluded.set(r.issue, `${describeFullAreas(full)}（この実行で選んだ分を含む）`); continue; }
+    if (max !== null && selected.length >= max) { excluded.set(r.issue, `--max で指定した、人が1回にさばける数（${max}）に達した`); continue; }
+    const pr = openPrOf(i);
+    if (pr !== null) {
+      // 衝突を見る相手は既に選んだ PR だけ（待つ側とだけ衝突する PR は選ぶ）
+      const hit = selected.find((o) => { const q = openPrOf(o); return q !== null && conflictOf(pr, q) !== undefined; });
+      if (hit) { excluded.set(r.issue, `#${hit.facts.number} と衝突するため待つ（先に Merge された側に合わせて sync）`); continue; }
+    } else if (i.planFiles !== null) {
       const others = [...selected, ...busy].filter((o) => o.facts.number !== r.issue && o.planFiles !== null);
       const hit = others.find((o) => filesOverlap(i.planFiles!, o.planFiles!));
       if (hit) { excluded.set(r.issue, `#${hit.facts.number} と触るファイルが重なるため待つ`); continue; }
     }
     selected.push(i);
-    if (!inFlight(r) && i.planFiles !== null) newAreaLabels.push(areaLabels(config, i.planFiles));
   }
 
-  const areas = Object.entries(config.areaConcurrency ?? {}).map(([area, limit]) => {
-    const label = `${AREA_PREFIX}${area}`;
-    return {
-      area,
-      open: facts.openPrLabels.filter((l) => l.includes(label)).length,
-      selected: newAreaLabels.filter((l) => l.includes(label)).length,
-      limit,
-    };
-  });
-
+  // 重なり：PR 同士は実際に衝突する組だけ、PR が無い Issue が絡む組は計画の files の重なり
+  const live = facts.issues.filter((i) => rowOf.get(i.facts.number)?.stage !== 'merged');
   const overlaps = new Map<number, number[]>();
-  for (const a of facts.issues) {
-    if (a.planFiles === null || rowOf.get(a.facts.number)?.stage === 'merged') continue;
-    const hits = facts.issues.filter((b) => b !== a && b.planFiles !== null && rowOf.get(b.facts.number)?.stage !== 'merged' && filesOverlap(a.planFiles!, b.planFiles!));
+  const notes = new Map<number, string>();
+  for (const a of live) {
+    const pa = openPrOf(a);
+    const hits = live.filter((b) => {
+      if (b === a) return false;
+      const pb = openPrOf(b);
+      if (pa !== null && pb !== null) return conflictOf(pa, pb) !== undefined;
+      return a.planFiles !== null && b.planFiles !== null && filesOverlap(a.planFiles, b.planFiles);
+    });
     if (hits.length > 0) overlaps.set(a.facts.number, hits.map((b) => b.facts.number));
+    const untested = pa === null ? [] : live.filter((b) => { const pb = openPrOf(b); return b !== a && pb !== null && conflictOf(pa, pb)?.untested === true; });
+    if (untested.length > 0) notes.set(a.facts.number, `${untested.map((b) => `#${b.facts.number}`).join(', ')} との衝突は試せなかったため衝突ありとして扱う`);
   }
 
-  return { selected: selected.map((i) => i.facts.number), excluded, areas, overlaps };
+  return { selected: selected.map((i) => i.facts.number), excluded, overlaps, notes };
 }
 
 const NEXT_LABELS: Record<FleetNext, string> = { plan: 'plan', implement: 'implement', judge: 'judge', fix: 'fix', sync: 'sync', none: '—' };
 
 /** fleet-status の表（Markdown） */
-export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: number): string {
+export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: number | null): string {
   const cell = (s: string): string => s.replace(/\|/g, '\\|');
   const lines = [
     '| Issue | PR | 段階 | 次にやること | 選択 | 重なり | メモ |',
@@ -207,12 +228,9 @@ export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: nu
   for (const r of sorted) {
     const chosen = sel.selected.includes(r.issue) ? '選ぶ' : `待つ：${sel.excluded.get(r.issue) ?? ''}`;
     const overlap = (sel.overlaps.get(r.issue) ?? []).map((n) => `#${n}`).join(', ') || '—';
-    lines.push(`| #${r.issue} ${cell(r.title)} | ${r.pr === null ? '—' : `#${r.pr}`} | ${FLEET_STAGES[r.stage]} | ${NEXT_LABELS[r.next]} | ${cell(chosen)} | ${overlap} | ${cell(r.note ?? '')} |`);
+    const note = [r.note, sel.notes.get(r.issue)].filter((x) => x).join('。');
+    lines.push(`| #${r.issue} ${cell(r.title)} | ${r.pr === null ? '—' : `#${r.pr}`} | ${FLEET_STAGES[r.stage]} | ${NEXT_LABELS[r.next]} | ${cell(chosen)} | ${overlap} | ${cell(note)} |`);
   }
-  lines.push('', `選んだ数：${sel.selected.length}/${max}（人が1回にさばける数。--max で変える）`);
-  if (sel.areas.length > 0) {
-    lines.push('', '| 領域 | 開いた PR | この実行で選んだ（PR なし） | 上限 |', '| --- | --- | --- | --- |');
-    for (const a of sel.areas) lines.push(`| \`${AREA_PREFIX}${a.area}\` | ${a.open} | ${a.selected} | ${a.limit} |`);
-  }
+  lines.push('', max === null ? `選んだ数：${sel.selected.length}（衝突しない範囲で本数を制限しない。絞るときは --max）` : `選んだ数：${sel.selected.length}/${max}（--max で指定した本数）`);
   return lines.join('\n');
 }
