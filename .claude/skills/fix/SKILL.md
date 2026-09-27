@@ -15,7 +15,7 @@ Routine の fix（[.claude/routine.md](../../routine.md)）を、付き添いの
 
 ## 手順
 
-1. `node harness/scripts/agent.ts claim <PR番号> --manual` で着手を宣言する。
+1. `node harness/scripts/agent.ts claim <PR番号> --manual --stage fix` で着手を宣言する（`worktree` は PR の宣言を確かめる）。
 2. `node harness/scripts/agent.ts worktree <PR のブランチ>` で worktree を作り（出力がパス）、そこで作業する。
 3. 指摘を直す。計画の `files` の範囲で直す。
 4. テストの assert の行を書き換える・消す必要があるときは、書き方を変えて改ざん検査（`agent/tests`）を逃れない。理由を Issue か PR にコメントする。自動 Merge の対象の PR のときは、人に `test:exempt` を付けてもらうよう頼む（自分では付けない）。Human Merge の PR では `test:exempt` は要らない（`agent/tests` は neutral になり、人が Merge の前に理由と行を確かめる）。

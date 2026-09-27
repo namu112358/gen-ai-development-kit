@@ -14,7 +14,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 
 ## 手順
 
-1. `node harness/scripts/agent.ts judge-input <PR番号>` を実行する（出力はファイルのパス）。先頭行の `headSha` が判定する head。
+1. `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge` で着手を宣言する（判定コメントの投稿で宣言は終わる）。`node harness/scripts/agent.ts judge-input <PR番号>` を実行する（出力はファイルのパス）。先頭行の `headSha` が判定する head。
 2. 現在の head に、Claude・App 以外のコラボレーターのレビュー（Comment か Request changes）があれば、判定ではなく fix を先にする。
 3. 2つのサブエージェントを並列に呼ぶ。どちらにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押す。
    - **reviewer**：judge-input のファイルの中身を指示に含めて渡す。

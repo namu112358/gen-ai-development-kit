@@ -17,6 +17,8 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 ## 手順
 
 1. 状態を読み、次の段階を決める。PR があれば手順4から、計画ゲートを通った計画があれば手順3から始める。
+   - 着手宣言：Issue に手を付ける最初に、その段階の skill の手順どおり `claim <番号> --manual --stage <段階>` で宣言する（計画・批評の前も）。宣言にはこのセッションの ID が入り、ほかのセッションとダッシュボードに段階が見える。ほかのセッションの宣言があれば `claim` は止まるので、人に返す（引き継ぐのは人が決めたときだけ `--takeover`）。
+   - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（`post-plan` が出す `plan-gate` の宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`/clear` などでセッション ID が変わったら、自分の古い宣言は人に確かめて `claim --takeover` で出し直す。
    - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
 2. 計画が無ければ plan の skill で計画を書いて投稿する。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。

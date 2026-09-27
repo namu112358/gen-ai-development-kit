@@ -1,3 +1,4 @@
+import { shortSession } from './blocks.ts';
 import { LABELS, priorityRank } from './config.ts';
 
 /**
@@ -9,7 +10,57 @@ import { LABELS, priorityRank } from './config.ts';
  * 着手宣言（コメントの agent-claim）。ラベルは使わない。
  * 解除コメント（released）か、宣言より新しい計画・判定コメントがあれば終わったとみなす（facts.ts の claimOf）。
  */
-export type Claim = ({ by: 'routine'; session: string; at: string } | { by: 'manual'; at: string }) & { released?: boolean };
+export type Claim = ({ by: 'routine'; session: string; at: string; stage?: ClaimStage } | { by: 'manual'; at: string; session?: string; stage?: ClaimStage }) & { released?: boolean };
+
+/** 着手宣言の段階（claim --stage）。どの段階で着手しているかを、ほかのセッションとダッシュボードに見せる */
+export const CLAIM_STAGES = ['plan', 'plan-critique', 'plan-gate', 'implement', 'judge', 'fix', 'sync'] as const;
+export type ClaimStage = (typeof CLAIM_STAGES)[number];
+
+const activeClaim = (claim: Claim | null): Claim | null => (claim && !claim.released ? claim : null);
+
+/** 今のセッションの手動の宣言か。宣言の session と今のセッションが、どちらも空でない文字列で一致するときだけ（Routine の宣言は含まない） */
+export function isOwnClaim(claim: Claim | null, current: string | null): boolean {
+  const c = activeClaim(claim);
+  return c !== null && c.by === 'manual' && typeof c.session === 'string' && c.session !== '' && typeof current === 'string' && current !== '' && c.session === current;
+}
+
+/** 表示用：段階とセッションの短い形（無いものは省く） */
+export function describeClaim(claim: Claim): string {
+  return [claim.stage ? `段階 ${claim.stage}` : null, claim.session ? `session ${shortSession(claim.session)}` : null].filter(Boolean).join('・');
+}
+
+const withDetail = (text: string, claim: Claim): string => {
+  const d = describeClaim(claim);
+  return d ? `${text}（${d}）` : text;
+};
+
+/**
+ * claim コマンドで宣言してよいか。ほかのセッションの有効な手動の宣言があれば、期限を過ぎていても止める（引き継ぐのは人が決めて --takeover）。
+ * Routine の宣言の上に手動で宣言するのは今までどおり止めない
+ */
+export function claimBlocker(claim: Claim | null, current: string | null, opts: { takeover: boolean; now: Date; humanClaimStaleHours: number }): string | null {
+  const c = activeClaim(claim);
+  if (!c || c.by !== 'manual' || opts.takeover || isOwnClaim(c, current)) return null;
+  const hours = Math.floor((opts.now.getTime() - new Date(c.at).getTime()) / 3_600_000);
+  const stale = hours >= opts.humanClaimStaleHours ? `、${hours} 時間進展なし` : '';
+  return withDetail(`ほかのセッションの着手宣言があります${stale}`, c) + '。引き継ぐなら人に確かめてから --takeover を付けてください';
+}
+
+/** critic-input・post-plan・worktree の前の確かめ：このセッションの有効な宣言があるか */
+export function requireOwnClaim(claim: Claim | null, current: string | null): { error: string | null; warning: string | null } {
+  const c = activeClaim(claim);
+  if (!c) return { error: '着手宣言がありません。先に claim <番号> --manual --stage <段階> で宣言してください', warning: null };
+  if (current === null || current === '') return { error: null, warning: 'このセッションの ID が得られないため、着手宣言が自分のものか見分けられません' };
+  if (isOwnClaim(c, current)) return { error: null, warning: null };
+  return { error: withDetail('ほかのセッションの着手宣言があります', c) + '。引き継ぐなら人に確かめてから claim --manual --takeover を実行してください', warning: null };
+}
+
+/** worktree の前に宣言を確かめる Issue の番号。claude/issue-<番号>- のブランチで、--detach でも Routine でもないときだけ */
+export function worktreeClaimIssue(branch: string, detach: boolean, routine: boolean): number | null {
+  if (detach || routine) return null;
+  const m = branch.match(/^claude\/issue-(\d+)-/);
+  return m ? Number(m[1]) : null;
+}
 
 export interface IssueFacts {
   number: number;
@@ -76,8 +127,10 @@ function claimedByOther(claim: Claim | null, opts: QueueOptions): string | null 
   if (!claim || claim.released) return null;
   const minutes = (opts.now.getTime() - new Date(claim.at).getTime()) / 60_000;
   if (claim.by === 'manual') {
+    if (isOwnClaim(claim, opts.currentSession)) return null;
     const hours = Math.floor(minutes / 60);
-    return hours >= opts.humanClaimStaleHours ? `人のセッションが着手中（${hours} 時間進展なし・停滞）` : '人のセッションが着手中';
+    const detail = [hours >= opts.humanClaimStaleHours ? `${hours} 時間進展なし・停滞` : null, describeClaim(claim) || null].filter(Boolean).join('・');
+    return detail ? `人のセッションが着手中（${detail}）` : '人のセッションが着手中';
   }
   if (claim.session === opts.currentSession) return null;
   return minutes < opts.routineClaimTakeoverMinutes ? '別の Routine の実行が着手中' : null;

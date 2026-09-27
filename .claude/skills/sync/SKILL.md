@@ -14,7 +14,7 @@ Routine の resolve-conflict（[.claude/routine.md](../../routine.md)）に、�
 
 ## 手順
 
-1. `node harness/scripts/agent.ts claim <PR番号> --manual` で着手を宣言する。
+1. `node harness/scripts/agent.ts claim <PR番号> --manual --stage sync` で着手を宣言する（`worktree` は PR の宣言を確かめる）。
 2. `node harness/scripts/agent.ts worktree <PR のブランチ>` で worktree を作り（出力がパス）、そこで作業する。
 3. `git fetch origin` のあと、前回の判定の head での PR 自身の差分の patch-id を控える：`git diff origin/main...<前回の判定の head> | git patch-id --verbatim`
 4. `git merge origin/main` で main を取り込み、衝突を解消する。両方の変更の意図を残す（main 側の変更を消さない）。判断できない衝突は解消せず、人に返す。
