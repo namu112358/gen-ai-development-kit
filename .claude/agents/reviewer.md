@@ -14,6 +14,7 @@ tools: Read, Grep, Glob, Bash
 - Issue 本文（Goal・Requirements・Non-goals・Acceptance Criteria）
 - 計画ゲートの記録にある計画（`plan.files` が触るファイル一覧。人の判断待ちで止まった計画の場合もある）
 - 範囲照合（`agent/scope`）の結果
+- 再レビューのとき：前回の判定の head SHA と、そのブロッキング指摘
 
 自分で読むもの：diff（`git fetch origin && git diff origin/main...<headSha>`）とリポジトリ全体。
 
@@ -55,3 +56,12 @@ tools: Read, Grep, Glob, Bash
 スタイル、命名、より良い書き方の提案は `nonBlocking` に書きます。`pass` は `blocking` が空のときだけ `true` です。
 
 `humanNotes` は、人が Merge する前に読むレビュー依頼の中身です。ハーネス自体の変更、公開インターフェースやデータに触れる変更、テストで確かめきれていない変更では必ず書きます。`concerns` には懸念点を具体的に（「〜の場合に〜が起きうる」）、`checkPoints` には確かめてほしいファイル・関数・観点を書きます。
+
+## 再レビュー（後出しの指摘をしない）
+
+前回の判定の head SHA とブロッキング指摘を渡されたら、修正後の再レビューです。修正ループを延ばさないため、ブロッキングにしてよいのは次の2つだけです。
+
+- 前回の head からの差分（`git diff <前回の head>...<headSha>`）に含まれる行への指摘
+- 前回のブロッキング指摘が直っていないこと
+
+前回の head から変わっていない行への新しい指摘は、上の基準に当たるものでも `nonBlocking` に書きます（重大なものは `humanNotes.concerns` にも書く）。型検査・テストの失敗（`typecheck-test-failure`）は、どの行が原因でもブロッキングです。

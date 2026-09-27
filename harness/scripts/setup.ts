@@ -20,7 +20,7 @@ const ENVIRONMENT = 'gate';
 const RULESET_NAME = 'agent-harness-main';
 
 /** ハーネスが管理するラベルの接頭辞。定義に無いものは消す（廃止したラベルを残さない） */
-const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'size:', 'area:', 'plan:', 'review:'];
+const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'size:', 'area:', 'plan:', 'review:', 'test:'];
 
 async function labels(gh: GitHub): Promise<void> {
   const defs = allLabelDefs(loadConfig());
@@ -119,6 +119,7 @@ export function rulesetBody(appId: number) {
             { context: CHECKS.mergeRoute, integration_id: appId },
             { context: CHECKS.planLink, integration_id: appId },
             { context: CHECKS.title, integration_id: appId },
+            { context: CHECKS.tests, integration_id: appId },
           ],
         },
       },
@@ -132,7 +133,7 @@ async function ruleset(gh: GitHub, appId: number): Promise<void> {
   const body = rulesetBody(appId);
   if (existing) await gh.request('PUT', `${gh.repoPath}/rulesets/${existing.id}`, { body });
   else await gh.request('POST', `${gh.repoPath}/rulesets`, { body });
-  console.log(`ruleset ${RULESET_NAME}: required = ci(GitHub Actions), ${CHECKS.review}・${CHECKS.mergeRoute}・${CHECKS.planLink}・${CHECKS.title}(App ${appId}); bypass なし`);
+  console.log(`ruleset ${RULESET_NAME}: required = ci(GitHub Actions), ${CHECKS.review}・${CHECKS.mergeRoute}・${CHECKS.planLink}・${CHECKS.title}・${CHECKS.tests}(App ${appId}); bypass なし`);
 }
 
 function appManifest(repository: string, name: string): void {
