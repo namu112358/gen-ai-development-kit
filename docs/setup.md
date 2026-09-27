@@ -12,7 +12,7 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 | `harness/`、`harness.config.json`、`package.json`、`tsconfig.json`、`.node-version` | ハーネス本体と設定 |
 | `.github/workflows/gate.yml` | App で動くゲート |
 | `.github/ISSUE_TEMPLATE/agent-task.yml` | Issue Form |
-| `.claude/`、`CLAUDE.md` | Routine の手順、サブエージェント、deny |
+| `.claude/`、`CLAUDE.md` | 付き添いのセッションの skill、サブエージェント、deny、Routine の手順 |
 
 既存の CI がある場合は、そのジョブ名を手順 4 の必須チェックに使う（このリポジトリでは `ci.yml` の `ci`）。
 
@@ -66,8 +66,11 @@ CI のジョブ名が `ci` でない場合は `harness/scripts/setup.ts` の `ru
 
 1. Actions で `gate` を手動実行し、App が「Agent ダッシュボード」Issue を停止ラベル付きで作ることを確かめる。
 2. 小さな Issue を Issue Form で作って `agent:ready` を付け、手元のセッションで `node harness/scripts/agent.ts queue` が `plan` を返すことを確かめる。
+3. 付き添いのセッションでその Issue を ship で進め、人の Merge 待ちになることを確かめる（[operations.md](operations.md#付き添いのセッションで進める)）。
 
 ## 6. Routine
+
+定期実行は将来の構想。Issue は付き添いのセッションで ship を使って進める。Routine を使うときは次のとおり。
 
 [claude.ai/code/routines](https://claude.ai/code/routines)（CLI では `/schedule`）で作る。
 

@@ -4,9 +4,13 @@
 
 ## 着手
 
+### ship
+
+付き添いのセッションで、Issue 番号から plan → implement → judge → fix（必要なら sync）の skill をつなぎ、人の Merge 待ちか人の判断待ちまで進める skill。最後に人がすることを一覧にする。詳細：[operations.md](operations.md#付き添いのセッションで進める)
+
 ### Routine
 
-毎時起動される Claude のクラウド実行。App がダッシュボードに公開する queue に従い、Issue や PR を1段階ずつ進める。GitHub の操作は MCP ツールで行う。詳細：[setup.md](setup.md#6-routine)
+毎時起動される Claude のクラウド実行（将来の構想）。App がダッシュボードに公開する queue に従い、Issue や PR を1段階ずつ進める。GitHub の操作は MCP ツールで行う。詳細：[setup.md](setup.md#6-routine)
 
 ### queue
 
