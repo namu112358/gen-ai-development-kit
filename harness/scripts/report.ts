@@ -1,7 +1,7 @@
 import { loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
-import { fixPrsFor, isFixPr, renderReport, summarize, type MergedPr, type ReportRow } from '../lib/report.ts';
+import { fixPrsFor, isFixPr, renderReport, renderTokenRatios, summarize, tokenRatios, type MergedPr, type ReportRow } from '../lib/report.ts';
 import { appRecords, changedFiles, fixRequestCount, isAgentPr, type PullRequest } from '../lib/state.ts';
 import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
 
@@ -70,4 +70,4 @@ for (const pr of agentPrs) {
   });
 }
 
-console.log(renderReport(summarize(config, rows), rows, days));
+console.log(`${renderReport(summarize(config, rows), rows, days)}\n\n${renderTokenRatios(tokenRatios(rows))}`);

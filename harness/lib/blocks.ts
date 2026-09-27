@@ -9,7 +9,7 @@
 export const CLAUDE_MARK = '<!-- agent-harness:claude -->';
 export const appMark = (kind: string): string => `<!-- agent-harness:app kind=${kind} -->`;
 
-export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app';
+export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel';
 
 /**
  * 書いたセッションの ID を入れた目印（ID が無ければ CLAUDE_MARK）。

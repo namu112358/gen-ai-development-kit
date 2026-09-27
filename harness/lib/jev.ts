@@ -125,12 +125,34 @@ export function jevAllows(config: HarnessConfig, answers: JevResponse['answers']
 
 export type JevAnswers = JevResponse['answers'];
 
-/** Jev に1回問う（再試行つき）。Risk 判定と Issue の分類の両方から使う */
+/** 日本語として数える文字（ひらがな・カタカナ・全角の記号、漢字、全角英数・半角カナ） */
+const JA_CHAR = /[\u3000-\u30ff\u3400-\u9fff\uff00-\uffef]/g;
+
+/**
+ * Jev に送る材料の大きさ（Q90）。`chars` は `model` を除いた要求（state と問い）を JSON にした文字数、
+ * `jaRatio` はそのうち日本語の文字の割合（0〜1、小数3桁）。応答の `usage.input_tokens` は要求全体のトークン数なので、文字数も要求全体で数える。
+ */
+export function measureRequest(request: { state: unknown; questions: Record<string, unknown> }): { chars: number; jaRatio: number } {
+  const text = JSON.stringify({ state: request.state, questions: request.questions });
+  const ja = text.match(JA_CHAR)?.length ?? 0;
+  return { chars: text.length, jaRatio: text.length === 0 ? 0 : Math.round((ja / text.length) * 1000) / 1000 };
+}
+
+/** 応答の `usage.input_tokens`（整数でなければ null。報告されないこともある） */
+const inputTokensOf = (json: JevResponse): number | null => {
+  const t = json.usage?.input_tokens;
+  return Number.isInteger(t) ? t! : null;
+};
+
+/**
+ * Jev に1回問う（再試行つき）。Risk 判定と Issue の分類の両方から使う。
+ * 成功時の `inputTokens` は応答の `usage.input_tokens`（無ければ null）。テストで差し替える偽物が返さなくてもよいよう省略可にしている。
+ */
 export async function askJev(
   apiKey: string,
   request: { model: string; state: unknown; questions: Record<string, unknown> },
   fetchImpl: typeof fetch = fetch,
-): Promise<{ status: 'ok'; model: string; answers: JevAnswers } | { status: 'error'; detail: string }> {
+): Promise<{ status: 'ok'; model: string; answers: JevAnswers; inputTokens?: number | null } | { status: 'error'; detail: string }> {
   const body = JSON.stringify(request);
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -148,7 +170,7 @@ export async function askJev(
       const text = await res.text();
       if (!res.ok) return { status: 'error', detail: `HTTP ${res.status}: ${redact(text, apiKey).slice(0, 300)}` };
       const json = JSON.parse(text) as JevResponse;
-      return { status: 'ok', model: json.model, answers: json.answers };
+      return { status: 'ok', model: json.model, answers: json.answers, inputTokens: inputTokensOf(json) };
     } catch (e) {
       if (attempt === 2) return { status: 'error', detail: redact(String(e), apiKey).slice(0, 300) };
     }
@@ -176,9 +198,17 @@ export async function callJev(
   if (diff.length > config.jev.maxDiffChars) {
     return { status: 'skipped', detail: `diff が大きすぎます（${diff.length} 文字 > ${config.jev.maxDiffChars}）` };
   }
-  const r = await askJev(apiKey, buildJevRequest(config, diff, changedFiles, facts), fetchImpl);
+  const request = buildJevRequest(config, diff, changedFiles, facts);
+  const r = await askJev(apiKey, request, fetchImpl);
   if (r.status === 'error') return r;
-  return { status: 'ok', detail: r.model, allows: jevAllows(config, r.answers), answers: flattenAnswers(r.answers), questionSet: JEV_QUESTION_SET };
+  return {
+    status: 'ok',
+    detail: r.model,
+    allows: jevAllows(config, r.answers),
+    answers: flattenAnswers(r.answers),
+    questionSet: JEV_QUESTION_SET,
+    size: { ...measureRequest(request), inputTokens: r.inputTokens ?? null, diffChars: diff.length },
+  };
 }
 
 /** ログやコメントに秘密が出ないよう伏せ字にする */
