@@ -65,7 +65,7 @@
 
 ## 同時に開ける PR の数
 
-同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 2}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは同じリポジトリの開いた PR すべて。
+同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは同じリポジトリの開いた PR すべて。
 
 - 上限に達した領域に計画の触るファイルが入る Issue は、queue が implement を出さずに skip にする（理由はダッシュボードに出る）。
 - 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。急ぐときは `--force` を付ける。
