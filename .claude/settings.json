@@ -30,7 +30,20 @@
       "Bash(git push -f*)",
       "mcp__github__merge_pull_request",
       "mcp__github__update_pull_request",
-      "mcp__github__enable_pull_request_auto_merge"
+      "mcp__github__enable_pull_request_auto_merge",
+      "Bash(env)",
+      "Bash(env *)",
+      "Bash(printenv*)",
+      "Bash(set)",
+      "Bash(*GITHUB_TOKEN*)",
+      "Bash(*GH_TOKEN*)",
+      "Bash(*ANTHROPIC_API_KEY*)",
+      "Bash(gh auth*)",
+      "Bash(*api.github.com*)",
+      "Bash(*.config/gh*)",
+      "Bash(*.git-credentials*)",
+      "Bash(git config --get-regexp*)",
+      "Bash(git credential*)"
     ],
     "allow": [
       "Bash(npm run check)",
