@@ -47,6 +47,8 @@ export const LABELS = {
   waiting: 'agent:waiting',
   blocked: 'agent:blocked',
   hold: 'agent:hold',
+  /** 子課題に分けた親 Issue（課題の種類なので agent:* にせず、Close しても残す） */
+  epic: 'epic',
 } as const;
 
 /** 止めたとき（agent:blocked / agent:plan-review）に必ず残す理由コード */
@@ -55,6 +57,7 @@ export const REASON_CODES = {
   'plan-invalid': '計画の構造化出力が読めない',
   'needs-decision': '仕様・設計・AC について人の判断が必要',
   'high-risk': '想定 Risk が high 以上',
+  'split-invalid': 'Epic の分け方（split）が検査に通らない',
   'fix-limit': '修正回数の上限に達した',
   'external': '権限・外部サービス・手作業など Claude の外の対応が必要',
   'other': 'その他（コメントに詳細）',
@@ -106,6 +109,7 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: LABELS.waiting, color: 'c5def5', description: 'Routine/App: 依存待ち' },
   { name: LABELS.blocked, color: 'b60205', description: '人の対応が必要' },
   { name: LABELS.hold, color: '000000', description: '人: 個別停止' },
+  { name: LABELS.epic, color: '3e4b9e', description: 'App: 子課題に分けた親 Issue（queue は飛ばす）' },
   { name: PRIORITY_LABELS.high, color: 'b60205', description: '人: queue で先に処理する' },
   { name: PRIORITY_LABELS.low, color: 'c5def5', description: '人: queue で後に処理する' },
   { name: 'review:exempt', color: 'fef2c0', description: '人: 判定を待たずに agent/review を通す' },

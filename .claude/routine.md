@@ -37,10 +37,11 @@
    - `files`：**触るファイルをすべて**列挙する（テスト・docs を含む）
    - `needsHuman`・`acChangeProposed`・`openQuestions`：人の判断が要るなら正直に書く（ゲートで止まる）
    - `risk`：想定 Risk（[docs/risk-policy.md](../docs/risk-policy.md) の目安）
+   - 1つの PR に収まらないと判断したら、`split` で子課題に分ける（Epic）。このとき `files` は空でよく、`risk` は子課題の中で最も高いもの
 4. **plan-critic** サブエージェントに批評させる。サブエージェントは GitHub を読めないので、Issue 本文、コラボレーターのコメント、計画（本文と JSON）を指示に含めて渡す（自分の推論は渡さない）。判定ごとに：
    - `go`：計画ブロックに `critique`（`verdict` と、批評させた回数 `rounds`）を書いて次へ。
    - `revise`：`fixes` を反映して計画を直し、もう一度批評させる。2回続けて `revise` なら、`render-block needs-decision <理由>` で人に返す。
-   - `split`：Epic に分ける仕組みができるまでは、`render-block needs-decision <分け方の案>` で人に返す。
+   - `split`：分け方の案に従い、計画ブロックに `split`（子課題ごとの title・goal・requirements・acceptanceCriteria・files・dependsOn。書式は [docs/formats.md](../docs/formats.md)）を書き、`critique` の `verdict` を `split` にして次へ（案に無い requirements・acceptanceCriteria は Issue から補う。兄弟の `files` は重ならないように分ける）。分け方の検査に通れば App が子 Issue を作り、子課題ごとの計画でまた批評する。
    - `drop`：`render-block needs-decision <理由>` で人に返す。
 5. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。
 6. 実装は**しない**。
