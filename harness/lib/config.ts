@@ -37,6 +37,11 @@ export interface HarnessConfig {
    * 触れる PR は Risk に関わらず自動 Merge しない。計画ゲートには効かない。無ければ何もしない
    */
   humanMergePaths?: string[];
+  /**
+   * Ruleset の必須チェックのうち、導入先の CI が出すもの（harness/lib/ruleset.ts）。integrationId を省くと GitHub Actions。
+   * 無ければ `[{ "context": "ci" }]`、空の配列ならプロジェクトの CI を必須にしない。ハーネスのチェックはここに書かない（コードに固定）
+   */
+  projectChecks?: { context: string; integrationId?: number }[];
   fixLoop: { normalLimit: number; criticalLimit: number };
   staleHours: number;
   dashboardIssueTitle: string;
@@ -127,6 +132,30 @@ export const CHECKS = {
   title: 'agent/title',
   tests: 'agent/tests',
 } as const;
+
+/** GitHub Actions の App ID（Ruleset の必須チェックの出どころ） */
+export const GITHUB_ACTIONS_APP_ID = 15368;
+
+/**
+ * projectChecks を既定値で埋めて検査する。書式の誤りは throw する。
+ * loadConfig では検査しない（ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
+ */
+export function projectChecks(config: HarnessConfig): { context: string; integrationId: number }[] {
+  const raw: unknown = config.projectChecks ?? [{ context: 'ci' }];
+  if (!Array.isArray(raw)) throw new Error('projectChecks は配列で書いてください');
+  const harness = new Set<string>(Object.values(CHECKS));
+  const seen = new Set<string>();
+  return raw.map((item: unknown, i) => {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) throw new Error(`projectChecks[${i}] はオブジェクトで書いてください`);
+    const { context, integrationId = GITHUB_ACTIONS_APP_ID } = item as { context?: unknown; integrationId?: unknown };
+    if (typeof context !== 'string' || context.trim() === '') throw new Error(`projectChecks[${i}].context は空でない文字列で書いてください`);
+    if (typeof integrationId !== 'number' || !Number.isInteger(integrationId) || integrationId <= 0) throw new Error(`projectChecks[${i}].integrationId は正の整数で書いてください`);
+    if (harness.has(context)) throw new Error(`projectChecks[${i}].context の ${context} はハーネスのチェックと同じ名前です（ハーネスのチェックは設定に書きません）`);
+    if (seen.has(context)) throw new Error(`projectChecks の ${context} が重複しています`);
+    seen.add(context);
+    return { context, integrationId };
+  });
+}
 
 /** 人の PR を判定を待たずに通すラベル（人だけが付ける） */
 export const REVIEW_EXEMPT_LABEL = 'review:exempt';

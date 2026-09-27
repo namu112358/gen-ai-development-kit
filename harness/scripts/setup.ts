@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { allLabelDefs, CHECKS, loadConfig, MANAGED_PREFIXES } from '../lib/config.ts';
+import { allLabelDefs, loadConfig, MANAGED_PREFIXES } from '../lib/config.ts';
 import { GhTransport, GitHub } from '../lib/github.ts';
+import { RULESET_NAME, rulesetBody, rulesetSummary } from '../lib/ruleset.ts';
 
 /**
  * リポジトリ設定を冪等に適用する（人が手元で、リポジトリ管理者の gh 認証で実行する）。
@@ -15,9 +16,7 @@ import { GhTransport, GitHub } from '../lib/github.ts';
  *   node harness/scripts/setup.ts all <owner/repo> <appId>          labels・repo・environment・ruleset をまとめて
  */
 
-const GITHUB_ACTIONS_APP_ID = 15368;
 const ENVIRONMENT = 'gate';
-const RULESET_NAME = 'agent-harness-main';
 
 async function labels(gh: GitHub): Promise<void> {
   const defs = allLabelDefs(loadConfig());
@@ -84,53 +83,17 @@ async function setVariable(gh: GitHub, base: string, name: string, value: string
   console.log(`variable ${name}=${value}`);
 }
 
-export function rulesetBody(appId: number) {
-  return {
-    name: RULESET_NAME,
-    target: 'branch',
-    enforcement: 'active',
-    bypass_actors: [],
-    conditions: { ref_name: { include: ['~DEFAULT_BRANCH'], exclude: [] } },
-    rules: [
-      { type: 'deletion' },
-      { type: 'non_fast_forward' },
-      {
-        type: 'pull_request',
-        parameters: {
-          required_approving_review_count: 0,
-          dismiss_stale_reviews_on_push: false,
-          require_code_owner_review: false,
-          require_last_push_approval: false,
-          required_review_thread_resolution: false,
-          allowed_merge_methods: ['squash'],
-        },
-      },
-      {
-        type: 'required_status_checks',
-        parameters: {
-          strict_required_status_checks_policy: true,
-          do_not_enforce_on_create: false,
-          required_status_checks: [
-            { context: 'ci', integration_id: GITHUB_ACTIONS_APP_ID },
-            { context: CHECKS.review, integration_id: appId },
-            { context: CHECKS.mergeRoute, integration_id: appId },
-            { context: CHECKS.planLink, integration_id: appId },
-            { context: CHECKS.title, integration_id: appId },
-            { context: CHECKS.tests, integration_id: appId },
-          ],
-        },
-      },
-    ],
-  };
-}
-
 async function ruleset(gh: GitHub, appId: number): Promise<void> {
   if (!Number.isInteger(appId) || appId <= 0) throw new Error('appId が必要です');
+  // projectChecks の書式の誤りは、API を呼ぶ前にここで止まる
+  const config = loadConfig();
+  const body = rulesetBody(appId, config);
+  const summary = rulesetSummary(appId, config);
   const existing = (await gh.get<{ id: number; name: string }[]>(`${gh.repoPath}/rulesets`)).find((r) => r.name === RULESET_NAME);
-  const body = rulesetBody(appId);
   if (existing) await gh.request('PUT', `${gh.repoPath}/rulesets/${existing.id}`, { body });
   else await gh.request('POST', `${gh.repoPath}/rulesets`, { body });
-  console.log(`ruleset ${RULESET_NAME}: required = ci(GitHub Actions), ${CHECKS.review}・${CHECKS.mergeRoute}・${CHECKS.planLink}・${CHECKS.title}・${CHECKS.tests}(App ${appId}); bypass なし`);
+  if (summary.warning) console.warn(summary.warning);
+  console.log(summary.text);
 }
 
 function appManifest(repository: string, name: string): void {

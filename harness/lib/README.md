@@ -24,6 +24,7 @@
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `queue.ts` | Routine の次の行動を決める純粋関数。 | 対象外 |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）の純粋関数。 | ○ |
+| `ruleset.ts` | 既定ブランチの Ruleset の本文（harness/scripts/setup.ts の ruleset が適用する）。 | ○ |
 | `scope.ts` | 計画の「触るファイル一覧」と実際の diff の照合（範囲照合）。 | ○ |
 | `session-inputs.ts` | 有人セッションで判定（Reviewer）・批評（plan-critic）に渡す入力と、判定コメントの組み立て。 | ○ |
 | `stack.ts` | PR の base の見分け（既定ブランチ宛て・Stacked PR の層・スタックでないのに base が既定ブランチ以外）。 | ○ |
