@@ -3,6 +3,10 @@ import { fileURLToPath } from 'node:url';
 import { TITLE_TYPES } from './title.ts';
 import type { PricingTable } from './usage.ts';
 
+/**
+ * `harness.config.json` の読み込みと、ラベル・理由コード・必須チェックの名前などの定義。
+ */
+
 export interface HarnessConfig {
   appSlug: string;
   defaultBranch: string;

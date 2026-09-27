@@ -40,11 +40,13 @@ flowchart LR
 
 GitHub の設定。ここはガードレール（変えると人が Merge する場所）。`.github/` に README.md を置くと、GitHub がリポジトリのトップにこのファイルの代わりにそれを出すため、説明はこの節に書く。
 
-| 名前 | 内容 |
-| --- | --- |
-| `ISSUE_TEMPLATE/` | Issue の作り方の設定。`agent-task.yml` は「Agent タスク」の Issue Form（Goal・Requirements・Acceptance Criteria などの見出しをゲートが読む）、`config.yml` は Form を使わない Issue も作れるようにする設定。ここに .md を置くと Issue のテンプレートとして扱われるので、README は置かない |
-| `pull_request_template.md` | PR 本文の見本（`Closes #番号`、変更の概要、AC ごとの対応、範囲外の変更、テスト） |
-| `workflows/` | GitHub Actions の設定（CI とゲート）。中身は [.github/workflows/README.md](.github/workflows/README.md) |
+<!-- readme:generated start -->
+| 名前 | 内容 | ガードレール |
+| --- | --- | --- |
+| `ISSUE_TEMPLATE/` | Issue の作り方の設定。`agent-task.yml` は「Agent タスク」の Issue Form（Goal・Requirements・Acceptance Criteria などの見出しをゲートが読む）、`config.yml` は Form を使わない Issue も作れるようにする設定。ここに .md を置くと Issue のテンプレートとして扱われるので、README は置かない | ○ |
+| `pull_request_template.md` | PR 本文の見本（`Closes #番号`、変更の概要、AC ごとの対応、範囲外の変更、テスト） | ○ |
+| `workflows/` | GitHub Actions の設定。 | ○ |
+<!-- readme:generated end -->
 
 ## 開発
 

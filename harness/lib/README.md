@@ -2,33 +2,35 @@
 
 ゲート（`harness/gates/`）とコマンド（`harness/scripts/`）が共通で使うロジック。多くは GitHub を呼ばない関数で、テストしやすくしてある。ほとんどがガードレール（変えると人が Merge する場所）で、「対象外」と書いたものだけ `harness.config.json` の `guardrailExclude` で外してある。
 
+<!-- readme:generated start -->
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
-| `blocks.ts` | コメントに埋め込む構造化データ（```` ```agent-plan ```` など）と、Claude・App の目印の読み書き | ○ |
-| `classify.ts` | PR の表示用ラベル（差分の行数から `size:*`、変更ファイルから `area:*`）を決める | 対象外 |
-| `concurrency.ts` | 領域（`area:*`）ごとに同時に開いてよい PR の数（`areaConcurrency`）の判定 | 対象外 |
-| `config.ts` | `harness.config.json` の読み込みと、ラベル・理由コードなどの定義 | ○ |
-| `epic.ts` | Epic：計画の `split`（子課題の一覧）の検査と、子 Issue の本文の作り方 | ○ |
-| `exempt.ts` | 例外ラベル（`review:exempt`・`test:exempt`）が付けた時点の差分にだけ効くようにする | ○ |
-| `facts.ts` | GitHub から Issue・PR の状態（着手宣言・判定・レビューなど）を集め、queue を計算する | ○ |
-| `fleet.ts` | fleet（複数の Issue を並行して進める）の段階の判定と、同時に進める Issue の選び方 | ○ |
-| `github.ts` | GitHub の API を呼ぶ最小のクライアント（Actions では App のトークン、手元では `gh`） | ○ |
-| `guardrail.ts` | ガードレールと `humanMergePaths`（人が Merge するパス）に当たるファイルの判定 | ○ |
-| `issue-form.ts` | Issue Form の本文（Goal・Requirements・Acceptance Criteria など）の読み取り | ○ |
-| `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる | 対象外 |
-| `jev.ts` | Jev（TypeSafe AI の判定モデル）に Risk の8問を問い、答えを読む | ○ |
-| `label-rules.ts` | 必須ラベルの検査（Issue・Epic・PR ごとに足りないラベルと違反） | ○ |
-| `merge-route.ts` | App の受け付けの記録と、必須チェック merge-route の評価（自動 Merge してよいか） | ○ |
-| `patch-id.ts` | 差分の `git patch-id --verbatim`（main に追従しても差分が同じか）を求める | ○ |
-| `plan.ts` | 計画コメント（```` ```agent-plan ````）の読み取りと、計画ゲートの判定 | ○ |
-| `queue.ts` | 次にやること（queue）を決める。状態は毎回 GitHub から読み直す | 対象外 |
-| `report.ts` | 判定の集計（Jev の切り替え判断用）の計算と表示 | ○ |
-| `scope.ts` | 範囲照合：PR の変更ファイルが計画の触るファイル一覧に収まるか | ○ |
-| `session-inputs.ts` | 付き添いのセッションで Reviewer・plan-critic に渡す入力と、判定コメントの組み立て | ○ |
-| `state.ts` | GitHub 上の状態（ラベル・コメント・Timeline）の読み取り。App の名義で書かれたものだけを信頼する | ○ |
-| `test-tamper.ts` | テストの改ざん検査（必須チェック `agent/tests`）：テストの削除や skip の追加、アサーションの書き換えを見つける | ○ |
-| `title.ts` | Issue・PR のタイトルの形式（Conventional Commits の `type(scope): 説明`）の読み取り | ○ |
-| `usage.ts` | セッションの記録からトークン数を数え、推定料金（目安）を出す | 対象外 |
-| `validate.ts` | 依存の無い小さな検証の補助（エラーを場所付きで集める） | ○ |
-| `verdict.ts` | 判定コメント（```` ```agent-verdict ````）の読み取りと、自動 Merge・修正ループの条件 | ○ |
-| `worktree.ts` | 作業用の git worktree（リポジトリの外の作業場所）の作成と削除 | 対象外 |
+| `blocks.ts` | コメントに埋め込む構造化データと目印。 | ○ |
+| `classify.ts` | PR の分類ラベル（表示用）。 | 対象外 |
+| `concurrency.ts` | 領域（area）ごとの、同時に開いてよい PR の上限。 | 対象外 |
+| `config.ts` | `harness.config.json` の読み込みと、ラベル・理由コード・必須チェックの名前などの定義。 | ○ |
+| `epic.ts` | Epic：計画の `split` で大きな課題を子課題に分ける。 | ○ |
+| `exempt.ts` | 人が付ける例外ラベル（review:exempt・test:exempt）は、付けた時点の PR の差分にだけ効く。 | ○ |
+| `facts.ts` | queue の材料（事実）を GitHub から集める。 | ○ |
+| `fleet.ts` | fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。 | ○ |
+| `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |
+| `guardrail.ts` | ガードレール：Agent が自分を縛る仕組み（App が機械的に強制している部分）。 | ○ |
+| `issue-form.ts` | Issue Forms（.github/ISSUE_TEMPLATE/agent-task.yml）が出力する本文の読み取り。 | ○ |
+| `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。 | 対象外 |
+| `jev.ts` | TypeSafe AI の Jev（https://docs.typesafe.ai/api）で、Risk ポリシーの8問に1回の呼び出しで答えさせる。 | ○ |
+| `label-rules.ts` | 必須ラベルの検査（docs/operations.md の「必須ラベルの規則」）。 | ○ |
+| `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
+| `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
+| `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
+| `queue.ts` | Routine の次の行動を決める純粋関数。 | 対象外 |
+| `report.ts` | 判定の集計（Jev の切り替え判断用）の純粋関数。 | ○ |
+| `scope.ts` | 計画の「触るファイル一覧」と実際の diff の照合（範囲照合）。 | ○ |
+| `session-inputs.ts` | 有人セッションで判定（Reviewer）・批評（plan-critic）に渡す入力と、判定コメントの組み立て。 | ○ |
+| `state.ts` | GitHub 上の状態の読み取り。 | ○ |
+| `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
+| `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |
+| `usage.ts` | Claude Code のセッション記録（jsonl）からトークン数を集計し、API で動かした場合の料金を見積もる。 | 対象外 |
+| `validate.ts` | 依存なしの小さな検証ヘルパー。 | ○ |
+| `verdict.ts` | 判定コメントの構造化出力（````agent-verdict````）。 | ○ |
+| `worktree.ts` | 作業用の git worktree（リポジトリの外の作業場所）の作成と削除。 | 対象外 |
+<!-- readme:generated end -->

@@ -1,6 +1,6 @@
 # harness/test/
 
-`node:test` のテスト。`npm run check`（型検査＋テスト）で全部が動く。ファイルが多いので、種類ごとに説明する（このディレクトリは README の鮮度の検査の対象外）。
+`node:test` のテスト。`npm run check`（型検査＋テスト）で全部が動く。ファイルが多いので、種類ごとに説明する（このディレクトリは説明の生成の対象外。名前の実在の検査はかかる）。
 
 | 種類 | 内容 |
 | --- | --- |
@@ -8,8 +8,9 @@
 | `*-guardrail.test.ts` | ガードレールの範囲と、それに触れる計画・PR の扱い（止めるか通すか）のテスト |
 | `hooks-*.test.ts` | 見張りの hook（`.claude/hooks/guard.ts`）が止めるべき操作を止めるか |
 | `skills.test.ts`・`ship-skill.test.ts` | skill の手順書（`.claude/skills/`）の書き方の検査 |
-| `readme-index.test.ts` | 各ディレクトリの README に直下の名前がすべて書かれているか、`overview.html` が外部を読み込まないか |
-| その他の `<機能名>.test.ts` | `harness/lib/`・`harness/scripts/` の各ロジックのテスト（例：`plan.test.ts`・`scope.test.ts`・`mutate.test.ts`） |
+| `readme-*.test.ts` | 各ディレクトリの README が、直下の実在する名前・先頭のコメントから生成した表と食い違っていないかの検査（`readme-index.test.ts`・`readme-generate.test.ts`・`readme-stale-names.test.ts`） |
+| `overview-labels.test.ts` | `overview.html` のラベル表示が `harness.config.json` の定義と食い違っていないかの検査 |
+| その他 | `harness/lib/`・`harness/scripts/` の各ロジックのテスト（`<機能名>.test.ts`。例：`plan.test.ts`・`scope.test.ts`・`mutate.test.ts`） |
 | `support/` | テストが共有する補助（テストとしては動かない） |
 
 新しいテストは既存のファイルの末尾に足さず、機能・ハンドラーごとのファイルに書く。
