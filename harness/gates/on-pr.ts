@@ -1,10 +1,11 @@
 import { areaLabels, classificationChanges, sizeLabel, type ChangedFile } from '../lib/classify.ts';
-import { CHECKS, LABELS, PLAN_EXEMPT_LABEL, REVIEW_EXEMPT_LABEL } from '../lib/config.ts';
+import { CHECKS, LABELS, PLAN_EXEMPT_LABEL, REVIEW_EXEMPT_LABEL, TEST_EXEMPT_LABEL } from '../lib/config.ts';
 import { writePlanLink } from './plan-link.ts';
 import { parseTitle } from '../lib/title.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { checkScope } from '../lib/scope.ts';
-import { acceptanceForPatch, changedFiles, hasLabel, isSameRepoPr, plannedFilesForPr, prDiff } from '../lib/state.ts';
+import { DEFAULT_TEST_PATTERNS, detectTestTampering, renderTamperSummary } from '../lib/test-tamper.ts';
+import { acceptanceForPatch, changedFiles, hasLabel, isSameRepoPr, plannedFilesForPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute } from './apply.ts';
 import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
 
@@ -12,6 +13,7 @@ import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type G
  * pull_request_target：PR の head は checkout せず、中身は API で読むだけ。
  * - push（synchronize）：まず auto-merge を解除し、差分が同じなら過去の判定を引き継ぐ
  * - 範囲照合（agent/scope、情報表示用）
+ * - テストの改ざん検査（agent/tests、必須。fork の PR も）
  * - hold・auto-merge の変化で merge-route を書き直す
  */
 export async function onPullRequest(ctx: GateContext): Promise<void> {
@@ -45,6 +47,16 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
     await writeCheck(ctx, pr.head.sha, CHECKS.review, { conclusion: 'success', title: '例外（review:exempt）', summary: '人が判定を待たずに通しました。自動 Merge の経路には乗りません。' });
   }
 
+  // テストの改ざん検査（fork の PR にも書く）。例外は人が付ける test:exempt で、付け外しを記録する
+  let diff: Promise<string> | undefined;
+  const getDiff = () => (diff ??= prDiff(ctx.gh, pr));
+  if ((action === 'labeled' || action === 'unlabeled') && label === TEST_EXEMPT_LABEL) {
+    await appComment(ctx, number, 'test-exempt', `\`${TEST_EXEMPT_LABEL}\` が @${ctx.event.sender?.login} により${action === 'labeled' ? '付けられました' : '外されました'}（記録）。`);
+  }
+  if (['opened', 'reopened', 'synchronize'].includes(action) || label === TEST_EXEMPT_LABEL) {
+    await writeTestsCheck(ctx, pr, getDiff, hasLabel(pr, TEST_EXEMPT_LABEL) && !(action === 'unlabeled' && label === TEST_EXEMPT_LABEL));
+  }
+
   // fork からの PR は判定しない（例外ラベルでのみ通る）。自動経路にも乗らない
   if (!isSameRepoPr(pr, ctx.repository)) {
     await refreshMergeRoute(ctx, pr);
@@ -54,7 +66,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   if (action === 'unlabeled' && ctx.event.label?.name === LABELS.hold) {
     await appComment(ctx, number, 'hold-removed', `\`agent:hold\` が @${ctx.event.sender?.login} により外されました（記録）。`);
     // 自動 Merge の条件を満たす判定があれば、auto-merge を付け直す（hold 中は付けていないため）
-    const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(number), patchId(await prDiff(ctx.gh, pr)));
+    const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(number), patchId(await getDiff()));
     if (acceptance?.autoEligible) {
       await applyAcceptance(ctx, pr, acceptance, { fresh: false });
       return;
@@ -62,8 +74,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   }
 
   if (['opened', 'reopened', 'synchronize'].includes(action)) {
-    const diff = await prDiff(ctx.gh, pr);
-    const patch = patchId(diff);
+    const patch = patchId(await getDiff());
     await writeScopeCheck(ctx, number, pr.head.sha);
     const comments = await ctx.gh.listComments(number);
     const acceptance = acceptanceForPatch(ctx.config, comments, patch);
@@ -82,6 +93,18 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   }
 
   await refreshMergeRoute(ctx, pr);
+}
+
+/** 必須チェック agent/tests：テストの削除・skip の追加・アサーションの変更を差分から検出する */
+async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () => Promise<string>, exempt: boolean): Promise<void> {
+  if (exempt) {
+    await writeCheck(ctx, pr.head.sha, CHECKS.tests, { conclusion: 'success', title: `例外（${TEST_EXEMPT_LABEL}）`, summary: '人がテストを弱める変更を例外として通しました。' });
+    return;
+  }
+  const findings = detectTestTampering(await getDiff(), ctx.config.testPatterns ?? DEFAULT_TEST_PATTERNS);
+  await writeCheck(ctx, pr.head.sha, CHECKS.tests, findings.length === 0
+    ? { conclusion: 'success', title: 'テストを弱める変更はありません', summary: '' }
+    : { conclusion: 'failure', title: `テストを弱める変更が ${findings.length} 件`, summary: [`Issue 本文にテストを変える理由があれば、人が \`${TEST_EXEMPT_LABEL}\` を付けて通します。`, '', renderTamperSummary(findings)].join('\n') });
 }
 
 async function writeScopeCheck(ctx: GateContext, number: number, headSha: string): Promise<void> {

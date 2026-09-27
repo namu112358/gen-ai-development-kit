@@ -88,6 +88,10 @@ App が書く必須チェック。auto-merge が付いていない PR は通し�
 
 App が書く必須チェック。計画のある Issue を `Closes` しない PR を止める。人の PR も対象になる。詳細：[operations.md](operations.md#人が関わる場面)
 
+### `agent/tests`
+
+App が書く必須チェック。PR の差分からテストの削除、skip・only・todo の追加、アサーションの削除・書き換えを検出して止める。例外は人が付ける `test:exempt`。詳細：[operations.md](operations.md#テストの改ざん検査)
+
 ### Human Merge / 自動 Merge
 
 Human Merge は人が PR を Merge する経路で、Risk が medium 以上の PR はこちらになる。自動 Merge は、low で条件をすべて満たす PR に App が auto-merge を付け、必須チェックが揃うと GitHub が Merge する経路。詳細：[risk-policy.md](risk-policy.md#自動-merge-の条件)

@@ -1,0 +1,182 @@
+/**
+ * テストの改ざん検査（agent/tests）。PR の unified diff（base...head）だけを見る純粋関数。
+ * テストファイルは harness.config.json の testPatterns（範囲照合と同じパターンの書式）で見分ける。
+ * 検出するもの：
+ * - テストファイルの削除と、テストファイルでないパスへのリネーム
+ * - テスト定義（test( / it( / describe(）の行の削除。同じファイルに同じ名前の定義が追加されていれば移動とみなす
+ * - skip / only / todo の追加（.skip(、{ skip: … }、xit( など）
+ * - アサーション（assert / expect(）を含む行の削除・書き換え（整形だけの変更も含む）
+ * 同じファイルで同じ内容の行が消えて足されたもの（移動）は数えない。
+ */
+import { globToRegExp } from './scope.ts';
+
+export type TamperKind = 'deleted-file' | 'renamed-away' | 'removed-test' | 'skip-added' | 'assertion-changed';
+
+export interface TamperFinding {
+  kind: TamperKind;
+  file: string;
+  /** 削除された行は base 側、追加された行は head 側の行番号。ファイル単位の検出では無い */
+  line?: number;
+  side?: 'base' | 'head';
+  text?: string;
+}
+
+export const TAMPER_KIND_LABELS: Record<TamperKind, string> = {
+  'deleted-file': 'テストファイルの削除',
+  'renamed-away': 'テストファイルでないパスへのリネーム',
+  'removed-test': 'テスト定義の削除',
+  'skip-added': 'skip / only / todo の追加',
+  'assertion-changed': 'アサーションの削除・書き換え',
+};
+
+interface Line {
+  no: number;
+  text: string;
+}
+
+interface FileDiff {
+  oldPath: string | null;
+  newPath: string | null;
+  deleted: boolean;
+  removed: Line[];
+  added: Line[];
+}
+
+const DEFINITION = /\b(?:test|it|describe)(?:\.\w+)*\s*\(\s*(['"`])((?:\\.|(?!\1).)*)\1/;
+const SKIP = /\.(?:skip|only|todo)\s*\(|\b[xf](?:it|describe|test)\s*\(|[{,]\s*(?:skip|only|todo)\s*:(?!\s*false\b)/;
+const ASSERTION = /\bassert\b|\bexpect\s*\(/;
+
+/** harness.config.json に testPatterns が無いときのパターン */
+export const DEFAULT_TEST_PATTERNS = ['**/*.test.*', '**/*.spec.*', '**/test/**', '**/tests/**', '**/__tests__/**'];
+
+export function isTestFile(patterns: string[], path: string): boolean {
+  return patterns.some((p) => globToRegExp(p).test(path));
+}
+
+export function detectTestTampering(diff: string, patterns: string[]): TamperFinding[] {
+  const findings: TamperFinding[] = [];
+  for (const f of parseDiff(diff)) {
+    const oldIsTest = f.oldPath !== null && isTestFile(patterns, f.oldPath);
+    const newIsTest = f.newPath !== null && isTestFile(patterns, f.newPath);
+    if (f.deleted || f.newPath === null) {
+      if (oldIsTest) findings.push({ kind: 'deleted-file', file: f.oldPath! });
+      continue;
+    }
+    if (oldIsTest && !newIsTest && f.oldPath !== f.newPath) {
+      findings.push({ kind: 'renamed-away', file: `${f.oldPath} → ${f.newPath}` });
+      continue;
+    }
+    if (!newIsTest) continue;
+    const file = f.newPath;
+    // 同じ内容の行が消えて足されたものは移動とみなす（多重集合で相殺する）
+    const addedPool = countTexts(f.added);
+    const removedPool = countTexts(f.removed);
+    const removed = f.removed.filter((l) => !take(addedPool, l.text.trim()));
+    const added = f.added.filter((l) => !take(removedPool, l.text.trim()));
+    const addedNames = new Set(f.added.map((l) => definitionName(l.text)).filter((n): n is string => n !== null));
+    for (const l of removed) {
+      const name = definitionName(l.text);
+      if (name !== null && !addedNames.has(name)) findings.push({ kind: 'removed-test', file, line: l.no, side: 'base', text: l.text.trim() });
+      else if (ASSERTION.test(l.text)) findings.push({ kind: 'assertion-changed', file, line: l.no, side: 'base', text: l.text.trim() });
+    }
+    for (const l of added) {
+      if (SKIP.test(l.text)) findings.push({ kind: 'skip-added', file, line: l.no, side: 'head', text: l.text.trim() });
+    }
+  }
+  return findings;
+}
+
+function definitionName(text: string): string | null {
+  return text.match(DEFINITION)?.[2] ?? null;
+}
+
+function countTexts(lines: Line[]): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const l of lines) m.set(l.text.trim(), (m.get(l.text.trim()) ?? 0) + 1);
+  return m;
+}
+
+function take(pool: Map<string, number>, key: string): boolean {
+  const n = pool.get(key) ?? 0;
+  if (n === 0) return false;
+  pool.set(key, n - 1);
+  return true;
+}
+
+function unquote(path: string): string {
+  if (!(path.startsWith('"') && path.endsWith('"'))) return path;
+  try {
+    return JSON.parse(path) as string;
+  } catch {
+    return path.slice(1, -1);
+  }
+}
+
+function parseDiff(diff: string): FileDiff[] {
+  const files: FileDiff[] = [];
+  let cur: FileDiff | null = null;
+  let oldNo = 0;
+  let newNo = 0;
+  let oldLeft = 0;
+  let newLeft = 0;
+  for (const raw of diff.split('\n')) {
+    const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
+    if (cur && (oldLeft > 0 || newLeft > 0)) {
+      // hunk の中は行数で読む（`--- ` で始まる削除行を見出しと取り違えないため）
+      if (line.startsWith('\\')) continue;
+      const mark = line[0];
+      const text = line.slice(1);
+      if (mark === '-') {
+        cur.removed.push({ no: oldNo++, text });
+        oldLeft--;
+      } else if (mark === '+') {
+        cur.added.push({ no: newNo++, text });
+        newLeft--;
+      } else {
+        oldNo++;
+        newNo++;
+        oldLeft--;
+        newLeft--;
+      }
+      continue;
+    }
+    const header = line.match(/^diff --git a\/(.+) b\/(.+)$/);
+    if (header) {
+      cur = { oldPath: header[1]!, newPath: header[2]!, deleted: false, removed: [], added: [] };
+      files.push(cur);
+      continue;
+    }
+    if (!cur) continue;
+    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    if (hunk) {
+      oldNo = Number(hunk[1]);
+      oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
+      newNo = Number(hunk[3]);
+      newLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
+    } else if (line.startsWith('deleted file mode')) {
+      cur.deleted = true;
+    } else if (line.startsWith('rename from ')) {
+      cur.oldPath = unquote(line.slice('rename from '.length));
+    } else if (line.startsWith('rename to ')) {
+      cur.newPath = unquote(line.slice('rename to '.length));
+    } else if (line.startsWith('--- ')) {
+      const p = line.slice(4);
+      cur.oldPath = p === '/dev/null' ? null : unquote(p).replace(/^a\//, '');
+    } else if (line.startsWith('+++ ')) {
+      const p = line.slice(4);
+      cur.newPath = p === '/dev/null' ? null : unquote(p).replace(/^b\//, '');
+    }
+  }
+  return files;
+}
+
+/** Check Run の要約（ファイルと行の一覧） */
+export function renderTamperSummary(findings: TamperFinding[], limit = 100): string {
+  const lines = findings.slice(0, limit).map((f) => {
+    const at = f.line === undefined ? '' : `:${f.line}${f.side === 'base' ? '（変更前）' : ''}`;
+    const text = f.text ? ` — \`${f.text.slice(0, 120).replace(/`/g, "'")}\`` : '';
+    return `- ${TAMPER_KIND_LABELS[f.kind]}：\`${f.file}${at}\`${text}`;
+  });
+  if (findings.length > limit) lines.push(`- ほか ${findings.length - limit} 件`);
+  return lines.join('\n');
+}

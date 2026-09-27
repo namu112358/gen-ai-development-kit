@@ -9,6 +9,7 @@
     "humanClaimStaleHours": 6,
     "routineClaimTakeoverMinutes": 90
   },
+  "testPatterns": ["**/*.test.*", "**/*.spec.*", "**/test/**", "**/tests/**", "**/__tests__/**"],
   "areaConcurrency": {
     "harness": 2
   },

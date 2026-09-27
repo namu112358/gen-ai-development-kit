@@ -63,7 +63,7 @@
 Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同じ手順で判定する。人の PR は修正しない（ブロッキング指摘は App が変更要求レビューとして返す）。
 
 1. MCP で PR の head SHA を読み、queue の `headSha` と同じか確かめる（違えば飛ばす）。
-2. **reviewer** サブエージェントに判定させる。サブエージェントは GitHub を読めないので、本体が MCP で読んだ次の内容を指示に含めて渡す：PR 番号・Issue 番号・head SHA、Issue 本文（Goal・Requirements・Non-goals・AC）、Issue にある App の plan-gate 記録の計画（`plan.files` を含む）、PR の head の `agent/scope` の結果。
+2. **reviewer** サブエージェントに判定させる。サブエージェントは GitHub を読めないので、本体が MCP で読んだ次の内容を指示に含めて渡す：PR 番号・Issue 番号・head SHA、Issue 本文（Goal・Requirements・Non-goals・AC）、Issue にある App の plan-gate 記録の計画（`plan.files` を含む）、PR の head の `agent/scope` の結果。前回の判定がある PR（修正後の再レビュー）では、前回の判定の `headSha` とその `review.blocking` も渡す（reviewer は前回の head からの差分と前回の指摘だけをブロッキングの対象にする）。
 3. **risk-agent** サブエージェントに PR 番号と head SHA **だけ**を渡す（Issue や PR の説明を渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
 
 どちらのサブエージェントにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押す。
