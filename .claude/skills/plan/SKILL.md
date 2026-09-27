@@ -31,6 +31,7 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `split`：分け方の案に従い、`split` 付きの計画にして、`critique` の `verdict` を `split` にする。
    - `drop`、または止める条件に当たったとき：有人セッションでは `render-block` で Issue を止めない。その場で人に要点（残る指摘）を示し、「進める／直す／やめる」を聞く。「進める」なら `critique` の `verdict` は最後の判定のまま（`revise` なら `revise`）にし、書式に `mustRemaining` があれば残った必須の件数を書く。「直す」なら人の指示で直して手順5から、「やめる」なら投稿しない。
 8. `node harness/scripts/agent.ts post-plan <番号> <ファイル>` で投稿する（検査、ラベルの付け替え、コメントの投稿をまとめて行う）。出力の `expectedGate` を人に伝える。
+   - 出し直し（計画ゲートで止まった Issue に計画を出し直す）：前の停止が App のゲートによるもの（critical・ガードレールなど）なら、App は前の印に引きずられずに新しい計画を判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）や人が付けた印は、人が外すまで残る。`agent:plan-review` を手で外さない。
 
 ## 終わりの状態
 

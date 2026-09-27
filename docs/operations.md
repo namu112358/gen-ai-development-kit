@@ -39,7 +39,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | ラベル | 付ける者 | 意味 |
 | --- | --- | --- |
 | `agent:ready` | 人 | 着手してよい |
-| `agent:plan-review` | Routine / App | 計画に人の判断が必要。人のセッションで実装する |
+| `agent:plan-review` | App（計画ゲート）/ Planner（申告のとき） | 計画に人の判断が必要。人のセッションで実装する。外せるのは人と、App（ゲートの停止で、出し直した計画が通ったとき） |
 | `agent:plan-ok` | App のみ | 計画ゲート通過 |
 | `agent:waiting` | Routine / App | 依存待ち（blocker が閉じると App が外す） |
 | `agent:blocked` | Routine / App / 人 | 人の対応が必要。付けるときは理由コードを残す（下記） |
@@ -57,6 +57,8 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。
 
 止めた理由は、`agent:blocked` / `agent:plan-review` を付けるコメントに理由コード（`<!-- agent-harness:reason code=… -->`）で残す。ダッシュボードの「人の対応待ち」は理由別に並び、理由が無いものは「要確認」になる。
+
+計画ゲートで止まった Issue に計画を出し直すとき、App は自分の計画ゲートの記録で前の印の出どころを見る。ゲートの停止（critical・ガードレールなど）で、最後に印を付けたのが App なら、新しい計画だけで判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）や人が付けた印、出どころの無い古い記録は、人が外すまで止める。ゲートの停止の印は出し直しで外れうるので、計画を出し直しても止めておきたいときは `agent:hold` を付ける。書式は [formats.md](formats.md#計画)。
 
 | 理由コード | 意味 |
 | --- | --- |
@@ -140,7 +142,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 場面 | 操作 |
 | --- | --- |
 | PR を出すとき（人のセッションを含む） | Issue を立てて計画を投稿し、PR 本文に `Closes #番号` を書く。計画のある Issue に紐付かない PR は必須チェック `agent/plan-link` で止まる |
-| `agent:plan-review` の Issue | 人が付き添う Claude のセッションで、人が進めてよいと言えば ship が続きを進める（`node harness/scripts/agent.ts claim <番号> --manual` してから実装し、`claude/` ブランチで同じ書式の PR を出す。Agent PR として判定される）。やめるときは `release <番号>` |
+| `agent:plan-review` の Issue | 人が付き添う Claude のセッションで、人が進めてよいと言えば ship が続きを進める（`node harness/scripts/agent.ts claim <番号> --manual` してから実装し、`claude/` ブランチで同じ書式の PR を出す。Agent PR として判定される）。やめるときは `release <番号>`。ゲートの停止（critical・ガードレールなど）なら、止めた理由を直した計画の出し直しで外れうる |
 | Agent PR に直してほしい点がある | PR の Review を **Comment として Submit** する（同じ名義の PR には Request changes を付けられない）。最後の push 以降のレビューを fix が修正依頼として扱う |
 | Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を確認して Merge する |
 | 人が自分で書いた PR（`claude/` 以外のブランチ） | 計画のある Issue に紐付いていれば judge の skill で判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |

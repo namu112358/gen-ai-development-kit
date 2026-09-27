@@ -53,6 +53,8 @@ Claude（Routine・人のセッション）と App は、コメントに JSON �
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている。
 
+Issue に `agent:plan-review` が付いているときの出し直しは、App の最新の計画ゲートの記録（`agent-app` ブロックの `planReviewOrigin`）で扱いを決める。`planReviewOrigin` は停止の記録に書く出どころで、`gate` は App のゲートの停止（critical・ガードレール・`files` の欠落・`split-invalid`・`resplit` など。止めた計画に Planner の申告が無く、止める前に印が付いていなかった）、`planner` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）か、App が止める前から付いていた印（Planner か人が付けた）。記録が `gate` の停止で、最後に `agent:plan-review` を付けたのが App なら、前の印を理由に止めず新しい計画だけで判定する（通れば App が `agent:plan-review` を外して `agent:plan-ok` を付け、当たればまた `gate` で止まる）。記録が無い・`planner`・`planReviewOrigin` の無い古い記録なら、人が外すまで止める。`post-plan` / `render-plan` が先に付ける `agent:plan-review` は、Planner の申告があるときだけ。
+
 ### 子課題に分ける（split）
 
 大きな課題は、計画に `split` を足して Epic にする。分け方は人が承認しない。ゲートの検査に通れば、App が子 Issue を作る（流れは [operations.md](operations.md#epic大きな課題を分ける)）。

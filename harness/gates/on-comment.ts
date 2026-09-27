@@ -1,12 +1,12 @@
 import { createHash } from 'node:crypto';
 import { extractBlock } from '../lib/blocks.ts';
-import { LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
+import { appLogin, LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { guardrailFiles } from '../lib/guardrail.ts';
 import { callJev } from '../lib/jev.ts';
 import { eligibility, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { evaluatePlanGate, parsePlan, type GateResult, type Plan } from '../lib/plan.ts';
+import { evaluatePlanGate, parsePlan, planReviewOrigin, priorPlanReviewReleased, type GateResult, type Plan } from '../lib/plan.ts';
 import { checkScope } from '../lib/scope.ts';
 import {
   changedFiles,
@@ -15,10 +15,13 @@ import {
   isAgentPr,
   isSameRepoPr,
   isTrustedComment,
+  lastLabeled,
+  latestPlanGate,
   openPrsClosing,
   plannedFilesForPr,
   prDiff,
   type PlanGateRecord,
+  type TimelineEvent,
 } from '../lib/state.ts';
 import { fixAllowed, hasCriticalBlocking, parseVerdict, riskAllowsAutoMerge, type Verdict } from '../lib/verdict.ts';
 import { appComment, convertToDraft, getPr, type GateContext } from './context.ts';
@@ -69,9 +72,12 @@ async function onPlan(
 
   const plan = parsed.value;
   const gate = evaluatePlanGate(plan, issue.number, ctx.config);
-  if (hasLabel(issue, LABELS.planReview) && gate.pass) {
+  const labelled = hasLabel(issue, LABELS.planReview);
+  // 前の印が App のゲートの停止なら、それを理由に止めず新しい計画だけで判定する（Planner の申告・人の印は人が外すまで残す）
+  const released = labelled && (await releasesPriorPlanReview(ctx, issue.number));
+  if (labelled && !released && gate.pass) {
     gate.pass = false;
-    gate.reasons.push('`agent:plan-review` が付いています（Planner が人の判断を求めています）');
+    gate.reasons.push('`agent:plan-review` が付いています（Planner の申告か人が付けた印です。人が外すまで止めます）');
   }
   // 別の計画で既に分けていれば分け直さない（同じ計画コメントの再実行は続きから作る）
   const epic: EpicState | null = gate.pass && plan.split ? await inspectEpic(ctx, issue.number, comment.id) : null;
@@ -80,6 +86,10 @@ async function onPlan(
     gate.reasons.push(epic.resplit);
   }
   const record = { version: 1, planCommentId: comment.id, planBodySha256: sha256(comment.body), pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan; planBodySha256: string };
+  if (!gate.pass) record.planReviewOrigin = planReviewOrigin(plan, labelled && !released);
+  // 通るときは、前のゲートの停止の印を外してから今までの処理をする
+  if (gate.pass && released) await ctx.gh.removeLabel(issue.number, LABELS.planReview);
+  const releasedNote = gate.pass && released ? '前の計画ゲートの停止（`agent:plan-review`）を外しました。' : '';
   if (gate.pass && plan.split && epic) {
     await splitEpic(ctx, issue, comment, { ...plan, split: plan.split }, record, epic);
   } else if (gate.pass) {
@@ -87,7 +97,7 @@ async function onPlan(
     // 計画の files から決まる area:* を足す（人が付けたものは外さない）
     const areas = planAreaLabels(ctx.config, plan.files, issue.labels.map((l) => l.name));
     if (areas.length > 0) await ctx.gh.addLabels(issue.number, areas);
-    await appComment(ctx, issue.number, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。`, record);
+    await appComment(ctx, issue.number, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。${releasedNote}`, record);
   } else {
     await ctx.gh.removeLabel(issue.number, LABELS.planOk);
     await ctx.gh.addLabels(issue.number, [LABELS.planReview]);
@@ -99,6 +109,15 @@ async function onPlan(
       record,
     );
   }
+}
+
+/** 最新の計画ゲートの記録がゲートの停止で、最後に agent:plan-review を付けたのが App か（印が付いているときだけ呼ぶ） */
+async function releasesPriorPlanReview(ctx: GateContext, issueNumber: number): Promise<boolean> {
+  const previous = latestPlanGate(ctx.config, await ctx.gh.listComments(issueNumber))?.value;
+  if (previous?.pass !== false || previous.planReviewOrigin !== 'gate') return false;
+  const events = await ctx.gh.paginate<TimelineEvent>(`/issues/${issueNumber}/events`);
+  const byApp = lastLabeled(events, LABELS.planReview)?.actor?.login === appLogin(ctx.config);
+  return priorPlanReviewReleased(true, previous, byApp);
 }
 
 function stopCode(plan: Plan, gate: GateResult): ReasonCode {
