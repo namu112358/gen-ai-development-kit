@@ -1,5 +1,6 @@
 import { appMark } from '../lib/blocks.ts';
 import { LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
+import { labelAuditRows, renderAuditLines } from '../lib/label-rules.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { refreshMergeRoute } from './apply.ts';
@@ -7,7 +8,7 @@ import { appComment, disableAutoMerge, getPr, updateBranchIfBehind, type GateCon
 
 /**
  * 定期実行：停滞検知。24 時間動きがない Issue・PR、期限切れの人の claim、コンフリクトしている PR、
- * 人の対応待ち（blocked / plan-review）を App のダッシュボード Issue に一覧化する。
+ * 人の対応待ち（blocked / plan-review）、必須ラベルの不足・違反を App のダッシュボード Issue に一覧化する。
  */
 
 interface IssueItem {
@@ -18,6 +19,7 @@ interface IssueItem {
   labels: { name: string }[];
   pull_request?: unknown;
   user: { login: string } | null;
+  sub_issues_summary?: { total?: number } | null;
 }
 
 /** ダッシュボード Issue を用意する。新規作成時は自動 Merge モードを停止した状態で作る（安全側） */
@@ -84,6 +86,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     if (pr.mergeable_state === 'dirty') conflicts.push(pr);
     else if (age(pr.updated_at) > staleMs) stalePrs.push(pr);
   }
+  const labelProblems = renderAuditLines(labelAuditRows(ctx.config, ctx.repository, issues, prs));
 
   const line = (i: { number: number; title: string; html_url: string }, extra = '') => `- [#${i.number}](${i.html_url}) ${i.title}${extra}`;
   const section = (title: string, rows: string[]) => [`### ${title}（${rows.length}）`, '', ...(rows.length ? rows : ['なし']), ''];
@@ -95,6 +98,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     ...section('コンフリクトしている Agent PR（CI が動きません）', conflicts.map((p) => line(p))),
     ...section('停滞している Agent PR', stalePrs.map((p) => line(p))),
     ...section('停滞している Issue', stale.map((i) => line(i))),
+    ...section('ラベルが足りない Issue・PR', labelProblems),
     '失敗した Actions の実行は [Actions](../../actions?query=is%3Afailure) を確認してください。',
   ].join('\n');
 
@@ -110,5 +114,5 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
   const kept = queueStart >= 0 ? `${withMode}\n\n${existing.slice(queueStart)}` : withMode;
   await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: kept } });
-  ctx.log(`auto-merge reconciled=${reconciled}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} stalePRs=${stalePrs.length} staleIssues=${stale.length}`);
+  ctx.log(`auto-merge reconciled=${reconciled}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} stalePRs=${stalePrs.length} staleIssues=${stale.length} labelProblems=${labelProblems.length}`);
 }

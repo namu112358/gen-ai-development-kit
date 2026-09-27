@@ -8,6 +8,7 @@ import { describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { computeQueue } from '../lib/facts.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
+import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
 import type { Claim } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
@@ -54,6 +55,8 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *   node harness/scripts/agent.ts critic-input <issue> <plan-file> [--previous <critique.json>]
  *                                                           plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画。
  *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力
+ *   node harness/scripts/agent.ts label-audit [番号..]      必須ラベルの不足と違反の一覧（ダッシュボードの「ラベルが足りない Issue・PR」と同じ検査）。
+ *                                                           番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲（agent:* か epic の開いた Issue と Agent PR）
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
@@ -246,6 +249,25 @@ async function criticInput(gh: GitHub, args: string[]): Promise<string> {
   return writeTemp(`critic-input-${n}.txt`, renderCriticInput(issue, await gh.listComments(n), readFileSync(planFile, 'utf8'), previous));
 }
 
+/** 必須ラベルの不足と違反を、ダッシュボードと同じ関数（harness/lib/label-rules.ts）で検査する */
+async function labelAudit(gh: GitHub, args: string[]): Promise<string> {
+  if (args.some((a) => !/^\d+$/.test(a))) fail(['label-audit [番号..]']);
+  let rows: LabelAuditRow[];
+  if (args.length === 0) {
+    const issues = await gh.paginate<AuditIssue>('/issues?state=open', 10);
+    const prs = await gh.paginate<PullRequest>('/pulls?state=open', 5);
+    rows = labelAuditRows(config, `${gh.owner}/${gh.repo}`, issues, prs);
+  } else {
+    rows = [];
+    for (const n of args.map(Number)) {
+      const issue = await gh.get<AuditIssue>(`/issues/${n}`);
+      rows.push(issue.pull_request ? prRow(config, await gh.get<PullRequest>(`/pulls/${n}`)) : issueRow(config, issue));
+    }
+  }
+  const lines = renderAuditLines(rows);
+  return lines.length > 0 ? lines.join('\n') : `ラベルの不足・違反はありません（${rows.length} 件を検査）`;
+}
+
 function readJson(file: string): unknown {
   try {
     return JSON.parse(readFileSync(file, 'utf8'));
@@ -363,6 +385,7 @@ async function main(): Promise<void> {
     case 'judge-input': return void console.log(await judgeInput(gh, n));
     case 'critic-input': return void console.log(await criticInput(gh, args));
     case 'compose-verdict': return void console.log(await composeVerdictFile(gh, args));
+    case 'label-audit': return void console.log(await labelAudit(gh, args));
     case 'footer': {
       const [, stage, model, minutes, tokens] = args;
       const pr = await gh.get<PullRequest>(`/pulls/${n}`);
