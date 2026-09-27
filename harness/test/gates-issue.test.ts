@@ -17,3 +17,15 @@ test('形式でない Issue タイトルは agent:ready で blocked になる', 
   await onIssue(ctxFor(fake, 'issues', { action: 'labeled', label: { name: 'agent:ready' }, sender: { login: 'me' }, issue: { number: 3, title: '用語集に追加', body, labels: [], state: 'open' } }));
   assert.deepEqual(fake.writes(), ['label+agent:blocked', 'comment:form-error']);
 });
+
+test('priority-conflict：5段階のどれでも2つ以上付いたら知らせ、1つなら何もしない', async () => {
+  const labeled = (names: string[]) => ({ action: 'labeled', label: { name: names.at(-1) }, sender: { login: 'me' }, issue: { number: 3, title: 'feat: a', body: '', labels: names.map((name) => ({ name })), state: 'open' } });
+  const two = acceptanceFake({ pr: pr() });
+  await onIssue(ctxFor(two, 'issues', labeled(['priority:medium', 'priority:highest'])));
+  assert.deepEqual(two.writes(), ['comment:priority-conflict']);
+  assert.match(String(two.calls.find((c) => c.method === 'POST')!.body.body), /最も高い `priority:highest`/);
+
+  const one = acceptanceFake({ pr: pr() });
+  await onIssue(ctxFor(one, 'issues', labeled(['priority:lowest'])));
+  assert.deepEqual(one.writes(), []);
+});

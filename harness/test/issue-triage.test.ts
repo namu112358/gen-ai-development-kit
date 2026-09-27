@@ -32,3 +32,9 @@ test('答えが欠けていても落ちず、警告にする', () => {
   assert.equal(s.type[0], '?');
   assert.equal(s.warnings.length, 2);
 });
+
+test('優先度の選択肢は priority:* の5段階と同じ名前', () => {
+  const req = buildTriageRequest(config, 't', contract);
+  const priority = req.questions.priority as { criteria: Record<string, string> };
+  assert.deepEqual(Object.keys(priority.criteria), ['highest', 'high', 'medium', 'low', 'lowest']);
+});

@@ -24,7 +24,7 @@ test('ガードレールに触れる PR は、low の判定でも auto-merge を
   const w = fake.writes();
   assert.ok(!w.includes('enablePullRequestAutoMerge'));
   assert.ok(w.includes('comment:human-review'));
-  assert.equal(w.at(-1), 'check:agent/review=success', 'Human Merge は通す');
+  assert.deepEqual(w.slice(-2), ['check:agent/review=success', 'label+risk:low'], 'Human Merge は通す');
   const body = acceptanceBody(fake);
   assert.match(body, /Human Merge/);
   assert.match(body, /ガードレールに触れます（人が Merge する）: harness\/gates\/run\.ts/);
