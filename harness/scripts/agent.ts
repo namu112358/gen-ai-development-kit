@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { computeQueue } from '../lib/facts.ts';
@@ -10,6 +10,7 @@ import type { Claim } from '../lib/queue.ts';
 import { latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
+import { mainRepoRoot, worktreePath } from '../lib/worktree.ts';
 
 /**
  * Routine と人のセッションが使う CLI。書式は投稿前に検査する。
@@ -22,6 +23,8 @@ import { parseVerdict } from '../lib/verdict.ts';
  *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金はセッション記録から自動で記入。読めなければ tokens か unknown）
  *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）
  *   node harness/scripts/agent.ts check <file>                            plan / verdict ブロックの書式検査のみ
+ *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）
+ *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *   node harness/scripts/agent.ts session-url                             この実行のセッション URL
  *
  * ■ 人のセッション用（gh の認証で GitHub API を呼ぶ）
@@ -35,6 +38,8 @@ import { parseVerdict } from '../lib/verdict.ts';
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
  *   node harness/scripts/agent.ts footer <pr> <stage> <model> <minutes> <tokens>  PR 本文のメトリクス表に1行追記
+ *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）
+ *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *   node harness/scripts/agent.ts session-url               この実行のセッション URL
  *
  * リポジトリは GITHUB_REPOSITORY か git remote から決める。
@@ -160,6 +165,32 @@ export function appendFooter(body: string, row: { stage: string; model: string; 
   return `${body.trimEnd()}\n${line}`;
 }
 
+/**
+ * 作業用の worktree を作る。ブランチがリモートにあればそれを、無ければ origin/main から新しく作る。
+ * --detach は判定のテスト実行用（head SHA をそのまま取り出す）。
+ */
+function addWorktree(ref: string, detach: boolean): string {
+  const root = mainRepoRoot();
+  const path = worktreePath(root, ref);
+  if (existsSync(path)) return path;
+  const git = (...a: string[]) => {
+    const r = spawnSync('git', a, { cwd: root, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`git ${a.join(' ')}: ${r.stderr}`);
+    return r.stdout.trim();
+  };
+  git('fetch', '-q', 'origin');
+  if (detach) git('worktree', 'add', '-q', '--detach', path, ref);
+  else if (spawnSync('git', ['rev-parse', '--verify', '-q', `origin/${ref}`], { cwd: root }).status === 0) git('worktree', 'add', '-q', '-B', ref, path, `origin/${ref}`);
+  else git('worktree', 'add', '-q', '-b', ref, path, 'origin/main');
+  return path;
+}
+
+function removeWorktree(ref: string): void {
+  const root = mainRepoRoot();
+  spawnSync('git', ['worktree', 'remove', '--force', worktreePath(root, ref)], { cwd: root });
+  spawnSync('git', ['worktree', 'prune'], { cwd: root });
+}
+
 /** セッション記録の集計。記録が無ければ null（処理は止めない） */
 function usageReport(explicit?: string) {
   const files = findSessionTranscripts(process.cwd(), explicit);
@@ -206,6 +237,8 @@ function fail(errors: string[]): never {
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === 'session-url') return void console.log(sessionUrl() ?? '(none)');
+  if (cmd === 'worktree') return void console.log(addWorktree(args[0]!, args.includes('--detach')));
+  if (cmd === 'worktree-remove') return removeWorktree(args[0]!);
   if (cmd === 'render-claim') return void console.log(claimBody(args.includes('--manual'), args.includes('--release')));
   if (cmd === 'render-block') return void console.log(blockBody(args[0]!, args.slice(1).join(' ')));
   if (cmd === 'render-plan') return void console.log(JSON.stringify(renderPlan(Number(args[0]), args[1]!), null, 2));

@@ -10,7 +10,7 @@ const issue = (patch: Partial<IssueFacts> = {}): IssueFacts => ({
   gate: null, latestPlanAt: null, planOkByApp: false, openPr: null, ...patch,
 });
 const pr = (patch: Partial<PrFacts> = {}): PrFacts => ({
-  number: 10, agent: true, claim: null, issueLabels: [], issue: 1, readyAt: '2026-09-26T00:00:00Z', labels: [], headSha: 'h', headPushedAt: '2026-09-26T01:00:00Z',
+  number: 10, agent: true, conflicted: false, claim: null, issueLabels: [], issue: 1, readyAt: '2026-09-26T00:00:00Z', labels: [], headSha: 'h', headPushedAt: '2026-09-26T01:00:00Z',
   acceptance: null, verdictAwaitingGate: false, humanFeedbackSincePush: 0, ...patch,
 });
 
@@ -83,4 +83,10 @@ test('人の PR：判定だけ出し、修正は出さない', () => {
   assert.equal(decidePr(pr({ agent: false, humanFeedbackSincePush: 1 }), opts).kind, 'judge', '人の指摘でも Routine は直さない');
   const failed = decidePr(pr({ agent: false, acceptance: { reviewPass: false, at: 'x' } }), opts);
   assert.ok(failed.kind === 'skip' && failed.reason.includes('人の修正待ち'));
+});
+
+test('衝突している Agent PR には、判定・修正より先に衝突の解消を出す', () => {
+  assert.deepEqual(decidePr(pr({ conflicted: true, humanFeedbackSincePush: 1 }), opts), { kind: 'resolve-conflict', pr: 10, issue: 1 });
+  assert.equal(decidePr(pr({ conflicted: true, labels: ['agent:hold'] }), opts).kind, 'skip');
+  assert.equal(decidePr(pr({ conflicted: true, agent: false }), opts).kind, 'judge', '人の PR の衝突は人が解消する');
 });

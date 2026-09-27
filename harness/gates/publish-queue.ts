@@ -20,6 +20,7 @@ export function renderQueueSection(q: QueueResult): string {
       case 'wait-dependency': return `#${a.issue} 依存待ちにする（${a.blockers.map((b) => `#${b}`).join(', ')}）`;
       case 'judge': return `PR #${a.pr} 判定（head ${a.headSha.slice(0, 7)}）`;
       case 'fix': return `PR #${a.pr} 修正（${a.reason === 'review' ? 'Reviewer' : '人'}の指摘）`;
+      case 'resolve-conflict': return `PR #${a.pr} main との衝突の解消`;
       case 'skip': return `${a.target}: ${a.reason}`;
     }
   };
