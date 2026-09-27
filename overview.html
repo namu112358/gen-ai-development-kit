@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>ハーネスの全体図</title>
+<style>
+:root {
+  --bg: #f7f7f5;
+  --surface: #ffffff;
+  --text: #1c1c1a;
+  --muted: #5b5b57;
+  --line: #d9d8d2;
+  --accent: #2f5fb3;
+  --human: #b5541c;
+  --human-bg: #fbeee5;
+  --claude: #6b4bb3;
+  --claude-bg: #f0ebfa;
+  --app: #1f7a52;
+  --app-bg: #e6f4ec;
+  --jev: #8a6d00;
+  --jev-bg: #faf3d9;
+  --stop: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615;
+    --surface: #1f1f1d;
+    --text: #ecebe6;
+    --muted: #a9a8a1;
+    --line: #3a3a36;
+    --accent: #8fb2f0;
+    --human: #f0a676;
+    --human-bg: #3a261a;
+    --claude: #c2adf2;
+    --claude-bg: #2b2340;
+    --app: #7fd1a8;
+    --app-bg: #1a3328;
+    --jev: #e3c65a;
+    --jev-bg: #352d10;
+    --stop: #f08a82;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #161615;
+  --surface: #1f1f1d;
+  --text: #ecebe6;
+  --muted: #a9a8a1;
+  --line: #3a3a36;
+  --accent: #8fb2f0;
+  --human: #f0a676;
+  --human-bg: #3a261a;
+  --claude: #c2adf2;
+  --claude-bg: #2b2340;
+  --app: #7fd1a8;
+  --app-bg: #1a3328;
+  --jev: #e3c65a;
+  --jev-bg: #352d10;
+  --stop: #f08a82;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", "Yu Gothic UI", sans-serif;
+  line-height: 1.7;
+  font-size: 16px;
+}
+main { max-width: 880px; margin: 0 auto; padding: 24px 16px 64px; }
+h1 { font-size: 1.6rem; line-height: 1.3; margin: 8px 0 8px; }
+h2 { font-size: 1.25rem; margin: 48px 0 12px; padding-top: 8px; border-top: 1px solid var(--line); }
+h3 { font-size: 1rem; margin: 0 0 4px; }
+p { margin: 0 0 12px; }
+a { color: var(--accent); }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.88em; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; overflow-wrap: anywhere; }
+.lead { color: var(--muted); }
+nav ul { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; padding: 0; margin: 16px 0 0; }
+nav a { display: inline-block; padding: 4px 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); text-decoration: none; }
+
+/* 流れ図 */
+.flow { list-style: none; padding: 0; margin: 16px 0 0; }
+.step { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.step + .step { margin-top: 28px; }
+.step + .step::before {
+  content: "";
+  position: absolute; left: 50%; top: -24px;
+  width: 2px; height: 20px; background: var(--muted);
+  transform: translateX(-50%);
+}
+.step + .step::after {
+  content: "";
+  position: absolute; left: 50%; top: -8px;
+  border: 6px solid transparent; border-top-color: var(--muted);
+  transform: translateX(-50%);
+}
+.step-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.num { display: inline-flex; align-items: center; justify-content: center; width: 1.7em; height: 1.7em; border-radius: 50%; background: var(--accent); color: var(--bg); font-weight: 700; font-size: 0.85rem; flex: none; }
+.step h3 { font-size: 1.05rem; margin: 0; }
+.step p { margin: 6px 0 0; }
+.branch { margin-top: 8px; padding: 6px 10px; border-left: 3px solid var(--human); background: var(--human-bg); border-radius: 0 6px 6px 0; font-size: 0.92rem; }
+.who { display: inline-block; font-size: 0.78rem; font-weight: 700; padding: 0 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.who.human { color: var(--human); }
+.who.claude { color: var(--claude); }
+.who.app { color: var(--app); }
+.who.jev { color: var(--jev); }
+
+/* Merge の分かれ道 */
+figure { margin: 28px 0 0; }
+.fork-top { position: relative; max-width: 320px; margin: 0 auto; text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+.fork-top strong, .fork-top span { display: block; }
+.fork-top span { color: var(--muted); font-size: 0.9rem; }
+.fork-ways { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 36px; position: relative; }
+.fork-ways::before {
+  content: "";
+  position: absolute; top: -24px; left: 25%; right: 25%; height: 12px;
+  border: 2px solid var(--muted); border-bottom: none; border-radius: 8px 8px 0 0;
+}
+.fork-ways::after {
+  content: "";
+  position: absolute; top: -36px; left: 50%; width: 2px; height: 12px; background: var(--muted); transform: translateX(-50%);
+}
+.way { position: relative; border-radius: 10px; padding: 12px 14px; border: 1.5px solid; }
+.way::before {
+  content: "";
+  position: absolute; top: -12px; left: 50%;
+  border: 6px solid transparent; border-top-color: var(--muted);
+  transform: translateX(-50%);
+}
+.way.auto { background: var(--app-bg); border-color: var(--app); }
+.way.human { background: var(--human-bg); border-color: var(--human); }
+.way h3 { font-size: 1.1rem; margin: 2px 0 4px; }
+.way .cond { font-size: 0.85rem; font-weight: 700; margin: 0; }
+.way.auto .cond { color: var(--app); }
+.way.human .cond { color: var(--human); }
+.way ul { margin: 0; padding-left: 1.2em; }
+.way .aside { color: var(--muted); font-size: 0.88rem; margin: 8px 0 0; }
+figcaption { color: var(--muted); font-size: 0.9rem; margin-top: 12px; }
+@media (max-width: 560px) {
+  .fork-ways { grid-template-columns: 1fr; gap: 28px; margin-top: 28px; }
+  .fork-ways::before { display: none; }
+  .fork-ways::after { top: -26px; height: 16px; }
+  .way.human::before { display: none; }
+}
+
+/* 役割のカード */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 16px; }
+.card { border-radius: 10px; padding: 12px 14px; border: 1px solid var(--line); background: var(--surface); border-top-width: 4px; }
+.card.human { border-top-color: var(--human); }
+.card.claude { border-top-color: var(--claude); }
+.card.app { border-top-color: var(--app); }
+.card.jev { border-top-color: var(--jev); }
+.card ul { margin: 6px 0 0; padding-left: 1.2em; }
+.card .not { color: var(--muted); font-size: 0.9rem; margin-top: 8px; }
+
+/* 表（狭い幅では縦に並べる） */
+table { width: 100%; border-collapse: collapse; margin-top: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+th, td { text-align: left; vertical-align: top; padding: 8px 10px; border-bottom: 1px solid var(--line); }
+th { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+td:first-child { white-space: nowrap; }
+@media (max-width: 600px) {
+  table, thead, tbody, tr, th, td { display: block; }
+  thead { display: none; }
+  table { border: none; background: none; }
+  tr { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; margin-bottom: 8px; padding: 6px 0; }
+  td { border: none; padding: 2px 12px; }
+  td:first-child { white-space: normal; font-weight: 600; }
+  td[data-k]::before { content: attr(data-k) "："; color: var(--muted); font-size: 0.85rem; }
+}
+
+/* ディレクトリの地図 */
+.map { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 12px; margin-top: 16px; }
+.dir { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+.dir h3 code { font-size: 0.95rem; }
+.dir ul { list-style: none; margin: 8px 0 0; padding: 0; }
+.dir li { padding: 4px 0; border-top: 1px dashed var(--line); font-size: 0.93rem; }
+.dir li:first-child { border-top: none; }
+.guard { display: inline-block; font-size: 0.75rem; color: var(--stop); border: 1px solid currentColor; border-radius: 4px; padding: 0 5px; margin-left: 4px; white-space: nowrap; }
+.note { margin-top: 12px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); font-size: 0.92rem; }
+footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>ハーネスの全体図</h1>
+  <p class="lead">GitHub の Issue を起点に、Claude（AI）が計画・実装・判定を進め、専用の GitHub App が各段階の関所（ゲート）を受け持つ仕組みです。危なくない小さな変更（Risk が low）は人の手を借りずに Merge まで進み、それ以外は人が確かめて Merge します。</p>
+  <nav aria-label="目次">
+    <ul>
+      <li><a href="#flow">流れ</a></li>
+      <li><a href="#roles">誰が何をするか</a></li>
+      <li><a href="#map">ディレクトリの地図</a></li>
+      <li><a href="#labels">ラベルの意味</a></li>
+    </ul>
+  </nav>
+
+  <h2 id="flow">流れ：Issue から Merge まで</h2>
+  <p>人は Issue を書いて「着手してよい」の印を付けるだけで、あとは次の順に進みます。人が付き添う Claude のセッションに「#番号 を ship して」と頼むと、この流れを人の Merge 待ちか人の判断待ちまで進めます。</p>
+
+  <ol class="flow">
+    <li class="step">
+      <div class="step-head"><span class="num">1</span><h3>Issue</h3><span class="who human">人</span></div>
+      <p>「Agent タスク」の Issue Form で、目的（Goal）・要件・受け入れ条件（AC）を書き、<code>agent:ready</code> を付けます。App が本文の書式を確かめます。</p>
+    </li>
+    <li class="step">
+      <div class="step-head"><span class="num">2</span><h3>計画</h3><span class="who claude">Claude</span><span class="who app">App</span></div>
+      <p>Claude が実装方針と「触るファイル一覧」・想定 Risk を計画コメントに書きます（投稿前に plan-critic が批評）。App の<strong>計画ゲート</strong>が中身を機械的に検査し、通れば <code>agent:plan-ok</code> を付けます。</p>
+      <div class="branch"><strong>人に返る分かれ道：</strong>人の判断が要る、AC を変える提案がある、未解決の質問がある、Risk が high 以上、触るファイル一覧が無い、ガードレールに触れる、のどれかなら <code>agent:plan-review</code> で止まり、人が「進める／直す／やめる」を決めます。</div>
+    </li>
+    <li class="step">
+      <div class="step-head"><span class="num">3</span><h3>実装</h3><span class="who claude">Claude</span></div>
+      <p>Claude が <code>claude/</code> ブランチで実装し、テストを通して、<code>Closes #番号</code> 付きの Draft PR（作業中の PR）を出します。App は変更ファイルが計画の一覧に収まるか（範囲照合）と、テストを甘くしていないか（<code>agent/tests</code>）を見ます。</p>
+    </li>
+    <li class="step">
+      <div class="step-head"><span class="num">4</span><h3>判定</h3><span class="who claude">Claude</span><span class="who app">App</span><span class="who jev">Jev</span></div>
+      <p>Reviewer（AC を満たすか）と Risk Agent（壊れたときの影響を8問で）が判定し、判定コメントを投稿します。App が受け付けてチェック（<code>agent/review</code>・<code>agent/risk</code>）に変え、合格なら PR を Ready にします。Jev もいまは記録のために同じ8問に答えます。</p>
+      <div class="branch"><strong>直すループ：</strong>ブロッキング指摘（直すまで Merge させない指摘）があれば Claude が直して判定し直します。上限を超えると <code>agent:blocked</code> で人に返ります。</div>
+    </li>
+    <li class="step">
+      <div class="step-head"><span class="num">5</span><h3>Merge</h3><span class="who app">App</span><span class="who human">人</span></div>
+      <p>判定の結果で、自動 Merge か Human Merge（人が Merge）に分かれます（下の図）。</p>
+    </li>
+  </ol>
+
+  <figure class="fork" aria-label="Merge の分かれ道">
+    <div class="fork-top">
+      <strong>判定を App が受け付け</strong>
+      <span>Risk と条件を確かめる</span>
+    </div>
+    <div class="fork-ways">
+      <section class="way auto">
+        <p class="cond">low で、条件をすべて満たす</p>
+        <h3>自動 Merge</h3>
+        <ul>
+          <li>App が auto-merge を付ける</li>
+          <li>必須チェックが揃うと GitHub が Merge する</li>
+          <li>人の手は要らない</li>
+        </ul>
+        <p class="aside">止めたいときは <code>agent:hold</code>（全体なら停止スイッチ）</p>
+      </section>
+      <section class="way human">
+        <p class="cond">medium 以上、またはどれかに当たる</p>
+        <h3>Human Merge</h3>
+        <ul>
+          <li>App が人に Merge を依頼する</li>
+          <li>人が PR を確かめて Merge する</li>
+        </ul>
+        <p class="aside">当たるもの：ガードレールに触れる、計画の範囲の外を変えた、<code>humanMergePaths</code>（人が Merge するパス）に触れる、停止スイッチが入っている など</p>
+      </section>
+    </div>
+    <figcaption>自動 Merge の条件：CI の成功、<code>agent/review</code> の合格、Risk が low で8問すべて安全側、範囲照合 OK、<code>agent:hold</code> が無い、停止スイッチが入っていない。まとめて必須チェック merge-route が確かめます（詳しくは <a href="docs/risk-policy.md">docs/risk-policy.md</a>）。</figcaption>
+  </figure>
+
+  <h2 id="roles">誰が何をするか</h2>
+  <p>4者で役割を分けています。Claude は人と同じ GitHub 名義で動くので、名義では区別しません。信頼できる印は App が付けたものだけです。</p>
+  <div class="cards">
+    <section class="card human">
+      <h3>人</h3>
+      <ul>
+        <li>Issue を書き、<code>agent:ready</code> を付ける</li>
+        <li>計画ゲートで止まった Issue の進め方を決める</li>
+        <li>Human Merge の PR を確かめて Merge する</li>
+        <li>止める：<code>agent:hold</code>・停止スイッチ</li>
+        <li>例外ラベル（<code>test:exempt</code> など）を付けるかを決める</li>
+      </ul>
+    </section>
+    <section class="card claude">
+      <h3>Claude（付き添いのセッション）</h3>
+      <ul>
+        <li>計画を書く（plan-critic が批評）</li>
+        <li>テストを書き（test-designer）、実装して Draft PR を出す</li>
+        <li>判定する（Reviewer・Risk Agent）</li>
+        <li>指摘を直す、main を取り込む</li>
+      </ul>
+      <p class="not">しないこと：Merge、Draft の解除、main への push、保護ラベルの付け外し（見張りの hook が止める）</p>
+    </section>
+    <section class="card app">
+      <h3>App（専用 GitHub App）</h3>
+      <ul>
+        <li>計画ゲート（<code>agent:plan-ok</code> を付けられるのは App だけ）</li>
+        <li>判定の受け付け、Ready 化、auto-merge を付ける</li>
+        <li>必須チェック（merge-route・<code>agent/tests</code>・<code>agent/plan-link</code> など）</li>
+        <li>足りないラベルを付け、ダッシュボードに一覧を出す</li>
+      </ul>
+      <p class="not">GitHub Actions の数秒のジョブで動く。Claude は動かさず、PR のコードも実行しない</p>
+    </section>
+    <section class="card jev">
+      <h3>Jev（TypeSafe AI の判定モデル）</h3>
+      <ul>
+        <li>Risk の8問に確率付きで答える。いまは Claude の判定と並べて記録するだけ（シャドー判定）</li>
+        <li>Issue の種類・領域・優先度を提案し、確かなときは足りない <code>priority:*</code>・<code>area:*</code> を付ける材料になる</li>
+      </ul>
+      <p class="not">外れがないと確かめてから、Risk 判定を任せる予定</p>
+    </section>
+  </div>
+
+  <h2 id="map">ディレクトリの地図</h2>
+  <p>各ディレクトリの README.md に、中のファイルを1行ずつ説明しています。<span class="guard">ガードレール</span> は、変えると必ず人が Merge する場所です（Agent が自分を縛る仕組み）。</p>
+  <div class="map">
+    <section class="dir">
+      <h3><code>harness/</code> 本体</h3>
+      <ul>
+        <li><code>gates/</code> App として動くゲート <span class="guard">ガードレール</span></li>
+        <li><code>lib/</code> 判断のロジック（書式・範囲照合・merge-route など） <span class="guard">ガードレール</span></li>
+        <li><code>scripts/</code> 手元で動かすコマンド（<code>agent.ts</code>・<code>setup.ts</code> など）</li>
+        <li><code>templates/</code> 導入先に写す設定の見本 <span class="guard">ガードレール</span></li>
+        <li><code>test/</code> テスト（<code>npm run check</code>）</li>
+      </ul>
+    </section>
+    <section class="dir">
+      <h3><code>.claude/</code> Claude への指示</h3>
+      <ul>
+        <li><code>skills/</code> 付き添いのセッションの手順（ship・plan・implement・judge・fix・sync・fleet）</li>
+        <li><code>agents/</code> サブエージェント（Reviewer・Risk Agent・plan-critic・test-designer）</li>
+        <li><code>hooks/</code> 見張りの hook <span class="guard">ガードレール</span></li>
+        <li><code>settings.json</code> させない操作の一覧 <span class="guard">ガードレール</span></li>
+        <li><code>routine.md</code> 定期 Routine の手順（将来の構想）</li>
+      </ul>
+    </section>
+    <section class="dir">
+      <h3><code>.github/</code> GitHub の設定 <span class="guard">ガードレール</span></h3>
+      <ul>
+        <li><code>ISSUE_TEMPLATE/</code> Issue Form（「Agent タスク」）</li>
+        <li><code>pull_request_template.md</code> PR 本文の見本</li>
+        <li><code>workflows/</code> CI（<code>ci.yml</code>）とゲート（<code>gate.yml</code>）</li>
+      </ul>
+    </section>
+    <section class="dir">
+      <h3><code>docs/</code> 説明書</h3>
+      <ul>
+        <li><code>operations.md</code> 運用・ラベル・止める仕組み</li>
+        <li><code>risk-policy.md</code> 自動 Merge の8問と条件</li>
+        <li><code>glossary.md</code> 用語集</li>
+        <li><code>setup.md</code> 導入手順 ほか</li>
+      </ul>
+    </section>
+    <section class="dir">
+      <h3>root の主なファイル</h3>
+      <ul>
+        <li><code>README.md</code> 入口の説明</li>
+        <li><code>CLAUDE.md</code> Claude への約束ごと</li>
+        <li><code>harness.config.json</code> 導入先ごとの設定（ガードレールの一覧など） <span class="guard">ガードレール</span></li>
+        <li><code>overview.html</code> このページ</li>
+      </ul>
+    </section>
+  </div>
+
+  <h2 id="labels">ラベルの意味</h2>
+  <p>主なものです。すべての一覧と細かい決まりは <a href="docs/operations.md">docs/operations.md</a> の「ラベル」にあります。</p>
+  <table>
+    <thead><tr><th>ラベル</th><th>付ける者</th><th>意味</th></tr></thead>
+    <tbody>
+      <tr><td><code>agent:ready</code></td><td data-k="付ける者">人</td><td data-k="意味">着手してよい</td></tr>
+      <tr><td><code>agent:plan-ok</code></td><td data-k="付ける者">App のみ</td><td data-k="意味">計画ゲートを通った。実装に進める</td></tr>
+      <tr><td><code>agent:plan-review</code></td><td data-k="付ける者">Claude / App</td><td data-k="意味">計画に人の判断が要る。人が付き添うセッションで進める</td></tr>
+      <tr><td><code>agent:waiting</code></td><td data-k="付ける者">Claude / App</td><td data-k="意味">ほかの Issue の完了待ち（終わると App が外す）</td></tr>
+      <tr><td><code>agent:blocked</code></td><td data-k="付ける者">Claude / App / 人</td><td data-k="意味">人の対応が必要。理由をコメントに残す</td></tr>
+      <tr><td><code>agent:hold</code></td><td data-k="付ける者">人</td><td data-k="意味">この Issue・PR だけ止める</td></tr>
+      <tr><td><code>agent:auto-merge-stopped</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">停止スイッチ。ダッシュボードに付くと自動 Merge が全部止まる（自動 Merge した PR が revert されると App が付ける）</td></tr>
+      <tr><td><code>risk:*</code></td><td data-k="付ける者">Claude / App</td><td data-k="意味">壊れたときの影響の大きさ（low・medium・high・critical）</td></tr>
+      <tr><td><code>priority:*</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">優先度（highest〜lowest の5段階）。高いものから進める</td></tr>
+      <tr><td><code>type:*</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">課題の種類（feat・fix・docs など。タイトルと同じ）</td></tr>
+      <tr><td><code>area:*</code></td><td data-k="付ける者">App</td><td data-k="意味">変更の領域（harness・docs など）</td></tr>
+      <tr><td><code>size:*</code></td><td data-k="付ける者">App</td><td data-k="意味">PR の差分の行数（XS〜XXL）</td></tr>
+      <tr><td><code>epic</code></td><td data-k="付ける者">App</td><td data-k="意味">子課題に分けた親 Issue</td></tr>
+      <tr><td><code>review:exempt</code><br><code>plan:exempt</code><br><code>test:exempt</code></td><td data-k="付ける者">人</td><td data-k="意味">例外として必須チェックを通す（付けた時点の差分にだけ効く。<code>plan:exempt</code> は紐付けの例外）</td></tr>
+    </tbody>
+  </table>
+
+  <p class="note">このページは要約です。ラベルと役割は <a href="docs/operations.md">docs/operations.md</a>、言葉の意味は <a href="docs/glossary.md">docs/glossary.md</a> が正しい内容で、食い違ったらそちらに従います。仕組みを変えたらこのページも直します。</p>
+
+  <footer>外部のファイルを何も読み込まない1枚のページです。手元に clone してブラウザで開いてください。</footer>
+</main>
+</body>
+</html>
