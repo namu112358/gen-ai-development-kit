@@ -56,7 +56,7 @@ node harness/scripts/setup.ts all <owner>/<repo> <app-id>
 | ラベル | `agent:*`、`risk:*`、`agent:auto-merge-stopped` |
 | マージ | squash のみ、auto-merge 許可、Merge 後にブランチ削除 |
 | Actions | `GITHUB_TOKEN` の既定権限は read |
-| Ruleset | 既定ブランチの削除・force push 禁止、PR 必須（承認 0）、必須チェック `ci`（GitHub Actions）・`agent/review`・`merge-route`・`agent/plan-link`・`agent/title`（App）、main への追従必須、bypass なし |
+| Ruleset | 既定ブランチの削除・force push 禁止、PR 必須（承認 0）、必須チェック `ci`（GitHub Actions）・`agent/review`・`merge-route`・`agent/plan-link`・`agent/title`・`agent/tests`（App）、main への追従必須、bypass なし |
 
 CI のジョブ名が `ci` でない場合は `harness/scripts/setup.ts` の `rulesetBody` を直す。
 
