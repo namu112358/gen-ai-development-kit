@@ -89,6 +89,7 @@ function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabels?: st
     .on('GET', /\/issues\?state=open&creator=/, () => (state.dashboardLabels ? [{ number: 1, title: config.dashboardIssueTitle, user: { login: APP }, labels: state.dashboardLabels.map((name) => ({ name })) }] : []))
     .on('POST', /\/graphql/, (_m, body) => {
       if (String(body.query).includes('closingIssuesReferences')) return { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [{ number: 3, repository: { nameWithOwner: 'o/r' } }] } } } } };
+      if (String(body.query).includes('closedByPullRequestsReferences')) return { data: { repository: { issue: { closedByPullRequestsReferences: { nodes: [{ number: 5, state: 'OPEN', repository: { nameWithOwner: 'o/r' } }] } } } } };
       if (String(body.query).includes('enablePullRequestAutoMerge')) autoMerge = { enabled: true };
       if (String(body.query).includes('disablePullRequestAutoMerge')) autoMerge = null;
       return { data: {} };
@@ -188,7 +189,7 @@ test('push：差分が変わっていれば auto-merge を外したまま、agen
 test('Agent 以外の PR は agent/review を判定対象外で通す', async () => {
   const fake = acceptanceFake({ pr: pr({ head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }), dashboardLabels: [] });
   await onPullRequest(ctxFor(fake, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
-  assert.deepEqual(fake.writes(), ['label+size:XS,area:docs', 'check:agent/review=success', 'check:merge-route=success'], 'Agent 以外の PR にも分類ラベルは付ける');
+  assert.deepEqual(fake.writes(), ['check:agent/plan-link=success', 'label+size:XS,area:docs', 'check:agent/review=success', 'check:merge-route=success'], '人の PR にも計画の紐付けと分類ラベル');
 });
 
 test('fork の claude/ ブランチは Agent PR とみなさない', async () => {
@@ -206,12 +207,12 @@ test('計画ゲート：通過なら plan-ok と計画の写し、停止なら p
   });
   const fake = acceptanceFake({ pr: pr() });
   await onComment(ctxFor(fake, 'issue_comment', event(plan)));
-  assert.deepEqual(fake.writes(), ['label+agent:plan-ok', 'comment:plan-gate']);
-  assert.match(fake.calls.at(-1)!.body.body, /"files": \[\s*"docs\/a.md"/);
+  assert.deepEqual(fake.writes(), ['label+agent:plan-ok', 'comment:plan-gate', 'check:agent/plan-link=success'], '計画を投稿したら、その Issue を Closes する PR の plan-link を書き直す');
+  assert.match(fake.calls.find((c) => c.path.endsWith('/issues/3/comments') && c.method === 'POST')!.body.body, /"files": \[\s*"docs\/a.md"/);
 
   const stop = acceptanceFake({ pr: pr() });
   await onComment(ctxFor(stop, 'issue_comment', event({ ...plan, openQuestions: ['?'] })));
-  assert.deepEqual(stop.writes(), ['label-agent:plan-ok', 'label+agent:plan-review', 'comment:plan-gate']);
+  assert.deepEqual(stop.writes(), ['label-agent:plan-ok', 'label+agent:plan-review', 'comment:plan-gate', 'check:agent/plan-link=success'], '人の判断待ちの計画も計画ありとみなす');
 });
 
 test('App 以外が付けた plan-ok は外す', async () => {
@@ -279,4 +280,15 @@ test('Issue が閉じたら進み具合のラベルを外す（hold は残す）
   await onIssue(ctxFor(fake, 'issues', { action: 'closed', sender: { login: 'me' }, issue: { number: 3, body: '', state: 'closed', labels: [{ name: 'agent:ready' }, { name: 'agent:in-pr' }, { name: 'agent:hold' }, { name: 'risk:low' }] } }));
   const w = fake.writes().filter((x) => x.startsWith('label-'));
   assert.deepEqual(w, ['label-agent:ready', 'label-agent:in-pr']);
+});
+
+test('plan-link：計画のある Issue を Closes しない PR は failure、plan:exempt なら success', async () => {
+  const none = acceptanceFake({ pr: pr({ head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }) })
+    .on('POST', /\/graphql/, (_m, body) => (String(body.query).includes('closingIssuesReferences') ? { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [] } } } } } : { data: {} }));
+  await onPullRequest(ctxFor(none, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
+  assert.equal(none.writes()[0], 'check:agent/plan-link=failure');
+
+  const exempt = acceptanceFake({ pr: pr({ labels: [{ name: 'plan:exempt' }], head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }) });
+  await onPullRequest(ctxFor(exempt, 'pull_request_target', { action: 'labeled', label: { name: 'plan:exempt' }, sender: { login: 'me' }, pull_request: { number: 5 } }));
+  assert.deepEqual(exempt.writes(), ['check:agent/plan-link=success', 'comment:plan-exempt']);
 });

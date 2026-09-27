@@ -1,5 +1,6 @@
 import { areaLabels, classificationChanges, sizeLabel, type ChangedFile } from '../lib/classify.ts';
-import { CHECKS, LABELS } from '../lib/config.ts';
+import { CHECKS, LABELS, PLAN_EXEMPT_LABEL } from '../lib/config.ts';
+import { writePlanLink } from './plan-link.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { checkScope } from '../lib/scope.ts';
 import { acceptanceForPatch, changedFiles, isAgentPr, plannedFilesForPr, prDiff } from '../lib/state.ts';
@@ -23,6 +24,13 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   const pr = await getPr(ctx, number);
   if (pr.state !== 'open') return;
   const agent = isAgentPr(ctx.config, pr, ctx.repository);
+  const label = ctx.event.label?.name as string | undefined;
+  if (['opened', 'reopened', 'synchronize', 'edited'].includes(action) || label === PLAN_EXEMPT_LABEL) await writePlanLink(ctx, pr);
+  if ((action === 'labeled' || action === 'unlabeled') && label === PLAN_EXEMPT_LABEL) {
+    await appComment(ctx, number, 'plan-exempt', `\`${PLAN_EXEMPT_LABEL}\` が @${ctx.event.sender?.login} により${action === 'labeled' ? '付けられました' : '外されました'}（記録）。`);
+    return;
+  }
+  if (action === 'edited') return;
   if (['opened', 'reopened', 'synchronize'].includes(action)) await classifyPr(ctx, pr);
 
   if (!agent) {

@@ -168,3 +168,28 @@ export async function plannedFilesForPr(gh: GitHub, config: HarnessConfig, pr: n
   }
   return { files };
 }
+
+/**
+ * PR が「計画のある Issue」を Closes しているか。計画ゲートの記録（通過・人の判断待ちのどちらでも）が
+ * 読める計画を持っていれば計画あり。人の PR にも求める（Issues を開発状態の唯一の記録にするため）。
+ */
+export async function planLinkedIssues(gh: GitHub, config: HarnessConfig, pr: number): Promise<{ linked: number[]; unplanned: number[] }> {
+  const linked: number[] = [];
+  const unplanned: number[] = [];
+  for (const n of await closingIssues(gh, pr)) {
+    const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: unknown } } | null;
+    (gate?.value.plan ? linked : unplanned).push(n);
+  }
+  return { linked, unplanned };
+}
+
+/** Issue を Closes する開いた PR（計画が投稿されたときに plan-link を書き直すため） */
+export async function openPrsClosing(gh: GitHub, issue: number): Promise<number[]> {
+  const data = await gh.graphql<{ repository: { issue: { closedByPullRequestsReferences: { nodes: { number: number; state: string; repository: { nameWithOwner: string } }[] } } } }>(
+    `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){closedByPullRequestsReferences(first:20,includeClosedPrs:false){nodes{number state repository{nameWithOwner}}}}}}`,
+    { owner: gh.owner, repo: gh.repo, n: issue },
+  );
+  return data.repository.issue.closedByPullRequestsReferences.nodes
+    .filter((p) => p.state === 'OPEN' && p.repository.nameWithOwner === `${gh.owner}/${gh.repo}`)
+    .map((p) => p.number);
+}

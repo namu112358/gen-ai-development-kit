@@ -406,6 +406,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q70 | patch-id | `--verbatim` を使う（`--stable` は空白を無視する） |
 | Q71 | 質問4 の範囲 | 「挙動を変える変更がテストで検証されているか（挙動を変えない変更だけなら yes）」に言い換え |
 | Q72 | Routine の GitHub 操作 | GitHub MCP ツールのみ（Routine の環境に `gh` と API 用トークンがない）。queue は App が計算してダッシュボードに公開し、Routine はそれに従う。メトリクスは PR コメントに残す |
+| Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt` |
 | Q76 | 状態ラベルの整理 | `agent:working`・`agent:in-pr` を廃止し、着手宣言コメントと開いた PR から判断する。止めるときは理由コード必須。ラベル定義はコードで一元管理し、文書との一致をテストで検査、定義に無いラベルは `setup.ts` が消す |
 | Q75 | 分類ラベル | PR の `size:*`・`area:*` は App が差分から付ける（area は足すだけ）。Issue の種類・領域・優先度・書き方は Jev が提案コメントだけ出す（シャドー） |
 | Q74 | 優先度 | `priority:high` / `priority:low` ラベルで queue を並べ替える（優先度 → 先着順）。フォームには入れない |

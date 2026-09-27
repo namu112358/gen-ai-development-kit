@@ -13,12 +13,14 @@ import {
   hasLabel,
   isAgentPr,
   isTrustedComment,
+  openPrsClosing,
   plannedFilesForPr,
   prDiff,
   type PlanGateRecord,
 } from '../lib/state.ts';
 import { fixAllowed, hasCriticalBlocking, parseVerdict, riskAllowsAutoMerge, type Verdict } from '../lib/verdict.ts';
 import { appComment, convertToDraft, getPr, type GateContext } from './context.ts';
+import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
 
 /** issue_comment（created）：計画ゲートと判定の受け付け */
@@ -35,7 +37,10 @@ export async function onComment(ctx: GateContext): Promise<void> {
     if (block.found) await onVerdict(ctx, issue.number, comment, block);
   } else {
     const block = extractBlock(comment.body, 'agent-plan');
-    if (block.found) await onPlan(ctx, issue, comment, block);
+    if (block.found) {
+      await onPlan(ctx, issue, comment, block);
+      await refreshPlanLinks(ctx, issue.number);
+    }
   }
 }
 
@@ -79,6 +84,11 @@ async function onPlan(
       record,
     );
   }
+}
+
+/** 計画ゲートの記録を書いた後、その Issue を Closes する開いた PR の plan-link を書き直す */
+async function refreshPlanLinks(ctx: GateContext, issue: number): Promise<void> {
+  for (const pr of await openPrsClosing(ctx.gh, issue)) await writePlanLink(ctx, pr);
 }
 
 async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComment, block: ReturnType<typeof extractBlock>): Promise<void> {
