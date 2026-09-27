@@ -14,7 +14,7 @@
 | Dependencies | | 補足のみ。順序は Issue Dependencies（blocked by）で設定する |
 | Validation Requirements | | 検証方法 |
 
-`agent:ready` を付けると、App が Jev に種類・領域・優先度・AC の書き方を問い、提案をコメントする（ラベルは付けない。`classification.issueTriage`）。Risk と Priority は本文に書かない。急ぐものには `priority:high` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
+`agent:ready` を付けたときに App が Jev に種類・領域・優先度・AC の書き方を問うかは、`harness.config.json` の `classification.issueTriage` で決める。`off` は問わない。`shadow` は提案をコメントするだけでラベルは付けない。`label` は足りない必須ラベル（下記「必須ラベルの規則」）を Jev の答えから付ける（確率の下限は `jev.thresholds.labelProbability`。`label` の動きは #99 で入る。それまでは設定の型だけがある）。Risk と Priority は本文に書かない。優先度は `priority:*` の5段階（highest・high・medium・low・lowest）で、急ぐものには `priority:high` か `priority:highest` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。付いていなければ medium、複数付いていれば最も高いものとして扱う。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
 
 ## 付き添いのセッションで進める
 
@@ -44,7 +44,8 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `agent:hold` | 人 | 個別停止 |
 | `epic` | App | 子課題に分けた親 Issue。queue は計画・実装の対象にしない。Close しても残る |
 | `risk:*` | Routine | 計画時の想定 Risk（表示用） |
-| `priority:high` / `priority:low` | 人 | queue で先に・後に処理する（付いていなければ通常。両方付くと App が指摘する） |
+| `priority:highest` / `priority:high` / `priority:medium` / `priority:low` / `priority:lowest` | 人 / App | queue の優先度（高い順）。付いていなければ medium、複数付いていれば最も高いものとして扱う。今は `priority:high` と `priority:low` が両方付いたときだけ App が指摘する（5段階への拡張は #99） |
+| `type:*` | 人 / App | 課題の種類。タイトルの type（feat / fix / docs / refactor / test / chore / ci / build / perf / style / revert）と同じ一覧。`epic` の Issue には付けない |
 | `size:*` | App | PR の差分の行数（XS〜XXL、lockfile は数えない）。push のたびに付け替える |
 | `review:exempt` | 人 | 判定を待たずに `agent/review` を通す（人の PR の急ぎ、fork からの PR）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する |
 | `plan:exempt` | 人 | 計画のある Issue に紐付かない PR を例外として通す（付け外しを App が記録する） |
@@ -67,6 +68,16 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `fix-limit` | 修正回数の上限に達した |
 | `external` | 権限・外部サービス・手作業など Claude の外の対応が必要 |
 | `other` | その他（コメントに詳細） |
+
+### 必須ラベルの規則
+
+| 対象 | 必須のラベル |
+| --- | --- |
+| Issue | `type:*`・`area:*`・`priority:*` |
+| 子を持つ Issue（Epic） | `epic`・`area:*`・`priority:*`（`type:*` は付けない） |
+| PR | `type:*`・`area:*`・`size:*` |
+
+人が付けたラベルは上書きしない（足りないものだけを足す）。足りないラベルを付ける仕組み（`classification.issueTriage` の `label`）は #99、必須ラベルの検査は #98 で入る。
 
 ## Epic（大きな課題を分ける）
 
@@ -149,7 +160,7 @@ PR に残る実行メトリクスのトークン数と推定料金（`harness.co
 
 ### Q. 急ぎの Issue を先に進めたいときはどうするか
 
-Issue に `priority:high` を付ける。queue（`node harness/scripts/agent.ts queue`）は優先度 → `agent:ready` が付いた順に並ぶので、先に処理される。PR の段階は元の Issue の優先度を引き継ぐ。
+Issue に `priority:high`（もっと急ぐなら `priority:highest`）を付ける。優先度は highest・high・medium・low・lowest の5段階で、付いていなければ medium、複数付いていれば最も高いものとして扱う。queue（`node harness/scripts/agent.ts queue`）は優先度 → `agent:ready` が付いた順に並ぶので、先に処理される。PR の段階は元の Issue の優先度を引き継ぐ。
 
 ### Q. 自動 Merge を一時的に止めたいときはどうするか
 
