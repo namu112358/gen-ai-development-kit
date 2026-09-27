@@ -9,7 +9,7 @@
 export const CLAUDE_MARK = '<!-- agent-harness:claude -->';
 export const appMark = (kind: string): string => `<!-- agent-harness:app kind=${kind} -->`;
 
-export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app';
+export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel';
 
 /** MCP 経由の投稿で `<` `>` が HTML エンティティに変わることがあるため、その形も目印として扱う */
 const CLAUDE_MARK_ESCAPED = '&lt;!-- agent-harness:claude --&gt;';

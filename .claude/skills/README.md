@@ -10,6 +10,7 @@
 | `implement/` | 人が付き添うセッションで、計画ゲートを通った（または agent:plan-review で人が進めると決めた）Issue を実装し、Draft PR を出す。 |  |
 | `judge/` | 人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。 | ○ |
 | `plan/` | 人が付き添うセッションで、Issue の計画を書き、plan-critic に批評させて投稿する。 | ○ |
+| `review-panel/` | 人が付き添うセッションの judge の中で、公式の code-review に沿った合体版のレビュー（担当を並行に動かし、指摘を採点して組み立てる）を動かし、記録のコメントを投稿する。 | ○ |
 | `ship/` | 人が付き添うセッションで、Issue 番号を受け取り、plan → implement → judge → fix（必要なら sync）の skill をつないで、人の Merge 待ちか人の判断待ちまで進める。 | ○ |
 | `sync/` | 人が付き添うセッションで、判定済みの PR に main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる（変わっていれば判定し直す）。 | ○ |
 <!-- readme:generated end -->

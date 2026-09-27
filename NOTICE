@@ -1,0 +1,26 @@
+gen-ai-development-kit
+
+このリポジトリには、次の第三者の素材を含みます。
+
+----------------------------------------------------------------------
+claude-plugins-official（code-review プラグイン）
+
+  出どころ：https://github.com/anthropics/claude-plugins-official
+  コミット：fa59bc9037741ecfa131aa27938272605710d7b2
+  パス    ：plugins/code-review/commands/code-review.md
+  ライセンス：Apache License, Version 2.0
+              （同じコミットの plugins/code-review/LICENSE を
+                docs/upstream/claude-plugins-official/LICENSE に写しています）
+  NOTICE  ：同じコミットの plugins/code-review/ とリポジトリの root に NOTICE はありません。
+
+  写したファイル（書き換えていません）：
+    docs/upstream/claude-plugins-official/code-review.md
+
+  元にしたファイル（手順・文言の一部を使い、変えたことを各ファイルの本文に書いています）：
+    .claude/agents/review-intake.md   （手順1〜3）
+    .claude/agents/review-lens.md     （手順4の Agent #1〜#5 と Examples of false positives を英文のまま引用）
+    .claude/agents/review-scorer.md   （手順5の採点基準を英文のまま引用）
+    .claude/skills/review-panel/SKILL.md（手順1〜8の流れ）
+
+  出どころと更新の手順は docs/upstream/README.md、合体版のレビューは docs/review-panel.md を参照。
+----------------------------------------------------------------------
