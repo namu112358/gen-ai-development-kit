@@ -3,7 +3,7 @@ import { LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { refreshMergeRoute } from './apply.ts';
-import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
+import { appComment, disableAutoMerge, getPr, updateBranchIfBehind, type GateContext } from './context.ts';
 
 /**
  * 定期実行：停滞検知。24 時間動きがない Issue・PR、期限切れの人の claim、コンフリクトしている PR、
@@ -46,7 +46,10 @@ async function reconcileAutoMerge(ctx: GateContext): Promise<number> {
     const pr = await getPr(ctx, item.number);
     const agent = isAgentPr(ctx.config, pr, ctx.repository);
     const acceptance = agent ? acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patchId(await prDiff(ctx.gh, pr))) : null;
-    if (agent && mode && !hasLabel(pr, LABELS.hold) && acceptance?.autoEligible) continue;
+    if (agent && mode && !hasLabel(pr, LABELS.hold) && acceptance?.autoEligible) {
+      await updateBranchIfBehind(ctx, pr);
+      continue;
+    }
     await disableAutoMerge(ctx, pr);
     await refreshMergeRoute(ctx, pr);
     await appComment(ctx, pr.number, 'auto-merge-removed', '自動 Merge の条件を満たさない auto-merge が付いていたため外しました（定期照合）。');

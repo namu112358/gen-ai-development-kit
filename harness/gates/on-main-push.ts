@@ -1,7 +1,7 @@
 import { appLogin } from '../lib/config.ts';
 import { isAgentPr, type PullRequest } from '../lib/state.ts';
 import { refreshMergeRoute } from './apply.ts';
-import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
+import { appComment, disableAutoMerge, getPr, updateBranchIfBehind, type GateContext } from './context.ts';
 import { ensureDashboard } from './stale.ts';
 
 /**
@@ -61,15 +61,6 @@ async function updateWaitingBranches(ctx: GateContext): Promise<void> {
   const open = await ctx.gh.paginate<PullRequest>('/pulls?state=open');
   for (const item of open) {
     if (!item.auto_merge || !isAgentPr(ctx.config, item, ctx.repository)) continue;
-    const pr = await getPr(ctx, item.number);
-    // push 直後は mergeable_state が unknown になりやすいため、compare で遅れを直接調べる
-    const cmp = await ctx.gh.get<{ behind_by: number }>(`/compare/${encodeURIComponent(pr.base.ref)}...${pr.head.sha}`);
-    if (cmp.behind_by === 0) continue;
-    try {
-      await ctx.gh.request('PUT', `/pulls/${pr.number}/update-branch`, { body: { expected_head_sha: pr.head.sha } });
-      ctx.log(`#${pr.number} を main に追従させました`);
-    } catch (e) {
-      ctx.log(`#${pr.number} の追従に失敗: ${(e as Error).message}`);
-    }
+    await updateBranchIfBehind(ctx, await getPr(ctx, item.number));
   }
 }
