@@ -4,8 +4,6 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 // Issue #132：overview.html のラベル表示と harness.config.json のラベル定義の食い違いを検査する（AC3）
-//
-// harness/scripts/readme.ts（未実装）から import する。実装が無い間はここで失敗する。
 import { labelsInOverview, checkOverviewLabels } from '../scripts/readme.ts';
 import { loadConfig, allLabelDefs } from '../lib/config.ts';
 

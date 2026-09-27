@@ -5,9 +5,8 @@ import { test } from 'node:test';
 
 // Issue #132：README の表に、直下に実在しない名前が書かれていないこと（AC1）
 //
-// harness/scripts/readme.ts（未実装）から import する。実装が無い間はここで失敗する。
-// この検査はマーカー（<!-- readme:generated start/end -->）に依存せず、README 全文の表から名前を拾う
-// （harness/test・harness/test/support は生成の対象外＝Non-goal だが、名前の実在の検査だけはかけるため）。
+// namesInTable は生成の目印（<!-- readme:generated start/end -->）の中だけを見る（無ければファイル全文）。
+// harness/test・harness/test/support は生成の対象外（Non-goal）で目印を持たないため、全文から名前を拾う。
 import { namesInTable, staleNames, directChildren, readmeFileFor, TARGET_DIRS } from '../scripts/readme.ts';
 
 const root = join(import.meta.dirname, '..', '..');

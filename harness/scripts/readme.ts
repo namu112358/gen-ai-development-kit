@@ -14,7 +14,8 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { loadConfig } from '../lib/config.ts';
+import { loadConfig, MANAGED_PREFIXES } from '../lib/config.ts';
+import { guardrailFiles } from '../lib/guardrail.ts';
 import { globToRegExp } from '../lib/scope.ts';
 
 export type GuardMark = '' | '○' | '対象外' | '一部';
@@ -52,7 +53,7 @@ export const NO_COMMENT_ALLOWLIST: string[] = [
 
 /** 先頭にコメントを書けない4件の、README にそのまま残す説明（手書き。生成しない） */
 const NO_COMMENT_TEXT: Record<string, string> = {
-  '.claude/settings.json': 'Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録。ガードレール',
+  '.claude/settings.json': 'Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録。',
   'harness/templates/claude-settings.deny.json':
     'Claude Code にさせない操作（Merge、main への push、保護ラベルの付け外し、Secret・資格情報の読み出しなど）の一覧。`.claude/settings.json` の `permissions.deny` と同じ内容で、変えるときは両方を直す',
   '.github/ISSUE_TEMPLATE/':
@@ -71,10 +72,9 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 export function guardrailMarkForFile(config: GuardrailConfig, relPath: string): GuardMark {
   const paths = config.guardrailPaths;
   if (!paths) return '○'; // 一覧が無ければすべてガードレール（安全側。harness/lib/guardrail.ts と同じ）
+  if (guardrailFiles(config, [relPath]).length > 0) return '○';
   const included = paths.some((p) => globToRegExp(p).test(relPath));
-  if (!included) return '';
-  const excluded = (config.guardrailExclude ?? []).some((p) => globToRegExp(p).test(relPath));
-  return excluded ? '対象外' : '○';
+  return included ? '対象外' : '';
 }
 
 export function guardrailMarkForDir(config: GuardrailConfig, relChildFiles: string[]): GuardMark {
@@ -280,7 +280,9 @@ export function firstSentence(paragraph: string): string {
 
 export function toCell(text: string): string {
   const escaped = text.replace(/\|/g, '\\|');
-  return escaped.split('```').join('````');
+  // ```word（と、そのあとに ``` が続けば一緒に）を ````word```` に置き換える。閉じが無い（フェンスの体を成さない）
+  // 参照でも必ず閉じを付け、開いたままの ``` が残ってセルの区切り | を巻き込まないようにする
+  return escaped.replace(/```([\w-]+)(?:```)?/g, '````$1````');
 }
 
 // ---- 表の生成・書き込み ----
@@ -349,9 +351,12 @@ export function writeReadme(root: string, relDir: string): void {
 
 // ---- README の表の名前の実在（AC1） ----
 
+/** 生成の目印（<!-- readme:generated start/end -->）の中だけを見る（無ければ全文。`.github` は root README の節がここで絞られる） */
 export function namesInTable(text: string): string[] {
+  const m = text.match(BLOCK_RE);
+  const scope = m ? m[1]! : text;
   const names: string[] = [];
-  for (const line of text.split('\n')) {
+  for (const line of scope.split('\n')) {
     const t = line.trim();
     if (!t.startsWith('|')) continue;
     const cells = t.split('|');
@@ -379,8 +384,6 @@ export function staleNames(names: string[], children: string[]): string[] {
 }
 
 // ---- overview.html のラベル（AC3） ----
-
-const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'type:', 'size:', 'area:', 'plan:', 'review:', 'test:'];
 
 export function labelsInOverview(html: string): string[] {
   const labels = new Set<string>();

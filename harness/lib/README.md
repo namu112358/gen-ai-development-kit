@@ -19,9 +19,9 @@
 | `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。 | 対象外 |
 | `jev.ts` | TypeSafe AI の Jev（https://docs.typesafe.ai/api）で、Risk ポリシーの8問に1回の呼び出しで答えさせる。 | ○ |
 | `label-rules.ts` | 必須ラベルの検査（docs/operations.md の「必須ラベルの規則」）。 | ○ |
-| `merge-route.ts` | App が PR に残す受け付け記録（````agent-app、kind=acceptance）と、merge-route の評価。 | ○ |
+| `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
-| `plan.ts` | 計画コメントの構造化出力（````agent-plan）。 | ○ |
+| `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `queue.ts` | Routine の次の行動を決める純粋関数。 | 対象外 |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）の純粋関数。 | ○ |
 | `scope.ts` | 計画の「触るファイル一覧」と実際の diff の照合（範囲照合）。 | ○ |
@@ -31,6 +31,6 @@
 | `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |
 | `usage.ts` | Claude Code のセッション記録（jsonl）からトークン数を集計し、API で動かした場合の料金を見積もる。 | 対象外 |
 | `validate.ts` | 依存なしの小さな検証ヘルパー。 | ○ |
-| `verdict.ts` | 判定コメントの構造化出力（````agent-verdict）。 | ○ |
+| `verdict.ts` | 判定コメントの構造化出力（````agent-verdict````）。 | ○ |
 | `worktree.ts` | 作業用の git worktree（リポジトリの外の作業場所）の作成と削除。 | 対象外 |
 <!-- readme:generated end -->

@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 // Issue #132：README の表（名前・内容・ガードレール）を各ディレクトリの先頭のコメントから生成する
-//
-// harness/scripts/readme.ts（未実装）から import する。実装が無い間はここで失敗する。
 import {
   extractComment,
   extractDirComment,
