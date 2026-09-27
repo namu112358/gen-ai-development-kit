@@ -89,3 +89,7 @@ Issue に `priority:high` を付ける。queue は優先度 → `agent:ready` �
 ### Q. 自動 Merge を一時的に止めたいときはどうするか
 
 「Agent ダッシュボード」Issue に `agent:auto-merge-stopped` を付ける。App が全 PR の auto-merge を外し、merge-route が自動経路を failure にする（Human Merge は通る）。再開は同じラベルを外すだけ。
+
+### Q. 特定の PR だけ自動 Merge を止めたいときはどうするか
+
+その PR に `agent:hold` を付ける。merge-route が自動経路を failure にし、他の PR には影響しない。再開は同じラベルを外すだけ。
