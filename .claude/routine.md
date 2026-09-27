@@ -21,7 +21,7 @@
 
 各アクションの前に、MCP で対象の現在の状態を読み直し、queue と食い違っていたら（ラベルが変わった、PR の head が `headSha` と違う、既に計画や判定が投稿済み など）そのアクションは飛ばす。queue は App が次のイベントで計算し直す。
 
-着手宣言：`node harness/scripts/agent.ts render-claim` の出力を対象の Issue / PR にコメントし、`agent:working` ラベルを付ける。終わったら `agent:working` を外す。1つのアクションで失敗しても、`agent:working` を外してから次に進む。人の対応が必要なら `agent:blocked` を付け、理由をコメントする（先頭に `<!-- agent-harness:claude -->`）。
+着手宣言：`node harness/scripts/agent.ts render-claim` の出力を対象の Issue / PR にコメントする（ラベルは付けない）。計画・判定を投稿すれば着手は終わる。それ以外で終えるとき（実装・修正の完了、失敗、飛ばすとき）は `render-claim --release` の出力をコメントしてから次に進む。人の対応が必要なら、`render-block <理由コード> <説明>` の出力をコメントしてから `agent:blocked` を付ける（理由コードは [docs/operations.md](../docs/operations.md)）。
 
 ### plan（計画）
 
@@ -31,7 +31,7 @@
    - `files`：**触るファイルをすべて**列挙する（テスト・docs を含む）
    - `needsHuman`・`acChangeProposed`・`openQuestions`：人の判断が要るなら正直に書く（ゲートで止まる）
    - `risk`：想定 Risk（[docs/risk-policy.md](../docs/risk-policy.md) の目安）
-4. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す。`agent:working` を含む）、**その後で**出力の `body` を Issue にコメントする。
+4. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。
 5. 実装は**しない**。
 
 ### implement（実装）
@@ -43,7 +43,7 @@
 5. `npm ci`（初回のみ）と `npm run check` を通す。
 6. commit して `git push -u origin <ブランチ>`。
 7. MCP で **Draft** PR を作る（base は main）。本文には次を入れる：`Closes #<番号>`、計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、AC ごとの対応、範囲外の変更があればその理由。
-8. Issue に `agent:in-pr` を付け、`agent:working` を外す。
+8. Issue に `render-claim --release` の出力をコメントする。
 9. `node harness/scripts/agent.ts render-metrics implement <モデル名> <所要分> <トークン数 or unknown>` の出力を PR にコメントする。
 10. 判定は**しない**（次の実行で別の段階として行う）。
 
@@ -53,7 +53,7 @@
 2. **reviewer** サブエージェントに PR 番号・Issue 番号・head SHA を渡す。GitHub の読み取りは MCP ツールで行うよう伝える。
 3. **risk-agent** サブエージェントに PR 番号と head SHA **だけ**を渡す（Issue や PR の説明を渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
 4. 2つの結果を合わせて判定コメントを一時ファイルに書く（書式は [docs/formats.md](../docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
-5. `node harness/scripts/agent.ts render-verdict <PR番号> <headSha> <ファイル>` で検査する。**先に** PR の `agent:working` を外し、**その後で**出力を PR にコメントする。
+5. `node harness/scripts/agent.ts render-verdict <PR番号> <headSha> <ファイル>` で検査し、出力を PR にコメントする。
 6. `render-metrics judge ...` の出力を PR にコメントする。
 7. Merge・Ready 化・auto-merge は App が行う。何もしない。
 
@@ -61,7 +61,7 @@
 
 1. `reason` が `review` なら、App の最新の変更要求レビュー（本文に `kind=fix-request`、作成者が App）の指摘を直す。`human` なら、最後の push 以降のコラボレーターのレビューの指摘を直す。
 2. PR のブランチで修正し、`npm run check` を通して push する（force push しない。main への追従が必要なら merge する）。
-3. 何を直したかを PR にコメントし（先頭に `<!-- agent-harness:claude -->`）、`agent:working` を外す。`render-metrics fix ...` もコメントする。
+3. 何を直したかを PR にコメントし（先頭に `<!-- agent-harness:claude -->`）、`render-claim --release` と `render-metrics fix ...` の出力もコメントする。
 4. 判定は次の実行で行う。
 
 ### wait-dependency（依存待ち）

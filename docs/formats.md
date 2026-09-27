@@ -110,7 +110,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 { "by": "routine", "session": "https://claude.ai/code/session_...", "at": "2026-09-26T12:00:00.000Z" }
 ```
 
-`manual` の着手は Routine が奪わない。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
+`"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
 ## App の記録（agent-app）
 
@@ -123,4 +123,5 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev }` |
 | `verdict-rejected` | PR | 判定を受け付けなかった理由 |
 | `fix-request` | PR（レビュー） | Reviewer のブロッキング指摘（修正回数はこの数で数える） |
-| `human-review` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `auto-merge-stopped` / `dashboard` | 各所 | 通知・記録 |
+| `issue-triage` | Issue | Jev による分類の提案と、その確率 |
+| `human-review` / `priority-conflict` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `auto-merge-stopped` / `dashboard` | 各所 | 通知・記録 |

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
-import { LABELS, loadConfig, riskLabel } from '../lib/config.ts';
+import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { computeQueue } from '../lib/facts.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
@@ -14,7 +14,8 @@ import { parseVerdict } from '../lib/verdict.ts';
  * Routine と人のセッションが使う CLI。書式は投稿前に検査する。
  *
  * ■ Routine 用（GitHub API を呼ばない。投稿・ラベル操作は Routine が GitHub の MCP ツールで行う）
- *   node harness/scripts/agent.ts render-claim [--manual]                 着手宣言コメントの本文
+ *   node harness/scripts/agent.ts render-claim [--manual] [--release]     着手宣言（または解除）コメントの本文
+ *   node harness/scripts/agent.ts render-block <reason-code> <text>       人に返すとき（agent:blocked）のコメント本文。理由コードは必須
  *   node harness/scripts/agent.ts render-plan <issue> <file>              計画コメントを検査し {body, addLabels, removeLabels}
  *   node harness/scripts/agent.ts render-verdict <pr> <headSha> <file>    判定コメントを検査し本文を出力
  *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> <tokens>  PR に残すメトリクスのコメント本文
@@ -23,13 +24,13 @@ import { parseVerdict } from '../lib/verdict.ts';
  *
  * ■ 人のセッション用（gh の認証で GitHub API を呼ぶ）
  *   node harness/scripts/agent.ts queue                     次にやること（JSON）
- *   node harness/scripts/agent.ts claim <n> [--manual]      着手宣言（agent:working＋コメント）
- *   node harness/scripts/agent.ts release <n>               着手宣言の解除
+ *   node harness/scripts/agent.ts claim <n> [--manual]      着手宣言のコメント
+ *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿
  *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
- *   node harness/scripts/agent.ts block <n> <reason>        agent:blocked＋理由
+ *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
  *   node harness/scripts/agent.ts footer <pr> <stage> <model> <minutes> <tokens>  PR 本文のメトリクス表に1行追記
  *   node harness/scripts/agent.ts session-url               この実行のセッション URL
@@ -58,14 +59,20 @@ export function sessionUrl(): string | null {
 }
 
 
-function claimBody(manual: boolean): string {
+function claimBody(manual: boolean, release = false): string {
   const url = sessionUrl();
-  const value: Claim = manual || !url ? { by: 'manual', at: new Date().toISOString() } : { by: 'routine', session: url, at: new Date().toISOString() };
-  return [CLAUDE_MARK, `着手しました（${value.by === 'routine' ? `Routine: ${value.session}` : '手動'}）。`, '', renderBlock('agent-claim', value)].join('\n');
+  const base: Claim = manual || !url ? { by: 'manual', at: new Date().toISOString() } : { by: 'routine', session: url, at: new Date().toISOString() };
+  const value: Claim = release ? { ...base, released: true } : base;
+  const who = value.by === 'routine' ? `Routine: ${value.session}` : '手動';
+  return [CLAUDE_MARK, release ? `着手を解除しました（${who}）。` : `着手しました（${who}）。`, '', renderBlock('agent-claim', value)].join('\n');
+}
+
+function blockBody(code: string, text: string): string {
+  if (!(code in REASON_CODES)) fail([`理由コードは ${Object.keys(REASON_CODES).join(' / ')} のいずれか`]);
+  return [CLAUDE_MARK, reasonMark(code as ReasonCode), `\`agent:blocked\` にしました（${REASON_CODES[code as ReasonCode]}）。人の対応が必要です。`, '', text].join('\n');
 }
 
 async function claim(gh: GitHub, n: number, manual: boolean): Promise<void> {
-  await gh.addLabels(n, [LABELS.working]);
   await gh.comment(n, claimBody(manual));
 }
 
@@ -79,7 +86,7 @@ function renderPlan(n: number, file: string): { body: string; addLabels: string[
   return {
     body: readBlockFile(file),
     addLabels: [riskLabel(plan.risk), ...(gate.pass ? [] : [LABELS.planReview])],
-    removeLabels: [...risks.filter((r) => r !== riskLabel(plan.risk)), LABELS.working],
+    removeLabels: risks.filter((r) => r !== riskLabel(plan.risk)),
     expectedGate: gate,
   };
 }
@@ -113,17 +120,15 @@ function checkFile(file: string): { kind: 'plan' | 'verdict'; errors: string[]; 
 
 async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
   const r = renderPlan(n, file);
-  for (const l of r.removeLabels.filter((l) => l !== LABELS.working)) await gh.removeLabel(n, l);
+  for (const l of r.removeLabels) await gh.removeLabel(n, l);
   await gh.addLabels(n, r.addLabels);
   const posted = await gh.comment(n, r.body);
-  await gh.removeLabel(n, LABELS.working);
   console.log(JSON.stringify({ posted: posted.html_url, expectedGate: r.expectedGate }, null, 2));
 }
 
 async function postVerdict(gh: GitHub, n: number, file: string): Promise<void> {
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
   const posted = await gh.comment(n, renderVerdict(n, pr.head.sha, file));
-  await gh.removeLabel(n, LABELS.working);
   console.log(JSON.stringify({ posted: posted.html_url }, null, 2));
 }
 
@@ -161,7 +166,8 @@ function fail(errors: string[]): never {
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === 'session-url') return void console.log(sessionUrl() ?? '(none)');
-  if (cmd === 'render-claim') return void console.log(claimBody(args.includes('--manual')));
+  if (cmd === 'render-claim') return void console.log(claimBody(args.includes('--manual'), args.includes('--release')));
+  if (cmd === 'render-block') return void console.log(blockBody(args[0]!, args.slice(1).join(' ')));
   if (cmd === 'render-plan') return void console.log(JSON.stringify(renderPlan(Number(args[0]), args[1]!), null, 2));
   if (cmd === 'render-verdict') return void console.log(renderVerdict(Number(args[0]), args[1]!, args[2]!));
   if (cmd === 'render-metrics') {
@@ -178,7 +184,7 @@ async function main(): Promise<void> {
   switch (cmd) {
     case 'queue': return void console.log(JSON.stringify(await computeQueue(gh, config, sessionUrl()), null, 2));
     case 'claim': return claim(gh, n, args.includes('--manual'));
-    case 'release': return gh.removeLabel(n, LABELS.working);
+    case 'release': return void (await gh.comment(n, claimBody(true, true)));
     case 'show-plan': return showPlan(gh, n);
     case 'post-plan': return postPlan(gh, n, args[1]!);
     case 'post-verdict': return postVerdict(gh, n, args[1]!);
@@ -190,14 +196,13 @@ async function main(): Promise<void> {
     }
     case 'wait': {
       await gh.addLabels(n, [LABELS.waiting]);
-      await gh.removeLabel(n, LABELS.working);
       await gh.comment(n, `${CLAUDE_MARK}\n未解決の blocker（${args.slice(1).map((b) => `#${b}`).join(', ')}）があるため \`agent:waiting\` にしました。blocker が閉じると App が外します。`);
       return;
     }
     case 'block': {
+      const body = blockBody(args[1]!, args.slice(2).join(' '));
       await gh.addLabels(n, [LABELS.blocked]);
-      await gh.removeLabel(n, LABELS.working);
-      await gh.comment(n, `${CLAUDE_MARK}\n\`agent:blocked\` にしました。人の対応が必要です。\n\n${args.slice(1).join(' ')}`);
+      await gh.comment(n, body);
       return;
     }
     default:

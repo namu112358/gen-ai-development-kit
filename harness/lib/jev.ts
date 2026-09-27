@@ -66,20 +66,15 @@ export function jevAllows(config: HarnessConfig, answers: JevResponse['answers']
   });
 }
 
-export async function callJev(
-  config: HarnessConfig,
-  apiKey: string | undefined,
-  diff: string,
-  changedFiles: string[],
-  facts: Verdict['facts'],
+export type JevAnswers = JevResponse['answers'];
+
+/** Jev に1回問う（再試行つき）。Risk 判定と Issue の分類の両方から使う */
+export async function askJev(
+  apiKey: string,
+  request: { model: string; state: unknown; questions: Record<string, unknown> },
   fetchImpl: typeof fetch = fetch,
-): Promise<JevRecord> {
-  if (config.jev.mode === 'off') return { status: 'skipped', detail: 'jev.mode=off' };
-  if (!apiKey) return { status: 'skipped', detail: 'JEV_API_KEY が未設定' };
-  if (diff.length > config.jev.maxDiffChars) {
-    return { status: 'skipped', detail: `diff が大きすぎます（${diff.length} 文字 > ${config.jev.maxDiffChars}）` };
-  }
-  const body = JSON.stringify(buildJevRequest(config, diff, changedFiles, facts));
+): Promise<{ status: 'ok'; model: string; answers: JevAnswers } | { status: 'error'; detail: string }> {
+  const body = JSON.stringify(request);
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const res = await fetchImpl(ENDPOINT, {
@@ -96,16 +91,37 @@ export async function callJev(
       const text = await res.text();
       if (!res.ok) return { status: 'error', detail: `HTTP ${res.status}: ${redact(text, apiKey).slice(0, 300)}` };
       const json = JSON.parse(text) as JevResponse;
-      const answers: Record<string, Record<string, number>> = {};
-      for (const [key, a] of Object.entries(json.answers)) {
-        answers[key] = a.type === 'noul' ? { yes: a.noul ?? NaN } : { ...(a.probabilities ?? {}) };
-      }
-      return { status: 'ok', detail: json.model, allows: jevAllows(config, json.answers), answers };
+      return { status: 'ok', model: json.model, answers: json.answers };
     } catch (e) {
       if (attempt === 2) return { status: 'error', detail: redact(String(e), apiKey).slice(0, 300) };
     }
   }
   return { status: 'error', detail: 'リトライ上限に達しました' };
+}
+
+/** 答えを記録用の形（選択肢ごとの確率、Noul は yes の確率）にする */
+export function flattenAnswers(answers: JevAnswers): Record<string, Record<string, number>> {
+  const out: Record<string, Record<string, number>> = {};
+  for (const [key, a] of Object.entries(answers)) out[key] = a.type === 'noul' ? { yes: a.noul ?? NaN } : { ...(a.probabilities ?? {}) };
+  return out;
+}
+
+export async function callJev(
+  config: HarnessConfig,
+  apiKey: string | undefined,
+  diff: string,
+  changedFiles: string[],
+  facts: Verdict['facts'],
+  fetchImpl: typeof fetch = fetch,
+): Promise<JevRecord> {
+  if (config.jev.mode === 'off') return { status: 'skipped', detail: 'jev.mode=off' };
+  if (!apiKey) return { status: 'skipped', detail: 'JEV_API_KEY が未設定' };
+  if (diff.length > config.jev.maxDiffChars) {
+    return { status: 'skipped', detail: `diff が大きすぎます（${diff.length} 文字 > ${config.jev.maxDiffChars}）` };
+  }
+  const r = await askJev(apiKey, buildJevRequest(config, diff, changedFiles, facts), fetchImpl);
+  if (r.status === 'error') return r;
+  return { status: 'ok', detail: r.model, allows: jevAllows(config, r.answers), answers: flattenAnswers(r.answers) };
 }
 
 /** ログやコメントに秘密が出ないよう伏せ字にする */

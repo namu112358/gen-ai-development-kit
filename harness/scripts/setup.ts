@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { CHECKS, LABEL_DEFS, loadConfig } from '../lib/config.ts';
+import { allLabelDefs, CHECKS, loadConfig } from '../lib/config.ts';
 import { GhTransport, GitHub } from '../lib/github.ts';
 
 /**
@@ -19,9 +19,19 @@ const GITHUB_ACTIONS_APP_ID = 15368;
 const ENVIRONMENT = 'gate';
 const RULESET_NAME = 'agent-harness-main';
 
+/** ハーネスが管理するラベルの接頭辞。定義に無いものは消す（廃止したラベルを残さない） */
+const MANAGED_PREFIXES = ['agent:', 'risk:', 'priority:', 'size:', 'area:', 'plan:'];
+
 async function labels(gh: GitHub): Promise<void> {
+  const defs = allLabelDefs(loadConfig());
   const existing = new Set((await gh.paginate<{ name: string }>('/labels')).map((l) => l.name));
-  for (const def of LABEL_DEFS) {
+  for (const name of existing) {
+    if (MANAGED_PREFIXES.some((p) => name.startsWith(p)) && !defs.some((d) => d.name === name)) {
+      await gh.request('DELETE', `/labels/${encodeURIComponent(name)}`);
+      console.log(`deleted ${name}`);
+    }
+  }
+  for (const def of defs) {
     if (existing.has(def.name)) {
       await gh.request('PATCH', `/labels/${encodeURIComponent(def.name)}`, { body: { color: def.color, description: def.description } });
     } else {
@@ -107,6 +117,7 @@ export function rulesetBody(appId: number) {
             { context: 'ci', integration_id: GITHUB_ACTIONS_APP_ID },
             { context: CHECKS.review, integration_id: appId },
             { context: CHECKS.mergeRoute, integration_id: appId },
+            { context: CHECKS.planLink, integration_id: appId },
           ],
         },
       },
@@ -120,7 +131,7 @@ async function ruleset(gh: GitHub, appId: number): Promise<void> {
   const body = rulesetBody(appId);
   if (existing) await gh.request('PUT', `${gh.repoPath}/rulesets/${existing.id}`, { body });
   else await gh.request('POST', `${gh.repoPath}/rulesets`, { body });
-  console.log(`ruleset ${RULESET_NAME}: required = ci(GitHub Actions), ${CHECKS.review}(App ${appId}), ${CHECKS.mergeRoute}(App ${appId}); bypass なし`);
+  console.log(`ruleset ${RULESET_NAME}: required = ci(GitHub Actions), ${CHECKS.review}・${CHECKS.mergeRoute}・${CHECKS.planLink}(App ${appId}); bypass なし`);
 }
 
 function appManifest(repository: string, name: string): void {

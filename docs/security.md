@@ -17,6 +17,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 秘密 | App と Jev の鍵は Environment `gate` の Secret。`gate` は既定ブランチからの実行に限定。ログ・コメントは伏せ字にする |
 | 必須チェック | `agent/review`・`merge-route` は App の `integration_id` に固定。本人名義で同名のステータスを書いても通らない。bypass なし |
 | 段階ゲート | `agent:plan-ok` は App だけ。App 以外が付けたら App が外す |
+| 計画の紐付け | すべての PR（人のセッションの PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録） |
 | 計画の写し | ゲート通過時の計画を App の記録に写す。後で計画コメントが編集されても写しを使う |
 | 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を照合する。最初の階層にワイルドカードがあるパターンは拒否。全件取得できなければ不可 |
 | 判定の鮮度 | 判定時と現在の head で、PR 自身の差分の `git patch-id --verbatim` が同じときだけ受け付ける（`--stable` は空白を無視するため使わない） |

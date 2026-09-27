@@ -5,7 +5,11 @@ import { LABELS, priorityRank } from './config.ts';
  * 段階は GitHub の状態から毎回再構成するので、途中で落ちた実行の続きから冪等に進められる。
  */
 
-export type Claim = { by: 'routine'; session: string; at: string } | { by: 'manual'; at: string };
+/**
+ * 着手宣言（コメントの agent-claim）。ラベルは使わない。
+ * 解除コメント（released）か、宣言より新しい計画・判定コメントがあれば終わったとみなす（facts.ts の claimOf）。
+ */
+export type Claim = ({ by: 'routine'; session: string; at: string } | { by: 'manual'; at: string }) & { released?: boolean };
 
 export interface IssueFacts {
   number: number;
@@ -54,16 +58,21 @@ export interface QueueOptions {
   now: Date;
   /** 終了したとみなす Routine の claim の経過時間（分） */
   routineClaimTakeoverMinutes: number;
+  /** 人の着手をこの時間を過ぎたら停滞として表示する（奪いはしない） */
+  humanClaimStaleHours: number;
 }
 
 const has = (labels: string[], name: string) => labels.includes(name);
 
 /** 着手宣言があり、奪ってはいけないなら理由を返す */
-function claimedByOther(labels: string[], claim: Claim | null, opts: QueueOptions): string | null {
-  if (!has(labels, LABELS.working) || !claim) return null;
-  if (claim.by === 'manual') return '人のセッションが着手中';
-  if (claim.session === opts.currentSession) return null;
+function claimedByOther(claim: Claim | null, opts: QueueOptions): string | null {
+  if (!claim || claim.released) return null;
   const minutes = (opts.now.getTime() - new Date(claim.at).getTime()) / 60_000;
+  if (claim.by === 'manual') {
+    const hours = Math.floor(minutes / 60);
+    return hours >= opts.humanClaimStaleHours ? `人のセッションが着手中（${hours} 時間進展なし・停滞）` : '人のセッションが着手中';
+  }
+  if (claim.session === opts.currentSession) return null;
   return minutes < opts.routineClaimTakeoverMinutes ? '別の Routine の実行が着手中' : null;
 }
 
@@ -73,8 +82,8 @@ export function decideIssue(f: IssueFacts, opts: QueueOptions): Action {
     if (has(f.labels, stop)) return { kind: 'skip', target, reason: `\`${stop}\`` };
   }
   if (!has(f.labels, LABELS.ready)) return { kind: 'skip', target, reason: '`agent:ready` がありません' };
-  if (f.openPr !== null || has(f.labels, LABELS.inPr)) return { kind: 'skip', target, reason: `PR #${f.openPr ?? '?'} の段階です` };
-  const claimed = claimedByOther(f.labels, f.claim, opts);
+  if (f.openPr !== null) return { kind: 'skip', target, reason: `PR #${f.openPr} の段階です` };
+  const claimed = claimedByOther(f.claim, opts);
   if (claimed) return { kind: 'skip', target, reason: claimed };
   if (f.openBlockers.length > 0) return { kind: 'wait-dependency', issue: f.number, blockers: f.openBlockers };
 
@@ -91,7 +100,7 @@ export function decidePr(f: PrFacts, opts: QueueOptions): Action {
   for (const stop of [LABELS.hold, LABELS.blocked]) {
     if (has(f.labels, stop)) return { kind: 'skip', target, reason: `\`${stop}\`` };
   }
-  const claimed = claimedByOther(f.labels, f.claim, opts);
+  const claimed = claimedByOther(f.claim, opts);
   if (claimed) return { kind: 'skip', target, reason: claimed };
   if (f.humanFeedbackSincePush > 0) return { kind: 'fix', pr: f.number, issue: f.issue, reason: 'human' };
   if (f.verdictAwaitingGate) return { kind: 'skip', target, reason: '判定の受け付け待ち' };
