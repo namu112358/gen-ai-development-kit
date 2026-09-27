@@ -1,0 +1,30 @@
+{
+  "$comment": "導入先に配るファイルの一覧（Issue #155）。managed は sync が上書きする kit のもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー（混ぜ方は sync の Issue で決める）。harness/test・package.json・tsconfig.json は配らない（ゲートは依存なしで Node 24 だけで動く）",
+  "managed": [
+    "harness/lib/**",
+    "harness/gates/**",
+    "harness/scripts/**",
+    "harness/templates/**",
+    "harness/CLAUDE.harness.md",
+    ".claude/skills/**",
+    ".claude/agents/**",
+    ".claude/hooks/**",
+    ".claude/routine.md",
+    ".github/workflows/gate.yml",
+    ".github/ISSUE_TEMPLATE/agent-task.yml"
+  ],
+  "projectOwned": [
+    {
+      "path": "harness.config.json",
+      "template": "harness/templates/harness.config.json"
+    },
+    {
+      "path": "CLAUDE.md",
+      "template": "harness/templates/CLAUDE.template.md"
+    }
+  ],
+  "settingsKeys": [
+    "permissions.deny",
+    "hooks"
+  ]
+}

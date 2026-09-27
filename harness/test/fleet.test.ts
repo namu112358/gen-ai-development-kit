@@ -159,7 +159,8 @@ test('表：Issue・PR ごとの段階・次にやること・重なりを1つ�
 });
 
 test('CLAUDE.md が fleet を案内する', () => {
-  const text = readFileSync(join(root, 'CLAUDE.md'), 'utf8');
-  assert.ok(text.includes('(.claude/skills/fleet/SKILL.md)'), 'fleet への案内がありません');
+  // ハーネスの規則は harness/CLAUDE.harness.md（CLAUDE.md が読み込む。Issue #155）
+  const text = ['CLAUDE.md', 'harness/CLAUDE.harness.md'].map((f) => readFileSync(join(root, f), 'utf8')).join('\n');
+  assert.ok(text.includes('(../.claude/skills/fleet/SKILL.md)'), 'fleet への案内がありません');
   assert.match(text.split('\n').find((l) => l.startsWith('| `.claude/skills/` |')) ?? '', /fleet/);
 });

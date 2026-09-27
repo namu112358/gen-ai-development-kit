@@ -11,7 +11,7 @@ import { APP, acceptanceFake, ctxFor, pr, verdict, verdictEvent, type FakeGitHub
 const config = loadConfig();
 
 /** 判定の連鎖の残り（#110）：修正・取り込み・通しの手順、有人セッションの規則、Jev の切り替えの集計 */
-const judgeChainRest = ['.claude/skills/sync/SKILL.md', '.claude/skills/fix/SKILL.md', '.claude/skills/ship/SKILL.md', 'CLAUDE.md', 'harness/scripts/report.ts'];
+const judgeChainRest = ['.claude/skills/sync/SKILL.md', '.claude/skills/fix/SKILL.md', '.claude/skills/ship/SKILL.md', 'CLAUDE.md', 'harness/CLAUDE.harness.md', 'harness/scripts/report.ts'];
 
 test('判定の連鎖の残りのファイルはガードレールに当たる', () => {
   for (const f of judgeChainRest) assert.deepEqual(guardrailFiles(config, [f]), [f], f);

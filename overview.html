@@ -306,6 +306,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <li><code>lib/</code> 判断のロジック（書式・範囲照合・merge-route など） <span class="guard">ガードレール</span></li>
         <li><code>scripts/</code> 手元で動かすコマンド（<code>agent.ts</code>・<code>setup.ts</code> など）</li>
         <li><code>templates/</code> 導入先に写す設定の見本 <span class="guard">ガードレール</span></li>
+        <li><code>CLAUDE.harness.md</code> ハーネスの規則（CLAUDE.md が読み込む） <span class="guard">ガードレール</span></li>
+        <li><code>managed.json</code> 導入先に配るファイルの一覧</li>
         <li><code>test/</code> テスト（<code>npm run check</code>）</li>
       </ul>
     </section>
@@ -340,7 +342,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
       <h3>root の主なファイル</h3>
       <ul>
         <li><code>README.md</code> 入口の説明</li>
-        <li><code>CLAUDE.md</code> Claude への約束ごと</li>
+        <li><code>CLAUDE.md</code> このリポジトリの約束ごと（ハーネスの規則は <code>harness/CLAUDE.harness.md</code> から読み込む） <span class="guard">ガードレール</span></li>
         <li><code>harness.config.json</code> 導入先ごとの設定（ガードレールの一覧など） <span class="guard">ガードレール</span></li>
         <li><code>overview.html</code> このページ</li>
       </ul>

@@ -5,14 +5,14 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 
 ## 1. ファイルを持ち込む
 
-導入先に次をコピーし、Node 24 で `npm ci && npm run check` が通ることを確かめる。
+配るファイルは [harness/managed.json](../harness/managed.json) に一覧がある。導入先には次のように持ち込む（今は手で写す。版を固定して写す sync は別の Issue で用意する）。
 
-| パス | 内容 |
-| --- | --- |
-| `harness/`、`harness.config.json`、`package.json`、`tsconfig.json`、`.node-version` | ハーネス本体と設定 |
-| `.github/workflows/gate.yml` | App で動くゲート |
-| `.github/ISSUE_TEMPLATE/agent-task.yml` | Issue Form |
-| `.claude/`、`CLAUDE.md` | 付き添いのセッションの skill、サブエージェント、deny、Routine の手順 |
+| 区分 | パス | 扱い |
+| --- | --- | --- |
+| kit が持つ（`managed`） | `harness/lib/**`・`harness/gates/**`・`harness/scripts/**`・`harness/templates/**`・`harness/CLAUDE.harness.md`・`.claude/skills/**`・`.claude/agents/**`・`.claude/hooks/**`・`.claude/routine.md`・`.github/workflows/gate.yml`・`.github/ISSUE_TEMPLATE/agent-task.yml` | そのまま写す。導入先では書き換えない |
+| 初回だけ雛形から作る（`projectOwned`） | `harness.config.json`（← `harness/templates/harness.config.json`）、`CLAUDE.md`（← `harness/templates/CLAUDE.template.md`） | 写した後は導入先が持つ。CLAUDE.md の `@harness/CLAUDE.harness.md` の行は消さない（ハーネスの規則を読み込む） |
+| 両方が混ざる | `.claude/settings.json` | ハーネスのキー（`settingsKeys`：`permissions.deny`・`hooks`）だけを導入先の設定に入れる |
+| 持ち込まない | `harness/test/`・`package.json`・`tsconfig.json`・`.node-version`・`overview.html`・このリポジトリの docs | ゲートは依存なしで Node 24 だけで動く（`gate.yml` は `node-version: 24` を直接指定する）。ハーネスの検査（`npm run check`）はこのリポジトリの CI で行う |
 
 導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。
 
