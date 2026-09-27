@@ -19,6 +19,8 @@ export interface HarnessConfig {
   };
   mergeMethod: 'SQUASH' | 'MERGE' | 'REBASE';
   routine: { maxItemsPerRun: number; humanClaimStaleHours: number; routineClaimTakeoverMinutes: number };
+  /** area 名 → 同時に開いてよい PR の数。上限に達した領域の Issue には新しく着手しない（無い領域は無制限） */
+  areaConcurrency?: Record<string, number>;
   fixLoop: { normalLimit: number; criticalLimit: number };
   staleHours: number;
   dashboardIssueTitle: string;
