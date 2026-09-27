@@ -9,6 +9,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | skill | 役割 |
 | --- | --- |
 | [ship](.claude/skills/ship/SKILL.md) | Issue 番号から、plan → implement → judge → fix（必要なら sync）を一続きに進める |
+| [fleet](.claude/skills/fleet/SKILL.md) | 複数の Issue を選び、ship の段階を Issue ごとに交互に進めて、人がすることを1つの一覧にする |
 | [plan](.claude/skills/plan/SKILL.md) | 計画を書き、plan-critic に批評させて投稿する |
 | [implement](.claude/skills/implement/SKILL.md) | 計画ゲートを通った計画を実装し、Draft PR を出す |
 | [judge](.claude/skills/judge/SKILL.md) | Reviewer と Risk Agent に判定させ、判定コメントを投稿する |
@@ -43,7 +44,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | `harness/scripts/agent.ts` | 書式検査と本文生成（`render-*`、API を呼ばない）と、人のセッション用の操作（`gh` を使う） |
 | `harness/scripts/setup.ts` | 導入先の設定（ラベル・Ruleset・Environment・App） |
 | `harness/test/` | `node:test` のテスト |
-| `.claude/skills/` | 付き添いのセッションの手順（ship / plan / implement / judge / fix / sync） |
+| `.claude/skills/` | 付き添いのセッションの手順（ship / fleet / plan / implement / judge / fix / sync） |
 | `.claude/agents/` | reviewer / risk-agent / test-designer |
 
 ## コードの書き方
