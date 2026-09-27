@@ -3,4 +3,3 @@ node_modules/
 .env
 *.pem
 app-manifest.html
-.claude/worktrees/
