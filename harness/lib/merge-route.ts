@@ -86,3 +86,18 @@ export function eligibility(parts: { reviewPass: boolean; risk: { ok: boolean; r
   if (parts.jevGate && !parts.jevGate.ok) reasons.push(parts.jevGate.reason);
   return { autoEligible: reasons.length === 0, reasons };
 }
+
+/**
+ * テストの改ざん検査（agent/tests）で、人が Merge する PR（Human Merge）とみなす理由。空なら Human Merge とみなさない。
+ * - 変更ファイルだけで決まる条件：ガードレール・humanMergePaths に当たるファイル（どの判定でも eligibility が自動 Merge を許さない）
+ * - 判定の受け付けで決まる条件：現在の差分に対する最新の受け付けが、合格かつ自動 Merge の対象外
+ * Agent PR か・auto-merge の有無はゲート側で見る。
+ */
+export function testsHumanMergeReasons(parts: { guardrail: string[]; humanMerge: string[]; acceptance: Acceptance | null }): string[] {
+  const reasons: string[] = [];
+  if (parts.guardrail.length > 0) reasons.push(`ガードレールに触れます: ${parts.guardrail.join(', ')}`);
+  if (parts.humanMerge.length > 0) reasons.push(`人が Merge するパスに触れます（humanMergePaths）: ${parts.humanMerge.join(', ')}`);
+  const a = parts.acceptance;
+  if (a && a.reviewPass && !a.autoEligible) reasons.push(...(a.reasons.length > 0 ? a.reasons : ['受け付けた判定が自動 Merge の対象外です']));
+  return [...new Set(reasons)];
+}

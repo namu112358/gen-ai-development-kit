@@ -187,7 +187,7 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
   if (limitExceeded) {
     await appComment(ctx, prNumber, 'fix-limit', `${reasonMark('fix-limit')}\n修正回数の上限に達したため \`agent:blocked\` にしました。指摘を確認して人が直すか、Close してください。`);
   }
-  await applyAcceptance(ctx, current, acceptance, { fresh: true });
+  await applyAcceptance(ctx, current, acceptance, { fresh: true, diff });
   // 受け付けた判定の Risk を PR の risk:* にする（ほかの risk:* は外す）。受け付けの書き込みの後に置く
   const risk = riskLabelChanges(current.labels.map((l) => l.name), verdict.risk.level);
   for (const l of risk.remove) await ctx.gh.removeLabel(prNumber, l);

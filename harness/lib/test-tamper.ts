@@ -271,10 +271,10 @@ function tamperExplanation(exemptLabel: string): string[] {
 
 const code = (text: string) => `\`${text.slice(0, 120).replace(/`/g, "'")}\``;
 
-/** Check Run の要約（平易な説明と、種類ごとのファイルと行の一覧） */
-export function renderTamperSummary(findings: TamperFinding[], limit = 100, exemptLabel = TEST_EXEMPT_LABEL): string {
+/** 種類ごとの見出しと一言の説明、ファイルと行（変更前後）の一覧 */
+function tamperList(findings: TamperFinding[], limit: number): string[] {
   const shown = findings.slice(0, limit);
-  const lines = tamperExplanation(exemptLabel);
+  const lines: string[] = [];
   for (const kind of Object.keys(TAMPER_KIND_LABELS) as TamperKind[]) {
     const ofKind = shown.filter((f) => f.kind === kind);
     if (ofKind.length === 0) continue;
@@ -290,5 +290,37 @@ export function renderTamperSummary(findings: TamperFinding[], limit = 100, exem
     lines.push('');
   }
   if (findings.length > limit) lines.push(`- ほか ${findings.length - limit} 件`);
-  return lines.join('\n').trimEnd();
+  return lines;
+}
+
+/** Check Run の要約（平易な説明と、種類ごとのファイルと行の一覧） */
+export function renderTamperSummary(findings: TamperFinding[], limit = 100, exemptLabel = TEST_EXEMPT_LABEL): string {
+  return [...tamperExplanation(exemptLabel), ...tamperList(findings, limit)].join('\n').trimEnd();
+}
+
+/**
+ * 人が Merge する PR（Human Merge）向けの説明と一覧。agent/tests の neutral の要約と、Human Merge の依頼のコメントに載せる。
+ * 止めずに Merge の判断に含めるので、例外ラベルを付けさせる「通し方」は書かない。
+ */
+export function renderTamperForHumanMerge(findings: TamperFinding[], limit = 100): string {
+  return [
+    '### 何を見張っているか',
+    '',
+    'この検査は、テストを甘くして通すことを見張っています。たとえるなら、試験の答案（コード）を直さずに、採点基準（テスト）を書き換えて合格にしてしまう行為です。',
+    '',
+    '### なぜ止めていないか',
+    '',
+    'この PR は人が Merge するので、検査の結果で止めずに、Merge の判断に含めます。テストの行（採点基準の行など）が変わったことだけを示しています。甘くなったとは限りません（関数に引数を足しただけでも載ります）。',
+    '',
+    '### 人が確かめること',
+    '',
+    '- 期待する結果（比べている値）・メッセージ・確認の数が変わっていないか',
+    '- テストが消えたり、飛ばされたりしていないか',
+    '',
+    `問題があれば、Merge せずに PR にコメントで直してもらいます。\`${TEST_EXEMPT_LABEL}\` は要りません。`,
+    '',
+    '### 検出したもの',
+    '',
+    ...tamperList(findings, limit),
+  ].join('\n').trimEnd();
 }

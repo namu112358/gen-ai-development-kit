@@ -28,7 +28,7 @@ Issue を進めるのは、人が付き添う Claude のセッション。「#�
 | fix | ブロッキング指摘や人のレビューを直し、判定をやり直す |
 | sync | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
 
-ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-review` のコメントを付けた）か、人の判断待ち（計画ゲートで止まった、修正の上限、判断できない衝突など）で止まり、人がすること（Merge、例外ラベルを付けるかの判断、`setup.ts` の実行が要るか、Merge 後の確かめ）を一覧にする。段階を1つだけ頼めば、その skill だけを行う。
+ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-review` のコメントを付けた）か、人の判断待ち（計画ゲートで止まった、修正の上限、判断できない衝突など）で止まり、人がすること（Merge、例外ラベルを付けるかの判断（`test:exempt` は自動 Merge の対象の PR で `agent/tests` が止まったときだけ。Human Merge の PR では依頼のコメントのテストの変更を Merge の前に確かめる）、`setup.ts` の実行が要るか、Merge 後の確かめ）を一覧にする。段階を1つだけ頼めば、その skill だけを行う。
 
 複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship の段階を Issue ごとに交互に進めて、人がすることを1つの一覧にする。
 
@@ -51,7 +51,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `size:*` | App | PR の差分の行数（XS〜XXL、lockfile は数えない）。push のたびに付け替える |
 | `review:exempt` | 人 | 判定を待たずに `agent/review` を通す（人の PR の急ぎ、fork からの PR）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する |
 | `plan:exempt` | 人 | 計画のある Issue に紐付かない PR を例外として通す（付け外しを App が記録する） |
-| `test:exempt` | 人 | テストを弱める変更を例外として `agent/tests` を通す（Issue 本文にテストを変える理由があるとき）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する |
+| `test:exempt` | 人 | テストを弱める変更を例外として `agent/tests` を通す（Issue 本文にテストを変える理由があるとき）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する。自動 Merge の対象の PR で使う（Human Merge の PR では要らない。下記「テストの改ざん検査」） |
 | `area:*` | App | PR の変更ファイルの領域、Issue の計画（計画ゲートを通ったもの）の files の領域（`harness.config.json` の `classification.areas`）。計画の無い Issue には Jev が付ける。足すだけで外さない |
 
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。
@@ -121,11 +121,17 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 App は PR の差分（`base...head`）から、テストを弱める変更を必須チェック `agent/tests` で検出する。fork の PR も対象。テストファイルは `harness.config.json` の `testPatterns`（範囲照合と同じパターンの書式）で見分ける。
 
 - 検出するもの：テストファイルの削除とテストファイルでないパスへのリネーム、テスト定義（`test(` / `it(` / `describe(`）の行の削除（同じファイルに同じ名前の定義が足されていれば移動とみなす）、`skip` / `only` / `todo` の追加（`.skip(`、`{ skip: … }`、`xit(` など）、アサーション（`assert` / `expect(`）を含む行の削除・書き換え。
-- 検出したら failure で、ファイルと行を一覧にする。テストの追加だけ、テスト以外だけの差分は success。
-- failure の概要の先頭には、技術者でなくても分かる説明を置く：何を見張っているか（テストを甘くして通すこと）、なぜ止まったか（テストの行が変わると中身に関わらず止める）、人が確かめること（期待する結果・メッセージ・確認の数が変わっていないか、テストが消えていないか）、通し方（理由を書いて `test:exempt` を付ける。付けたあとに push したら付け直す）。一覧は検出の種類ごとに分け、種類ごとに一言の説明を付ける。
+- 検出したら、自動 Merge の対象の PR は failure、Human Merge の PR は neutral で、ファイルと行を一覧にする。テストの追加だけ、テスト以外だけの差分は success。
+- 自動 Merge の対象の PR の failure の概要の先頭には、技術者でなくても分かる説明を置く：何を見張っているか（テストを甘くして通すこと）、なぜ止まったか（テストの行が変わると中身に関わらず止める）、人が確かめること（期待する結果・メッセージ・確認の数が変わっていないか、テストが消えていないか）、通し方（理由を書いて `test:exempt` を付ける。付けたあとに push したら付け直す）。一覧は検出の種類ごとに分け、種類ごとに一言の説明を付ける。
 - アサーションの書き換えは、同じ場所の削除と追加が対になるとき（hunk の中の連続する削除と、その直後に続く連続する追加で、移動として相殺した残りの k 番目どうし）、変更前と変更後の行を並べる。対は表示のためだけで、検出の件数や failure の条件は変えない。
 - アサーションの行は、整形だけの変更（インデント以外の空白・改行位置・引用符の違いなど）でも検出する。同じ内容の行を同じファイルの中で動かしただけなら数えない。
-- 誤検出や、Issue 本文にテストを変える理由がある変更は、人が PR に `test:exempt` を付けて通す（付け外しを App が記録し、外すと検査し直す）。例外は付けた時点の差分にだけ効く（次節）。
+- 人が Merge する PR（Human Merge）では止めずに neutral にし、人の Merge の判断にまとめる（`test:exempt` は要らない）。Human Merge とみなすのは Agent PR で、次のどちらかに当たるとき：
+  - 変更ファイル（リネームは旧パスも）がガードレールか `humanMergePaths` に当たる（判定の前から分かる。どの判定でも自動 Merge しない）
+  - 現在の差分（patch-id）に対する最新の受け付けの記録が、Reviewer 合格かつ自動 Merge の対象外（critical・Risk の答え・範囲外・Jev の enforce など。App が Human Merge の依頼を出す条件と同じ）
+- 書き直すのは、PR の作成・push・`test:exempt` の付け外しと、判定の受け付け（新しい判定、push での引き継ぎ、hold を外したときの付け直し）のとき。受け付けでは Ready 化と auto-merge の設定より前に書くので、判定のやり直しで経路が自動 Merge に変わると、auto-merge を付ける前に failure に戻る。
+- neutral の要約には「人の確認が要る変更あり」と Human Merge とみなした理由、平易な説明（何を見張っているか、なぜ止めていないか、人が確かめること）、検出の一覧を載せる。Human Merge の依頼のコメント（`kind=human-review`）にも、懸念点より前に見つけた行を目立つ形で載せる。
+- 次のときは緩めず、今までどおり failure（`test:exempt` が要る）：`agent:hold` や自動 Merge モードの停止だけが理由のとき（外すと判定のやり直し無しに自動 Merge に戻るため）、人の PR・fork の PR、PR に auto-merge が付いているとき、Reviewer が不合格の判定だけのとき。
+- 誤検出や、Issue 本文にテストを変える理由がある変更は、人が PR に `test:exempt` を付けて通す（付け外しを App が記録し、外すと検査し直す）。自動 Merge の対象の PR で使う（Human Merge の PR では要らない）。例外は付けた時点の差分にだけ効く（次節）。
 
 ### 分かっている限界
 
@@ -167,7 +173,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | PR を出すとき（付き添いのセッションの Agent PR も、人の PR も） | Issue を立てて計画を投稿し、PR 本文に `Closes #番号` を書く。計画のある Issue に紐付かない PR は必須チェック `agent/plan-link` で止まる |
 | `agent:plan-review` の Issue | 人が付き添う Claude のセッションで、人が進めてよいと言えば ship が続きを進める（`node harness/scripts/agent.ts claim <番号> --manual` してから実装し、`claude/` ブランチで同じ書式の PR を出す。Agent PR として判定される）。やめるときは `release <番号>`。ゲートの停止（critical・ガードレールなど）なら、止めた理由を直した計画の出し直しで外れうる |
 | Agent PR に直してほしい点がある | PR の Review を **Comment として Submit** する（同じ名義の PR には Request changes を付けられない）。最後の push 以降のレビューを fix が修正依頼として扱う |
-| Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を確認して Merge する |
+| Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を、依頼のコメントにテストの変更（`agent/tests` が neutral のとき）があれば、その行も確かめて確認して Merge する |
 | 人の PR（`claude/` 以外のブランチから人が自分で書いた PR） | 計画のある Issue に紐付いていれば judge の skill で判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
 | `agent:blocked` | 理由のコメントを読み、直してからラベルを外す |
 
