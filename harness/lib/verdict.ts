@@ -42,6 +42,13 @@ export interface BlockingFinding {
   detail: string;
 }
 
+export interface HumanNotes {
+  /** 懸念点：壊れるとしたらどこか、何が確かめきれていないか */
+  concerns: string[];
+  /** 見てほしい箇所：ファイル・関数・観点 */
+  checkPoints: string[];
+}
+
 export interface Verdict {
   version: 1;
   pr: number;
@@ -50,6 +57,8 @@ export interface Verdict {
     pass: boolean;
     blocking: BlockingFinding[];
     nonBlocking: string[];
+    /** 人にレビューを依頼するときに伝えること（Risk が low 以外や人の PR では必ず書く） */
+    humanNotes?: HumanNotes;
   };
   risk: {
     level: RiskLevel;
@@ -113,6 +122,13 @@ export function parseVerdict(raw: unknown): Parsed<Verdict> {
       fileKinds: c.string(facts.fileKinds, 'verdict.facts.fileKinds'),
     },
   };
+  if (review.humanNotes !== undefined) {
+    const h = c.object(review.humanNotes, 'verdict.review.humanNotes') ?? {};
+    verdict.review.humanNotes = {
+      concerns: c.stringArray(h.concerns ?? [], 'verdict.review.humanNotes.concerns'),
+      checkPoints: c.stringArray(h.checkPoints ?? [], 'verdict.review.humanNotes.checkPoints'),
+    };
+  }
   if (risk.probabilities !== undefined) {
     const probs = c.object(risk.probabilities, 'verdict.risk.probabilities') ?? {};
     verdict.risk.probabilities = Object.fromEntries(
