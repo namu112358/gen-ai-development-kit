@@ -106,6 +106,8 @@ export interface Review {
   state: string;
   body: string;
   submitted_at: string;
+  /** レビューした時点の PR の head */
+  commit_id: string;
   author_association: string;
   user: { login: string } | null;
 }

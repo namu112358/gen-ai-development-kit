@@ -19,7 +19,11 @@
 2. MCP ツールで、タイトルが `harness.config.json` の `dashboardIssueTitle` の open Issue を探す。**作成者が `<appSlug>[bot]`（`appSlug` も同じファイル）であること**を確かめる。違えば何もせず終了する。
 3. 本文の `<!-- agent-harness:queue:start -->` と `<!-- agent-harness:queue:end -->` の間にある ```` ```agent-app ```` の JSON（`kind: "queue"`）を読む。`actions` を上から順に処理する。空なら要約を出力して終了する。
 
-各アクションの前に、MCP で対象の現在の状態を読み直し、queue と食い違っていたら（ラベルが変わった、PR の head が `headSha` と違う、既に計画や判定が投稿済み など）そのアクションは飛ばす。queue は App が次のイベントで計算し直す。
+各アクションの前に、MCP で対象の現在の状態を読み直す。queue は少し古いことがあるので、次の場合は queue より現在の状態に従う。
+
+- ラベルが変わった、PR の head が `headSha` と違う、既に計画や判定が投稿済み → そのアクションは飛ばす
+- 別の実行の着手宣言（`agent-claim`、解除されておらず 90 分以内）がある → 飛ばす
+- judge の対象 PR に、現在の head に対するコラボレーターのレビュー（Claude・App 以外、`commit_id` が head と同じ、Comment または Request changes）がある → judge ではなく fix（人の指摘）を行う
 
 着手宣言：`node harness/scripts/agent.ts render-claim` の出力を対象の Issue / PR にコメントする（ラベルは付けない）。計画・判定を投稿すれば着手は終わる。それ以外で終えるとき（実装・修正の完了、失敗、飛ばすとき）は `render-claim --release` の出力をコメントしてから次に進む。人の対応が必要なら、`render-block <理由コード> <説明>` の出力をコメントしてから `agent:blocked` を付ける（理由コードは [docs/operations.md](../docs/operations.md)）。
 
