@@ -278,6 +278,75 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
 - [ ] Actions から Jev の API に到達でき、8問を1回で呼べるか
 - [ ] 軽い Actions の月間実行時間の見積もり（GitHub Team の無料枠との比較）
 
+## 段階の制御をコードに移す
+
+段階のつなぎ（次に何をするか、いつ止まるか、段階に合わない操作）を、skill の文章に書いた AI の判断ではなく、コードで決める計画（#169）。考え方は、段階をノード・エッジ・共有する状態からなるグラフとして明示して設計する「グラフエンジニアリング」と、モデルの周りの仕組み（契約・状態・検証・権限・復旧）で信頼性を作る「ハーネスエンジニアリング」による。ここは計画で、各項目の実装は子課題で行う。
+
+### 今の制御
+
+| 制御 | 決め手 | 強制 |
+| --- | --- | --- |
+| 計画ゲート、判定の受け付け、Merge の経路、修正の回数（`fixLoop`） | App（Actions） | コード |
+| main への push、force push、Merge、保護ラベル | Ruleset、`permissions.deny`、`.claude/hooks/guard.ts` | コード |
+| 次の段階の候補 | `harness/lib/queue.ts`・`harness/lib/fleet.ts`（計算はコード） | 使うかは AI 次第 |
+| どの段階を今やるか | ship・fleet の skill の文章 | AI |
+| 着手宣言の出し入れと段階 | 各 skill の文章 | AI（忘れても止まらない） |
+| plan-critic・test-designer を呼ぶ、批評の止める条件 | plan・implement の skill の文章 | AI |
+| 同じ指摘が続いたら止める、人に返す | fix・ship の skill の文章 | AI |
+| 担当（誰の Issue か）の確かめ | 無い | 無し |
+| 計画の `files` の外を変えない | App の範囲照合（PR を出した後） | コード（気づくのが遅い） |
+| 同時の着手 | `claim` が「読む → 空いていれば書く」。ほぼ同時だと両方が宣言し、`claimOf` は最新の宣言を持ち主にするので、先に書いた側は気づかず進む | 不完全 |
+
+### 目標と人の決定
+
+目標は、次の一手・止まる判断・段階に合わない操作をコードで決め、AI は返されたノード（計画を書く、実装する、判定する など）の中身だけを行うこと。
+
+人の決定（2026-09-28、付き添いのセッションで）：
+
+- コードに移すのは、hook で段階に合わない操作を止めるところまで（下の構成の4項目）。ノードごとに `claude -p` を呼んで副作用を実行役が行う形は作らない。
+- 付き添いのセッションは段階を選ばない窓口にする。段階は `step` が決め、セッションはそのノードを行い、止まった理由を人に伝えて相談する。
+- 担当は Issue の Assignee を正にする。アサインは人か、人に頼まれた付き添いのセッションが決める。
+
+### 構成
+
+1. **段階のグラフのデータ**
+   - ノード（段階）、エッジ（行き先と条件）、ループ（計画 ↔ 批評、fix ↔ judge、sync ↔ judge）の上限、止まる先の理由コードを1か所（`harness/lib/flow.ts` の案）に置く。
+   - `queue.ts`・`fleet.ts` はここから次の段階を引く。今は ship の skill の文章、`queue.ts`、`fleet.ts`、`overview.html`、`docs/operations.md` に同じ流れが別々に書かれている。
+   - テストで、行き止まり（次のエッジも理由コードも無い状態）、届かないノード、`queue.ts` と `fleet.ts` の判断の食い違いを検査する。
+2. **担当と着手宣言**
+   - Assignee がちょうど1人で自分（本人の GitHub 名義）のときだけ取る。誰もいない・2人以上なら取らず、ダッシュボードに「担当者待ち」「担当者が複数」と出す。
+   - 宣言は「書く → 少し待って読み直す → 最後の解除（または計画・判定のコメント）より後の有効な宣言のうち、コメント ID が最小のものが持ち主」にする。負けた側は自分の宣言を解除して止まる。コメント ID は増える順に振られるので、どのセッションも同じ持ち主を導ける。
+   - `requireOwnClaim` も同じ規則にし、段階が変わるときと push・PR 作成の前に、担当と宣言を確かめ直す（読み直しの遅れで両方が通っても、次の確認で負けた側が止まる）。
+   - 場所：`harness/scripts/agent.ts` の `claim`、`harness/lib/facts.ts` の `claimOf`（Assignee を事実に足す）、`harness/lib/queue.ts` の `isOwnClaim`・`claimBlocker`・`requireOwnClaim`、`harness/lib/fleet.ts`（`isOwnClaim` を使う）、ダッシュボードの `harness/gates/publish-queue.ts`。
+3. **`agent.ts step <番号>`**
+   - GitHub の事実とグラフのデータから、今やってよいノードを1つだけ返す（ノード、前提、許す操作、入力、出力の書式）。
+   - 前提の確かめ（担当・宣言）、着手宣言、ループの上限、同じ指摘の繰り返しの数えを中で行い、当たれば理由コード付きの stop を返す。
+   - 今の段階（Issue・段階・ブランチ・計画の `files`）をセッションごとのファイルに書く。
+   - 場所：`harness/scripts/agent.ts`。段階を文章でつないでいる `.claude/skills/ship/SKILL.md`・`.claude/skills/fleet/SKILL.md`・ほかの段階の skill と `CLAUDE.md` を、`step` を呼ぶ形に変える。
+4. **hook と段階の結びつけ**
+   - `guard.ts` が段階のファイルを読み、段階に合わない GitHub への書き込みを止める（例：`gh pr create` は implement で Draft のときだけ、`post-plan` は plan だけ、`post-verdict` は judge だけ、`git push` はその段階のブランチだけ）。
+   - push の前に、変更が計画の `files` に収まるかを確かめる（App の範囲照合を前に持ってくる）。
+   - 段階のファイルが無ければ、GitHub への書き込みを止める。
+   - Stop の hook で、宣言を持ったまま終わるセッションの宣言を扱う（解除するか、人に返す印を残す）。
+   - 場所：`.claude/hooks/guard.ts`、Stop の hook を足す `.claude/settings.json`（今は PreToolUse と SessionStart だけ）。hook には抜け道があるので、最後の砦は今までどおり Ruleset と App。
+
+### やらないこと
+
+- ノードごとに `claude -p` を呼び、副作用を実行役が行う形（人の決定）。
+- Cloudflare（Durable Objects・Workflows）、LangGraph への移行。状態の正が GitHub の外にもできる、実行時の依存とビルドを足さない決まりに合わない、今の取り合いは GitHub のままで直せる、のため。構成の2の後も取り合いが残るとき、または無人の Routine を常に動かすときに見直す。
+
+### 子課題の順序
+
+グラフのデータ → 担当と着手宣言 → `step` → hook と段階の結びつけ。どれもガードレール（`harness/lib/**`、`harness/scripts/agent.ts`、`.claude/hooks/**`、`.claude/settings.json`、skill、`CLAUDE.md`）に触れるので、計画ゲートで止まり、付き添いのセッションで実装して人が Merge する。
+
+### 未決の点
+
+- 窓口のセッションが、`step` の返したノードを自分で行う形で「段階を選ばない」を満たすか（満たさなければ、ノードの実行を分ける形を見直す）。
+- Routine（人の名義が無い）の担当をどう表すか。
+- クラウドのセッションで、段階のファイルをどこに置くか（セッションをまたいで残らない）。
+- 読み直しの待ち時間（GitHub の一覧の反映の遅れをどれだけ見込むか）。
+- 「人に頼まれた」アサインかどうかはコードで確かめられない（アサインの操作自体は止めず、担当が2人以上なら取らないことで救う）。
+
 ## 将来の移行先：GitHub Actions 版
 
 Actions の費用が問題にならなくなった場合の移行先として、Claude を GitHub Actions 上で動かす設計を記録しておく。起動がイベント駆動になり1 Issue の所要時間が大幅に短くなる一方、Actions の実行時間を消費する。
@@ -420,6 +489,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q88 | Jev の問いとしきい値 | これまでの受け付けの記録 64 件（jev-1.13.0）は Jev の `allows` がすべて false で、Claude が low とした 11 件もすべて q2 で落ちた（q2 の yes は 0.77〜0.89。ガードレールに触れる critical の PR でも 0.91 で区別に役立たない）。Jev は問いを文字どおりに読むので、条件を直接書き、境界の例を `criteria` に置く形に書き直した（文は `harness/lib/jev.ts` の `JEV_NOUL_QUESTIONS`）。q2 は instructions を「Would running git revert on this change restore the state from before the change?」にし、criteria の true は「Every change in diff is an edit to files in this repository (documentation, tests, source code, or configuration), and the changed code does not write stored data, call an external service, send messages, or publish or deploy anything when it runs. Changes that only edit documentation or tests are yes.」、false は「diff adds or changes code that, when it runs, writes, deletes, or migrates stored data, calls an external service that changes remote state, sends messages, or publishes, deploys, or releases something. Reverting the files does not undo those effects. This includes changes to CI or deployment workflow files that publish, deploy, or release something when they run.」とした。実行されると外部の状態を変えるコード（このリポジトリでは GitHub API を呼ぶ `harness/gates` など）の変更が q2 で no 側に倒れるのは意図どおり（revert してもラベルやコメントは残る。こうした変更はガードレールで人が Merge する）。q5 は instructions を「Does diff add or change code that writes, deletes, or migrates persistent data?」にし、criteria の true は「diff adds or changes code that, when it runs, writes to, deletes from, or changes the schema of a database, files that the program keeps between runs, or external storage.」、false は「diff changes only documentation, tests, or code that does not write stored data. The edits to repository files shown in diff are not themselves persistent data writes.」とした。q3・q6 は instructions を変えずに criteria を足した（q3：criteria の true は「diff changes the name, parameters, or return value of an exported function, type, or class, or changes the fields, keys, or allowed values of a configuration file, schema, API, command-line option, or event or comment format.」、false は「diff changes only explanatory documentation, tests, code comments, or code that is not exported, and changes no configuration, schema, API, command-line option, or event or comment format.」。q6：criteria の true は「diff changes code or configuration that checks identity or permissions, handles tokens, keys, or passwords, stores or reads secrets, or charges money.」、false は「diff changes no such code or configuration. Documentation that only mentions these topics without changing how they work is no.」）。q1・q4・q7・q8 は変えない。問いの版（`JEV_QUESTION_SET`、今は 2、それまでを 1）を受け付けの記録の `jev.questionSet` に残し、`report.ts` の集計で版ごとに問いごとの確率の分布としきい値で落とした件数を出す。切り替えの基準（否定側・Jev の low の外れ・Jev だけが可）は今の版の記録だけで数える（版 1 は全件が不可なので、混ぜると今の問いを見ないまま「Jev だけが可 0 件」を満たすため）。しきい値は一律の `noulSafe` 0.9 のまま据え置き、問いごとのしきい値は入れない：今の記録で q2 だけを 0.75 に下げると Claude が不可とした PR（#10）も通り「Jev だけが可」が出る。書き直した問いは確率の出方が変わるので今の記録から問いごとの値を決められない。Jev のドキュメント（Confidence）もしきい値は保守的に始めて自分のデータで調整するとしている。決め直すのは版 2 の受け付けの記録が 20 件以上になったとき：`report.ts` の「問いごとの確率」を見て人が決め、問いごとの値を入れるのはその値でも記録の上で「Jev だけが可」が 0 件のままのときに限る。入れるときは別の Issue で `harness.config.json` と `jevAllows` を変える（ガードレールなので人が Merge する）。`jev.mode` は shadow のまま、切り替えの判断は security.md の「Jev」の基準で人が行う |
 | Q89 | README の説明の生成 | README の表の「説明」は各ファイル・ディレクトリの先頭のコメントの1文目から生成する（新しいスクリプト `harness/scripts/readme.ts`。ガードレールの外に置き、`agent.ts` には足さない）。表が生成結果と食い違う、表の名前が実在しない、`overview.html` のラベルと設定が食い違う、をそれぞれテストで検査する（#132） |
 | Q90 | Jev の材料の大きさ | Jev の上限は state と最も長い問いの合計で 32k トークンで、`jev.maxDiffChars`（80000）は文字数で数えている。日本語は1文字あたりのトークンが多いので、受け付けの記録の `jev.size` と `label-triage` の記録の `size` に、応答の `usage.input_tokens` と、送った材料（state と問いを JSON にしたもの）の文字数・日本語の割合を残し、`harness/scripts/report.ts` の集計に日本語の割合の区分ごとの「文字数 / トークン数」を出す。`jaRatio` は要求全体での割合（英語の問いの文とガードレールの一覧を含むので、diff だけの割合より薄まる）で、diff の文字数は `diffChars` に残す。上限をトークンで見積もる方式（文字の種類ごとの係数など）に切り替えるかは、区分ごとに実測が貯まってから決める。人の決定（2026-09-27）：それまで `maxDiffChars` は 80000 のまま据え置く（下げると shadow の記録が減る。shadow では上限を超えても Jev の結果は記録だけで経路に影響しない。上限を超えたときの Jev の挙動はドキュメントに無いので、enforce に切り替える前にこの比で見直す）。Jev のトークナイザーは再現しない。`label-triage` の記録は集計に入れない（Issue ごとのコメントを読む必要があり API の呼び出しが増えるため。必要になったら別の Issue で足す）（#129） |
+| Q91 | 段階の制御をコードに移す | 段階のつなぎを skill の文章（AI の判断）からコードに移す。段階のグラフを1か所のデータにし、`agent.ts step` が次のノードを1つだけ返し、hook（`guard.ts`）が段階に合わない GitHub への書き込みを止めるところまで（ノードごとに `claude -p` を呼ぶ実行役は作らない）。付き添いのセッションは段階を選ばない窓口にする。担当は Issue の Assignee を正にし、ちょうど1人で自分のときだけ取る（アサインは人か、人に頼まれた付き添いのセッション）。着手宣言は、最後の解除より後の有効な宣言のうちコメント ID が最小のものを持ち主にする（Q49・Q67・Q76 の着手宣言による判断に、Assignee の確認を先に足し、持ち主を「最新」から「最古の有効なもの」に改める）。Cloudflare・LangGraph へは移さない。人の決定（2026-09-28）。中身は「段階の制御をコードに移す」の節（#169） |
 | Q78 | 人の PR の判定 | 計画のある Issue に紐付いた人の PR も Routine が判定し、判定が出るまで `agent/review` を通さない（自動 Merge はしない、修正は人）。例外は人が付ける `review:exempt` |
 | Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt` |
 | Q76 | 状態ラベルの整理 | `agent:working`・`agent:in-pr` を廃止し、着手宣言コメントと開いた PR から判断する。止めるときは理由コード必須。ラベル定義はコードで一元管理し、文書との一致をテストで検査、定義に無いラベルは `setup.ts` が消す |
