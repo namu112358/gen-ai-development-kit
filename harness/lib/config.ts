@@ -62,7 +62,12 @@ export interface HarnessConfig {
    * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、
    * flat なら1つのセッションで段階を交互に進める。maxParallelShips は --max が無いときに同時に動かす ship の数。無ければ既定値（fleetConfig）
    */
-  fleet?: { nesting?: 'orca' | 'flat'; maxParallelShips?: number };
+  fleet?: {
+    nesting?: 'orca' | 'flat';
+    maxParallelShips?: number;
+    /** 計画の files が重なれば待つ判定で、行を足すだけなら待たせない共有ファイルのパターン（harness/lib/scope.ts の書式）。無ければ何も除外しない（harness/lib/fleet.ts） */
+    sharedFiles?: string[];
+  };
   jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;
