@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { addWorktree, removeWorktree, worktreePath } from '../lib/worktree.ts';
+import { sandbox } from './support/git-sandbox.ts';
 
 test('worktree はリポジトリの外に、ブランチ名を安全な名前にして置く', () => {
   assert.equal(worktreePath('/home/u/repo', 'claude/issue-5-x'), '/home/u/repo.worktrees/claude-issue-5-x');
@@ -16,38 +16,6 @@ test('`..` などで置き場所の外に出ない', () => {
   assert.equal(worktreePath('/home/u/repo', '..'), '/home/u/repo.worktrees/_.');
   assert.equal(worktreePath('/home/u/repo', '.hidden'), '/home/u/repo.worktrees/_hidden');
 });
-
-/** 一時ディレクトリに bare の origin と、その clone（本体）を作る */
-function sandbox() {
-  const dir = mkdtempSync(join(tmpdir(), 'worktree-'));
-  const git = (cwd: string, ...args: string[]): string => {
-    const r = spawnSync('git', args, { cwd, encoding: 'utf8' });
-    if (r.status !== 0) throw new Error(`git ${args.join(' ')}: ${r.stderr}`);
-    return r.stdout.trim();
-  };
-  const commit = (cwd: string, file: string) => {
-    writeFileSync(join(cwd, file), `${file}\n`);
-    git(cwd, 'add', file);
-    git(cwd, 'commit', '-qm', file);
-    return git(cwd, 'rev-parse', 'HEAD');
-  };
-  const clone = (name: string) => {
-    const path = join(dir, name);
-    git(dir, 'clone', '-q', join(dir, 'origin.git'), path);
-    git(path, 'config', 'user.name', 't');
-    git(path, 'config', 'user.email', 't@example.com');
-    return path;
-  };
-  git(dir, 'init', '-q', '--bare', '-b', 'main', 'origin.git');
-  const seed = clone('seed');
-  git(seed, 'checkout', '-qb', 'main');
-  commit(seed, 'a.txt');
-  git(seed, 'push', '-q', 'origin', 'main');
-  const root = clone('repo');
-  const warnings: string[] = [];
-  const opts = { root, defaultBranch: 'main', warn: (m: string) => void warnings.push(m) };
-  return { dir, root, seed, git, commit, opts, warnings, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
-}
 
 test('ブランチの worktree を作り、同じブランチなら同じパスを返す。リモートに無ければ既定ブランチから作る', (t) => {
   const s = sandbox();

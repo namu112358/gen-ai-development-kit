@@ -49,10 +49,10 @@
 ### implement（実装）
 
 1. 入力は queue の `planFiles`（App が写した計画の触るファイル一覧）と、`planCommentId` の計画コメント。Issue 本文が後で変わっても計画に従う。計画コメントがゲート後に編集されていたら（App の plan-gate コメントの記録と食い違うなら）`planFiles` だけに従う。
-2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作り、そこで作業する（ブランチがリモートにあれば続きから）。`node_modules` が無ければ `npm ci`。
+2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作り、そこで作業する（ブランチがリモートにあれば続きから）。`node_modules` が無ければ worktree が `npm ci` まで行う。
 3. **test-designer** サブエージェントにテストを書かせる。サブエージェントは GitHub を読めないので、Issue 番号、AC、Validation Requirements、`planFiles` を指示に含めて渡す。
 4. `planFiles` の範囲で実装する。範囲外の変更が必要になったら、PR 本文に理由を書く（範囲照合で自動 Merge の対象外になる）。
-5. `npm ci`（初回のみ）と `npm run check` を通す。
+5. `npm run check` を通す（`npm ci` は worktree が行っている）。
 6. commit して `git push -u origin <ブランチ>`。
 7. MCP で **Draft** PR を作る（base は main）。タイトルは Issue のタイトルをそのまま使う（Conventional Commits。コミットメッセージの1行目も同じ形式にする）。本文は `.github/pull_request_template.md` に沿って書く（`Closes #<番号>`、計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
 8. Issue に `render-claim --release` の出力をコメントする。

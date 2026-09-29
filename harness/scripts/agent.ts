@@ -21,7 +21,7 @@ import { classifyBase, stackOf } from '../lib/stack.ts';
 import { changedFiles, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
-import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
+import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
 
 /**
  * Routine と人のセッションが使う CLI。書式は投稿前に検査する。
@@ -35,6 +35,7 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）
  *   node harness/scripts/agent.ts check <file>                            plan / verdict ブロックの書式検査のみ
  *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）。
+ *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
  *                                                           付き添いのセッションで claude/issue-<番号>- のブランチなら、先にこのセッションの着手宣言
  *                                                           （そのブランチの開いた PR があれば PR の宣言、無ければ Issue の宣言）を確かめる
  *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
@@ -75,7 +76,8 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
  *   node harness/scripts/agent.ts footer <pr> <stage> <model> <minutes> <tokens>  PR 本文のメトリクス表に1行追記
- *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）
+ *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）。
+ *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）
  *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *   node harness/scripts/agent.ts session-url               この実行のセッション URL
  *
@@ -576,7 +578,11 @@ async function main(): Promise<void> {
   if (cmd === 'worktree' || cmd === 'worktree-remove') {
     try {
       const opts = { root: mainRepoRoot(), defaultBranch: config.defaultBranch };
-      if (cmd === 'worktree') return void console.log(addWorktree(args[0]!, args.includes('--detach'), opts));
+      if (cmd === 'worktree') {
+        const path = addWorktree(args[0]!, args.includes('--detach'), opts);
+        ensureNodeModules(path);
+        return void console.log(path);
+      }
       return removeWorktree(args[0]!, opts);
     } catch (e) {
       console.error((e as Error).message);
