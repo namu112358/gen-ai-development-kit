@@ -140,7 +140,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.ts\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.mjs\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.ts\""
           }
         ]
       }
@@ -150,7 +150,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-env.ts\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.mjs\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-env.ts\""
           }
         ]
       }
