@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { TRANSCRIPT_SESSION_ID } from './session.ts';
 
 /**
  * Claude Code のセッション記録（jsonl）からトークン数を集計し、API で動かした場合の料金を見積もる。
@@ -110,21 +111,43 @@ function jsonlIn(dir: string): string[] {
   }
 }
 
+/** cwd に対応するセッション記録のディレクトリ（`<home>/.claude/projects/<cwd の英数字以外を - にしたもの>/`） */
+export function projectTranscriptDir(cwd: string, home: string): string {
+  return join(home, '.claude', 'projects', cwd.replace(/[^A-Za-z0-9]/g, '-'));
+}
+
 /**
- * セッション記録（本体＋サブエージェント）のパス。explicit が無ければ cwd に対応する
- * `~/.claude/projects/<cwd の英数字以外を - にしたもの>/` の最も新しい .jsonl を今のセッションとみなす。
- * 見つからなければ []（例外は投げない）。
+ * dir の中の主の記録。sessionId（記録のファイル名に使える形）の `<sessionId>.jsonl` があればそれ（bySession: true）、
+ * 無ければ更新時刻の最も新しい .jsonl（bySession: false。ほかのセッションのものかもしれない）。
  */
-export function findSessionTranscripts(cwd: string, explicit?: string): string[] {
-  try {
-    let main = explicit;
-    if (!main) {
-      const dir = join(homedir(), '.claude', 'projects', cwd.replace(/[^A-Za-z0-9]/g, '-'));
-      main = jsonlIn(dir).map((f) => ({ f, t: statSync(f).mtimeMs })).sort((a, b) => b.t - a.t)[0]?.f;
-    }
-    if (!main || !existsSync(main)) return [];
-    return [main, ...jsonlIn(join(dirname(main), basename(main, '.jsonl'), 'subagents')).sort()];
-  } catch {
-    return [];
+export function pickMainTranscript(dir: string, sessionId?: string | null): { file: string | null; bySession: boolean } {
+  if (sessionId && TRANSCRIPT_SESSION_ID.test(sessionId)) {
+    const own = join(dir, `${sessionId}.jsonl`);
+    if (existsSync(own)) return { file: own, bySession: true };
   }
+  const latest = jsonlIn(dir).map((f) => ({ f, t: statSync(f).mtimeMs })).sort((a, b) => b.t - a.t)[0]?.f;
+  return { file: latest ?? null, bySession: false };
+}
+
+/**
+ * セッション記録（本体＋サブエージェント）のパスと、今のセッションの記録を選べたか。explicit があればそれ（bySession: true）。
+ * 無ければ cwd に対応するディレクトリから pickMainTranscript で選ぶ。見つからなければ files は []（例外は投げない）。
+ */
+export function findSessionTranscriptsWithNote(
+  cwd: string, explicit?: string, sessionId?: string | null, home: string = homedir(),
+): { files: string[]; bySession: boolean } {
+  let bySession = true;
+  try {
+    let main: string | null | undefined = explicit;
+    if (!main) ({ file: main, bySession } = pickMainTranscript(projectTranscriptDir(cwd, home), sessionId));
+    if (!main || !existsSync(main)) return { files: [], bySession };
+    return { files: [main, ...jsonlIn(join(dirname(main), basename(main, '.jsonl'), 'subagents')).sort()], bySession };
+  } catch {
+    return { files: [], bySession };
+  }
+}
+
+/** findSessionTranscriptsWithNote のパスだけ。sessionId を省略すると最も新しい記録を今のセッションとみなす */
+export function findSessionTranscripts(cwd: string, explicit?: string, sessionId?: string | null, home?: string): string[] {
+  return findSessionTranscriptsWithNote(cwd, explicit, sessionId, home).files;
 }
