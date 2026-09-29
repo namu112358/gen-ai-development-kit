@@ -5,6 +5,7 @@
   "agentBranchPrefix": "claude/",
   "mergeMethod": "SQUASH",
   "projectChecks": [{ "context": "ci" }],
+  "requireAssignee": false,
   "routine": {
     "maxItemsPerRun": 5,
     "humanClaimStaleHours": 6,

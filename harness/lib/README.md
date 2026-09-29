@@ -6,6 +6,7 @@
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
 | `arch-review.ts` | arch-review（Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す skill）の決まる部分。 | ○ |
+| `assignee.ts` | 担当（Issue の Assignee）の確かめ（Issue #172）。 | ○ |
 | `blocks.ts` | コメントに埋め込む構造化データと目印。 | ○ |
 | `claim.ts` | 着手宣言の投稿と読み直し（Issue #171）。 | ○ |
 | `classify.ts` | PR の分類ラベル（表示用）。 | 対象外 |

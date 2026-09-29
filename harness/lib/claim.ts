@@ -28,6 +28,8 @@ export interface PostClaimOptions {
   wait?: () => Promise<void>;
   now: Date;
   humanClaimStaleHours: number;
+  /** 宣言の前の確かめ（Assignee・領域の上限など。Issue #172）。文字列を返せば宣言を投稿せず、その文を error として返す */
+  before?: () => Promise<string | null>;
 }
 
 /** 読み直すまでに待つ時間（同時に書かれたほかのセッションの宣言が一覧に見えるまで） */
@@ -41,6 +43,8 @@ const hasId = (current: string | null): current is string => typeof current === 
 export async function postClaim(io: ClaimIo, n: number, opts: PostClaimOptions): Promise<{ error: string | null }> {
   const { current } = opts;
   if (!hasId(current)) return { error: `#${n}: ${SESSION_ID_MISSING}` };
+  const stop = opts.before ? await opts.before() : null;
+  if (stop) return { error: stop };
   const blocker = claimBlocker(claimOf(await io.listComments(n)), current, { takeover: opts.takeover, now: opts.now, humanClaimStaleHours: opts.humanClaimStaleHours });
   if (blocker) return { error: `#${n}: ${blocker}` };
 
@@ -60,8 +64,13 @@ export async function postClaim(io: ClaimIo, n: number, opts: PostClaimOptions):
   return { error: `#${n}: 先に宣言したセッションがあるため、この宣言を取り下げました${who ? `（${who}）` : ''}。この Issue は進めず、引き継ぐかは人が決めてください（引き継ぐなら --takeover）` };
 }
 
-/** このセッションの有効な宣言（持ち主）があるか。無ければ error */
-export async function ensureOwnClaim(io: Pick<ClaimIo, 'listComments'>, n: number, current: string | null): Promise<{ error: string | null }> {
+/**
+ * このセッションの有効な宣言（持ち主）があるか。無ければ error。
+ * assignee を渡すと、持ち主が自分のときに続けて呼び、文字列を返せばその文を error にする（宣言の後に Assignee が変わった場合。Issue #172）
+ */
+export async function ensureOwnClaim(io: Pick<ClaimIo, 'listComments'>, n: number, current: string | null, assignee?: () => Promise<string | null>): Promise<{ error: string | null }> {
   const r = requireOwnClaim(claimOf(await io.listComments(n)), current);
-  return { error: r.error ? `#${n}: ${r.error}` : null };
+  if (r.error) return { error: `#${n}: ${r.error}` };
+  const stop = assignee ? await assignee() : null;
+  return { error: stop || null };
 }
