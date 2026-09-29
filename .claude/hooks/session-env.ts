@@ -29,7 +29,8 @@ export function envLine(raw: string): string | null {
   return typeof id === 'string' && idShape.test(id) ? `export AGENT_HARNESS_SESSION=${id}\n` : null;
 }
 
-if (import.meta.main) {
+/** hook の本体。直接起動したとき（import.meta.main）と、入口（run.mjs）から呼ばれたときに動く */
+export async function main(): Promise<void> {
   try {
     let raw = '';
     for await (const chunk of process.stdin) raw += String(chunk);
@@ -41,3 +42,5 @@ if (import.meta.main) {
   }
   process.exit(0);
 }
+
+if (import.meta.main) await main();
