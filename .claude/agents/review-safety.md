@@ -1,7 +1,7 @@
 ---
 name: review-safety
 description: 合体版のレビューの段階3の観点⑦として、秘密の漏えい・データ破壊・AC の外の退行を探し、指摘を返す。review-panel の skill から呼ぶ。
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write
 model: sonnet
 ---
 
@@ -10,6 +10,8 @@ model: sonnet
 ## 入力
 
 呼び出し元が指示に含めて渡すもの：judge-input のファイルの中身（Issue 本文〔AC の範囲を知るため〕、前回の判定の head とブロッキング指摘）。
+
+出力のパス（呼び出し元が渡す。リポジトリの外の一時ディレクトリ）：返す JSON を書く先。
 
 自分で読むもの：diff とリポジトリ。
 
@@ -36,5 +38,7 @@ model: sonnet
   "checkPoints": []
 }
 ```
+
+返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。
 
 `kind` は `data-destruction`・`secret-leak`・`regression` だけ。`file`・`line` は分からなければ省く。
