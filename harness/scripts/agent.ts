@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { archReviewRange, checkArchReviewRecord, checkIssueDrafts, renderArchReviewRecord } from '../lib/arch-review.ts';
 import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
 import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
@@ -21,7 +22,7 @@ import {
 } from '../lib/session-inputs.ts';
 import { transcriptSessionId } from '../lib/session.ts';
 import { classifyBase, stackOf } from '../lib/stack.ts';
-import { changedFiles, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
+import { changedFiles, findDashboard, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscriptsWithNote, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
 import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
@@ -79,6 +80,15 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue と、agent:* の無い、コラボレーターか App が立てた開いた Issue（harness/lib/fleet.ts の fleetTargets）。
  *                                                           開いた PR 同士は head を fetch して git merge-tree で試し、衝突する組だけ後の側が待つ。
  *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）
+ *   node harness/scripts/agent.ts arch-review-range [--since <sha>] [--until <sha>] [--last <n>]
+ *                                                           arch-review が見る Merge 済みの PR の範囲（JSON。読むだけ）。--since（40桁の SHA）か、無ければダッシュボード Issue の
+ *                                                           前回の arch-review の記録の headSha から、--until（既定は既定ブランチの先頭）までの compare のコミットを PR に対応させる。
+ *                                                           前回の記録も --since も無いか --last なら、既定ブランチ宛ての Merge 済みの PR の新しい順に N 本（既定 10）
+ *   node harness/scripts/agent.ts arch-review-drafts <file> arch-review の Issue の下書き（[{title, body, duplicateOf?}] の JSON）を検査し、人に示す一覧を出力
+ *                                                           （GitHub は読まない。タイトル・Issue Form の必須の見出し・agent:ready を含む labels を誤りにする）
+ *   node harness/scripts/agent.ts arch-review-record <file> [--dry-run]
+ *                                                           arch-review の記録（見た範囲と要約の JSON）を検査し、ダッシュボード Issue にコメントする（次の実行の前回になる）。
+ *                                                           --dry-run は本文を出すだけ。ダッシュボードが無ければ止まる
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict / decision ブロックの書式検査のみ
@@ -603,6 +613,40 @@ function renderMetrics(stage: string, model: string, minutes: string, tokensArg?
   ].join('\n');
 }
 
+const SHA_ARG = /^[0-9a-f]{40}$/;
+
+/** arch-review-range：前回の記録か --since からの範囲（読むだけ） */
+async function archReviewRangeText(gh: GitHub, args: string[]): Promise<string> {
+  const usage = 'arch-review-range [--since <sha>] [--until <sha>] [--last <n>]';
+  const a = splitArgs(args, ['--since', '--until', '--last']);
+  if (!a.ok) fail([...a.errors, usage]);
+  const { '--since': since, '--until': until, '--last': last } = a.value.options;
+  const errors = [
+    ...(a.value.positional.length > 0 ? [`余分な引数：${a.value.positional.join(' ')}`] : []),
+    ...(since !== undefined && !SHA_ARG.test(since) ? ['--since は40桁の SHA'] : []),
+    ...(until !== undefined && !SHA_ARG.test(until) ? ['--until は40桁の SHA'] : []),
+    ...(last !== undefined && !/^[1-9]d*$/.test(last) ? ['--last は1以上の整数'] : []),
+  ];
+  if (errors.length > 0) fail([...errors, usage]);
+  const range = await archReviewRange(gh, config, { since, until, last: last === undefined ? undefined : Number(last) });
+  return JSON.stringify(range, null, 2);
+}
+
+/** arch-review-record：記録を検査して本文を作る（--dry-run でなければダッシュボード Issue にコメントする） */
+async function archReviewRecord(args: string[]): Promise<void> {
+  const file = args.find((x) => !x.startsWith('--'));
+  if (!file) fail(['arch-review-record <file> [--dry-run]']);
+  const r = checkArchReviewRecord(JSON.parse(readFileSync(file, 'utf8')));
+  if (!r.ok) fail(r.errors);
+  const body = renderArchReviewRecord(r.record, currentSession());
+  if (args.includes('--dry-run')) return void console.log(body);
+  const gh = new GitHub(transportFromEnv(), repository());
+  const dashboard = await findDashboard(gh, config);
+  if (!dashboard) fail([`ダッシュボード Issue（${config.dashboardIssueTitle}）がありません。App の publish-queue が作るまで記録できません`]);
+  const posted = await gh.comment(dashboard.number, body);
+  console.log(posted.html_url);
+}
+
 function fail(errors: string[]): never {
   console.error(['書式エラー:', ...errors.map((e) => `- ${e}`)].join('\n'));
   process.exit(2);
@@ -645,6 +689,13 @@ async function main(): Promise<void> {
     if (r.errors.length) fail(r.errors);
     return void console.log(`OK (${r.kind})`);
   }
+  if (cmd === 'arch-review-drafts') {
+    if (!args[0]) fail(['arch-review-drafts <file>']);
+    const r = checkIssueDrafts(JSON.parse(readFileSync(args[0], 'utf8')));
+    if (!r.ok) fail(r.errors);
+    return void console.log(r.markdown);
+  }
+  if (cmd === 'arch-review-record') return archReviewRecord(args);
   const gh = new GitHub(transportFromEnv(), repository());
   const n = Number(args[0]);
   switch (cmd) {
@@ -660,6 +711,7 @@ async function main(): Promise<void> {
     case 'compose-verdict': return void console.log(await composeVerdictFile(gh, args));
     case 'label-audit': return void console.log(await labelAudit(gh, args));
     case 'fleet-status': return void console.log(await fleetStatusText(gh, args));
+    case 'arch-review-range': return void console.log(await archReviewRangeText(gh, args));
     case 'footer': {
       const [, stage, model, minutes, tokens] = args;
       const pr = await gh.get<PullRequest>(`/pulls/${n}`);

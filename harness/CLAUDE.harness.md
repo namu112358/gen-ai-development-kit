@@ -15,6 +15,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [judge](../.claude/skills/judge/SKILL.md) | Reviewer と Risk Agent に判定させ、判定コメントを投稿する |
 | [fix](../.claude/skills/fix/SKILL.md) | ブロッキング指摘や人のレビューを直し、判定をやり直す |
 | [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
+| [arch-review](../.claude/skills/arch-review/SKILL.md) | Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装して人が Merge する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
 - 着手宣言は段階を始める前に `claim <番号> --manual --stage <段階>` で出し、段階が変わるたびに更新する（段階の名前は `harness/lib/queue.ts` の `CLAIM_STAGES`）。計画の前は `--stage plan`、批評の前は `--stage plan-critique`、実装は `--stage implement`。judge・fix・sync は PR 番号で宣言する（`claim <PR番号> --manual --stage judge|fix|sync`。judge は判定コメントの投稿で宣言が終わる）。`post-plan` は投稿の後、ゲートを通る見込みなら `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら宣言を解除する。見込みが外れて App が `agent:plan-review` で止め、宣言が残っていたら、人に聞く前に `release <番号>` する。そのほかの人の判断待ちで止めてセッションを終えるときも `release <番号>` する。
