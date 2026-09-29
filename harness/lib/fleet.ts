@@ -1,5 +1,6 @@
 import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import { patternsOverlap } from './epic.ts';
+import { globToRegExp } from './scope.ts';
 import { describeClaim, isOwnClaim, type Claim, type IssueFacts, type PrFacts } from './queue.ts';
 
 /**
@@ -163,8 +164,10 @@ export interface FleetSelection {
   selected: number[];
   /** 選ばなかった Issue と理由 */
   excluded: Map<number, string>;
-  /** 重なる Issue の組。両方に PR があれば実際に衝突する組、そうでなければ触るファイル（計画の files）が重なる組 */
+  /** 重なる Issue の組。両方に PR があれば実際に衝突する組、そうでなければ触るファイル（計画の files）が重なる組。共有ファイルだけの重なり（sharedOnlyOverlaps）は含まない */
   overlaps: Map<number, number[]>;
+  /** overlaps には出さない、共有ファイル（fleet.sharedFiles）だけで重なる組（除外はしないが表には残す） */
+  sharedOnlyOverlaps: Map<number, number[]>;
   /** 表のメモの列に足す文（衝突を試せなかった組など） */
   notes: Map<number, string>;
 }
@@ -174,8 +177,25 @@ function openPrClaim(i: FleetIssue, r: FleetRow): Claim | null {
   return i.prs.find((p) => p.number === r.pr && !p.merged)?.facts?.claim ?? null;
 }
 
-function filesOverlap(a: string[], b: string[]): boolean {
-  return a.some((x) => b.some((y) => patternsOverlap(x, y)));
+/** file が共有ファイルのパターンに完全に収まるか（片方向の判定）。file 自身がワイルドカードを含むときは、
+ *  共有ファイル以外も広く含みうるので false（＝重なれば blocking 側）にする */
+function isSharedPath(file: string, sharedFiles: string[]): boolean {
+  if (file.includes('*')) return false;
+  return sharedFiles.some((p) => globToRegExp(p).test(file));
+}
+
+/** a・b の重なりの種類。重なる項目が無ければ 'none'、重なる項目のうち1つでも両側とも共有ファイルでなければ 'blocking'、
+ *  重なる項目がすべて両側とも共有ファイルなら 'shared-only'（除外はしないが表に残す）。重なりの有無は patternsOverlap（疑わしければ重なりとする）で見る */
+function overlapKind(a: string[], b: string[], sharedFiles: string[]): 'none' | 'blocking' | 'shared-only' {
+  let sawOverlap = false;
+  for (const x of a) {
+    for (const y of b) {
+      if (!patternsOverlap(x, y)) continue;
+      sawOverlap = true;
+      if (!(isSharedPath(x, sharedFiles) && isSharedPath(y, sharedFiles))) return 'blocking';
+    }
+  }
+  return sawOverlap ? 'shared-only' : 'none';
 }
 
 /**
@@ -183,12 +203,13 @@ function filesOverlap(a: string[], b: string[]): boolean {
  * 止まる印・依存・ほかのセッションの着手宣言（PR の無い Issue は Issue の宣言、PR のある Issue はその行の PR の宣言。currentSession と同じ session の手動の宣言は自分のもの）のあるものを除いて、衝突しない範囲で選ぶ。本数は max（--max）を渡したときだけ制限する。
  * 重なりの相手にする着手宣言は、ほかのセッションの解除されていない宣言と、このセッションの実装中（段階 implement）の宣言だけ。
  * このセッションのほかの段階（plan・plan-gate など）の宣言どうしは並び順の先の側を選ぶ（互いを相手にして両方とも待たないため）。
- * 領域の上限（areaConcurrency）は見ない（config は呼び出しの形を保つために受け取るだけ）。
+ * 領域の上限（areaConcurrency）は見ない。config.fleet?.sharedFiles は、計画の files が重なるかの判定でだけ使う（共有ファイルだけの重なりでは待たない）。
  * 両方に PR がある組は、実際に試して衝突した組（prConflicts）だけ、既に選んだ PR と衝突する後の側が待つ。
  * PR がまだ無い Issue は、既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
  * 計画の無い Issue は重なりが分からないので、その判定から外して選ぶ（計画の後に重なれば、後から選んだほうが待つ）。
  */
-export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null): FleetSelection {
+export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null): FleetSelection {
+  const sharedFiles = config.fleet?.sharedFiles ?? [];
   const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
   const rowOf = new Map(rows.map((r) => [r.issue, r]));
   const inFlight = (r: FleetRow): boolean => r.pr !== null && r.stage !== 'merged';
@@ -232,7 +253,7 @@ export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: Fle
       if (hit) { excluded.set(r.issue, `#${hit.facts.number} と衝突するため待つ（先に Merge された側に合わせて sync）`); continue; }
     } else if (i.planFiles !== null) {
       const others = [...selected, ...busy].filter((o) => o.facts.number !== r.issue && o.planFiles !== null);
-      const hit = others.find((o) => filesOverlap(i.planFiles!, o.planFiles!));
+      const hit = others.find((o) => overlapKind(i.planFiles!, o.planFiles!, sharedFiles) === 'blocking');
       if (hit) { excluded.set(r.issue, `#${hit.facts.number} と触るファイルが重なるため待つ`); continue; }
     }
     selected.push(i);
@@ -241,16 +262,26 @@ export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: Fle
   // 重なり：PR 同士は実際に衝突する組だけ、PR が無い Issue が絡む組は計画の files の重なり
   const live = facts.issues.filter((i) => rowOf.get(i.facts.number)?.stage !== 'merged');
   const overlaps = new Map<number, number[]>();
+  const sharedOnlyOverlaps = new Map<number, number[]>();
   const notes = new Map<number, string>();
   for (const a of live) {
     const pa = openPrOf(a);
-    const hits = live.filter((b) => {
-      if (b === a) return false;
+    const hits: number[] = [];
+    const sharedHits: number[] = [];
+    for (const b of live) {
+      if (b === a) continue;
       const pb = openPrOf(b);
-      if (pa !== null && pb !== null) return conflictOf(pa, pb) !== undefined;
-      return a.planFiles !== null && b.planFiles !== null && filesOverlap(a.planFiles, b.planFiles);
-    });
-    if (hits.length > 0) overlaps.set(a.facts.number, hits.map((b) => b.facts.number));
+      if (pa !== null && pb !== null) {
+        if (conflictOf(pa, pb) !== undefined) hits.push(b.facts.number);
+        continue;
+      }
+      if (a.planFiles === null || b.planFiles === null) continue;
+      const kind = overlapKind(a.planFiles, b.planFiles, sharedFiles);
+      if (kind === 'blocking') hits.push(b.facts.number);
+      else if (kind === 'shared-only') sharedHits.push(b.facts.number);
+    }
+    if (hits.length > 0) overlaps.set(a.facts.number, hits);
+    if (sharedHits.length > 0) sharedOnlyOverlaps.set(a.facts.number, sharedHits);
     const untested = pa === null ? [] : live.filter((b) => { const pb = openPrOf(b); return b !== a && pb !== null && conflictOf(pa, pb)?.untested === true; });
     const noteParts: string[] = [];
     if (untested.length > 0) noteParts.push(`${untested.map((b) => `#${b.facts.number}`).join(', ')} との衝突は試せなかったため衝突ありとして扱う`);
@@ -263,7 +294,7 @@ export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: Fle
     if (noteParts.length > 0) notes.set(a.facts.number, noteParts.join('。'));
   }
 
-  return { selected: selected.map((i) => i.facts.number), excluded, overlaps, notes };
+  return { selected: selected.map((i) => i.facts.number), excluded, overlaps, sharedOnlyOverlaps, notes };
 }
 
 const NEXT_LABELS: Record<FleetNext, string> = { plan: 'plan', implement: 'implement', judge: 'judge', fix: 'fix', sync: 'sync', none: '—' };
@@ -281,7 +312,9 @@ export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: nu
   const sorted = [...rows].sort((a, b) => Number(sel.selected.includes(b.issue)) - Number(sel.selected.includes(a.issue)) || sel.selected.indexOf(a.issue) - sel.selected.indexOf(b.issue) || a.issue - b.issue);
   for (const r of sorted) {
     const chosen = sel.selected.includes(r.issue) ? '選ぶ' : `待つ：${sel.excluded.get(r.issue) ?? ''}`;
-    const overlap = (sel.overlaps.get(r.issue) ?? []).map((n) => `#${n}`).join(', ') || '—';
+    const blocking = (sel.overlaps.get(r.issue) ?? []).map((n) => `#${n}`).join(', ');
+    const shared = (sel.sharedOnlyOverlaps.get(r.issue) ?? []).map((n) => `#${n}`).join(', ');
+    const overlap = [blocking, shared ? `共有ファイルのみ（並行可）：${shared}` : ''].filter((x) => x).join('。') || '—';
     const note = [r.note, sel.notes.get(r.issue)].filter((x) => x).join('。');
     lines.push(`| #${r.issue} ${cell(r.title)} | ${r.pr === null ? '—' : `#${r.pr}`} | ${FLEET_STAGES[r.stage]} | ${NEXT_LABELS[r.next]} | ${cell(chosen)} | ${overlap} | ${cell(note)} |`);
   }
