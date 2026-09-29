@@ -36,7 +36,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 付き添いのセッションで人の判断が要るとき（計画の批評の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、要件・AC の変更、引き継ぎ、計画の外の変更など）は、セッションが AskUserQuestion で選択肢つきで聞く（おすすめが先頭、1回に4問まで）。拒んだり答えなかったりすると、セッションは同じ質問を繰り返さず、要点を文章で示して止まる。規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md) の進め方。
 
-複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship の段階を Issue ごとに交互に進めて、人がすることを1つの一覧にする。
+複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（番号を渡さなければ、`agent:ready`・`agent:plan-ok`・`agent:plan-review` の Issue と、`agent:*` の無い、コラボレーターか App（Epic の子課題など）が立てた Issue（作ったまま計画に進んでいないもの。次にやることは plan）が対象。衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship の段階を Issue ごとに交互に進めて、人がすることを1つの一覧にする。
 
 いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../harness/scripts/dashboard/README.md)）で見られる。`node harness/scripts/dashboard.ts` を実行して表示された URL を開くと、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。読み取りだけで、GitHub には書かない。
 
