@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
 import { describeFullAreas, fullAreas } from '../lib/concurrency.ts';
+import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { claimOf, computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
 import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
@@ -35,7 +36,7 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金は usage と同じ記録から自動で記入。読めなければ tokens か unknown）
  *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）。
  *                                                           パスが無ければ AGENT_HARNESS_SESSION の <ID>.jsonl を選び、無ければ最も新しい記録（そのことを note に書く）
- *   node harness/scripts/agent.ts check <file>                            plan / verdict ブロックの書式検査のみ
+ *   node harness/scripts/agent.ts check <file>                            plan / verdict / decision ブロックの書式検査のみ
  *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）。
  *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
  *                                                           付き添いのセッションで claude/issue-<番号>- のブランチなら、先にこのセッションの着手宣言
@@ -52,6 +53,7 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）
+ *   node harness/scripts/agent.ts post-decision <issue> <file>  決定の記録（agent-decision）を検査して投稿（App の最新の計画ゲートの記録の計画コメントと、答えの無い項目が無いことを確かめる。ラベルは変えない）
  *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿
  *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの agent-plan ブロックは省く〕、
  *                                                           Epic の子課題なら親 Epic〔子課題の一覧と Validation Requirements〕、計画ゲートの記録の計画、PR 本文、
@@ -76,7 +78,7 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
- *   node harness/scripts/agent.ts check <file>              plan / verdict ブロックの書式検査のみ
+ *   node harness/scripts/agent.ts check <file>              plan / verdict / decision ブロックの書式検査のみ
  *   node harness/scripts/agent.ts footer <pr> <stage> <model> <minutes> <tokens>  PR 本文のメトリクス表に1行追記
  *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）。
  *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）
@@ -206,16 +208,16 @@ function readBlockFile(file: string): string {
   return withClaudeMark(body, currentSession());
 }
 
-function checkFile(file: string): { kind: 'plan' | 'verdict'; errors: string[]; value?: unknown } {
+function checkFile(file: string): { kind: 'plan' | 'verdict' | 'decision'; errors: string[]; value?: unknown } {
   const body = readFileSync(file, 'utf8');
-  for (const kind of ['plan', 'verdict'] as const) {
+  for (const kind of ['plan', 'verdict', 'decision'] as const) {
     const b = extractBlock(body, `agent-${kind}`);
     if (!b.found) continue;
     if (!b.ok) return { kind, errors: [b.error] };
-    const parsed = kind === 'plan' ? parsePlan(b.value) : parseVerdict(b.value);
+    const parsed = kind === 'plan' ? parsePlan(b.value) : kind === 'verdict' ? parseVerdict(b.value) : parseDecision(b.value);
     return parsed.ok ? { kind, errors: [], value: parsed.value } : { kind, errors: parsed.errors };
   }
-  throw new Error('agent-plan / agent-verdict ブロックがありません');
+  throw new Error('agent-plan / agent-verdict / agent-decision ブロックがありません');
 }
 
 async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
@@ -229,6 +231,21 @@ async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
   const claim = isRoutine() ? null : claimValueAfterPlan(r.expectedGate, manualClaim());
   if (claim) await gh.comment(n, renderClaim(claim));
   console.log(JSON.stringify({ posted: posted.html_url, expectedGate: r.expectedGate, ...(claim ? { claim: claim.released ? 'released' : 'plan-gate' } : {}) }, null, 2));
+}
+
+/** 決定の記録を検査して投稿する（人のセッション用。Routine は書かない）。ラベルは変えない（App が確かめて外す） */
+async function postDecision(gh: GitHub, n: number, file: string): Promise<void> {
+  const checked = checkFile(file);
+  if (checked.kind !== 'decision' || checked.errors.length > 0) fail(checked.kind !== 'decision' ? ['agent-decision ブロックがありません'] : checked.errors);
+  const decision = checked.value as Decision;
+  if (decision.issue !== n) fail([`decision.issue（${decision.issue}）が #${n} と一致しません`]);
+  const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: Plan } } | null;
+  if (!gate?.value.plan) fail([`#${n} に App の計画ゲートの記録（計画の写し）がありません`]);
+  if (gate!.value.planCommentId !== decision.planCommentId) fail([`decision.planCommentId（${decision.planCommentId}）が最新の計画ゲートの記録の計画コメント（${gate!.value.planCommentId}）と一致しません`]);
+  const { missing, unknown } = uncoveredTargets(decisionTargets(gate!.value.plan!), decision);
+  if (missing.length > 0 || unknown.length > 0) fail([...missing.map((t) => `答えがありません: ${t.id}（${t.text}）`), ...unknown.map((u) => `計画に無い項目への答えです: ${u}`)]);
+  const posted = await gh.comment(n, readBlockFile(file));
+  console.log(JSON.stringify({ posted: posted.html_url }, null, 2));
 }
 
 async function postVerdict(gh: GitHub, n: number, file: string): Promise<void> {
@@ -612,6 +629,7 @@ async function main(): Promise<void> {
     case 'release': return void (await gh.comment(n, claimBody(true, true)));
     case 'show-plan': return showPlan(gh, n);
     case 'post-plan': return postPlan(gh, n, args[1]!);
+    case 'post-decision': return postDecision(gh, n, args[1]!);
     case 'post-verdict': return postVerdict(gh, n, args[1]!);
     case 'judge-input': return void console.log(await judgeInput(gh, n));
     case 'critic-input': return void console.log(await criticInput(gh, args));

@@ -47,6 +47,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |
 | 合体版の記録の偽り | 合体版のレビューの記録（`agent-review-panel`）はセッションが書くので偽れる。判定コメントより前の記録だけを数えることで防げるのは、App の受け付け・変更要求を見てから記録を合わせることだけで、shadow ではセッションが今の reviewer の出力を見てから記録を合わせることは防げない | 判定コメントより前・未編集・head の一致・コラボレーターの記録だけ数える、集計の表で事実の列と申告の列を分ける、本物・誤検知は事実の裏付けで数える、切り替えの前に人が全件を確かめる（裏付けのうち人のレビューコメントは、セッションも本人の名義で書くので Claude の目印の有無でしか人のものと分けられず、目印の無いセッションのコメントは人のものとして数えてしまう）、担当の定義と組み立て（`.claude/agents/review-*.md`・review-panel の skill・`harness/scripts/review-panel.ts`・`harness/lib/**`）はガードレール（[plan.md](plan.md) の Q91） |
+| 決定の記録の名義 | 決定の記録（```` ```agent-decision ````）は人の名義で書かれ、App は人が書いたかセッションが書いたかを区別できない。Routine が書くことも、`.claude/routine.md` の禁止だけで止めている（hook の入力・環境変数では Routine と付き添いのセッションを見分けられない。Routine を再開するときに専用の環境と環境変数を用意すれば hook で止められる見込み） | 外すのは Planner の申告の停止だけ（App のゲートの停止・人が付けた印・AC の変更提案は外さない）、答え済みの計画をゲートがもう一度判定する、既定は `shadow`、ガードレール・critical の停止と Human Merge・判定の受け付けは変えない |
 | 外部のプラグイン | 登録したマーケットプレイスの skill・agent の中身がセッションの文脈に入る | コミットに固定・`autoUpdate: false`、更新は人が差分を読んで PR（[setup.md](setup.md#8-プラグイン全員に同じ版で入れる)）、コードを動かす部品（hook・MCP）が無いことを更新のたびに確かめる、判定の担当（reviewer・risk-agent）は WebFetch を持たず判定は reviewer・risk-agent と App だけで決まる |
 
 ## Jev
@@ -60,6 +61,8 @@ Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材
 - `guardrail_paths`・`guardrail_exclude`：`harness.config.json` のガードレールの一覧
 
 判定コメントの `facts`・level・answers など、セッションが書いたものは渡さない（セッションが Jev を誘導できないように）。`facts` は記録と人の確認用に残る。Jev はリポジトリを読めないため、diff に見えない影響（変えた関数の呼び出し元など）は分からないものとして安全側に倒すよう問う。
+
+**決定の記録の確かめ**：Planner の申告への人の答え（```` ```agent-decision ````）を確かめるときは、App の計画ゲートの記録にある計画の写しの `needsHumanReasons`・`openQuestions` と、答えの `to`・`choice`・`quote` だけを渡す（本文の要約と日時は渡さない）。`jev.decisionRelease` は `shadow` から始め、`report.ts` の「人の決定の記録（Jev の判定と人の判断）」の一致率を見て、`enforce` にするかを人が PR で決める。
 
 **基準**（`harness/lib/report.ts` の `JEV_ENFORCE_CRITERIA`）：
 

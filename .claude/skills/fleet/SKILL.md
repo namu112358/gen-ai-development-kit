@@ -28,7 +28,7 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を、1つのセッシ
    - Issue に手を付ける最初に、ship と同じく `claim <番号> --manual --stage <段階>` で宣言する。人の判断待ちで止めてセッションを終えるときは `release <番号>` で解除する。
    - 着手宣言（`claim <番号> --manual`）が領域の上限で止まったら、`--force` を付けて宣言する（fleet は領域の上限を見ないため）。
 2. 「選ぶ」の Issue ごとに（選択が「待つ」の行は、次にやること（fix・judge など）が出ていても進めない）、表の「次にやること」の段階を ship と同じ判断（ship の手順2〜6）で1つ進める。
-   - plan：plan の skill。批評（plan-critic）は Issue ごとに並行して呼んでよい。計画ゲートが `agent:plan-review` で止めた Issue は、ship の手順2と同じく、宣言が残っていれば `release <番号>` で解除してから、進めてよいかを聞く（手順8でまとめて聞いてよい）。
+   - plan：plan の skill。批評（plan-critic）は Issue ごとに並行して呼んでよい。計画ゲートが `agent:plan-review` で止めた Issue は、ship の手順2と同じく、宣言が残っていれば `release <番号>` で解除してから、進めてよいかを聞く（手順8でまとめて聞いてよい）。Planner の申告で止まったら、ship の手順2どおり人の答えを `post-decision` で記録する。
    - implement：implement の skill。worktree は Issue ごとに分ける。test-designer・実装は並行してよい。
    - judge：judge の skill。Reviewer・Risk Agent は Issue ごとに並行して呼んでよい。
    - fix：fix の skill。

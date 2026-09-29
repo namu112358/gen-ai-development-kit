@@ -18,7 +18,7 @@ export interface GateContext {
   event: any;
   secrets: { jevApiKey?: string };
   log: (msg: string) => void;
-  /** Issue の分類で Jev に問う関数（無ければ harness/lib/jev.ts の askJev。テストで差し替える） */
+  /** Issue の分類と決定の記録の確かめで Jev に問う関数（無ければ harness/lib/jev.ts の askJev。テストで差し替える） */
   askJev?: typeof askJev;
 }
 

@@ -47,7 +47,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | ラベル | 付ける者 | 意味 |
 | --- | --- | --- |
 | `agent:ready` | 人 | 着手してよい |
-| `agent:plan-review` | App（計画ゲート）/ Planner（申告のとき） | 計画に人の判断が必要。付き添いのセッションで実装する。外せるのは人と、App（ゲートの停止で、出し直した計画が通ったとき） |
+| `agent:plan-review` | App（計画ゲート）/ Planner（申告のとき） | 計画に人の判断が必要。付き添いのセッションで実装する。外せるのは人と、App（ゲートの停止で、出し直した計画が通ったとき。Planner の申告で、人の決定の記録を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき） |
 | `agent:plan-ok` | App のみ | 計画ゲート通過 |
 | `agent:waiting` | Routine / App | 依存待ち（blocker が閉じると App が外す） |
 | `agent:blocked` | Routine / App / 人 | 人の対応が必要。付けるときは理由コードを残す（下記） |
@@ -67,7 +67,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 止めた理由は、`agent:blocked` / `agent:plan-review` を付けるコメントに理由コード（`<!-- agent-harness:reason code=… -->`）で残す。ダッシュボードの「人の対応待ち」は理由別に並び、理由が無いものは「要確認」になる。
 
-計画ゲートで止まった Issue に計画を出し直すとき、App は自分の計画ゲートの記録で前の印の出どころを見る。ゲートの停止（critical・ガードレールなど）で、最後に印を付けたのが App なら、新しい計画だけで判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）や人が付けた印、出どころの無い古い記録は、人が外すまで止める。ゲートの停止の印は出し直しで外れうるので、計画を出し直しても止めておきたいときは `agent:hold` を付ける。書式は [formats.md](formats.md#計画)。
+計画ゲートで止まった Issue に計画を出し直すとき、App は自分の計画ゲートの記録で前の印の出どころを見る。ゲートの停止（critical・ガードレールなど）で、最後に印を付けたのが App なら、新しい計画だけで判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。`acChangeProposed` や人が付けた印、出どころの無い古い記録は、人が外すまで止める。Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが人の答えを決定の記録（```` ```agent-decision ````、`agent.ts post-decision`）で残すと、App が Jev に答え済みかを問い、`plan-decision` の記録を付ける。`jev.decisionRelease` が `shadow`（既定）なら記録だけ、`enforce` でしきい値（`jev.thresholds.decisionProbability`）以上なら答え済みとして判定し直す（通れば App が印を外し、ガードレール・critical などに当たれば `gate` の停止として残る）。人が付けた印は、ラベルの時刻（計画コメントの投稿の 60 秒前から、その計画ゲートの記録まで）の外で付いたものとして見分ける。そのため Planner の申告の印を外さないまま申告付きの計画を出し直すと、2回目以降は印が窓より前から付いているので対象外になる（人が外す今までの運用に戻るだけ）。ゲートの停止の印は出し直しで外れうるので、計画を出し直しても止めておきたいときは `agent:hold` を付ける。書式は [formats.md](formats.md#計画)。
 
 | 理由コード | 意味 |
 | --- | --- |

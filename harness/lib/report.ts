@@ -776,3 +776,103 @@ export function renderPanelComparison(summary: PanelComparison, rows: PanelPairR
       : ['| 側 | PR | head | 種類 | ファイル | 裏付け | 指摘（120 字まで） |', '| --- | --- | --- | --- | --- | --- | --- |', ...list]),
   ].join('\n');
 }
+
+// ---- 人の決定の記録（Jev の判定と人の判断、#151） ----
+
+/** shadow の plan-decision の記録1件と、人がその後進めたか（true：進めた、false：進めなかった、null：未決） */
+export interface DecisionRow {
+  issue: number;
+  decisionCommentId: number;
+  recordedAt: string;
+  jevPass: boolean | null;
+  humanProceeded: boolean | null;
+}
+
+/**
+ * Issue の shadow の plan-decision の記録（status: ok）ごとに、人がその後進めたかを決める。
+ * 進めた＝記録の後、次の計画ゲートの記録より前に、App 以外が agent:plan-review を外した、またはこの Issue を Closes する PR が作られた。
+ * 進めなかった＝進めないまま次の計画ゲートの記録が付いた（計画の出し直し）か、PR 無しで Issue が閉じた。どちらでもなければ未決。
+ */
+export function decisionRows(
+  config: HarnessConfig,
+  issue: number,
+  comments: IssueComment[],
+  events: { event: string; created_at?: string; actor?: { login: string } | null; label?: { name: string } }[],
+  closingPrs: { number: number; createdAt: string }[],
+): DecisionRow[] {
+  const app = appLogin(config);
+  const fromApp = (c: IssueComment) => c.user?.login === app;
+  const time = (s: string | undefined) => (s ? Date.parse(s) : NaN);
+  const gates = comments.filter((c) => fromApp(c) && appMarkKind(c.body) === 'plan-gate').map((c) => time(c.created_at));
+  const rows: DecisionRow[] = [];
+  for (const c of comments) {
+    if (!fromApp(c) || appMarkKind(c.body) !== 'plan-decision') continue;
+    const block = extractBlock(c.body, 'agent-app');
+    if (!block.found || !block.ok) continue;
+    const v = block.value as { decisionCommentId?: number; mode?: string; status?: string; pass?: boolean | null };
+    if (v.mode !== 'shadow' || v.status !== 'ok' || typeof v.decisionCommentId !== 'number') continue;
+    const at = time(c.created_at);
+    const next = gates.filter((t) => t > at).sort((a, b) => a - b)[0] ?? Infinity;
+    const within = (t: number) => t > at && t < next;
+    const unlabeled = events.some((e) => e.event === 'unlabeled' && e.label?.name === 'agent:plan-review' && e.actor?.login !== app && within(time(e.created_at)));
+    const pr = closingPrs.some((p) => within(time(p.createdAt)));
+    const closed = events.some((e) => e.event === 'closed' && within(time(e.created_at)));
+    const humanProceeded = unlabeled || pr ? true : next !== Infinity || closed ? false : null;
+    rows.push({ issue, decisionCommentId: v.decisionCommentId, recordedAt: c.created_at, jevPass: typeof v.pass === 'boolean' ? v.pass : null, humanProceeded });
+  }
+  return rows;
+}
+
+export interface DecisionAgreement {
+  /** 未決・Jev の可否が無いものを除いた件数 */
+  decided: number;
+  undecided: number;
+  both: number;
+  jevOnly: number;
+  humanOnly: number;
+  neither: number;
+  /** 一致率（decided が 0 なら null） */
+  agreement: number | null;
+}
+
+/** Jev の可否 × 人が進めたか の 2×2 と一致率 */
+export function decisionAgreement(rows: DecisionRow[]): DecisionAgreement {
+  const s: DecisionAgreement = { decided: 0, undecided: 0, both: 0, jevOnly: 0, humanOnly: 0, neither: 0, agreement: null };
+  for (const r of rows) {
+    if (r.jevPass === null || r.humanProceeded === null) {
+      s.undecided++;
+      continue;
+    }
+    s.decided++;
+    if (r.jevPass && r.humanProceeded) s.both++;
+    else if (r.jevPass) s.jevOnly++;
+    else if (r.humanProceeded) s.humanOnly++;
+    else s.neither++;
+  }
+  s.agreement = s.decided === 0 ? null : Math.round(((s.both + s.neither) / s.decided) * 1000) / 1000;
+  return s;
+}
+
+export function renderDecisionAgreement(stats: DecisionAgreement, rows: DecisionRow[]): string {
+  const yn = (v: boolean | null, yes: string, no: string) => (v === null ? '未決' : v ? yes : no);
+  return [
+    '## 人の決定の記録（Jev の判定と人の判断）',
+    '',
+    `shadow の記録 ${rows.length} 件（判断が決まったもの ${stats.decided}、未決 ${stats.undecided}）。一致率：${stats.agreement === null ? '-' : `${(stats.agreement * 100).toFixed(1)}%`}`,
+    '',
+    '進めた＝記録の後、次の計画ゲートの記録より前に、App 以外が `agent:plan-review` を外したか Issue を Closes する PR が作られた。進めなかった＝計画を出し直したか PR 無しで閉じた。',
+    '',
+    '| Jev ＼ 人 | 進めた | 進めなかった |',
+    '| --- | --- | --- |',
+    `| 可 | ${stats.both} | ${stats.jevOnly} |`,
+    `| 不可 | ${stats.humanOnly} | ${stats.neither} |`,
+    '',
+    ...(rows.length === 0
+      ? ['記録はありません。']
+      : [
+          '| Issue | 決定の記録 | 記録の日時 | Jev | 人 |',
+          '| --- | --- | --- | --- | --- |',
+          ...rows.map((r) => `| #${r.issue} | ${r.decisionCommentId} | ${r.recordedAt.slice(0, 16)} | ${yn(r.jevPass, '可', '不可')} | ${yn(r.humanProceeded, '進めた', '進めなかった')} |`),
+        ]),
+  ].join('\n');
+}
