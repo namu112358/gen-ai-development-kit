@@ -7,7 +7,8 @@ import { FEATURE_BASE, STACK, countCalls, stackedPr } from './support/stack-fixt
 
 /**
  * PR と Issue の紐付けの入口（state.ts の bodyIssueRefs・linkedIssues・withStack）。
- * スタックの層は本文の Refs #N・Closes #N を App が読み、それ以外は GitHub の closingIssuesReferences に頼る。
+ * スタックの層は本文の Refs #N・Closes #N を App が読み、それ以外は GitHub の closingIssuesReferences に頼る
+ * （base が既定ブランチの PR で一覧が空なら、本文の Closes で補う。PR を作った直後の反映の遅れ）。
  */
 
 const numbers = (body: string | null) => bodyIssueRefs(body).map((r) => r.number);
