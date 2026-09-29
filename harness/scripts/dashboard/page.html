@@ -29,6 +29,8 @@
   .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
   .conn i { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
   .conn.ok i { background: var(--run); }
+  #pollStatus { margin: 0; padding: 8px 16px; background: var(--warn-bg); color: var(--ink); border-bottom: 1px solid var(--line); }
+  #pollStatus[hidden] { display: none; }
   .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); }
   .legend label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
   .legend svg { overflow: visible; }
@@ -104,6 +106,7 @@
   <span class="legend" id="enfLegend"></span>
   <span class="legend" id="edgeLegend"></span>
 </header>
+<p id="pollStatus" role="status" hidden></p>
 <section id="todos" aria-label="人がすること"><h2 id="todosTitle">人がすること</h2><div id="todosBody"></div></section>
 <div id="wrap">
   <div id="board"></div>
@@ -203,6 +206,14 @@ function ago(iso) {
   if (s < 3600) return Math.floor(s / 60) + '分前';
   if (s < 86400) return Math.floor(s / 3600) + '時間前';
   return Math.floor(s / 86400) + '日前';
+}
+/** 見張りの状態（SSE の status）を画面の上の帯の文に。読んでいるときは空 */
+function statusText(s) {
+  if (!s || (s.state !== 'paused' && s.state !== 'backoff')) return '';
+  const at = new Date(s.until).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return s.state === 'paused'
+    ? 'GitHub API の上限が近いため、' + at + ' まで読むのを止めています'
+    : '読み込みに失敗したため、' + at + ' に読み直します';
 }
 function agoSpan(iso) {
   const s = el('span', 'ago', ago(iso));
@@ -483,6 +494,12 @@ function connect() {
   });
   es.addEventListener('sessions', (m) => { sessions = JSON.parse(m.data).sessions; schedule(); });
   es.addEventListener('todos', (m) => { todos = JSON.parse(m.data).todos; schedule(); });
+  es.addEventListener('status', (m) => {
+    const bar = document.getElementById('pollStatus');
+    const t = statusText(JSON.parse(m.data));
+    bar.textContent = t;
+    bar.hidden = t === '';
+  });
 }
 
 // テスト（node:vm で buildCards だけを読む）では DOM が無いので起動しない
