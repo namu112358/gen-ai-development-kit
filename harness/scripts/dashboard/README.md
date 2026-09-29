@@ -5,10 +5,10 @@
 ## 起動
 
 ```sh
-node harness/scripts/dashboard.ts [--port 4177] [--interval 5]
+node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining 0.3]
 ```
 
-表示された `http://127.0.0.1:<port>/` をブラウザで開く。認証は `GH_TOKEN` / `GITHUB_TOKEN`、無ければ `gh auth token` のトークン。止めるには Ctrl+C。
+表示された `http://127.0.0.1:<port>/` をブラウザで開く。`--interval` は GitHub を確かめる間隔（秒。既定 30、5 より短ければ 5）、`--min-remaining` は API の上限の残りの下限（割合。既定 0.3）。認証は `GH_TOKEN` / `GITHUB_TOKEN`、無ければ `gh auth token` のトークン。止めるには Ctrl+C。
 
 ## 見えるもの
 
@@ -25,6 +25,9 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 5]
 ## 更新の仕組み
 
 - GitHub：`/issues?state=all&sort=updated` を条件付きリクエスト（`If-None-Match`）で `--interval` 秒ごとに問い合わせる。304（変化なし）は API の上限に数えられず、組み直しもしない。`updated_at` が変わった Issue / PR（と、それを Closes する側・される側）だけ facts を取り直す。
+- API の上限：応答の `X-RateLimit-*`（資源ごと。`/graphql` は `X-RateLimit-Resource: graphql`）と、GraphQL の応答に `data.rateLimit` があればそれを読む。どれかの資源の残りが `--min-remaining` の割合を切ったら、リセットの時刻まで GitHub を読まず、止めていることと再開の時刻を画面の上に出す（読み直しの途中で切ったら、その回の変化は取り込まずに次の回で読み直す）。
+- 失敗したとき（403・429・502・503・504・通信の失敗）：決まった間隔では読み直さず、full jitter の exponential backoff（`--interval` を基に倍々、上限 15 分）で遅らせる。`Retry-After`・リセットの時刻より早くしない。成功したら `--interval` に戻る。
+- ブラウザの接続（`/events`）が0の間は GitHub を読まない。接続が来たらすぐ1回読む（止めている・遅らせている間はその時刻まで待つ）。
 - セッション記録：`fs.watch` で変化を拾う（2秒ごとにも見直す）。
 - ブラウザには Server-Sent Events（`/events`）で、接続時に全体、その後は変わったタスクだけを送る。
 
@@ -43,5 +46,8 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 5]
 | --- | --- |
 | `graph.ts` | facts とセッションから列・タスク・辺を組む純粋関数と、前後の差分 |
 | `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し |
+| `rate-limit.ts` | API の上限の残りを応答から読み、下限を切ったらリセットまで送らない Transport と fetch の包み |
+| `scheduler.ts` | 見張りの回し方（間隔・上限で止める・失敗の後の backoff・接続が0の間は読まない） |
+| `backoff.ts` | 失敗の後の待ち方（full jitter の exponential backoff） |
 | `sessions.ts` | 手元のセッション記録の読み取りと見張り |
 | `page.html` | 画面（外部を読み込まない1ファイル） |

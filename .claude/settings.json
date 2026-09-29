@@ -167,6 +167,15 @@
             "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.mjs\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.ts\""
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.mjs\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/workspace-guard.ts\""
+          }
+        ]
       }
     ],
     "SessionStart": [

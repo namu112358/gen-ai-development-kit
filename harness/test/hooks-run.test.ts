@@ -10,7 +10,7 @@ import { pathToFileURL } from 'node:url';
 const root = join(import.meta.dirname, '..', '..');
 const RUN = join(root, '.claude', 'hooks', 'run.mjs');
 
-type HookName = 'guard' | 'session-env';
+type HookName = 'guard' | 'session-env' | 'workspace-guard';
 interface HookModule { main: () => Promise<void> | void }
 interface RunResult { output: string }
 interface RunModule {
@@ -55,6 +55,14 @@ test('failOutput：session-env は systemMessage と SessionStart の additional
   });
 });
 
+test('failOutput：workspace-guard は guard と同じ PreToolUse の deny と理由を出す（Issue #286）', async () => {
+  const { failOutput } = await loadRun();
+  const out = JSON.parse(failOutput('workspace-guard', 'Node 22.12.0 は古い')) as DenyOutput;
+  assert.deepEqual(out, {
+    hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: 'Node 22.12.0 は古い' },
+  });
+});
+
 // ---- 引数の許可の一覧 ----
 
 test('hookFor：basename が guard.ts・session-env.ts のものだけを受け付ける', async () => {
@@ -65,6 +73,16 @@ test('hookFor：basename が guard.ts・session-env.ts のものだけを受け�
   assert.equal(hookFor('session-env.ts'), 'session-env');
   assert.equal(hookFor(join(root, '.claude', 'hooks', 'session-env.ts')), 'session-env');
   for (const arg of ['', '../x.ts', 'other.ts', 'run.mjs', 'guard', 'guard.js', 'guard.ts.bak', 'x/guard.tsx', 'session-env']) {
+    assert.equal(hookFor(arg), null, JSON.stringify(arg));
+  }
+});
+
+test('hookFor：basename が workspace-guard.ts のものを workspace-guard として受け付ける（Issue #286）', async () => {
+  const { hookFor } = await loadRun();
+  assert.equal(hookFor('workspace-guard.ts'), 'workspace-guard');
+  assert.equal(hookFor('.claude/hooks/workspace-guard.ts'), 'workspace-guard');
+  assert.equal(hookFor(join(root, '.claude', 'hooks', 'workspace-guard.ts')), 'workspace-guard');
+  for (const arg of ['workspace-guard', 'workspace-guard.js', 'workspace-guard.ts.bak', 'x/workspace-guard.tsx']) {
     assert.equal(hookFor(arg), null, JSON.stringify(arg));
   }
 });
@@ -110,6 +128,33 @@ test('run：main が例外を投げたら failOutput を出す', async () => {
   const { run } = await loadRun();
   const g = await run({ version: '24.1.0', hook: 'guard', load: async () => ({ main: async () => { throw new Error('途中で失敗'); } }) });
   assert.equal((JSON.parse(g.output) as DenyOutput).hookSpecificOutput?.permissionDecision, 'deny');
+});
+
+test('run：workspace-guard は版が足りないと load を呼ばず、版と workspace-guard.ts を含む理由の deny を出す（Issue #286）', async () => {
+  const { run } = await loadRun();
+  let loads = 0;
+  const r = await run({ version: '22.12.0', hook: 'workspace-guard', load: async () => { loads++; return { main: () => {} }; } });
+  assert.equal(loads, 0, 'load を呼ばない');
+  const out = JSON.parse(r.output) as DenyOutput;
+  assert.equal(out.hookSpecificOutput?.hookEventName, 'PreToolUse');
+  assert.equal(out.hookSpecificOutput?.permissionDecision, 'deny');
+  const reason = out.hookSpecificOutput?.permissionDecisionReason;
+  assert.ok(typeof reason === 'string' && reason.includes('22.12.0'), `理由に版が入る: ${String(reason)}`);
+  assert.ok(typeof reason === 'string' && reason.includes('workspace-guard.ts'), `理由に workspace-guard.ts が入る: ${String(reason)}`);
+});
+
+test('run：workspace-guard は load・main が例外を投げたら deny を出し、版が足りて main が返れば output は空（Issue #286）', async () => {
+  const { run } = await loadRun();
+  const l = await run({ version: '24.1.0', hook: 'workspace-guard', load: async () => { throw new SyntaxError('読めない構文'); } });
+  const lo = JSON.parse(l.output) as DenyOutput;
+  assert.equal(lo.hookSpecificOutput?.hookEventName, 'PreToolUse');
+  assert.equal(lo.hookSpecificOutput?.permissionDecision, 'deny');
+  const m = await run({ version: '24.1.0', hook: 'workspace-guard', load: async () => ({ main: async () => { throw new Error('途中で失敗'); } }) });
+  assert.equal((JSON.parse(m.output) as DenyOutput).hookSpecificOutput?.permissionDecision, 'deny');
+  let mains = 0;
+  const ok = await run({ version: '24.0.0', hook: 'workspace-guard', load: async () => ({ main: async () => { mains++; } }) });
+  assert.equal(mains, 1);
+  assert.equal(ok.output, '');
 });
 
 test('run：版が足りれば load して main を呼び、output は空', async () => {
@@ -223,4 +268,11 @@ test('.claude/settings.json の PreToolUse・SessionStart の command は run.mj
   const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8')) as Settings;
   assertThroughRun(commands(settings.hooks?.PreToolUse?.filter((e) => e.matcher === 'Bash|mcp__.*')), '.claude/hooks/guard.ts');
   assertThroughRun(commands(settings.hooks?.SessionStart), '.claude/hooks/session-env.ts');
+});
+
+test('.claude/settings.json の PreToolUse に matcher Edit|Write|NotebookEdit|Bash の項があり、run.mjs を通して workspace-guard.ts を呼ぶ（Issue #286）', () => {
+  const settings = JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8')) as Settings;
+  const entries = settings.hooks?.PreToolUse?.filter((e) => e.matcher === 'Edit|Write|NotebookEdit|Bash');
+  assert.ok(entries !== undefined && entries.length > 0, 'matcher Edit|Write|NotebookEdit|Bash の項がありません');
+  assertThroughRun(commands(entries), '.claude/hooks/workspace-guard.ts');
 });
