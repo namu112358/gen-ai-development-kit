@@ -23,9 +23,18 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `risk`：想定 Risk（[docs/risk-policy.md](../../../docs/risk-policy.md) の目安）
    - 1つの PR に収まらなければ `split` で子課題に分ける
 4. `node harness/scripts/agent.ts check <ファイル>` で書式を確かめる。
-5. `node harness/scripts/agent.ts claim <番号> --manual --stage plan-critique` で段階を更新し、`node harness/scripts/agent.ts critic-input <番号> <ファイル>` で批評の入力を作る（このセッションの着手宣言が無いと止まる）（出力はファイルのパス）。2回目以降は、前回の plan-critic の出力の JSON を書き換えずにファイル（scratchpad）に保存し、`node harness/scripts/agent.ts critic-input <番号> <ファイル> --previous <前回の批評の JSON>` で作る（前回の必須の指摘が「前回の批評」に入る）。
-6. **plan-critic** サブエージェントに、そのファイルの中身を指示に含めて渡す（自分の推論は渡さない）。
-7. 判定ごとの扱いと止める条件は、[.claude/routine.md](../../routine.md) の plan の手順4と [.claude/agents/plan-critic.md](../../agents/plan-critic.md) の出力の節に従う（ここに写さない）。
+5. `node harness/scripts/agent.ts claim <番号> --manual --stage plan-critique` で段階を更新し、`node harness/scripts/agent.ts critic-input <番号> <ファイル>` で批評の入力を作る（このセッションの着手宣言が無いと止まる）（出力はファイルのパス）。2回目以降は、前回の回に plan-critic が書いたファイル（直前に使った `critic-<番号>-<回数>.json`）をそのまま渡し、`node harness/scripts/agent.ts critic-input <番号> <ファイル> --previous <critic-<番号>-<回数>.json>` で作る（前回の必須の指摘が「前回の批評」に入る）。
+6. **plan-critic** サブエージェントを呼ぶ。
+   - 批評の回ごとに、出力のパスを scratchpad の `critic-<番号>-<回数>.json` に決める。回数は Issue ごとに増やし続け、1 に戻さない（計画ゲートで止まった Issue への出し直しや、人の「直す」で手順5からやり直すときも続きの番号にする）。
+   - plan-critic を呼ぶ前に、出力のパスにファイルが無いことを確かめる。あれば回数を進めて、まだ使っていない名前にする。呼び出し元はファイルを消さない（plan-critic は既にあるファイルを上書きしないので、古い批評をこの回の結果として取り違えないため）。
+   - 呼ぶ前に `git status --porcelain --untracked-files=all` の結果を scratchpad の `worktree-critic-<番号>-<回数>.txt` に書き出して控える。
+   - critic-input のファイルの中身と出力のパスを指示に含めて渡し（自分の推論は渡さない）、「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。
+   - 返った後に、次を確かめる。呼び出し元は plan-critic の出力のファイルを書かない、直さない（plan-critic の代わりに書かない）。
+     - plan-critic が書いたファイルが出力のパスにあり、JSON として読めること（`node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読むだけ）。
+     - ファイルが無いときは、同じパスを渡して plan-critic を1回だけ呼び直す。2回目も無ければ人に返す。
+     - ファイルがあって JSON として読めないときは、呼び直さずに人に返す。
+     - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、批評を使わず人に返す（plan-critic が出力のパスの外を書いた恐れがある）。付き添いの作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
+7. 判定はファイルの中身で決める。返事の本文とファイルの中身が食い違ったら、ファイルの中身を使う。判定ごとの扱いと止める条件は、[.claude/routine.md](../../routine.md) の plan の手順4と [.claude/agents/plan-critic.md](../../agents/plan-critic.md) の出力の節に従う（ここに写さない）。
    - `go`：計画ブロックに `critique`（`verdict` と `rounds`）を書いて次へ。
    - `revise`：指摘を反映して直し、手順5からやり直す。
    - `split`：分け方の案に従い、`split` 付きの計画にして、`critique` の `verdict` を `split` にする。
@@ -42,6 +51,8 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 ## 人に返す条件
 
 - 批評が止める条件に当たった、または `drop`（「進める／直す／やめる」を AskUserQuestion で聞く）
+- plan-critic が出力のパスにファイルを書かなかった（同じパスで呼び直しても無い）、または書いたファイルが JSON として読めない
+- plan-critic を呼んだ後の `git status --porcelain --untracked-files=all` に、呼ぶ前と比べて増えた行・変わった行がある
 - 要件・AC を変えたほうがよい（Issue 本文は書き換えない。コメントで提案する）
 - `post-plan` が書式の誤りや権限で失敗した（拒否された操作は別の方法で試さない）
 - やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え

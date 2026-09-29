@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { extractBlock } from '../lib/blocks.ts';
 import { appLogin, LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
+import { delegateEligibility, delegateExcludeFiles } from '../lib/delegate.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
 import { callJev } from '../lib/jev.ts';
@@ -19,6 +20,7 @@ import {
   lastLabeled,
   latestPlanGate,
   openPrsClosing,
+  plannedFilesForDelegate,
   plannedFilesForPr,
   prDiff,
   type PlanGateRecord,
@@ -201,7 +203,12 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
   let scope = 'files' in planned ? checkScope(planned.files, files) : { ok: false, outside: [`（${planned.missing}）`] };
   // 変更ファイルの一覧は API の上限（3000 件）で打ち切られ得る。全件を見られなければ範囲照合は不可とする
   const total = (await ctx.gh.get<{ changed_files: number }>(`/pulls/${prNumber}`)).changed_files;
-  if (new Set(files).size < total) scope = { ok: false, outside: [`（変更ファイル ${total} 件のうち ${new Set(files).size} 件しか取得できません）`] };
+  const partial = new Set(files).size < total ? [`（変更ファイル ${total} 件のうち ${new Set(files).size} 件しか取得できません）`] : null;
+  if (partial) scope = { ok: false, outside: partial };
+  // 委任 Merge の範囲照合：ゲートを通った計画か、ゲートの停止で止まった計画と照らす（harness/lib/delegate.ts）
+  const delegatePlanned = await plannedFilesForDelegate(ctx.gh, ctx.config, prNumber);
+  let delegateScope = 'files' in delegatePlanned ? checkScope(delegatePlanned.files, files) : { ok: false, outside: [`（${delegatePlanned.missing}）`] };
+  if (partial) delegateScope = { ok: false, outside: partial };
   const risk = riskAllowsAutoMerge(verdict.risk);
   const jev = await callJev(ctx.config, ctx.secrets.jevApiKey, diff, files, verdict.facts);
   const jevGate =
@@ -223,6 +230,18 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     elig.autoEligible = false;
     elig.reasons.unshift('スタックでないのに base が既定ブランチ以外（`orphan-base`。Draft に留めています）');
   }
+  const delegate = delegateEligibility({
+    reviewPass: verdict.review.pass,
+    scopeOk: delegateScope.ok,
+    outside: delegateScope.outside,
+    humanMerge,
+    exclude: delegateExcludeFiles(ctx.config, files),
+    jevGate,
+    agent,
+    base,
+    guardrail,
+    risk,
+  });
   return {
     version: 1,
     verdictCommentId,
@@ -240,6 +259,7 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     jev,
     humanNotes: verdict.review.humanNotes,
     riskRationale: verdict.risk.rationale,
+    delegate,
   };
 }
 
@@ -252,6 +272,15 @@ function renderBlockingReview(verdict: Verdict, round: number): string {
     '',
     ...verdict.review.blocking.map((b) => `- **${b.kind}**${b.file ? ` \`${b.file}\`` : ''}: ${b.detail}`),
   ].join('\n');
+}
+
+/** 受け付けの表の「委任 Merge」の欄：自動 Merge の対象なら要らない。委任なら乗せられるか（飛ばす理由）、乗せられない理由 */
+function renderDelegate(a: Acceptance): string {
+  if (a.autoEligible) return '不要（自動 Merge の対象）';
+  const d = a.delegate;
+  if (!d) return '-';
+  const cell = (items: string[]) => items.join('／').replaceAll('|', '\\|');
+  return d.eligible ? `可（飛ばす理由: ${cell(d.skipped)}）` : `不可: ${cell(d.reasons)}`;
 }
 
 function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string {
@@ -268,6 +297,7 @@ function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string
     `| ガードレール | ${a.guardrail?.length ? `触れる（Human Merge）: ${a.guardrail.join(', ')}` : '触れない'} |`,
     `| 人が Merge するパス | ${a.humanMerge?.length ? `触れる（Human Merge）: ${a.humanMerge.join(', ')}` : '触れない'} |`,
     `| Jev | ${a.jev?.status ?? '-'}${a.jev?.allows === undefined ? '' : a.jev.allows ? '（可）' : '（不可）'} |`,
+    `| 委任 Merge | ${renderDelegate(a)} |`,
     ...(a.reasons.length > 0 ? ['', '自動 Merge しない理由:', ...a.reasons.map((r) => `- ${r}`)] : []),
   ].join('\n');
 }
