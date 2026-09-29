@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { extractBlock } from '../lib/blocks.ts';
+import { AREA_PREFIX } from '../lib/classify.ts';
 import { answeredPlan } from '../lib/decision.ts';
 import { appLogin, LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
 import { delegateEligibility, delegateExcludeFiles, delegateModeName, delegatePlanGate, type DelegateState } from '../lib/delegate.ts';
@@ -36,7 +37,7 @@ import { applyAcceptance } from './apply.ts';
 import { delegationFor } from './delegation.ts';
 import { bypassEligibility } from './bypass.ts';
 import { onDecision } from './plan-decision.ts';
-import { planAreaLabels, riskLabelChanges } from './label-apply.ts';
+import { planAreaLabels, riskLabelChanges, singleAreaLabel } from './label-apply.ts';
 
 /** issue_comment（created）：計画ゲートと判定の受け付け */
 export async function onComment(ctx: GateContext): Promise<void> {
@@ -140,16 +141,34 @@ async function onPlan(
       : `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。${releasedNote}${proceededNote}`;
     await appComment(ctx, issue.number, 'plan-gate', text, record);
   } else {
+    // 止まった計画でも、files がすべて1つの領域に収まれば App が area:* を付ける（split の計画と、既に area:* がある Issue は除く）
+    const area = stoppedPlanArea(ctx, plan, issue.labels.map((l) => l.name));
     await ctx.gh.removeLabel(issue.number, LABELS.planOk);
     await ctx.gh.addLabels(issue.number, [LABELS.planReview]);
     await appComment(
       ctx,
       issue.number,
       'plan-gate',
-      [reasonMark(epic?.resplit ? 'resplit' : stopCode(judged, gate)), `計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`, '', ...gate.reasons.map((r) => `- ${r}`)].join('\n'),
+      [
+        reasonMark(epic?.resplit ? 'resplit' : stopCode(judged, gate)),
+        `計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`,
+        '',
+        ...gate.reasons.map((r) => `- ${r}`),
+        ...(area ? ['', `計画の files が1つの領域に収まるので \`${area}\` を付けました。`] : []),
+      ].join('\n'),
       record,
     );
+    // 書き込みの並び（plan-ok を外す・plan-review を付ける・コメント）を変えないよう、area:* は最後に付ける
+    if (area) await ctx.gh.addLabels(issue.number, [area]);
   }
+}
+
+/** 止まった計画から付ける area:*。split の計画、classification.areas の area:* が既にある Issue、1つの領域に収まらない計画は null */
+function stoppedPlanArea(ctx: GateContext, plan: Plan, labels: string[]): string | null {
+  if (plan.split) return null;
+  const areas = Object.keys(ctx.config.classification.areas).map((a) => `${AREA_PREFIX}${a}`);
+  if (labels.some((l) => areas.includes(l))) return null;
+  return singleAreaLabel(ctx.config, plan.files);
 }
 
 /** 最新の計画ゲートの記録がゲートの停止で、最後に agent:plan-review を付けたのが App か（印が付いているときだけ呼ぶ） */
