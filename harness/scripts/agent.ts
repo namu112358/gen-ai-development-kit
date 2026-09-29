@@ -1,13 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { archReviewRange, archReviewRangeArgErrors, checkArchReviewRecord, checkIssueDrafts, renderArchReviewRecord } from '../lib/arch-review.ts';
 import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
+import { apiCountFromEnv, CountingTransport, type ApiCounter } from '../lib/api-count.ts';
 import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
 import { fleetConfig, LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
+import { checkAssignee, requireAssignee, type AssigneeIo } from '../lib/assignee.ts';
 import { ensureOwnClaim as ownClaimError, postClaim } from '../lib/claim.ts';
 import { computeQueue, critiqueClaimedBefore, issueFacts, prFacts } from '../lib/facts.ts';
 import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
@@ -59,6 +61,8 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）。
  *                                                           投稿の後に少し待って読み直し、先に宣言したセッションがあれば（最初の宣言が持ち主）自分の宣言を取り下げて止まる。
  *                                                           このセッションの ID が得られなければ投稿せずに止まる
+ *                                                           harness.config.json の requireAssignee が true なら、--manual は Assignee がちょうど1人で今の GitHub のユーザーのときだけ宣言する
+ *                                                           （PR 番号なら PR が Close する Issue の Assignee。ensure-claim などの確かめも同じ。エージェントはアサインしない）
  *   node harness/scripts/agent.ts ensure-claim <番号>        このセッションの着手宣言（持ち主）があるかを確かめるだけ（PR を作る前に使う）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント（このセッションの ID が得られなければ止まる）
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
@@ -89,6 +93,7 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue と、agent:* の無い、コラボレーターか App が立てた開いた Issue（harness/lib/fleet.ts の fleetTargets）。
  *                                                           開いた PR 同士は head を fetch して git merge-tree で試し、衝突する組だけ後の側が待つ。
  *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）
+ *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする
  *   node harness/scripts/agent.ts arch-review-range [--since <sha>] [--until <sha>] [--last <n>]
  *                                                           arch-review が見る Merge 済みの PR の範囲（JSON。読むだけ）。--since（40桁の SHA）か、無ければダッシュボード Issue の
  *                                                           前回の arch-review の記録の headSha から、--until（既定は既定ブランチの先頭）までの compare のコミットを PR に対応させる。
@@ -113,6 +118,13 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts session-url               この実行のセッション URL
  *
  * リポジトリは GITHUB_REPOSITORY か git remote から決める。
+ *
+ * ■ API の呼び出しの回数（#247）
+ *   AGENT_HARNESS_API_COUNT=1 を付けて動かすと、終わり（正常・process.exit・例外のどれでも）に標準エラーへ要約を出す。
+ *   付けない（未設定・空・0）ときは何も足さない（gh api の引数も出力も今と同じ）。要約の形（harness/lib/api-count.ts）：
+ *     [api-count] <コマンド>: 計 N 回（HTTP の応答 M 回）   ← 計は呼び出しの数、応答はやり直しを含む HTTP の応答の数
+ *     [api-count]   core: remaining R / used U / limit L    ← 資源ごとに最後に見た上限のヘッダー
+ *     [api-count]   <回数>  <メソッド> <パスの形>            ← 番号を伏せた形ごと（回数の多い順）
  */
 
 const config = loadConfig();
@@ -176,8 +188,26 @@ function blockBody(code: string, text: string): string {
   return [claudeMark(currentSession()), reasonMark(code as ReasonCode), `\`agent:blocked\` にしました（${REASON_CODES[code as ReasonCode]}）。人の対応が必要です。`, '', text].join('\n');
 }
 
+/** Issue #172 の Assignee の確かめに使う GitHub の読み出し（PR が Close する Issue は、領域の上限の数え方と同じ linkedIssues。スタックの層は本文の Refs／Closes） */
+function assigneeIo(gh: GitHub): AssigneeIo {
+  return {
+    me: async () => (await gh.get<{ login: string }>('/user')).login,
+    issue: async (i) => {
+      const item = await gh.get<{ assignees?: { login: string }[] | null; pull_request?: unknown }>(`/issues/${i}`);
+      return { assignees: (item.assignees ?? []).map((a) => a.login), pullRequest: Boolean(item.pull_request) };
+    },
+    closingIssues: async (pr) => linkedIssues(gh, config, await withStack(gh, config, await gh.get<PullRequest>(`/pulls/${pr}`))),
+  };
+}
+
 async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, takeover: boolean, stage?: ClaimStage): Promise<void> {
-  if (manual && !force) {
+  // 宣言の前の確かめ：Assignee（手動の宣言。--force・--takeover でも）→ 領域の上限（手動で --force でないとき）の順
+  const before = async (): Promise<string | null> => {
+    if (manual) {
+      const notMine = await checkAssignee(assigneeIo(gh), config, n);
+      if (notMine) return notMine;
+    }
+    if (!manual || force) return null;
     const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
     const repository = `${gh.owner}/${gh.repo}`;
     const labels: string[][] = [];
@@ -187,8 +217,8 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
       labels.push(p.labels.map((l) => l.name));
     }
     const full = fullAreas(config, gate?.value.plan?.files ?? [], labels);
-    if (full.length > 0) fail([`${describeFullAreas(full)}。どれかが Merge されてから着手してください（急ぐなら --force）`]);
-  }
+    return full.length > 0 ? `${describeFullAreas(full)}。どれかが Merge されてから着手してください（急ぐなら --force）` : null;
+  };
   // 手動の宣言でなくても、Routine のセッション URL が無ければ手動の宣言として書く（claimBody と同じ）
   const r = await postClaim(gh, n, {
     current: currentSession(),
@@ -198,13 +228,14 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
     render: renderClaim,
     now: new Date(),
     humanClaimStaleHours: config.routine.humanClaimStaleHours,
+    before,
   });
   if (r.error) fail([r.error]);
 }
 
 /** critic-input・post-plan・worktree・ensure-claim の前に、このセッションの着手宣言（持ち主）を確かめる */
 async function ensureOwnClaim(gh: GitHub, n: number): Promise<void> {
-  const r = await ownClaimError(gh, n, currentSession());
+  const r = await ownClaimError(gh, n, currentSession(), () => checkAssignee(assigneeIo(gh), config, n));
   if (r.error) fail([r.error]);
 }
 
@@ -458,7 +489,7 @@ async function labelAudit(gh: GitHub, args: string[]): Promise<string> {
   return lines.length > 0 ? lines.join('\n') : `ラベルの不足・違反はありません（${rows.length} 件を検査）`;
 }
 
-type FleetIssueItem = { number: number; title: string; state: string; labels: { name: string }[]; pull_request?: unknown; user?: { login: string } | null; author_association?: string };
+type FleetIssueItem = { number: number; title: string; state: string; labels: { name: string }[]; pull_request?: unknown; user?: { login: string } | null; author_association?: string; assignees?: { login: string }[] | null };
 
 /** Issue を Closes する PR（開いたもの・Merge 済みのもの） */
 async function closingPrs(gh: GitHub, issue: number): Promise<{ number: number; state: string }[]> {
@@ -555,12 +586,14 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
         facts,
       });
     }
-    issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs });
+    issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs, assignees: (item.assignees ?? []).map((u) => u.login) });
   }
 
   const facts = { issues, prConflicts: prConflicts(issues) };
   const rows = fleetStatus(facts);
-  return renderFleetStatus(rows, selectFleet(config, facts, rows, max, currentSession()), max, mode);
+  // Assignee を確かめる設定のときだけ、今の GitHub のユーザーを読む（Issue #172）
+  const me = requireAssignee(config) ? (await gh.get<{ login: string }>('/user')).login : null;
+  return renderFleetStatus(rows, selectFleet(config, facts, rows, max, currentSession(), me), max, mode);
 }
 
 function readJson(file: string): unknown {
@@ -664,14 +697,14 @@ async function archReviewRangeText(gh: GitHub, args: string[]): Promise<string> 
 }
 
 /** arch-review-record：記録を検査して本文を作る（--dry-run でなければダッシュボード Issue にコメントする） */
-async function archReviewRecord(args: string[]): Promise<void> {
+async function archReviewRecord(args: string[], counter: ApiCounter | null): Promise<void> {
   const file = args.find((x) => !x.startsWith('--'));
   if (!file) fail(['arch-review-record <file> [--dry-run]']);
   const r = checkArchReviewRecord(JSON.parse(readFileSync(file, 'utf8')));
   if (!r.ok) fail(r.errors);
   const body = renderArchReviewRecord(r.record, currentSession());
   if (args.includes('--dry-run')) return void console.log(body);
-  const gh = new GitHub(transportFromEnv(), repository());
+  const gh = newGitHub(counter);
   const dashboard = await findDashboard(gh, config);
   if (!dashboard) fail([`ダッシュボード Issue（${config.dashboardIssueTitle}）がありません。App の publish-queue が作るまで記録できません`]);
   const posted = await gh.comment(dashboard.number, body);
@@ -683,14 +716,23 @@ function fail(errors: string[]): never {
   process.exit(2);
 }
 
+/** GitHub を作る。counter があれば呼び出しを数え、応答の上限のヘッダーを覚える */
+function newGitHub(counter: ApiCounter | null): GitHub {
+  if (!counter) return new GitHub(transportFromEnv(), repository());
+  return new GitHub(new CountingTransport(transportFromEnv({ onResponse: counter.observe }), counter), repository());
+}
+
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
+  const counter = apiCountFromEnv(process.env);
+  // exit は process.exit・例外でも呼ばれる。writeSync は exit の中でも書き込みを取りこぼさない
+  if (counter) process.on('exit', () => void writeSync(2, counter.summary(cmd ?? '(none)')));
   if (cmd === 'session-url') return void console.log(sessionUrl() ?? '(none)');
   if (cmd === 'worktree') {
     const detach = args.includes('--detach');
     const target = worktreeClaimIssue(args[0] ?? '', detach, args.includes('--routine'));
     if (target !== null) {
-      const gh = new GitHub(transportFromEnv(), repository());
+      const gh = newGitHub(counter);
       // fix・sync は PR 番号に宣言するので、そのブランチの開いた PR があれば PR の宣言を見る
       const open = await gh.get<PullRequest[]>(`/pulls?state=open&head=${encodeURIComponent(`${gh.owner}:${args[0]}`)}`);
       await ensureOwnClaim(gh, open[0]?.number ?? target);
@@ -727,8 +769,8 @@ async function main(): Promise<void> {
     if (!r.ok) fail(r.errors);
     return void console.log(r.markdown);
   }
-  if (cmd === 'arch-review-record') return archReviewRecord(args);
-  const gh = new GitHub(transportFromEnv(), repository());
+  if (cmd === 'arch-review-record') return archReviewRecord(args, counter);
+  const gh = newGitHub(counter);
   const n = Number(args[0]);
   switch (cmd) {
     case 'queue': return void console.log(JSON.stringify(await computeQueue(gh, config, currentSession()), null, 2));
