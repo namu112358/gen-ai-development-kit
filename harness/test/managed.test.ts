@@ -5,7 +5,7 @@ import { test } from 'node:test';
 
 // Issue #155：配布の準備。ハーネスが管理するファイルの一覧（harness/managed.json）、
 // CLAUDE.md から harness/CLAUDE.harness.md へ移した規則、設定の雛形（harness/templates/）、gate.yml の Node の版を検査する
-import { loadConfig, projectChecks } from '../lib/config.ts';
+import { loadConfig, projectChecks, syncLoopConfig } from '../lib/config.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const read = (rel: string): string => readFileSync(join(root, rel), 'utf8');
@@ -235,4 +235,12 @@ test('gate.yml：.node-version を読まず、node-version: 24 を使う', () =>
   assert.ok(!yml.includes('node-version-file'), 'node-version-file がある');
   assert.ok(!yml.includes('.node-version'), '.node-version がある');
   assert.match(yml, /node-version: 24\b/);
+});
+
+// Issue #306：sync ⇄ judge のループの上限（syncLoop）
+test('雛形の harness.config.json：syncLoop のキーと値の型が harness.config.json とそろい、syncLoopConfig の検査を通る', () => {
+  const tpl = loadConfig(TEMPLATE);
+  const cur = loadConfig();
+  assert.deepEqual(shape(tpl.syncLoop), shape(cur.syncLoop));
+  assert.deepEqual(syncLoopConfig(tpl), syncLoopConfig(cur));
 });

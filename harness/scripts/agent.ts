@@ -4,11 +4,14 @@ import { mkdtempSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { archReviewRange, archReviewRangeArgErrors, checkArchReviewRecord, checkIssueDrafts, renderArchReviewRecord } from '../lib/arch-review.ts';
-import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
+import { appMarkKind, claudeMark, extractBlock, hasClaudeMark, renderBlock, withClaudeMark } from '../lib/blocks.ts';
 import { apiCountFromEnv, CountingTransport, type ApiCounter } from '../lib/api-count.ts';
 import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
+import { fixRequestFindings } from '../lib/report.ts';
+import { carriedCritique, readStageFile, stageFilePath, writeStageFile, type CritiqueRound } from '../lib/stage-file.ts';
+import { applyStepClaims, decideStep, type StepLocal, type StepResult } from '../lib/step.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
-import { fleetConfig, LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
+import { fleetConfig, LABELS, loadConfig, reasonMark, reasonOf, REASON_CODES, riskLabel, syncLoopConfig, type ReasonCode } from '../lib/config.ts';
 import { checkAssignee, requireAssignee, type AssigneeIo } from '../lib/assignee.ts';
 import { ensureOwnClaim as ownClaimError, postClaim } from '../lib/claim.ts';
 import { computeQueue, critiqueClaimedBefore, issueFacts, prFacts } from '../lib/facts.ts';
@@ -65,6 +68,14 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           harness.config.json の requireAssignee が true なら、--manual は Assignee がちょうど1人で今の GitHub のユーザーのときだけ宣言する
  *                                                           （PR 番号なら PR が Close する Issue の Assignee。ensure-claim などの確かめも同じ。エージェントはアサインしない）
  *   node harness/scripts/agent.ts ensure-claim <番号>        このセッションの着手宣言（持ち主）があるかを確かめるだけ（PR を作る前に使う）
+ *   node harness/scripts/agent.ts step <番号> [--plan <file> | --critique <file>] [--proceed]
+ *                                                           今やってよいノードを1つだけ返す（JSON。harness/lib/step.ts、書式は docs/formats.md の「agent.ts step の出力」。#306）。
+ *                                                           段階は fleet-status と同じ事実と判断（fleet.ts の issueNode）で決め、セッションの ID・担当・着手宣言・ループの上限
+ *                                                           （sync は harness.config.json の syncLoop.limit、批評は 3 回）・同じ指摘の繰り返しを確かめる。node なら宣言を出し
+ *                                                           （同じ段階の自分の宣言があれば出さない）、stop ならこのセッションの宣言を解除する（批評の止まり方と claimed は解除しない）。
+ *                                                           結果を段階のファイル（git の共通ディレクトリの下の agent-harness/stage/<セッションの ID>.json）に書く。
+ *                                                           --plan は計画を書いた後（書式を検査して plan-critique へ）、--critique は plan-critic の出力を渡すとき、
+ *                                                           --proceed は人が agent:plan-review の計画を進めると決めたとき。終了コードは node・wait が 0、stop が 2
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント（このセッションの ID が得られなければ止まる）
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts scope-check <issue> [--base <ref>]
@@ -555,29 +566,11 @@ function prConflicts(issues: FleetIssue[]): PrConflict[] {
   return out;
 }
 
-/** fleet の事実を GitHub から読み（書き込みはしない）、段階・選び方の表を返す。判断は harness/lib/fleet.ts の純粋関数 */
-async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
-  const usage = 'fleet-status [--max <n>] [--json] [<Issue 番号>...]';
-  // --json は値を取らないので、splitArgs（値を取るオプションだけを扱う）の前に取り除く
-  const json = args.includes('--json');
-  const a = splitArgs(args.filter((x) => x !== '--json'), ['--max']);
-  if (!a.ok) fail([...a.errors, usage]);
-  const maxArg = a.value.options['--max'];
-  if ((maxArg !== undefined && !/^[1-9]\d*$/.test(maxArg)) || a.value.positional.some((p) => !/^\d+$/.test(p))) fail([usage]);
-  const max = maxArg === undefined ? null : Number(maxArg);
-  // 進め方が決まらないまま表を出さない（設定の誤りは GitHub を読む前に止める）
-  let mode: ReturnType<typeof fleetConfig>;
-  try {
-    mode = fleetConfig(config);
-  } catch (e) {
-    fail([`harness.config.json: ${(e as Error).message}`]);
-  }
-  const items: FleetIssueItem[] = a.value.positional.length > 0
-    ? await Promise.all(a.value.positional.map((n) => gh.get<FleetIssueItem>(`/issues/${n}`)))
-    : fleetTargets(await gh.paginate<FleetIssueItem>('/issues?state=open', 10), config);
-  const nonIssue = items.find((i) => i.pull_request);
-  if (nonIssue) fail([`#${nonIssue.number} は PR です。Issue 番号を渡してください`]);
-
+/**
+ * fleet の Issue ごとの事実（Closes する PR・Issue と PR の事実・main との差・human-review・計画の files）を GitHub から読む（書き込みはしない）。
+ * fleet-status と step（Issue #306）が同じ集め方を使う。openPrs は同じリポジトリの開いた PR（step が head のブランチと領域の上限に使う）
+ */
+async function collectFleetIssues(gh: GitHub, items: FleetIssueItem[]): Promise<{ issues: FleetIssue[]; openPrs: PullRequest[]; openPrLabels: string[][] }> {
   const repository = `${gh.owner}/${gh.repo}`;
   const openPrs = (await gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isSameRepoPr(p, repository));
   const openPrLabels = areaLimitLabels(config, openPrs, repository);
@@ -620,6 +613,34 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
     issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs, assignees: (item.assignees ?? []).map((u) => u.login) });
   }
 
+  return { issues, openPrs, openPrLabels };
+}
+
+/** fleet の事実を GitHub から読み（書き込みはしない）、段階・選び方の表を返す。判断は harness/lib/fleet.ts の純粋関数 */
+async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
+  const usage = 'fleet-status [--max <n>] [--json] [<Issue 番号>...]';
+  // --json は値を取らないので、splitArgs（値を取るオプションだけを扱う）の前に取り除く
+  const json = args.includes('--json');
+  const a = splitArgs(args.filter((x) => x !== '--json'), ['--max']);
+  if (!a.ok) fail([...a.errors, usage]);
+  const maxArg = a.value.options['--max'];
+  if ((maxArg !== undefined && !/^[1-9]\d*$/.test(maxArg)) || a.value.positional.some((p) => !/^\d+$/.test(p))) fail([usage]);
+  const max = maxArg === undefined ? null : Number(maxArg);
+  // 進め方が決まらないまま表を出さない（設定の誤りは GitHub を読む前に止める）
+  let mode: ReturnType<typeof fleetConfig>;
+  try {
+    mode = fleetConfig(config);
+  } catch (e) {
+    fail([`harness.config.json: ${(e as Error).message}`]);
+  }
+  const items: FleetIssueItem[] = a.value.positional.length > 0
+    ? await Promise.all(a.value.positional.map((n) => gh.get<FleetIssueItem>(`/issues/${n}`)))
+    : fleetTargets(await gh.paginate<FleetIssueItem>('/issues?state=open', 10), config);
+  const nonIssue = items.find((i) => i.pull_request);
+  if (nonIssue) fail([`#${nonIssue.number} は PR です。Issue 番号を渡してください`]);
+
+  const { issues } = await collectFleetIssues(gh, items);
+
   const facts = { issues, prConflicts: prConflicts(issues) };
   const rows = fleetStatus(facts);
   // Assignee を確かめる設定のときだけ、今の GitHub のユーザーを読む（Issue #172）
@@ -627,6 +648,122 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const session = currentSession();
   const sel = selectFleet(config, facts, rows, max, session, me);
   return json ? JSON.stringify(fleetStatusData(facts, rows, sel, max, session, mode), null, 2) : renderFleetStatus(rows, sel, max, mode);
+}
+
+/** step --critique の plan-critic の出力（verdict と必須の fixes の文）。読めなければ止める */
+function readCritique(file: string): CritiqueRound {
+  const v = readJson(file) as { verdict?: unknown; fixes?: unknown } | null;
+  const verdict = v?.verdict;
+  if (verdict !== 'go' && verdict !== 'revise' && verdict !== 'split' && verdict !== 'drop') fail([`${file}: verdict は go / revise / split / drop のどれか`]);
+  const fixes: unknown[] = Array.isArray(v?.fixes) ? v.fixes : [];
+  const must = fixes.flatMap((x) => {
+    const f = x as { severity?: unknown; text?: unknown } | null;
+    return f !== null && typeof f === 'object' && f.severity === 'must' && typeof f.text === 'string' ? [f.text] : [];
+  });
+  return { verdict, must };
+}
+
+/** 計画のファイルの書式の誤り（step --plan。agent.ts check と同じ検査。計画のファイルでなければ誤り） */
+function planFileErrors(file: string): string[] {
+  const c = checkFile(file);
+  return c.kind === 'plan' ? c.errors : ['計画（agent-plan）のファイルではありません', ...c.errors];
+}
+
+/**
+ * step <番号> [--plan <file> | --critique <file>] [--proceed]（Issue #306）。GitHub の事実を読み、harness/lib/step.ts で今やってよいノードを1つだけ決め、
+ * 宣言の投稿・解除をして、段階のファイル（harness/lib/stage-file.ts）に書き、結果の JSON を出す。stop なら終了コード 2
+ */
+async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
+  const usage = 'step <Issue 番号> [--plan <計画のファイル> | --critique <批評のファイル>] [--proceed]';
+  const proceed = args.includes('--proceed');
+  const a = splitArgs(args.filter((x) => x !== '--proceed'), ['--plan', '--critique']);
+  if (!a.ok) fail([...a.errors, usage]);
+  const [num, ...rest] = a.value.positional;
+  if (!num || !/^\d+$/.test(num) || rest.length > 0) fail([usage]);
+  const planFile = a.value.options['--plan'];
+  const critiqueFile = a.value.options['--critique'];
+  if (planFile !== undefined && critiqueFile !== undefined) fail(['--plan と --critique は同時に渡さない', usage]);
+  // 設定の誤りは GitHub を読む前に止める
+  let syncLimit: number;
+  try {
+    syncLimit = syncLoopConfig(config).limit;
+  } catch (e) {
+    fail([`harness.config.json: ${(e as Error).message}`]);
+  }
+  const local: StepLocal = planFile !== undefined
+    ? { kind: 'plan', errors: planFileErrors(planFile) }
+    : critiqueFile !== undefined ? { kind: 'critique', round: readCritique(critiqueFile) } : { kind: 'none' };
+
+  const n = Number(num);
+  const session = currentSession();
+  const item = await gh.get<FleetIssueItem>(`/issues/${n}`);
+  if (item.pull_request) fail([`#${n} は PR です。Issue 番号を渡してください`]);
+  const { issues, openPrs, openPrLabels } = await collectFleetIssues(gh, [item]);
+  const issue = issues[0]!;
+  const open = issue.prs.find((p) => !p.merged && p.facts !== null) ?? null;
+
+  let fixRequests: ReturnType<typeof fixRequestFindings>[] = [];
+  let mergeCommits = 0;
+  let prBranch: string | null = null;
+  let reasonComments = await gh.listComments(n);
+  if (open) {
+    const [reviews, commits, prComments, pr] = await Promise.all([
+      gh.paginate<{ body: string | null; user: { login: string; type: string } | null }>(`/pulls/${open.number}/reviews`),
+      gh.paginate<{ parents: unknown[] }>(`/pulls/${open.number}/commits`),
+      gh.listComments(open.number),
+      openPrs.find((p) => p.number === open.number) ?? gh.get<PullRequest>(`/pulls/${open.number}`),
+    ]);
+    fixRequests = reviews.filter((r) => isAppComment(config, r) && appMarkKind(r.body) === 'fix-request').map((r) => fixRequestFindings(r.body ?? ''));
+    mergeCommits = commits.filter((c) => Array.isArray(c.parents) && c.parents.length > 1).length;
+    prBranch = pr.head.ref;
+    reasonComments = prComments;
+  }
+  // agent:blocked の理由：App か Claude の目印のあるコメントの最新の reasonMark
+  const blockedReason = reasonComments.filter((c) => isAppComment(config, c) || hasClaudeMark(c.body)).map((c) => reasonOf(c.body)).filter((r): r is ReasonCode => r !== null).at(-1) ?? null;
+
+  const commonDir = spawnGit(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const path = commonDir ? stageFilePath(commonDir, session) : null;
+  const gateAt = issue.facts.gate?.at ?? null;
+  const full = issue.planFiles !== null ? fullAreas(config, issue.planFiles, openPrLabels) : [];
+  const decision = decideStep({
+    issue,
+    session,
+    assignee: await checkAssignee(assigneeIo(gh), config, n),
+    areaFull: full.length > 0 ? describeFullAreas(full) : null,
+    fixRequests,
+    mergeCommits,
+    blockedReason,
+    prBranch,
+    syncLimit,
+    critique: carriedCritique(path ? readStageFile(path) : null, n, gateAt),
+    local,
+    proceed,
+    now: new Date(),
+    humanClaimStaleHours: config.routine.humanClaimStaleHours,
+  });
+
+  // no-session の stop は宣言も解除もしない（decideStep が claim・release を空にする）
+  const result: StepResult = session
+    ? await applyStepClaims(gh, decision, { session, now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours, render: renderClaim })
+    : decision.result;
+
+  if (path && session) {
+    writeStageFile(path, {
+      version: 1,
+      session,
+      at: new Date().toISOString(),
+      issue: n,
+      pr: result.pr,
+      node: result.node,
+      kind: result.kind,
+      branch: result.kind === 'node' ? result.branch : prBranch,
+      branchPrefix: `claude/issue-${n}-`,
+      files: issue.planFiles,
+      critique: { issue: n, gateAt, rounds: decision.critique },
+    });
+  }
+  console.log(JSON.stringify(result, null, 2));
+  if (result.kind === 'stop') process.exit(2);
 }
 
 function readJson(file: string): unknown {
@@ -820,6 +957,7 @@ async function main(): Promise<void> {
     case 'compose-verdict': return void console.log(await composeVerdictFile(gh, args));
     case 'label-audit': return void console.log(await labelAudit(gh, args));
     case 'fleet-status': return void console.log(await fleetStatusText(gh, args));
+    case 'step': return stepCommand(gh, args);
     case 'arch-review-range': return void console.log(await archReviewRangeText(gh, args));
     case 'qa-retro-data': {
       const period = parseQaRetroArgs(args, new Date());

@@ -22,6 +22,7 @@
 | `issue-triage-materials.test.ts` | Jev にラベルを問う材料（`dependencies`・今の `type:*`・`risk:*`・`area:*`・`epic` のラベル・子の数）と、設定の `classification.priorityCriteria` で priority の基準を上書きすること、`label-apply.ts`・`on-issue.ts` が材料を渡すこと（#259） |
 | `scope-check.test.ts` | PR を出す前のローカルの範囲照合（`harness/lib/scope-check.ts`）：ローカルの変更の集め方、App の範囲照合と同じ関数での照合、使える計画が無いときの出力、implement の skill の手順（#290） |
 | `flow.test.ts`・`flow-queue-fleet.test.ts` | 段階のグラフのデータ（`harness/lib/flow.ts`）の検査（行き止まり・届かないノード・端と理由コード）と、queue と fleet の判断の食い違い（既知のものは `support/flow-divergences.ts`）・コードとデータのつながりの検査（#201） |
+| `step-node.test.ts`・`step-stop.test.ts`・`step-claim.test.ts`・`stage-file.test.ts`・`sync-loop-config.test.ts` | `agent.ts step`（`harness/lib/step.ts`）が状態ごとに返すノードと、stop の理由コード・宣言の投稿と解除、段階のファイル（`harness/lib/stage-file.ts`）の書き読み、`syncLoop.limit` の設定の検査（#306） |
 | `fleet-*.test.ts` | fleet の選び方（重なり・PR 同士の衝突・着手宣言の扱い）と、進め方（入れ子の orca／交互の flat）のテスト |
 | `usage-*.test.ts` | usage の集計（今のセッションの記録の選び方、入れ子のサブエージェントの記録も含めること）のテスト |
 | `test-tamper-jev.test.ts` | テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問う材料・問い方・答えのまとめ（`harness/lib/test-tamper-jev.ts`）のテスト |
