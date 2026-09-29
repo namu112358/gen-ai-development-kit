@@ -14,7 +14,9 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 5]
 
 - **段階の層（列）**：計画なし → plan → plan-critique → 計画ゲート待ち → 人の判断待ち → 実装待ち → implement → judge → fix → sync → Merge 待ち。脇に「依存待ち」「止まる印」。有効な着手宣言（`claim --stage`）があればその段階、無ければ `fleet-status` と同じ判断（`harness/lib/fleet.ts` の `fleetStatus`）で決める。
 - **状態（カードの左の色）**：着手中・停滞（手動の着手宣言が `humanClaimStaleHours` を超えた）・人待ち・止まっている（hold・blocked・waiting・依存）・衝突（main と衝突）・待機。
-- **タスクの層（辺）**：依存（Issue Dependencies）、Epic → 子 Issue、Issue → PR（`Closes #`）、Stacked PR（base が別の開いた PR の head）、タスク → セッション（着手宣言の `session`、または手元のセッションのブランチ）。凡例のチェックで辺の種類ごとに隠せる。
+- **カード**：Issue と、それに紐付く PR（`Closes #`・Stacked PR の層の `Refs #`）は1枚のカードにまとめ、PR はカードの中の行（番号・状態・着手宣言の段階）で出す。PR に着手宣言の段階があればカードはその段階の列に、状態は Issue と PR の強いほう。Issue の無い PR だけ単独のカード。
+- **タスクの層（辺）**：依存（Issue Dependencies）、Epic → 子 Issue、Stacked PR（base が別の開いた PR の head。PR が入ったカードどうしをつなぐ）、タスク → セッション（着手宣言の `session`、または手元のセッションのブランチ）。凡例のチェックで辺の種類ごとに隠せる。
+- **カードのセッション**：「N セッション」の折りたたみ。閉じていても、動いているセッションかサブエージェントがあれば点滅する。開くとセッションごとの行とサブエージェント。
 - **手元のセッション**：`~/.claude/projects/` のうち、このリポジトリと worktree（`<親>/<名前>.worktrees/`）のセッション記録。最後に動いた時刻と、サブエージェント（plan-critic・reviewer など）の種類と最後に動いた時刻。90 秒以内に動いていれば点滅する。会話の中身は読まない・送らない。
 
 ## 更新の仕組み

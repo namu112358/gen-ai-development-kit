@@ -9,14 +9,14 @@
   :root {
     --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #667085; --line: #d7dce3; --col: #eef1f5;
     --active: #2563eb; --stale: #d97706; --waiting: #7c3aed; --blocked: #dc2626; --conflict: #db2777; --idle: #98a2b3;
-    --e-depends: #dc2626; --e-epic: #7c3aed; --e-closes: #667085; --e-stacked: #d97706; --e-session: #2563eb;
+    --e-depends: #dc2626; --e-epic: #7c3aed; --e-stacked: #d97706; --e-session: #2563eb;
     --run: #16a34a;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #0f1218; --panel: #181c24; --ink: #e6e9ef; --muted: #98a2b3; --line: #2c3340; --col: #141820;
       --active: #60a5fa; --stale: #fbbf24; --waiting: #a78bfa; --blocked: #f87171; --conflict: #f472b6; --idle: #667085;
-      --e-depends: #f87171; --e-epic: #a78bfa; --e-closes: #98a2b3; --e-stacked: #fbbf24; --e-session: #60a5fa;
+      --e-depends: #f87171; --e-epic: #a78bfa; --e-stacked: #fbbf24; --e-session: #60a5fa;
       --run: #4ade80;
     }
   }
@@ -38,7 +38,15 @@
   .col h2 { font-size: 12px; margin: 0 0 8px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
   .col.claimstage h2::before { content: "●"; color: var(--active); margin-right: 4px; font-size: 9px; }
   .card { position: relative; z-index: 1; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--idle); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
-  .card.pr { margin-left: 12px; }
+  .prrow { display: flex; flex-wrap: wrap; gap: 0 6px; align-items: baseline; font-size: 11px; margin-top: 4px; padding-top: 4px; border-top: 1px dashed var(--line); }
+  .prrow a { color: var(--ink); font-weight: 600; text-decoration: none; }
+  .prrow a:hover { text-decoration: underline; }
+  details.sess { margin-top: 4px; font-size: 11px; }
+  details.sess > summary { cursor: pointer; color: var(--muted); display: flex; align-items: center; gap: 5px; list-style: none; }
+  details.sess > summary::-webkit-details-marker { display: none; }
+  details.sess > summary::before { content: "▸"; font-size: 9px; }
+  details.sess[open] > summary::before { content: "▾"; }
+  details.sess .sub { padding-left: 10px; }
   .card[data-status="active"] { border-left-color: var(--active); }
   .card[data-status="stale"] { border-left-color: var(--stale); }
   .card[data-status="waiting-human"] { border-left-color: var(--waiting); }
@@ -83,18 +91,63 @@ const STATUS_VAR = { active: '--active', stale: '--stale', 'waiting-human': '--w
 const EDGES = {
   depends: { label: '依存', dash: '6 4' },
   epic: { label: 'Epic → 子', dash: '' },
-  closes: { label: 'Issue → PR', dash: '' },
   stacked: { label: 'Stacked PR', dash: '2 3' },
   session: { label: 'セッション', dash: '1 4' },
 };
 const CLAIM_COLS = new Set(['plan', 'plan-critique', 'plan-gate', 'implement', 'judge', 'fix', 'sync']);
 const SIDE_COLS = new Set(['dependency', 'stopped']);
 
+const STATUS_RANK = ['blocked', 'conflict', 'stale', 'active', 'waiting-human', 'idle'];
+
+/**
+ * タスクと辺から、画面のカードを組む（DOM に触れない純粋な関数）。
+ * Issue を Closes する PR は Issue のカードに入れ、PR に着手宣言の段階があればその列に、状態は強いほうにする。
+ * closes の辺は落とし、PR の端はカードに付け替え、自分への辺と重複を落とす。
+ */
+function buildCards(tasks, edges) {
+  const byId = new Map(tasks.map((t) => [t.id, t]));
+  const owner = new Map();
+  for (const e of edges) {
+    const from = byId.get(e.from), to = byId.get(e.to);
+    if (e.kind === 'closes' && from && from.kind === 'issue' && to && to.kind === 'pr') owner.set(e.to, e.from);
+  }
+  const cards = [];
+  for (const t of tasks) {
+    if (t.kind === 'pr' && owner.has(t.id)) continue;
+    const prs = tasks.filter((p) => owner.get(p.id) === t.id).sort((a, b) => a.number - b.number);
+    const claimed = prs.find((p) => p.claim && CLAIM_COLS.has(p.claim.stage) && p.column === p.claim.stage);
+    const status = [t, ...prs].map((x) => x.status).sort((a, b) => STATUS_RANK.indexOf(a) - STATUS_RANK.indexOf(b))[0];
+    const sessionIds = [];
+    for (const x of [t, ...prs]) for (const s of x.sessions) if (!sessionIds.includes(s)) sessionIds.push(s);
+    cards.push({
+      id: t.id, kind: t.kind, number: t.number, title: t.title, url: t.url,
+      column: claimed ? claimed.column : t.column, status, note: t.note, claim: t.claim,
+      prs: prs.map((p) => ({ id: p.id, number: p.number, url: p.url, status: p.status, column: p.column, claim: p.claim, note: p.note })),
+      sessions: sessionIds,
+    });
+  }
+  const cardOf = (id) => owner.get(id) || id;
+  const seen = new Set();
+  const out = [];
+  for (const e of edges) {
+    if (e.kind === 'closes') continue;
+    const from = cardOf(e.from), to = cardOf(e.to);
+    const key = e.kind + ' ' + from + ' ' + to;
+    if (from === to || seen.has(key)) continue;
+    seen.add(key);
+    out.push({ kind: e.kind, from, to });
+  }
+  return { cards, edges: out };
+}
+
 let columns = [];
 const tasks = new Map();
 const edgesByFrom = new Map();
 let sessions = [];
 const hidden = new Set();
+/** 開いたセッションの折りたたみ（カードの id）。描き直しても開いたままにする */
+const openSessions = new Set();
+let view = { cards: [], edges: [] };
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -156,8 +209,40 @@ function buildLegends() {
   }
 }
 
+function claimText(claim) {
+  return (claim.by === 'routine' ? 'Routine' : '手動') + (claim.stage ? '・' + claim.stage : '') + '・';
+}
+
+function sessionRows(c, ids) {
+  const list = ids.map((sid) => sessions.find((x) => x.session === sid)).filter(Boolean);
+  if (!list.length) return;
+  const d = document.createElement('details');
+  d.className = 'sess';
+  d.open = openSessions.has(c.dataset.id);
+  d.addEventListener('toggle', () => { d.open ? openSessions.add(c.dataset.id) : openSessions.delete(c.dataset.id); drawEdges(); });
+  const running = list.some((s) => s.running || s.subagents.some((a) => a.running));
+  const sum = document.createElement('summary');
+  sum.append(el('span', 'dot' + (running ? ' run' : '')), el('span', null, list.length + ' セッション'));
+  d.append(sum);
+  for (const s of list) {
+    const row = el('div', 'sub');
+    row.append(el('span', 'dot' + (s.running ? ' run' : '')), el('span', null, s.short + (s.local ? '' : '（ほかの場所）')));
+    if (s.lastAt) row.append(agoSpan(s.lastAt));
+    d.append(row);
+    const active = s.subagents.filter((a) => a.running);
+    for (const a of (active.length ? active : s.subagents.slice(0, 1))) {
+      const r = el('div', 'sub');
+      r.style.paddingLeft = '20px';
+      r.append(el('span', 'dot' + (a.running ? ' run' : '')), el('span', null, a.type), agoSpan(a.lastAt));
+      r.title = a.description;
+      d.append(r);
+    }
+  }
+  c.append(d);
+}
+
 function taskCard(t) {
-  const c = el('div', 'card' + (t.kind === 'pr' ? ' pr' : ''));
+  const c = el('div', 'card');
   c.dataset.id = t.id;
   c.dataset.status = t.status;
   const head = el('div');
@@ -170,25 +255,22 @@ function taskCard(t) {
   c.title = t.title + (t.note ? '\n' + t.note : '');
   if (t.claim) {
     const m = el('div', 'meta');
-    m.append(el('span', null, (t.claim.by === 'routine' ? 'Routine' : '手動') + (t.claim.stage ? '・' + t.claim.stage : '') + '・'), agoSpan(t.claim.at));
+    m.append(el('span', null, claimText(t.claim)), agoSpan(t.claim.at));
     c.append(m);
   }
   if (t.note) c.append(el('div', 'meta', t.note));
-  for (const sid of t.sessions) {
-    const s = sessions.find((x) => x.session === sid);
-    if (!s) continue;
-    const running = s.subagents.filter((a) => a.running);
-    const row = el('div', 'sub');
-    row.append(el('span', 'dot' + (s.running ? ' run' : '')), el('span', null, s.short + (s.local ? '' : '（ほかの場所）')));
-    if (s.lastAt) row.append(agoSpan(s.lastAt));
+  for (const p of t.prs) {
+    const row = el('div', 'prrow');
+    const link = el('a', null, 'PR #' + p.number);
+    link.href = p.url; link.target = '_blank'; link.rel = 'noopener noreferrer';
+    const ps = el('span', null, STATUS[p.status]);
+    ps.style.color = 'var(' + STATUS_VAR[p.status] + ')';
+    row.append(link, ps);
+    if (p.claim) row.append(el('span', 'meta', claimText(p.claim)), agoSpan(p.claim.at));
+    if (p.note) row.title = p.note;
     c.append(row);
-    for (const a of (running.length ? running : s.subagents.slice(0, 1))) {
-      const r = el('div', 'sub');
-      r.append(el('span', 'dot' + (a.running ? ' run' : '')), el('span', null, a.type), agoSpan(a.lastAt));
-      r.title = a.description;
-      c.append(r);
-    }
   }
+  sessionRows(c, t.sessions);
   return c;
 }
 
@@ -211,30 +293,16 @@ function sessionCard(s) {
 function render() {
   const board = document.getElementById('board');
   board.replaceChildren();
+  view = buildCards([...tasks.values()], [...edgesByFrom.values()].flat());
   const byCol = new Map(columns.map((c) => [c.id, []]));
-  const list = [...tasks.values()];
-  for (const t of list) if (t.kind === 'issue') (byCol.get(t.column) || []).push(t);
-  // PR は Closes する Issue の下に、Issue の無い PR は列の末尾に
-  const prOf = new Map();
-  for (const [from, es] of edgesByFrom) for (const e of es) if (e.kind === 'closes') prOf.set(e.to, from);
-  for (const t of list) if (t.kind === 'pr' && !prOf.has(t.id)) (byCol.get(t.column) || []).push(t);
+  for (const card of view.cards) (byCol.get(card.column) || []).push(card);
   for (const col of columns) {
     const box = el('section', 'col' + (SIDE_COLS.has(col.id) ? ' side' : '') + (CLAIM_COLS.has(col.id) ? ' claimstage' : ''));
     const items = (byCol.get(col.id) || []).sort((a, b) => a.number - b.number);
     const h = el('h2');
     h.append(el('span', null, col.label), el('span', null, items.length || ''));
     box.append(h);
-    for (const t of items) {
-      box.append(taskCard(t));
-      if (t.kind === 'issue') for (const pr of list.filter((p) => prOf.get(p.id) === t.id)) {
-        if (pr.column === t.column) box.append(taskCard(pr));
-      }
-    }
-    // Issue と違う列にいる PR（PR に着手宣言があるとき）
-    for (const pr of list.filter((p) => p.kind === 'pr' && prOf.has(p.id) && p.column === col.id)) {
-      const parent = tasks.get(prOf.get(pr.id));
-      if (!parent || parent.column !== col.id) box.append(taskCard(pr));
-    }
+    for (const card of items) box.append(taskCard(card));
     if (box.children.length === 1) box.append(el('div', 'empty', '—'));
     board.append(box);
   }
@@ -261,7 +329,7 @@ function drawEdges() {
     const r = n.getBoundingClientRect();
     return { x: r.left - base.left + wrap.scrollLeft, y: r.top - base.top + wrap.scrollTop, w: r.width, h: r.height };
   };
-  for (const es of edgesByFrom.values()) for (const e of es) {
+  for (const e of view.edges) {
     if (hidden.has(e.kind)) continue;
     const a = box(e.from), b = box(e.to);
     if (!a || !b) continue;
@@ -325,11 +393,14 @@ function connect() {
   es.addEventListener('sessions', (m) => { sessions = JSON.parse(m.data).sessions; schedule(); });
 }
 
-buildLegends();
-connect();
-setInterval(() => { for (const s of document.querySelectorAll('.ago')) s.textContent = ago(s.dataset.at); }, 1000);
-window.addEventListener('resize', drawEdges);
-document.getElementById('wrap').addEventListener('scroll', drawEdges);
+// テスト（node:vm で buildCards だけを読む）では DOM が無いので起動しない
+if (typeof document !== 'undefined') {
+  buildLegends();
+  connect();
+  setInterval(() => { for (const s of document.querySelectorAll('.ago')) s.textContent = ago(s.dataset.at); }, 1000);
+  window.addEventListener('resize', drawEdges);
+  document.getElementById('wrap').addEventListener('scroll', drawEdges);
+}
 </script>
 </body>
 </html>
