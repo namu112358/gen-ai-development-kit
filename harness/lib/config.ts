@@ -53,6 +53,11 @@ export interface HarnessConfig {
   staleHours: number;
   dashboardIssueTitle: string;
   reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
+  /**
+   * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、
+   * flat なら1つのセッションで段階を交互に進める。maxParallelShips は --max が無いときに同時に動かす ship の数。無ければ既定値（fleetConfig）
+   */
+  fleet?: { nesting?: 'orca' | 'flat'; maxParallelShips?: number };
   jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;
@@ -70,6 +75,17 @@ export const DELEGATE_MERGE_DEFAULTS = { label: 'agent:delegate-merge', hours: 2
 /** 委任 Merge の設定（無い項目は既定値） */
 export function delegateMergeConfig(config: Pick<HarnessConfig, 'delegateMerge'>): { label: string; hours: number; minRemainingMinutes: number } {
   return { ...DELEGATE_MERGE_DEFAULTS, ...config.delegateMerge };
+}
+
+/** fleet の進め方の既定値 */
+export const FLEET_DEFAULTS = { nesting: 'orca', maxParallelShips: 3 } as const;
+
+/** fleet の進め方（無い項目は既定値）。書式の誤りは throw する（方式が決まらないまま進めない） */
+export function fleetConfig(config: Pick<HarnessConfig, 'fleet'>): { nesting: 'orca' | 'flat'; maxParallelShips: number } {
+  const { nesting = FLEET_DEFAULTS.nesting, maxParallelShips = FLEET_DEFAULTS.maxParallelShips } = (config.fleet ?? {}) as { nesting?: unknown; maxParallelShips?: unknown };
+  if (nesting !== 'orca' && nesting !== 'flat') throw new Error('fleet.nesting は orca か flat で書いてください');
+  if (typeof maxParallelShips !== 'number' || !Number.isInteger(maxParallelShips) || maxParallelShips <= 0) throw new Error('fleet.maxParallelShips は正の整数で書いてください');
+  return { nesting, maxParallelShips };
 }
 
 /** App が操作したことを示す GitHub 上のログイン名 */
