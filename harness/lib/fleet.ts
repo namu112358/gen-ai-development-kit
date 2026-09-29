@@ -46,7 +46,7 @@ const TARGET_LABELS: string[] = [LABELS.ready, LABELS.planOk, LABELS.planReview]
 /**
  * fleet-status が番号なしのときの対象。PR とダッシュボードの Issue を除き、
  * agent:ready・agent:plan-ok・agent:plan-review のどれかが付いた Issue（作成者は問わない。ラベルを付けたのが書き込み権限のある人）と、
- * agent: のラベルが1つも無く、作成者がコラボレーター（TRUSTED_ASSOCIATIONS）の Issue（作ったまま計画に進んでいないもの）を、元の順に返す。
+ * agent: のラベルが1つも無く、作成者がコラボレーター（TRUSTED_ASSOCIATIONS）か App（Epic の子課題など）の Issue（作ったまま計画に進んでいないもの）を、元の順に返す。
  * コラボレーター以外が立てたラベルの無い Issue は対象にしない（人が進めると決めた印が無いため）
  */
 export function fleetTargets<T extends FleetTargetItem>(items: T[], config: HarnessConfig): T[] {
@@ -55,7 +55,8 @@ export function fleetTargets<T extends FleetTargetItem>(items: T[], config: Harn
     if (i.title === config.dashboardIssueTitle && i.user?.login === appLogin(config)) return false;
     const names = i.labels.map((l) => l.name);
     if (names.some((n) => TARGET_LABELS.includes(n))) return true;
-    return !names.some((n) => n.startsWith('agent:')) && TRUSTED_ASSOCIATIONS.has(i.author_association ?? '');
+    // App が作った Issue（Epic の子課題など）は GitHub 上 CONTRIBUTOR になるが、信頼できる印を付ける側なので含める
+    return !names.some((n) => n.startsWith('agent:')) && (TRUSTED_ASSOCIATIONS.has(i.author_association ?? '') || i.user?.login === appLogin(config));
   });
 }
 

@@ -69,7 +69,7 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲（agent:* か epic の開いた Issue と Agent PR）
  *   node harness/scripts/agent.ts fleet-status [--max <n>] [<Issue 番号>...]
  *                                                           fleet で並行して進める Issue・PR ごとの段階・次にやること・選ぶか（待つ理由）・触るファイルの重なり・
- *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue と、agent:* の無い、コラボレーターが立てた開いた Issue（harness/lib/fleet.ts の fleetTargets）。
+ *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue と、agent:* の無い、コラボレーターか App が立てた開いた Issue（harness/lib/fleet.ts の fleetTargets）。
  *                                                           開いた PR 同士は head を fetch して git merge-tree で試し、衝突する組だけ後の側が待つ。
  *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）

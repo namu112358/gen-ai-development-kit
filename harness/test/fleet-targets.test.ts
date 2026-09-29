@@ -50,6 +50,14 @@ test('fleetTargets：agent:* の無い Issue は、作成者が OWNER・MEMBER�
   assert.deepEqual(targets([item(1, [], { author_association: undefined })]), [], '作成者の関係が分からなければ対象にしない');
 });
 
+test('fleetTargets：agent:* の無い Issue でも、作成者が App（Epic の子課題など。CONTRIBUTOR になる）なら対象。ダッシュボードと止まる印は今どおり除く', () => {
+  const app = { login: appLogin(config) };
+  assert.deepEqual(targets([item(1, ['type:feat', 'area:harness'], { author_association: 'CONTRIBUTOR', user: app })]), [1], 'App が作ったラベルの無い子課題');
+  assert.deepEqual(targets([item(2, [], { author_association: 'CONTRIBUTOR', user: { login: 'someone' } })]), [], 'App でない CONTRIBUTOR は対象外');
+  assert.deepEqual(targets([item(3, [], { title: config.dashboardIssueTitle, author_association: 'CONTRIBUTOR', user: app })]), [], 'ダッシュボードは対象外');
+  assert.deepEqual(targets([item(4, ['agent:hold'], { author_association: 'CONTRIBUTOR', user: app })]), [], '止まる印だけなら対象外');
+});
+
 test('fleetTargets：agent:hold・agent:blocked・agent:waiting だけが付いた Issue は対象外', () => {
   for (const l of ['agent:hold', 'agent:blocked', 'agent:waiting']) {
     assert.deepEqual(targets([item(1, [l])]), [], l);
