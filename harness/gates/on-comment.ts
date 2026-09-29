@@ -10,7 +10,7 @@ import { callJev } from '../lib/jev.ts';
 import { eligibility, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { critiqueClaimedBefore } from '../lib/facts.ts';
-import { evaluateCritiqueGate, evaluatePlanGate, parsePlan, planReviewOrigin, priorPlanReviewReleased, withCritiqueGate, type GateResult, type Plan } from '../lib/plan.ts';
+import { evaluateCritiqueGate, evaluatePlanGate, parsePlan, planReviewOrigin, PRIOR_PLAN_REVIEW_REASON_PREFIX, priorPlanReviewReleased, recordedOrigin, withCritiqueGate, type GateResult, type Plan } from '../lib/plan.ts';
 import { checkScope } from '../lib/scope.ts';
 import { classifyBase, type BaseKind } from '../lib/stack.ts';
 import {
@@ -105,7 +105,7 @@ async function onPlan(
   const released = labelled && (decision ? true : await releasesPriorPlanReview(ctx, issue.number));
   if (labelled && !released && gate.pass) {
     gate.pass = false;
-    gate.reasons.push('`agent:plan-review` が付いています（Planner の申告か人が付けた印です。人が外すまで止めます）');
+    gate.reasons.push(`${PRIOR_PLAN_REVIEW_REASON_PREFIX}（Planner の申告か人が付けた印です。人が外すまで止めます）`);
   }
   // 別の計画で既に分けていれば分け直さない（同じ計画コメントの再実行は続きから作る）
   const epic: EpicState | null = gate.pass && plan.split ? await inspectEpic(ctx, issue.number, comment.id) : null;
@@ -174,7 +174,7 @@ function stoppedPlanArea(ctx: GateContext, plan: Plan, labels: string[]): string
 /** 最新の計画ゲートの記録がゲートの停止で、最後に agent:plan-review を付けたのが App か（印が付いているときだけ呼ぶ） */
 async function releasesPriorPlanReview(ctx: GateContext, issueNumber: number): Promise<boolean> {
   const previous = latestPlanGate(ctx.config, await ctx.gh.listComments(issueNumber))?.value;
-  if (previous?.pass !== false || previous.planReviewOrigin !== 'gate') return false;
+  if (previous?.pass !== false || recordedOrigin(previous) !== 'gate') return false;
   const events = await ctx.gh.paginate<TimelineEvent>(`/issues/${issueNumber}/events`);
   const byApp = lastLabeled(events, LABELS.planReview)?.actor?.login === appLogin(ctx.config);
   return priorPlanReviewReleased(true, previous, byApp);

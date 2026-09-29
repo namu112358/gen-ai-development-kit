@@ -73,7 +73,7 @@ export interface HarnessConfig {
     /** 計画の files が重なれば待つ判定で、行を足すだけなら待たせない共有ファイルのパターン（harness/lib/scope.ts の書式）。無ければ何も除外しない（harness/lib/fleet.ts） */
     sharedFiles?: string[];
   };
-  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** ラベルごとの下限（ラベル → 0〜1）。当たらないラベルは labelProbability。labelProbability が未設定なら使わない（Q94） */ labelProbabilityByLabel?: Record<string, number>; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number } };
+  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; /** テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問うか（無ければ shadow。jev.mode とは独立。Q95） */ testTamper?: 'off' | 'shadow' | 'enforce'; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** ラベルごとの下限（ラベル → 0〜1）。当たらないラベルは labelProbability。labelProbability が未設定なら使わない（Q94） */ labelProbabilityByLabel?: Record<string, number>; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number; /** testTamper が enforce のとき、agent/tests を通す確率の下限（無ければ通さない） */ testTamperProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;
 }

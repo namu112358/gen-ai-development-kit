@@ -74,12 +74,14 @@
     "model": "jev-1.13.0",
     "maxDiffChars": 80000,
     "decisionRelease": "shadow",
+    "testTamper": "shadow",
     "thresholds": {
       "lowProbability": 0.9,
       "noulSafe": 0.9,
       "labelProbability": 0.8,
       "labelProbabilityByLabel": { "priority:medium": 0.5 },
-      "decisionProbability": 0.9
+      "decisionProbability": 0.9,
+      "testTamperProbability": 0.9
     }
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
