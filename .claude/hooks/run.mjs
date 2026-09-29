@@ -1,12 +1,13 @@
 /**
  * hook の入口。.claude/settings.json の PreToolUse と SessionStart は、hook のファイルのパスを引数にしてこれを起動する（Issue #257）。
  *
- * ハーネスの hook（guard.ts・session-env.ts）は Node 24 の型注釈の剥がしで動く。Node 24 未満では、.ts が読めずに失敗するか、
+ * ハーネスの hook（guard.ts・workspace-guard.ts・session-env.ts）は Node 24 の型注釈の剥がしで動く。Node 24 未満では、.ts が読めずに失敗するか、
  * 本体が動かないまま終わり、どちらも Claude Code には「通す」に見える（guard が何も止めない）。そこで、型注釈の無いこの入口が
  * Node の版を確かめ、24 以上なら hook を import して main() を呼ぶ。24 未満のとき、または import・main() が例外で失敗したときは、
- * hook ごとの「動けないときの出力」を出す：guard は Bash・MCP のツールを理由付きで止め（deny）、session-env はセッションを止めずに知らせる。
+ * hook ごとの「動けないときの出力」を出す：guard は Bash・MCP のツールを、workspace-guard（Issue #286）は Edit・Write・NotebookEdit・Bash を理由付きで止め（deny）、
+ * session-env はセッションを止めずに知らせる。
  *
- * - 読み込むのはこのファイルと同じディレクトリの、許可の一覧（guard.ts・session-env.ts）のファイルだけ。引数のディレクトリは使わない。
+ * - 読み込むのはこのファイルと同じディレクトリの、許可の一覧（guard.ts・workspace-guard.ts・session-env.ts）のファイルだけ。引数のディレクトリは使わない。
  *   一覧に無い引数は設定の誤りとして stderr に書いて exit 2（PreToolUse では止まる）。
  * - stdin は読まない（hook の main() が読み切る）。main() が返った後は何も出さない（session-env の main() は process.exit(0) で終わる）。
  * - 判定の規則（保護ラベル・push の判定など）は持たない。hook の中身はそれぞれのファイルにある。
@@ -25,28 +26,32 @@ export function nodeMajorOk(version) {
 export function hookFor(arg) {
   const base = String(arg).split(/[\\/]/).pop();
   if (base === 'guard.ts') return 'guard';
+  if (base === 'workspace-guard.ts') return 'workspace-guard';
   if (base === 'session-env.ts') return 'session-env';
   return null;
 }
 
-/** 動けないときの出力（JSON の文字列）。guard は PreToolUse の deny、session-env は人とセッションへの知らせ */
+/** 動けないときの出力（JSON の文字列）。guard・workspace-guard は PreToolUse の deny、session-env は人とセッションへの知らせ */
 export function failOutput(hook, reason) {
-  if (hook === 'guard') {
+  if (hook === 'guard' || hook === 'workspace-guard') {
     return JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } });
   }
   return JSON.stringify({ systemMessage: reason, hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: reason } });
 }
 
 function versionReason(hook, version) {
+  if (hook === 'workspace-guard') {
+    return `Node ${version} ではハーネスの書き換えの見張りの hook（.claude/hooks/workspace-guard.ts）が動かないため、Edit・Write・NotebookEdit・Bash のツールを止めています（Node 24 以上が要ります）。Node 24 で Claude Code を起動し直してください。`;
+  }
   if (hook === 'guard') {
     return `Node ${version} ではハーネスの見張りの hook（.claude/hooks/guard.ts）が動かないため、Bash と MCP のツールを止めています（Node 24 以上が要ります）。Node 24 で Claude Code を起動し直してください。`;
   }
-  return `Node ${version} ではハーネスの SessionStart の hook（.claude/hooks/session-env.ts）が動かず、AGENT_HARNESS_SESSION は書かれていません（Node 24 以上が要ります）。見張りの hook も Bash と MCP のツールを止めます。Node 24 で Claude Code を起動し直してください。`;
+  return `Node ${version} ではハーネスの SessionStart の hook（.claude/hooks/session-env.ts）が動かず、AGENT_HARNESS_SESSION は書かれていません（Node 24 以上が要ります）。見張りの hook も Bash・MCP・Edit・Write・NotebookEdit のツールを止めます。Node 24 で Claude Code を起動し直してください。`;
 }
 
 function errorReason(hook, error) {
   const message = error instanceof Error ? error.message : String(error);
-  const what = hook === 'guard' ? '見張りの hook（.claude/hooks/guard.ts）が動けなかったため、Bash と MCP のツールを止めています' : 'SessionStart の hook（.claude/hooks/session-env.ts）が動けず、AGENT_HARNESS_SESSION は書かれていません';
+  const what = hook === 'guard' ? '見張りの hook（.claude/hooks/guard.ts）が動けなかったため、Bash と MCP のツールを止めています' : hook === 'workspace-guard' ? '書き換えの見張りの hook（.claude/hooks/workspace-guard.ts）が動けなかったため、Edit・Write・NotebookEdit・Bash のツールを止めています' : 'SessionStart の hook（.claude/hooks/session-env.ts）が動けず、AGENT_HARNESS_SESSION は書かれていません';
   return `ハーネスの${what}：${message}`;
 }
 
