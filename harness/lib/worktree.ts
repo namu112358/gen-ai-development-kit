@@ -113,9 +113,28 @@ export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions)
 /** `npm ci` の結果（`spawnSync` の結果のうち使うところ） */
 export type NpmCiResult = { status: number | null; error?: Error };
 
+/** npmCommand が起動できる npm の引数（固定の組だけ。外から来る文字列は受け取らない） */
+const NPM_ARGS = { ci: ['ci'], check: ['run', 'check'] } as const;
+
+/**
+ * npm の起動の仕方（worktree の作成の `npm ci` と、合体版のレビューの⑧の `npm ci`・`npm run check` が使う）。
+ * Windows の npm は `npm.cmd` で、Node は shell を通さないと `.cmd` を起動できないので shell を通す。
+ * shell: true に引数の配列を渡すと Node 24 が DEP0190 の警告を出すので、Windows ではコマンドを1つの文字列にする
+ */
+export function npmCommand(platform: NodeJS.Platform, script: 'ci' | 'check'): { command: string; args: string[]; shell: boolean } {
+  const args = [...NPM_ARGS[script]];
+  return platform === 'win32' ? { command: ['npm', ...args].join(' '), args: [], shell: true } : { command: 'npm', args, shell: false };
+}
+
+/** `npm ci` の起動の仕方（npmCommand の ci） */
+export function npmCiCommand(platform: NodeJS.Platform): { command: string; args: string[]; shell: boolean } {
+  return npmCommand(platform, 'ci');
+}
+
 /** 既定の `npm ci`。npm の出力は標準エラーへ流し、標準出力（worktree のパス）を汚さない */
 function defaultNpmCi(cwd: string): NpmCiResult {
-  return spawnSync('npm', ['ci'], { cwd, stdio: ['ignore', 2, 2] });
+  const { command, args, shell } = npmCiCommand(process.platform);
+  return spawnSync(command, args, { cwd, stdio: ['ignore', 2, 2], shell });
 }
 
 /**

@@ -1,20 +1,25 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 import { addWorktree, removeWorktree, worktreePath } from '../lib/worktree.ts';
 import { sandbox } from './support/git-sandbox.ts';
 
+const ROOT = '/home/u/repo';
+const expected = (name: string) => resolve(ROOT, '..', 'repo.worktrees', name);
+
 test('worktree はリポジトリの外に、ブランチ名を安全な名前にして置く', () => {
-  assert.equal(worktreePath('/home/u/repo', 'claude/issue-5-x'), '/home/u/repo.worktrees/claude-issue-5-x');
-  assert.equal(worktreePath('/home/u/repo', 'a'.repeat(40)), `/home/u/repo.worktrees/${'a'.repeat(40)}`);
-  assert.ok(!worktreePath('/home/u/repo', '../../etc').includes('..'.concat('/etc')));
+  assert.equal(worktreePath(ROOT, 'claude/issue-5-x'), expected('claude-issue-5-x'));
+  assert.equal(worktreePath(ROOT, 'a'.repeat(40)), expected('a'.repeat(40)));
+  const escaped = worktreePath(ROOT, '../../etc');
+  for (const s of [sep, '/', '\\']) assert.ok(!escaped.includes(`..${s}etc`), escaped);
+  assert.ok(escaped.startsWith(`${resolve(ROOT, '..', 'repo.worktrees')}${sep}`), escaped);
 });
 
 test('`..` などで置き場所の外に出ない', () => {
-  assert.equal(worktreePath('/home/u/repo', '..'), '/home/u/repo.worktrees/_.');
-  assert.equal(worktreePath('/home/u/repo', '.hidden'), '/home/u/repo.worktrees/_hidden');
+  assert.equal(worktreePath(ROOT, '..'), expected('_.'));
+  assert.equal(worktreePath(ROOT, '.hidden'), expected('_hidden'));
 });
 
 test('ブランチの worktree を作り、同じブランチなら同じパスを返す。リモートに無ければ既定ブランチから作る', (t) => {

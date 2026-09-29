@@ -2,13 +2,19 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { isRepoProjectDir, issueFromBranch, projectDirName, readSessions } from '../scripts/dashboard/sessions.ts';
 
-const REPO = '/mnt/c/x/repo';
-const REPO_DIR = '-mnt-c-x-repo';
-const WT_DIR = '-mnt-c-x-repo-worktrees-claude-issue-5-a';
+// パスは resolve で組み立てる（Windows では '/mnt/c/x/repo' が 'C:\mnt\c\x\repo' になる）
+const toDir = (path: string) => path.replace(/[^A-Za-z0-9]/g, '-');
+const REPO = resolve('/mnt/c/x/repo');
+const WT = (name: string) => resolve(REPO, '..', 'repo.worktrees', name);
+const WT_PATH = WT('claude-issue-5-a');
+const REPO_DIR = toDir(REPO);
+const WT_DIR = toDir(WT_PATH);
+const OTHER_REPO_DIR = `${REPO_DIR}2`;
+const SIBLING_DIR = toDir(resolve(REPO, '..', '..', 'y', 'repo'));
 const NOW = new Date('2026-09-29T00:00:00Z');
 const at = (msBefore: number) => new Date(NOW.getTime() - msBefore).toISOString();
 const SECRET = 'SECRET-CONVERSATION-TEXT';
@@ -35,16 +41,16 @@ const put = (path: string, text: string) => {
 test('projectDirName：パスの英数字以外を - にする', () => {
   assert.equal(projectDirName('/mnt/c/a.b/c-d'), '-mnt-c-a-b-c-d');
   assert.equal(projectDirName(REPO), REPO_DIR);
-  assert.equal(projectDirName('/mnt/c/x/repo.worktrees/claude-issue-5-a'), WT_DIR);
+  assert.equal(projectDirName(WT_PATH), WT_DIR);
 });
 
 test('isRepoProjectDir：リポジトリそのものと worktree の置き場所の下だけ。よく似た別のリポジトリは見ない', () => {
   assert.equal(isRepoProjectDir(REPO_DIR, REPO), true);
   assert.equal(isRepoProjectDir(WT_DIR, REPO), true);
-  assert.equal(isRepoProjectDir('-mnt-c-x-repo2', REPO), false);
-  assert.equal(isRepoProjectDir('-mnt-c-x-repo-other', REPO), false);
-  assert.equal(isRepoProjectDir('-mnt-c-x-repo2-worktrees-claude-issue-5-a', REPO), false);
-  assert.equal(isRepoProjectDir('-mnt-c-y-repo', REPO), false);
+  assert.equal(isRepoProjectDir(OTHER_REPO_DIR, REPO), false);
+  assert.equal(isRepoProjectDir(`${REPO_DIR}-other`, REPO), false);
+  assert.equal(isRepoProjectDir(`${OTHER_REPO_DIR}-worktrees-claude-issue-5-a`, REPO), false);
+  assert.equal(isRepoProjectDir(SIBLING_DIR, REPO), false);
 });
 
 test('issueFromBranch：branch の claude/issue-<n>- と cwd の claude-issue-<n>- から番号を読む', () => {
@@ -62,7 +68,7 @@ test('readSessions：最後の timestamp・branch・cwd・issue・running と、
     put(join(wt, 'sess-a.jsonl'), [
       entry(at(600_000), { gitBranch: 'main', cwd: REPO }),
       '{ this is not json',
-      entry(at(30_000), { gitBranch: 'claude/issue-5-a', cwd: '/mnt/c/x/repo.worktrees/claude-issue-5-a' }),
+      entry(at(30_000), { gitBranch: 'claude/issue-5-a', cwd: WT_PATH }),
       '',
     ].join('\n'));
     put(join(wt, 'sess-a', 'subagents', 'agent-x1.meta.json'), JSON.stringify({ agentType: 'reviewer', description: 'PR を読む' }));
@@ -70,14 +76,14 @@ test('readSessions：最後の timestamp・branch・cwd・issue・running と、
     put(join(wt, 'sess-a', 'subagents', 'agent-x2.meta.json'), JSON.stringify({ agentType: 'risk-agent', description: '危険度' }));
     put(join(wt, 'sess-a', 'subagents', 'agent-x2.jsonl'), entry(at(3_600_000)));
     // 別のリポジトリの記録は見ない
-    put(join(projectsDir, '-mnt-c-x-repo2', 'sess-other.jsonl'), entry(at(1000)));
+    put(join(projectsDir, OTHER_REPO_DIR, 'sess-other.jsonl'), entry(at(1000)));
 
     const got = readSessions({ projectsDir, repoRoot: REPO, now: NOW });
     assert.deepEqual(got.map((s) => s.id), ['sess-a']);
     const s = got[0]!;
     assert.equal(s.lastAt, at(30_000));
     assert.equal(s.branch, 'claude/issue-5-a');
-    assert.equal(s.cwd, '/mnt/c/x/repo.worktrees/claude-issue-5-a');
+    assert.equal(s.cwd, WT_PATH);
     assert.equal(s.issue, 5);
     assert.equal(s.running, true, '既定の 90 秒以内');
     const subs = [...s.subagents].sort((a, b) => a.type.localeCompare(b.type));
@@ -91,7 +97,7 @@ test('readSessions：最後の timestamp・branch・cwd・issue・running と、
 
 test('readSessions：cwd だけで issue を読む。activeWindowMs を超えたら running でない', () => {
   withProjects((projectsDir) => {
-    put(join(projectsDir, WT_DIR, 'sess-b.jsonl'), entry(at(120_000), { cwd: '/mnt/c/x/repo.worktrees/claude-issue-9-z' }));
+    put(join(projectsDir, WT_DIR, 'sess-b.jsonl'), entry(at(120_000), { cwd: WT('claude-issue-9-z') }));
     const [s] = readSessions({ projectsDir, repoRoot: REPO, now: NOW });
     assert.ok(s);
     assert.equal(s.branch, null);
