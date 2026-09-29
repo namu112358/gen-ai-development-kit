@@ -157,7 +157,7 @@ export function renderLabelTriage(summary: TriageSummary, results: JevLabelResul
     renderTriage(summary, 'Jev による分類です（`classification.issueTriage` が `label`。足りない優先度・領域だけを、確率が下限以上のときに付けます）。'),
     '',
     ...(applied.length > 0 ? ['付けたラベル:', ...applied.map((r) => `- \`${r.label}\`（${name[r.question]}、${pct(r.probability)}）`)] : ['付けたラベルはありません。']),
-    ...(notApplied.length > 0 ? ['', '付けなかったもの（人が付けてください）:', ...notApplied.map((r) => `- ${name[r.question]}: ${r.label ? `\`${r.label}\`` : r.choice} — ${r.reason}`)] : []),
+    ...(notApplied.length > 0 ? ['', '付けなかったもの（付き添いのセッションか人が付けてください）:', ...notApplied.map((r) => `- ${name[r.question]}: ${r.label ? `\`${r.label}\`` : r.choice} — ${r.reason}`)] : []),
   ].join('\n');
 }
 

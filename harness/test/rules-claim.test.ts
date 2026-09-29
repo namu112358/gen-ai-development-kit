@@ -109,13 +109,13 @@ test('規則（進め方）：段階を始める前に着手宣言を確かめ�
 
 // ---- 追加の要件（Issue #209）：priority:*・area:* は Jev に任せ、ラベルの不足を人に聞かない ----
 
-test('規則（進め方）：priority:*・area:* は Jev に任せ、ラベルの不足を人に聞かず・伝えず・推測で付けない', () => {
+test('規則（進め方）：priority:*・area:* は Jev に任せ、ラベルの不足を人に聞かず・伝えず・label-triage の記録が無いうちは付けない', () => {
   const line = nonEmptyLines(rules()).find((l) => l.includes('Jev') && l.includes('priority:*'));
   assert.ok(line, '`Jev` と `priority:*` を同じ箇条に書いた行が規則に無い');
   assert.match(line, /area:\*/, '`area:*` も Jev に任せることが書かれていない');
   assert.match(line, /聞か(ない|ず)/, 'ラベルの不足を人に聞かないことが書かれていない');
   assert.match(line, /伝え(ない|ず)/, 'ラベルの不足を人に伝えないことが書かれていない');
-  assert.match(line, /推測で付け(ない|ず)/, '推測で付けないことが書かれていない');
+  assert.match(line, /記録が無い(うち|とき|間|Issue)[^。]*付け(ない|ず)/, 'label-triage の記録が無いうちは付けないことが書かれていない');
   assert.doesNotMatch(rules(), /人に伝える/, '規則に古い「人に伝える」が残っている');
 });
 
