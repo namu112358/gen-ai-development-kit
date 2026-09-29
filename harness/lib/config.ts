@@ -45,6 +45,11 @@ export interface HarnessConfig {
   /** 古いキー。label だけを mergeLabel として読む（hours・minRemainingMinutes は読まない）。delegate.mergeLabel があればそちらが優先 */
   delegateMerge?: { label?: string; hours?: number; minRemainingMinutes?: number };
   /**
+   * bypass モード（ブロッキング指摘が無ければ、Human Merge の理由を飛ばして自動 Merge する）。ダッシュボードに人が label を付けている間だけ有効（期限なし）。
+   * 無ければ既定値（bypassMergeConfig）
+   */
+  bypassMerge?: { label: string };
+  /**
    * 委任承認の間でも人が承認・Merge するパス（自動 Merge の仕組みそのもの。harness.config.json は一覧に無くても当たる）。範囲パターンの書式。
    * 触れる PR は委任で自動経路に乗せず、重なりうる files の計画は委任で計画ゲートを通さない
    */
@@ -62,7 +67,12 @@ export interface HarnessConfig {
    * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、
    * flat なら1つのセッションで段階を交互に進める。maxParallelShips は --max が無いときに同時に動かす ship の数。無ければ既定値（fleetConfig）
    */
-  fleet?: { nesting?: 'orca' | 'flat'; maxParallelShips?: number };
+  fleet?: {
+    nesting?: 'orca' | 'flat';
+    maxParallelShips?: number;
+    /** 計画の files が重なれば待つ判定で、行を足すだけなら待たせない共有ファイルのパターン（harness/lib/scope.ts の書式）。無ければ何も除外しない（harness/lib/fleet.ts） */
+    sharedFiles?: string[];
+  };
   jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;
@@ -83,6 +93,14 @@ export function delegateConfig(config: Pick<HarnessConfig, 'delegate' | 'delegat
     planLabel: config.delegate?.planLabel ?? DELEGATE_DEFAULTS.planLabel,
     mergeLabel: config.delegate?.mergeLabel ?? config.delegateMerge?.label ?? DELEGATE_DEFAULTS.mergeLabel,
   };
+}
+
+/** bypass モードの既定値 */
+export const BYPASS_MERGE_DEFAULTS = { label: 'agent:bypass-merge' } as const;
+
+/** bypass モードの設定（無い項目は既定値） */
+export function bypassMergeConfig(config: Pick<HarnessConfig, 'bypassMerge'>): { label: string } {
+  return { ...BYPASS_MERGE_DEFAULTS, ...config.bypassMerge };
 }
 
 /** fleet の進め方の既定値 */
@@ -227,6 +245,7 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: 'agent:auto-merge-stopped', color: '000000', description: 'ダッシュボード専用: 自動 Merge モードの停止スイッチ' },
   { name: DELEGATE_DEFAULTS.planLabel, color: '8a63d2', description: 'ダッシュボード専用・人だけが付ける: 計画ゲートの承認を App に委ねる（委任承認・計画）' },
   { name: DELEGATE_DEFAULTS.mergeLabel, color: '5319e7', description: 'ダッシュボード専用・人だけが付ける: 計画ゲートの承認と Merge を App に委ねる（委任承認・計画＋Merge）' },
+  { name: BYPASS_MERGE_DEFAULTS.label, color: 'b60205', description: 'ダッシュボード専用・人だけが付ける: ブロッキング指摘が無ければ Human Merge の理由を飛ばして自動 Merge する（bypass モード）' },
   { name: riskLabel('low'), color: 'c2e0c6', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
   { name: riskLabel('medium'), color: 'fef2c0', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
   { name: riskLabel('high'), color: 'f9d0c4', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },

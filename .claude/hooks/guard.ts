@@ -48,7 +48,7 @@ export interface GuardContext {
 export type Decision = { deny: false } | { deny: true; reason: string };
 
 /** 設定が読めないときに使う保護ラベル */
-const FALLBACK_LABELS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-plan', 'agent:delegate-merge'];
+const FALLBACK_LABELS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-plan', 'agent:delegate-merge', 'agent:bypass-merge'];
 const MAX_DEPTH = 8;
 const ALLOW: Decision = { deny: false };
 
@@ -1101,14 +1101,15 @@ function gitBranch(dir: string): string | null {
   return r.status === 0 && typeof r.stdout === 'string' ? r.stdout.trim() : null;
 }
 
-if (import.meta.main) {
+/** hook の本体。直接起動したとき（import.meta.main）と、入口（run.mjs）から呼ばれたときに動く */
+export async function main(): Promise<void> {
   let raw = '';
   let out = '';
   try {
     for await (const chunk of process.stdin) raw += String(chunk);
     let ctx: GuardContext | null = null;
     try {
-      const { loadConfig, LABELS, delegateConfig } = await import('../../harness/lib/config.ts');
+      const { loadConfig, LABELS, delegateConfig, bypassMergeConfig } = await import('../../harness/lib/config.ts');
       const config = loadConfig();
       if (typeof config.defaultBranch !== 'string' || config.defaultBranch === '' || typeof config.autoMergeStopLabel !== 'string') throw new Error('config');
       let cwd = process.cwd();
@@ -1120,7 +1121,7 @@ if (import.meta.main) {
       }
       ctx = {
         defaultBranch: config.defaultBranch,
-        protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateConfig(config).planLabel, delegateConfig(config).mergeLabel],
+        protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateConfig(config).planLabel, delegateConfig(config).mergeLabel, bypassMergeConfig(config).label],
         currentBranch: gitBranch(cwd),
         branchAt: gitBranch,
       };
@@ -1133,3 +1134,5 @@ if (import.meta.main) {
   }
   if (out) process.stdout.write(`${out}\n`);
 }
+
+if (import.meta.main) await main();

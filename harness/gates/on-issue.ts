@@ -1,4 +1,4 @@
-import { appLogin, delegateConfig, LABELS, PRIORITY_LABELS, priorityRank, reasonMark } from '../lib/config.ts';
+import { appLogin, bypassMergeConfig, delegateConfig, LABELS, PRIORITY_LABELS, priorityRank, reasonMark } from '../lib/config.ts';
 import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
 import { parseTitle } from '../lib/title.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage } from '../lib/issue-triage.ts';
@@ -6,6 +6,8 @@ import { askJev, flattenAnswers } from '../lib/jev.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute, writeDelegationEnd } from './apply.ts';
+import { bypassArm, bypassFor, bypassRoute } from './bypass.ts';
+import { endBypassMerge, onBypassSwitch } from './bypass-merge.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
 import { onDelegateSwitch } from './delegate-merge.ts';
 import { delegatedArm, delegatedRoute, delegationFor } from './delegation.ts';
@@ -24,7 +26,7 @@ const PRIORITY_VALUES: string[] = Object.values(PRIORITY_LABELS);
  * - agent:plan-ok を App 以外が付けたら外す
  * - agent:hold が外されたら記録
  * - Close されたら依存解消（agent:waiting を外す）と親 Issue の Close
- * - ダッシュボードの停止スイッチ・委任承認のラベル（agent:delegate-plan・agent:delegate-merge）の付け外し（delegate-merge.ts）
+ * - ダッシュボードの停止スイッチ・委任承認のラベル（agent:delegate-plan・agent:delegate-merge）の付け外し（delegate-merge.ts）・bypass のラベルの付け外し（bypass-merge.ts）
  */
 export async function onIssue(ctx: GateContext): Promise<void> {
   const action = ctx.event.action as string;
@@ -76,6 +78,10 @@ export async function onIssue(ctx: GateContext): Promise<void> {
     await onDelegateSwitch(ctx, issue.number, action === 'labeled', sender, new Date(), label);
     return;
   }
+  if ((action === 'labeled' || action === 'unlabeled') && label === bypassMergeConfig(ctx.config).label) {
+    await onBypassSwitch(ctx, issue.number, action === 'labeled', sender);
+    return;
+  }
   if (action === 'closed') {
     await clearStateLabels(ctx, issue);
     await resolveDependents(ctx, issue.number);
@@ -92,8 +98,9 @@ async function clearStateLabels(ctx: GateContext, issue: { number: number; label
 }
 
 /**
- * 停止スイッチ（ダッシュボードの停止ラベル）の切り替え。止めたら auto-merge を外し（委任で付けたものには delegated-merge-end を残す）、
- * 再開したら条件を満たす PR（自動 Merge の対象と、委任が有効なら委任で乗るもの）に付け直す
+ * 停止スイッチ（ダッシュボードの停止ラベル）の切り替え。止めたら auto-merge を外し（委任で付けたものには delegated-merge-end を残し、
+ * bypass で付けたものには bypass-merge-end と human-review を出す）、再開したら条件を満たす PR（自動 Merge の対象と、
+ * 委任が有効なら委任で乗るもの、bypass が有効なら bypass で乗るもの）に付け直す
  */
 async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: boolean, sender: string | undefined): Promise<void> {
   const dashboard = await findDashboard(ctx.gh, ctx.config);
@@ -101,6 +108,7 @@ async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: bool
   await appComment(ctx, number, 'auto-merge-switch', `自動 Merge モードを${stopped ? '停止' : '再開'}しました（@${sender}）。`);
   const now = new Date();
   const delegation = stopped ? null : await delegationFor(ctx, now, dashboard);
+  const bypass = stopped ? null : await bypassFor(ctx, dashboard);
   const open = await ctx.gh.paginate<PullRequest>('/pulls?state=open');
   for (const item of open) {
     const pr = await getPr(ctx, item.number);
@@ -110,13 +118,18 @@ async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: bool
       await refreshMergeRoute(ctx, pr);
       // 委任で付けた auto-merge を外したことを残す（human-review は出さない。再開すれば付け直す）
       if (hadAuto && delegatedArm(ctx.config, await ctx.gh.listComments(pr.number))) await writeDelegationEnd(ctx, pr, 'stopped');
+      // bypass で付けた auto-merge は、記録と人へのレビュー依頼を出す（Requirements。委任の stopped とはここが違う）
+      if (hadAuto && bypassArm(ctx.config, await ctx.gh.listComments(pr.number))) await endBypassMerge(ctx, pr, 'stopped');
       continue;
     }
     if (!isAgentPr(ctx.config, pr, ctx.repository)) continue;
     const diff = await prDiff(ctx.gh, pr);
     const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patchId(diff));
     const delegated = delegation !== null && delegatedRoute(delegation, acceptance).ok;
-    if (acceptance && (acceptance.autoEligible || delegated)) await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff, ...(delegation ? { delegation } : {}) });
+    const bypassed = bypass !== null && bypassRoute(bypass, acceptance).ok;
+    if (acceptance && (acceptance.autoEligible || delegated || bypassed)) {
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff, ...(delegation ? { delegation } : {}), ...(bypass ? { bypass } : {}) });
+    }
   }
 }
 

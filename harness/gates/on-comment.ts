@@ -33,6 +33,7 @@ import { inspectEpic, splitEpic, type EpicState } from './epic-split.ts';
 import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
 import { delegationFor } from './delegation.ts';
+import { bypassEligibility } from './bypass.ts';
 import { onDecision } from './plan-decision.ts';
 import { planAreaLabels, riskLabelChanges } from './label-apply.ts';
 
@@ -313,18 +314,21 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     elig.autoEligible = false;
     elig.reasons.unshift('スタックでないのに base が既定ブランチ以外（`orphan-base`。Draft に留めています）');
   }
+  const exclude = delegateExcludeFiles(ctx.config, files);
   const delegate = delegateEligibility({
     reviewPass: verdict.review.pass,
     scopeOk: delegateScope.ok,
     outside: delegateScope.outside,
     humanMerge,
-    exclude: delegateExcludeFiles(ctx.config, files),
+    exclude,
     jevGate,
     agent,
     base,
     guardrail,
     risk,
   });
+  // bypass モード：委任と同じ計画と照らし、Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev を飛ばす理由として記録する（harness/gates/bypass.ts）
+  const bypass = bypassEligibility({ reviewPass: verdict.review.pass, scopeOk: delegateScope.ok, outside: delegateScope.outside, humanMerge, exclude, jevGate, agent, base, guardrail, risk });
   return {
     version: 1,
     verdictCommentId,
@@ -343,6 +347,7 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     humanNotes: verdict.review.humanNotes,
     riskRationale: verdict.risk.rationale,
     delegate,
+    bypass,
   };
 }
 
@@ -366,6 +371,15 @@ function renderDelegate(a: Acceptance): string {
   return d.eligible ? `可（飛ばす理由: ${cell(d.skipped)}）` : `不可: ${cell(d.reasons)}`;
 }
 
+/** 受け付けの表の「bypass」の欄：自動 Merge の対象なら要らない。bypass なら乗せられるか（飛ばす理由）、乗せられない理由 */
+function renderBypass(a: Acceptance): string {
+  if (a.autoEligible) return '不要（自動 Merge の対象）';
+  const b = a.bypass;
+  if (!b) return '-';
+  const cell = (items: string[]) => items.join('／').replaceAll('|', '\\|');
+  return b.eligible ? `可（飛ばす理由: ${cell(b.skipped)}）` : `不可: ${cell(b.reasons)}`;
+}
+
 function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string {
   const route = !a.reviewPass ? '修正へ（Draft のまま）' : a.autoEligible ? '自動 Merge（auto-merge を設定）' : 'Human Merge（人のレビュー待ち）';
   return [
@@ -381,6 +395,7 @@ function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string
     `| 人が Merge するパス | ${a.humanMerge?.length ? `触れる（Human Merge）: ${a.humanMerge.join(', ')}` : '触れない'} |`,
     `| Jev | ${a.jev?.status ?? '-'}${a.jev?.allows === undefined ? '' : a.jev.allows ? '（可）' : '（不可）'} |`,
     `| 委任承認（計画＋Merge） | ${renderDelegate(a)} |`,
+    `| bypass | ${renderBypass(a)} |`,
     ...(a.reasons.length > 0 ? ['', '自動 Merge しない理由:', ...a.reasons.map((r) => `- ${r}`)] : []),
   ].join('\n');
 }

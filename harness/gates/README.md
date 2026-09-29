@@ -6,6 +6,8 @@
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
 | `apply.ts` | 受け付けた判定を PR に反映する。 | ○ |
+| `bypass-merge.ts` | bypass モードの始まりと終わりの動作（ダッシュボードのラベルの付け外しと停止スイッチ）。 | ○ |
+| `bypass.ts` | bypass モードの今の状態と、PR を bypass で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |
 | `context.ts` | ゲートの実行コンテキスト。 | ○ |
 | `delegate-merge.ts` | 委任承認の始まりと終わりの動作（ダッシュボードの agent:delegate-plan・agent:delegate-merge の付け外し）。 | ○ |
 | `delegation.ts` | 委任承認の今の状態と、PR を委任（計画＋Merge）で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |

@@ -101,6 +101,18 @@
       "Bash(* gh label *agent:delegate-plan*)",
       "Bash(gh api *agent:delegate-plan*)",
       "Bash(* gh api *agent:delegate-plan*)",
+      "Bash(gh issue edit *agent:bypass-merge*)",
+      "Bash(* gh issue edit *agent:bypass-merge*)",
+      "Bash(gh issue create *agent:bypass-merge*)",
+      "Bash(* gh issue create *agent:bypass-merge*)",
+      "Bash(gh pr edit *agent:bypass-merge*)",
+      "Bash(* gh pr edit *agent:bypass-merge*)",
+      "Bash(gh pr create *agent:bypass-merge*)",
+      "Bash(* gh pr create *agent:bypass-merge*)",
+      "Bash(gh label *agent:bypass-merge*)",
+      "Bash(* gh label *agent:bypass-merge*)",
+      "Bash(gh api *agent:bypass-merge*)",
+      "Bash(* gh api *agent:bypass-merge*)",
       "Bash(gh issue edit *:exempt*)",
       "Bash(* gh issue edit *:exempt*)",
       "Bash(gh issue create *:exempt*)",
@@ -152,7 +164,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.ts\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.mjs\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.ts\""
           }
         ]
       }
@@ -162,7 +174,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-env.ts\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/run.mjs\" \"$CLAUDE_PROJECT_DIR/.claude/hooks/session-env.ts\""
           }
         ]
       }

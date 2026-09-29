@@ -36,6 +36,19 @@ import {
   type DelegatedMergeEndRecord,
   type DelegatedMergeRecord,
 } from './delegation.ts';
+import {
+  BYPASS_MERGE_END_KIND,
+  BYPASS_MERGE_END_TEXT,
+  BYPASS_MERGE_KIND,
+  bypassArm,
+  bypassFor,
+  bypassRoute,
+  latestBypassRecord,
+  type BypassMergeEndReason,
+  type BypassMergeEndRecord,
+  type BypassMergeRecord,
+  type BypassState,
+} from './bypass.ts';
 import { writePlanLink } from './plan-link.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
 
@@ -54,45 +67,78 @@ import { testsHumanMerge, testsOutcome } from './tests-check.ts';
  * 委任承認（計画＋Merge。delegation.ts）：自動 Merge の対象外でも委任で乗る（delegatedRoute）なら、delegated-merge を記録して auto-merge を付ける。
  * 乗らないのに前に委任で付けた記録が残っていれば、auto-merge を外し、delegated-merge-end と human-review を出す（fresh でなくても）。
  * delegation を渡したときは委任の状態を読み直さない（ラベルを付けたときに PR ごとに timeline を読まない）。
+ * bypass モード（bypass.ts）：自動 Merge の対象でも委任でも乗らないが bypass で乗る（bypassRoute）なら、bypass-merge を記録して auto-merge を付ける。
+ * 乗らないのに前に bypass で付けた記録が残っていれば、auto-merge を外し、bypass-merge-end と human-review を出す。
+ * 委任と bypass のあいだで乗り方が変わったとき（片方が終わった）は、前の乗り方の終わりの記録を書いて auto-merge は付けたままにする（human-review は出さない）。
+ * bypass を渡したときは bypass の状態を読み直さない。
  */
-export async function applyAcceptance(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, opts: { fresh: boolean; diff: string; delegation?: DelegateState }): Promise<void> {
+export async function applyAcceptance(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, opts: { fresh: boolean; diff: string; delegation?: DelegateState; bypass?: BypassState }): Promise<void> {
   const now = new Date();
   // 委任の状態は、要るとき（自動 Merge の対象外・テストの検出・merge-route）だけ1回読む
   let delegationP: Promise<DelegateState> | undefined;
   const getDelegation = () => (delegationP ??= opts.delegation ? Promise.resolve(opts.delegation) : delegationFor(ctx, now));
   const mayDelegate = acceptance.reviewPass && !acceptance.autoEligible && acceptance.delegate !== undefined;
-  const tests = await rewriteTestsCheck(ctx, pr, acceptance, opts.diff, mayDelegate && acceptance.delegate?.eligible ? await getDelegation() : undefined);
+  // bypass の状態も、要るとき（自動 Merge の対象外で bypass の可否の記録がある）だけ1回読む
+  let bypassP: Promise<BypassState> | undefined;
+  const getBypass = () => (bypassP ??= opts.bypass ? Promise.resolve(opts.bypass) : bypassFor(ctx));
+  const mayBypass = acceptance.reviewPass && !acceptance.autoEligible && acceptance.bypass !== undefined;
+  const tests = await rewriteTestsCheck(
+    ctx, pr, acceptance, opts.diff,
+    mayDelegate && acceptance.delegate?.eligible ? await getDelegation() : undefined,
+    mayBypass && acceptance.bypass?.eligible ? await getBypass() : undefined,
+  );
   const hold = hasLabel(pr, LABELS.hold);
   const mode = await autoMergeMode(ctx.gh, ctx.config);
   const base = classifyBase(pr, ctx.config.defaultBranch);
   const delegation = mayDelegate ? await getDelegation() : null;
   const route = delegation ? delegatedRoute(delegation, acceptance) : null;
   const delegated = route?.ok === true;
+  // bypass は、自動 Merge の対象でも委任でも乗らないときだけ見る
+  const bypass = !delegated && mayBypass ? await getBypass() : null;
+  const bRoute = bypass ? bypassRoute(bypass, acceptance) : null;
+  const bypassed = bRoute?.ok === true;
   // スタックに入る前に受け付けた古い記録（autoEligible が真）が残っていても、既定ブランチ宛てでなければ自動の経路に乗せない
-  const wantAuto = acceptance.reviewPass && (acceptance.autoEligible || delegated) && mode && !hold && base === 'default';
+  const wantAuto = acceptance.reviewPass && (acceptance.autoEligible || delegated || bypassed) && mode && !hold && base === 'default';
   let armed = false;
   if (acceptance.reviewPass) {
     await dismissFixRequests(ctx, pr.number);
     if (base === 'orphan-base') ctx.log(`#${pr.number} は orphan-base のため Ready にしません`);
     else await markReady(ctx, pr);
     if (wantAuto) {
-      if (!acceptance.autoEligible && delegation) await recordDelegatedMerge(ctx, pr, acceptance, delegation);
+      if (delegated && delegation) {
+        // bypass から委任に乗り換えた（bypass が終わった）なら、bypass の終わりを残す
+        if (bypassArm(ctx.config, await ctx.gh.listComments(pr.number))) await writeBypassEnd(ctx, pr, 'ineligible', '委任承認（計画＋Merge）で自動経路を続けます。');
+        await recordDelegatedMerge(ctx, pr, acceptance, delegation);
+      } else if (bypassed && bypass) {
+        // 委任から bypass に乗り換えた（委任が終わった）なら、委任の終わりを残す
+        if (delegatedArm(ctx.config, await ctx.gh.listComments(pr.number))) {
+          await writeDelegationEnd(ctx, pr, 'ineligible', 'bypass モードで自動経路を続けます。');
+        }
+        await recordBypassMerge(ctx, pr, acceptance, bypass);
+      }
       armed = await enableAutoMerge(ctx, pr);
     } else {
-      // 前に委任で付けた auto-merge が残っていれば（update-branch の push で判定を引き継いだが委任の条件を満たさなくなった など）、黙って Human Merge に戻さない
-      const arm = delegatedArm(ctx.config, await ctx.gh.listComments(pr.number));
-      if (opts.fresh || arm) {
+      // 前に委任・bypass で付けた auto-merge が残っていれば（update-branch の push で判定を引き継いだが条件を満たさなくなった など）、黙って Human Merge に戻さない
+      const comments = await ctx.gh.listComments(pr.number);
+      const arm = delegatedArm(ctx.config, comments);
+      const bArm = bypassArm(ctx.config, comments);
+      if (opts.fresh || arm || bArm) {
         const why = [
           ...acceptance.reasons,
           ...(hold ? ['`agent:hold` が付いています'] : []),
           ...(!mode ? ['自動 Merge モードが無効です'] : []),
           ...(delegation?.active && route && !route.ok ? [route.reason] : []),
+          ...(bypass?.active && bRoute && !bRoute.ok ? [bRoute.reason] : []),
         ];
+        if (arm || bArm) await disableAutoMerge(ctx, await getPr(ctx, pr.number));
         if (arm) {
           const reason: DelegatedMergeEndReason = 'ineligible';
-          await disableAutoMerge(ctx, await getPr(ctx, pr.number));
           await writeDelegationEnd(ctx, pr, reason);
           why.unshift(`委任承認（計画＋Merge）が終わりました（${DELEGATED_MERGE_END_TEXT[reason]}）`);
+        }
+        if (bArm) {
+          await writeBypassEnd(ctx, pr, 'ineligible');
+          why.unshift(`bypass モードが終わりました（${BYPASS_MERGE_END_TEXT.ineligible}）`);
         }
         await appComment(ctx, pr.number, 'human-review', renderHumanReview(ctx.gh.owner, acceptance, why, tests ?? undefined));
       }
@@ -105,7 +151,7 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
     ctx.log(`head が ${before.head.sha.slice(0, 7)} に進んだため反映を中止します（synchronize のゲートが処理する）`);
     return;
   }
-  await writeMergeRoute(ctx, before, acceptance, mode, pr.head.sha, getDelegation);
+  await writeMergeRoute(ctx, before, acceptance, mode, pr.head.sha, getDelegation, getBypass);
   await writeCheck(ctx, pr.head.sha, CHECKS.risk, {
     conclusion: 'success',
     title: `Risk: ${acceptance.riskLevel}${acceptance.riskOk ? '' : '（自動 Merge 不可）'}`,
@@ -125,7 +171,7 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
   const after = await getPr(ctx, pr.number);
   if (after.head.sha === pr.head.sha && Boolean(after.auto_merge) !== Boolean(before.auto_merge)) {
     ctx.log('書き込み中に auto-merge の状態が変わったため merge-route を書き直します');
-    await writeMergeRoute(ctx, after, acceptance, mode, pr.head.sha, getDelegation);
+    await writeMergeRoute(ctx, after, acceptance, mode, pr.head.sha, getDelegation, getBypass);
   }
   if (wantAuto && !armed) await mergeDirectly(ctx, after, pr.head.sha);
   // auto-merge を付けた時点で main より遅れていると、追従のきっかけ（main への push）が来るまで止まるため、その場で追従させる
@@ -152,26 +198,60 @@ async function recordDelegatedMerge(ctx: GateContext, pr: PullRequest, acceptanc
   } satisfies DelegatedMergeRecord);
 }
 
-/** 委任で付けた auto-merge を外した記録（kind=delegated-merge-end）。auto-merge を外すのは呼ぶ側 */
-export async function writeDelegationEnd(ctx: GateContext, pr: PullRequest, reason: DelegatedMergeEndReason): Promise<void> {
-  await appComment(ctx, pr.number, DELEGATED_MERGE_END_KIND, `委任承認（計画＋Merge）が終わりました（${DELEGATED_MERGE_END_TEXT[reason]}）。委任で付けた auto-merge を外し、Human Merge に戻しました。`, {
+/**
+ * 委任で付けた auto-merge を外した記録（kind=delegated-merge-end）。auto-merge を外すのは呼ぶ側。
+ * next は、auto-merge を外さずにほかの乗り方（bypass）で続けるときの説明（無ければ Human Merge に戻したと書く）
+ */
+export async function writeDelegationEnd(ctx: GateContext, pr: PullRequest, reason: DelegatedMergeEndReason, next?: string): Promise<void> {
+  await appComment(ctx, pr.number, DELEGATED_MERGE_END_KIND, `委任承認（計画＋Merge）が終わりました（${DELEGATED_MERGE_END_TEXT[reason]}）。${next ?? '委任で付けた auto-merge を外し、Human Merge に戻しました。'}`, {
     version: 1,
     headSha: pr.head.sha,
     reason,
   } satisfies DelegatedMergeEndRecord);
 }
 
+/** bypass で auto-merge を付ける記録。同じ patchId・付けた時刻の記録が最新なら書かない（判定の引き継ぎやラベルの付け直しで二重に書かない） */
+async function recordBypassMerge(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, bypass: BypassState): Promise<void> {
+  const last = latestBypassRecord(ctx.config, await ctx.gh.listComments(pr.number));
+  if (last?.kind === 'bypass-merge' && last.value.patchId === acceptance.patchId && last.value.since === bypass.since) return;
+  const skipped = acceptance.bypass?.skipped ?? [];
+  await appComment(ctx, pr.number, BYPASS_MERGE_KIND, [
+    `bypass モードで自動経路に乗せました（@${bypass.by}）。次の理由を飛ばしています。`,
+    '',
+    ...(skipped.length > 0 ? skipped.map((r) => `- ${r}`) : ['- （なし）']),
+  ].join('\n'), {
+    version: 1,
+    headSha: pr.head.sha,
+    patchId: acceptance.patchId,
+    since: bypass.since,
+    by: bypass.by,
+    skipped,
+  } satisfies BypassMergeRecord);
+}
+
+/**
+ * bypass で付けた auto-merge を外した記録（kind=bypass-merge-end）。auto-merge を外すのは呼ぶ側。
+ * next は、auto-merge を外さずにほかの乗り方（委任）で続けるときの説明（無ければ Human Merge に戻したと書く）
+ */
+export async function writeBypassEnd(ctx: GateContext, pr: PullRequest, reason: BypassMergeEndReason, next?: string): Promise<void> {
+  await appComment(ctx, pr.number, BYPASS_MERGE_END_KIND, `bypass モードが終わりました（${BYPASS_MERGE_END_TEXT[reason]}）。${next ?? 'bypass で付けた auto-merge を外し、Human Merge に戻しました。'}`, {
+    version: 1,
+    headSha: pr.head.sha,
+    reason,
+  } satisfies BypassMergeEndRecord);
+}
+
 /**
  * 受け付けた判定で agent/tests を書き直す。検出が0件なら何もしない（API を呼ばない）。
  * test:exempt が効いていれば書かない（on-pr.ts の結果のまま）。書いたときは検出と、緩めたか（Human Merge か）を返す。
- * delegation は委任の状態（委任で自動経路に乗るなら止める。tests-check.ts の testsHumanMerge）。
+ * delegation・bypass は委任・bypass の状態（どちらかで自動経路に乗るなら止める。tests-check.ts の testsHumanMerge）。
  */
-export async function rewriteTestsCheck(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, diff: string, delegation?: DelegateState): Promise<{ findings: TamperFinding[]; relaxed: boolean } | null> {
+export async function rewriteTestsCheck(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, diff: string, delegation?: DelegateState, bypass?: BypassState): Promise<{ findings: TamperFinding[]; relaxed: boolean } | null> {
   const findings = detectTestTampering(diff, ctx.config.testPatterns ?? DEFAULT_TEST_PATTERNS);
   if (findings.length === 0) return null;
   const exempt = exemptState(exemptRecords(ctx.config, await ctx.gh.listComments(pr.number), TEST_EXEMPT_LABEL), hasLabel(pr, TEST_EXEMPT_LABEL), patchId(diff));
   if (exempt === 'valid') return null;
-  const reasons = await testsHumanMerge(ctx, pr, acceptance, delegation);
+  const reasons = await testsHumanMerge(ctx, pr, acceptance, delegation, bypass);
   await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons));
   return { findings, relaxed: reasons.length > 0 };
 }
@@ -193,11 +273,15 @@ async function mergeDirectly(ctx: GateContext, pr: PullRequest, headSha: string)
 /**
  * merge-route を書く。委任承認（計画＋Merge）の状態（delegateMode）は書くたびに今の状態から求める（ラベル無し・人以外が付けた・停止スイッチなら偽）。
  * 委任が効きうるとき（auto-merge が付いていて、受け付けが自動 Merge の対象外で委任の可否の記録がある）だけ状態を読む。
+ * bypass モードの状態（bypassMode）も同じく、bypass が効きうるとき（bypass の可否の記録がある）だけ今の状態から求める。
  */
-async function writeMergeRoute(ctx: GateContext, pr: PullRequest, acceptance: Acceptance | null, mode: boolean, headSha: string, getDelegation: () => Promise<DelegateState>): Promise<void> {
+async function writeMergeRoute(ctx: GateContext, pr: PullRequest, acceptance: Acceptance | null, mode: boolean, headSha: string, getDelegation: () => Promise<DelegateState>, getBypass: () => Promise<BypassState>): Promise<void> {
   const autoMergeEnabled = pr.auto_merge !== null && pr.auto_merge !== undefined;
   const delegateMode = autoMergeEnabled && acceptance !== null && !acceptance.autoEligible && acceptance.delegate !== undefined
     ? (await getDelegation()).active
+    : false;
+  const bypassMode = autoMergeEnabled && acceptance !== null && !acceptance.autoEligible && acceptance.bypass !== undefined
+    ? (await getBypass()).active
     : false;
   const outcome = evaluateMergeRoute({
     autoMergeEnabled: pr.auto_merge !== null && pr.auto_merge !== undefined,
@@ -207,15 +291,16 @@ async function writeMergeRoute(ctx: GateContext, pr: PullRequest, acceptance: Ac
     acceptance,
     stacked: classifyBase(pr, ctx.config.defaultBranch) !== 'default',
     delegateMode,
+    bypassMode,
   });
   await writeCheck(ctx, headSha, CHECKS.mergeRoute, outcome);
 }
 
 /**
  * 現在の差分に対する受け付け記録を探して merge-route を書き直す（PR は最新を取り直す）。
- * delegation を渡したときは委任の状態を読み直さない（委任を終えたときは無効の状態を渡す）。
+ * delegation・bypass を渡したときはその状態を読み直さない（委任・bypass を終えたときは無効の状態を渡す）。
  */
-export async function refreshMergeRoute(ctx: GateContext, stale: PullRequest, known?: { patch: string }, delegation?: DelegateState): Promise<Acceptance | null> {
+export async function refreshMergeRoute(ctx: GateContext, stale: PullRequest, known?: { patch: string }, delegation?: DelegateState, bypass?: BypassState): Promise<Acceptance | null> {
   const pr = await getPr(ctx, stale.number);
   const judged = isSameRepoPr(pr, ctx.repository);
   let acceptance: Acceptance | null = null;
@@ -223,7 +308,11 @@ export async function refreshMergeRoute(ctx: GateContext, stale: PullRequest, kn
     const patch = known && pr.head.sha === stale.head.sha ? known.patch : patchId(await prDiff(ctx.gh, pr));
     acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patch);
   }
-  await writeMergeRoute(ctx, pr, acceptance, await autoMergeMode(ctx.gh, ctx.config), pr.head.sha, () => (delegation ? Promise.resolve(delegation) : delegationFor(ctx, new Date())));
+  await writeMergeRoute(
+    ctx, pr, acceptance, await autoMergeMode(ctx.gh, ctx.config), pr.head.sha,
+    () => (delegation ? Promise.resolve(delegation) : delegationFor(ctx, new Date())),
+    () => (bypass ? Promise.resolve(bypass) : bypassFor(ctx)),
+  );
   return acceptance;
 }
 

@@ -122,6 +122,10 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 人が計画ゲートの承認と Merge の判断を App に委ねること。期限は無く、ダッシュボード Issue に人だけが付けるラベルが付いている間ずっと有効で、停止スイッチが優先する。`agent:delegate-plan` は委任承認（計画）で、ガードレールや想定 Risk だけで計画ゲートに止まる計画に App が `agent:plan-ok` を付ける。`agent:delegate-merge` は委任承認（計画＋Merge）で、それに加えてガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する。どちらも `delegateMergeExclude` に当たるものは委ねない。旧称は委任 Merge（今の委任承認（計画＋Merge））。詳細：[risk-policy.md](risk-policy.md#委任承認)
 
+### bypass モード
+
+ブロッキング指摘の無い Agent PR の Merge を、人が期限なしで App に任せること。ダッシュボード Issue に `agent:bypass-merge` を人だけが付け、付けている間は、Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev を理由に Human Merge になる Agent PR も、ブロッキング指摘が無く範囲照合と `agent/tests` を通れば自動 Merge する（ハーネス自身の変更も含む）。停止スイッチが優先する。ラベルを外すと、bypass で付けた auto-merge を外して Human Merge に戻す。詳細：[risk-policy.md](risk-policy.md#bypass-モード)
+
 ### `agent:hold`
 
 人が Issue や PR に付ける個別停止のラベル。PR なら merge-route が failure になり、Issue なら Routine が処理しない。詳細：[operations.md](operations.md#止める仕組み)
