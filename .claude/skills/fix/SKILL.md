@@ -36,4 +36,4 @@ Routine の fix（[.claude/routine.md](../../routine.md)）を、付き添いの
 - 自動 Merge の対象の PR で、テストの assert を変える必要がある（`test:exempt` を頼む。Human Merge の PR では理由を PR に書けば返さなくてよい）
 - 計画の `files` の外を変える必要がある
 - 修正回数の上限（App が `agent:blocked`、理由コード `fix-limit`）に達した
-- やってはいけないこと：force push、Merge、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` と `*:exempt` のラベルの付け外し
+- やってはいけないこと：force push、Merge、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` と `*:exempt` のラベルの付け外し

@@ -55,4 +55,4 @@ judge-input の「再レビューの範囲（補足）」には、前回の head
 - 担当が出力のパスにファイルを書かなかった（同じパスで呼び直しても無い）、または書いたファイルが JSON として読めない
 - 担当を呼んだ後の `git status --porcelain --untracked-files=all` に、呼ぶ前と比べて増えた行・変わった行がある
 - `enforce` で合体版が失敗した、または review-intake が対象外と答えた（`shadow` では判定を続け、記録が無いことだけを伝える）
-- やってはいけないこと：サブエージェントの答えの書き換え、担当の出力のファイルを書く・直すこと、Merge、auto-merge の設定、Draft の解除（`gh pr ready`）、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` と `*:exempt` のラベルの付け外し
+- やってはいけないこと：サブエージェントの答えの書き換え、担当の出力のファイルを書く・直すこと、Merge、auto-merge の設定、Draft の解除（`gh pr ready`）、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` と `*:exempt` のラベルの付け外し

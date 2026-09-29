@@ -118,6 +118,10 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ダッシュボード Issue に付ける `agent:auto-merge-stopped` ラベル。付いている間は自動 Merge がすべて止まり、自動 Merge された PR が revert されると App が自動で付ける。詳細：[operations.md](operations.md#止める仕組み)
 
+### 委任 Merge
+
+人が期限つきで Merge の判断を App に委ねること。ダッシュボード Issue に `agent:delegate-merge` を人だけが付け、`delegateMerge.hours` の間は、ガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する（`delegateMergeExclude` に当たるものは除く）。停止スイッチが優先する。ラベルと保護は #210、動作は #211・#212 で入る。詳細：[operations.md](operations.md#ラベル)
+
 ### `agent:hold`
 
 人が Issue や PR に付ける個別停止のラベル。PR なら merge-route が failure になり、Issue なら Routine が処理しない。詳細：[operations.md](operations.md#止める仕組み)
