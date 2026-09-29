@@ -60,6 +60,8 @@ function scheduleFake(existingBody: string): FakeGitHub {
     .on('GET', /\/issues\?state=open&per_page/, () => ISSUES)
     .on('GET', /\/pulls\?state=open/, () => PRS)
     .on('GET', /\/pulls\/(\d+)$/, (m) => ({ ...PRS.find((p) => p.number === Number(m[1]))!, mergeable_state: 'clean' }))
+    // 定期の追従（遅れている Agent PR を main に追従させる）の確認。遅れていないので追従しない
+    .on('GET', /\/compare\//, () => ({ behind_by: 0 }))
     .on('GET', /\/issues\/1$/, () => ({ body: existingBody }))
     .on('PATCH', /\/issues\/1$/, () => ({}));
 }

@@ -5,11 +5,12 @@ import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { classifyBase } from '../lib/stack.ts';
 import { enforceBase, refreshMergeRoute, resumeFromOrphan } from './apply.ts';
-import { appComment, disableAutoMerge, getPr, updateBranchIfBehind, type GateContext } from './context.ts';
+import { appComment, disableAutoMerge, getPr, judgingHold, updateBranchIfBehind, type GateContext } from './context.ts';
 
 /**
  * 定期実行：停滞検知。24 時間動きがない Issue・PR、期限切れの人の claim、コンフリクトしている PR、
  * 人の対応待ち（blocked / plan-review）、必須ラベルの不足・違反を App のダッシュボード Issue に一覧化する。
+ * 遅れている Agent PR（既定ブランチ宛て）を追従させる（判定中は除く）。
  */
 
 interface IssueItem {
@@ -84,6 +85,20 @@ async function reconcileBases(ctx: GateContext, items: PullRequest[]): Promise<n
   return touched;
 }
 
+/**
+ * 定期の追従（main への push が来ない間に判定が終わった PR の戻り道）。既定ブランチ宛てで、衝突しておらず auto-merge の無い Agent PR だけ。
+ * auto-merge の PR は reconcileAutoMerge が、Stacked PR の層は main への push が扱う。失敗はログに残し、定期の処理（ダッシュボードの書き換え）を落とさない
+ */
+async function followOnSchedule(ctx: GateContext, pr: PullRequest, now: Date): Promise<void> {
+  if (pr.mergeable_state === 'dirty' || pr.auto_merge) return;
+  if (classifyBase(pr, ctx.config.defaultBranch) !== 'default') return;
+  try {
+    await updateBranchIfBehind(ctx, pr, () => judgingHold(ctx, pr, now));
+  } catch (e) {
+    ctx.log(`#${pr.number} の追従を確かめられませんでした（定期）: ${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 export async function onSchedule(ctx: GateContext, now: Date = new Date()): Promise<void> {
   const reconciled = await reconcileAutoMerge(ctx);
   const staleMs = ctx.config.staleHours * 3600_000;
@@ -110,6 +125,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     const pr = await ctx.gh.get<PullRequest>(`/pulls/${item.number}`);
     if (pr.mergeable_state === 'dirty') conflicts.push(pr);
     else if (age(pr.updated_at) > staleMs) stalePrs.push(pr);
+    await followOnSchedule(ctx, pr, now);
   }
   const labelProblems = renderAuditLines(labelAuditRows(ctx.config, ctx.repository, issues, prs));
 

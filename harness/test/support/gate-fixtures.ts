@@ -1,6 +1,7 @@
-import { appMark, renderBlock } from '../../lib/blocks.ts';
+import { appMark, claudeMark, renderBlock } from '../../lib/blocks.ts';
 import { appLogin, loadConfig } from '../../lib/config.ts';
 import { GitHub, type RequestOptions, type Transport } from '../../lib/github.ts';
+import type { Claim, ClaimStage } from '../../lib/queue.ts';
 import { RISK_QUESTIONS, type Verdict } from '../../lib/verdict.ts';
 import type { GateContext } from '../../gates/context.ts';
 
@@ -104,3 +105,36 @@ export const verdictEvent = (body: string, association = 'OWNER') => ({
   issue: { number: 5, pull_request: {}, labels: [], state: 'open' },
   comment: { id: 70, body, html_url: 'v', author_association: association, created_at: '', updated_at: '', user: { login: 'me', type: 'User' } },
 });
+
+let claudeCommentId = 200;
+
+/**
+ * PR・Issue のコメントとして置ける着手宣言（Claude の目印と agent-claim ブロック。本文は agent.ts の claimBody と同じ形）。
+ * at の既定は今の時刻（ゲートは実行時の時刻で期限を数えるため）。association の既定は OWNER（信頼できる作成者）
+ */
+export function claimComment(opts: { stage?: ClaimStage; by?: 'manual' | 'routine'; at?: string; released?: boolean; association?: string } = {}) {
+  const at = opts.at ?? new Date().toISOString();
+  const base: Claim = opts.by === 'routine'
+    ? { by: 'routine', session: 'https://claude.ai/code/session_01ABCDEFGHxyz', at, ...(opts.stage ? { stage: opts.stage } : {}) }
+    : { by: 'manual', at, ...(opts.stage ? { stage: opts.stage } : {}) };
+  const value: Claim = opts.released ? { ...base, released: true } : base;
+  const who = value.by === 'routine' ? `Routine: ${value.session}` : '手動';
+  const what = value.released ? `着手を解除しました（${who}）。` : `着手しました（${who}${value.stage ? `、段階 ${value.stage}` : ''}）。`;
+  const id = claudeCommentId++;
+  return {
+    id, created_at: at, updated_at: '', html_url: `c${id}`, author_association: opts.association ?? 'OWNER', user: { login: 'me', type: 'User' },
+    body: [claudeMark(), what, '', renderBlock('agent-claim', value)].join('\n'),
+  };
+}
+
+/** Claude の判定コメント（agent-verdict ブロック入り。投稿すると着手宣言が終わる） */
+export function verdictComment(patch: Partial<Verdict> = {}, association = 'OWNER') {
+  const id = claudeCommentId++;
+  return {
+    id, created_at: new Date().toISOString(), updated_at: '', html_url: `c${id}`, author_association: association, user: { login: 'me', type: 'User' },
+    body: [claudeMark(), '判定しました。', '', renderBlock('agent-verdict', verdict(patch))].join('\n'),
+  };
+}
+
+/** 今から hours 時間前の ISO 時刻 */
+export const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3600_000).toISOString();
