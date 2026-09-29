@@ -868,11 +868,14 @@ function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | 
     return i;
   };
   const gi = nextWord(0);
-  const si = nextWord(gi + 1);
   const group = args[gi];
-  const sub = args[si];
   if (!group) return null;
-  if (group.dynamic || sub?.dynamic) return unknown(`gh のサブコマンド（${group.text} ${sub?.text ?? ''}）`);
+  if (group.dynamic) return unknown(`gh のサブコマンド（${group.text}）`);
+  // gh api はサブコマンドを持たない：フラグの値をサブコマンドとして読まない
+  if (group.text === 'api') return checkGhApi(args.slice(gi + 1), ctx, stdin);
+  const si = nextWord(gi + 1);
+  const sub = args[si];
+  if (sub?.dynamic) return unknown(`gh のサブコマンド（${group.text} ${sub.text}）`);
   const g = group.text;
   const s = sub?.text;
   const rest = args.slice(si + 1);
@@ -886,7 +889,6 @@ function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | 
     const values = rest.map((a) => (a.text.includes('=') ? { ...a, text: a.text.slice(a.text.indexOf('=') + 1) } : a));
     return checkLabelWords(values.filter((a) => a.dynamic || !a.text.startsWith('-')), ctx.protectedLabels, `gh label ${s}`);
   }
-  if (g === 'api') return checkGhApi(args.slice(gi + 1), ctx, stdin);
   return null;
 }
 

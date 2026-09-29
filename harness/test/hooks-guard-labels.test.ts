@@ -95,6 +95,17 @@ test('サブコマンドの前に -R・--repo を置いた gh pr merge・gh pr r
   for (const cmd of ['gh -R o/r pr view 1', 'gh pr -R o/r view 1', 'gh pr -R o/r ready 1 --undo']) assertAllowAll(bash(cmd), cmd);
 });
 
+test('gh api のフラグの値が変数の展開でも、ラベルに触れなければ通す（サブコマンドとして読まない）', () => {
+  const cmds = [
+    'gh api --paginate "repos/$R/pulls"',
+    'gh api -H "$H" repos/o/r/pulls',
+    'gh api --jq "$Q" repos/o/r/pulls',
+    'gh api -f "body=$B" repos/o/r/issues/1/comments',
+    'gh -R o/r api --paginate "repos/$R/pulls"',
+  ];
+  for (const cmd of cmds) assertAllowAll(bash(cmd), cmd);
+});
+
 test('bash -c・&&・;・env・代入の前置き・eval・$(...) の中の付け外しも止める', () => {
   for (const label of LABEL_NAMES) for (const cmd of wrapped(label)) assertDenyAll(bash(cmd), cmd);
 });
