@@ -168,7 +168,7 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 
 2. Orca の Settings → Agents →「Agent Permissions」を Manual にし、Claude の既定の起動引数（Orca の `orca-data.json` の `settings.agentDefaultArgs` の `claude`。`claude-agent-teams` も同じ）を `--permission-mode auto` にする（`--dangerously-skip-permissions` を外す）。Orca の既定は `--dangerously-skip-permissions`（すべての確認を飛ばす bypass permissions）になっている。
 
-リポジトリの `.claude/settings.json` の `permissions.disableBypassPermissionsMode: "disable"`（`harness/managed.json` の `settingsKeys` で導入先にも入る）で、bypass permissions は使えない。公式ドキュメントでは、この設定の下で Claude Code は `--dangerously-skip-permissions` のフラグを拒む（rejects）。Orca が既定の起動引数のまま起動したときに、起動が拒まれるか既定のモードで始まるかは、この節を入れた PR の Merge の前に人が Orca から起動して確かめ、ここに追記する。どちらの場合も、上の手順2で起動引数を直せば auto で始まる。`permissions.deny` と PreToolUse の hook はどのモードでも効く。
+リポジトリの `.claude/settings.json` の `permissions.disableBypassPermissionsMode: "disable"`（`harness/managed.json` の `settingsKeys` で導入先にも入る）で、bypass permissions は使えない。公式ドキュメントでは、この設定の下で Claude Code は `--dangerously-skip-permissions` のフラグを拒む（rejects）。Orca が既定の起動引数のままだとフラグが拒まれるので、上の手順2で起動引数を `--permission-mode auto` に直しておく。`permissions.deny` と PreToolUse の hook はどのモードでも効く。
 
 **Orca が無いとき（退行手段）**：今の手順（ship、1セッションで段階を交互に進める fleet（`fleet.nesting` の `flat`。入れ子にできなければ fleet が自分で戻る）、`node harness/scripts/agent.ts worktree`）で進める。SessionStart の hook（`.claude/hooks/session-env.ts`）は、startup のときに `ORCA_CLI_COMMAND` も PATH の `orca-ide` も無ければ、この節を案内する一言を出すだけで、セッションを止めない（CLI は実行しない。Routine では知らせない）。bypass permissions で始まったことは hook では知らせない（SessionStart の入力に `permission_mode` が渡る保証が無く、bypass は上の `disableBypassPermissionsMode` で拒むため）。
 
