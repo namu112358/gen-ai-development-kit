@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { extractBlock } from '../lib/blocks.ts';
-import { parseIssueBody } from '../lib/issue-form.ts';
+import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
 import { buildTriageRequest } from '../lib/issue-triage.ts';
 import { measureRequest, type askJev } from '../lib/jev.ts';
 import { triageLabels } from '../gates/label-apply.ts';
@@ -45,10 +45,14 @@ function triageRecord(fake: FakeGitHub): Record<string, any> {
   return (block as { value: Record<string, any> }).value;
 }
 
-async function run(jev: ReturnType<typeof fakeJev>): Promise<FakeGitHub> {
+type Target = { number: number; title: string; body: string; labels: string[]; subIssues?: number };
+/** 材料（ラベル・子の数）を持つ Issue（#259） */
+const ISSUE_WITH_CONTEXT: Target = { ...ISSUE, number: 61, labels: ['type:feat', 'area:harness', 'agent:ready'], subIssues: 2 };
+
+async function run(jev: ReturnType<typeof fakeJev>, issue: Target = ISSUE): Promise<FakeGitHub> {
   const fake = fakeGitHub();
   const ctx = ctxFor(fake, 'issues', {}, { secrets: { jevApiKey: 'jev-key' }, askJev: jev.fn });
-  const asked = await triageLabels(ctx, ISSUE, [], { proposal: true });
+  const asked = await (triageLabels as unknown as (...args: unknown[]) => Promise<boolean>)(ctx, issue, [], { proposal: true });
   assert.equal(asked, true);
   return fake;
 }
@@ -61,14 +65,35 @@ test('label-triage の記録に size（chars・jaRatio・inputTokens）が入る
   assert.deepEqual(record.size, { chars: m.chars, jaRatio: m.jaRatio, inputTokens: 2345 });
 });
 
+/** triageLabels と同じ context（その Issue の labels・subIssues）で作った要求を測る */
+function measureExpected(issue: Target) {
+  const form = parseIssueBody(issue.body);
+  assert.ok(form.ok);
+  const build = buildTriageRequest as unknown as (c: typeof config, t: string, k: IssueContract, ctx?: { labels?: string[]; subIssues?: number }) => Parameters<typeof measureRequest>[0];
+  return measureRequest(build(config, issue.title, form.contract, { labels: issue.labels, subIssues: issue.subIssues }));
+}
+
 test('label-triage の size.chars・jaRatio は buildTriageRequest の要求を measureRequest で測った値', async () => {
-  const record = triageRecord(await run(fakeJev(10)));
+  for (const issue of [ISSUE, ISSUE_WITH_CONTEXT]) {
+    const record = triageRecord(await run(fakeJev(10), issue));
+    const m = measureExpected(issue);
+    assert.equal(record.size.chars, m.chars, `#${issue.number}`);
+    assert.equal(record.size.jaRatio, m.jaRatio, `#${issue.number}`);
+    assert.ok(record.size.jaRatio > 0, 'タイトル・本文に日本語があるのに割合が 0');
+  }
+});
+
+test('ラベルと子を持つ Issue の size は、新しい材料（known_labels・sub_issue_count）を含む要求を測っている', async () => {
+  const jev = fakeJev(10);
+  const record = triageRecord(await run(jev, ISSUE_WITH_CONTEXT));
+  const state = jev.requests[0]!.state as Record<string, unknown>;
+  assert.deepEqual(state.known_labels, ['area:harness', 'type:feat']);
+  assert.equal(state.sub_issue_count, 2);
   const form = parseIssueBody(FORM_BODY);
   assert.ok(form.ok);
-  const m = measureRequest(buildTriageRequest(config, ISSUE.title, form.contract));
-  assert.equal(record.size.chars, m.chars);
-  assert.equal(record.size.jaRatio, m.jaRatio);
-  assert.ok(record.size.jaRatio > 0, 'タイトル・本文に日本語があるのに割合が 0');
+  const without = measureRequest(buildTriageRequest(config, ISSUE_WITH_CONTEXT.title, form.contract));
+  assert.ok(record.size.chars > without.chars, '材料を含まない要求の大きさと同じ');
+  assert.equal(record.size.chars, measureRequest(jev.requests[0]!).chars);
 });
 
 test('偽の askJev が inputTokens を返さないときは size.inputTokens が null', async () => {

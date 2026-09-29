@@ -32,7 +32,7 @@ const PRIORITY_VALUES: string[] = Object.values(PRIORITY_LABELS);
  */
 export async function onIssue(ctx: GateContext): Promise<void> {
   const action = ctx.event.action as string;
-  const issue = ctx.event.issue as { number: number; body: string | null; labels: { name: string }[]; state: string };
+  const issue = ctx.event.issue as { number: number; body: string | null; labels: { name: string }[]; state: string; sub_issues_summary?: { total?: number } | null };
   const sender = ctx.event.sender?.login as string | undefined;
   const label = ctx.event.label?.name as string | undefined;
 
@@ -187,9 +187,9 @@ async function triageOnOpen(ctx: GateContext, number: number, sender: string | u
   if (ctx.config.classification.issueTriage !== 'label' || !ctx.secrets.jevApiKey) return;
   if (sender === appLogin(ctx.config)) return;
   try {
-    const now = await ctx.gh.get<{ title: string; body: string | null; state: string; labels: { name: string }[] }>(`/issues/${number}`);
+    const now = await ctx.gh.get<{ title: string; body: string | null; state: string; labels: { name: string }[]; sub_issues_summary?: { total?: number } | null }>(`/issues/${number}`);
     if (now.state !== 'open' || now.title === ctx.config.dashboardIssueTitle || !parseTitle(now.title).ok) return;
-    await triageLabels(ctx, { number, title: now.title, body: now.body, labels: now.labels.map((l) => l.name) }, await getComments(), { proposal: false });
+    await triageLabels(ctx, { number, title: now.title, body: now.body, labels: now.labels.map((l) => l.name), subIssues: now.sub_issues_summary?.total ?? 0 }, await getComments(), { proposal: false });
   } catch (e) {
     ctx.log(`#${number} の作成時の分類に失敗しました: ${(e as Error).message}`);
   }
@@ -199,12 +199,20 @@ async function triageOnOpen(ctx: GateContext, number: number, sender: string | u
  * Jev に Issue を分類させる（失敗してもゲートは止めない）。
  * - shadow：提案をコメントする（ラベルは付けない）
  * - label：提案のコメントを続け、そのうえで足りない priority:*・area:* だけを付ける（記録は label-triage 1つ）。問い済みなら何もしない
+ * どちらも、イベントの issue のラベルと子の数を材料に足す（Issue #259）
  */
-async function triageIssue(ctx: GateContext, issue: { number: number; body: string | null; labels: { name: string }[] }, title: string, contract: IssueContract): Promise<void> {
+async function triageIssue(
+  ctx: GateContext,
+  issue: { number: number; body: string | null; labels: { name: string }[]; sub_issues_summary?: { total?: number } | null },
+  title: string,
+  contract: IssueContract,
+): Promise<void> {
+  const labels = issue.labels.map((l) => l.name);
+  const subIssues = issue.sub_issues_summary?.total ?? 0;
   if (ctx.config.classification.issueTriage === 'label') {
     if (!ctx.secrets.jevApiKey) return;
     try {
-      await triageLabels(ctx, { number: issue.number, title, body: issue.body, labels: issue.labels.map((l) => l.name) }, await ctx.gh.listComments(issue.number), { proposal: true });
+      await triageLabels(ctx, { number: issue.number, title, body: issue.body, labels, subIssues }, await ctx.gh.listComments(issue.number), { proposal: true });
     } catch (e) {
       ctx.log(`Issue の分類に失敗しました: ${(e as Error).message}`);
     }
@@ -212,7 +220,7 @@ async function triageIssue(ctx: GateContext, issue: { number: number; body: stri
   }
   const number = issue.number;
   if (ctx.config.classification.issueTriage !== 'shadow' || !ctx.secrets.jevApiKey) return;
-  const r = await (ctx.askJev ?? askJev)(ctx.secrets.jevApiKey, buildTriageRequest(ctx.config, title, contract));
+  const r = await (ctx.askJev ?? askJev)(ctx.secrets.jevApiKey, buildTriageRequest(ctx.config, title, contract, { labels, subIssues }));
   if (r.status !== 'ok') {
     ctx.log(`Issue の分類に失敗しました: ${r.detail}`);
     return;
