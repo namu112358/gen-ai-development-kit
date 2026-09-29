@@ -12,7 +12,7 @@ import { fleetConfig, LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, t
 import { checkAssignee, requireAssignee, type AssigneeIo } from '../lib/assignee.ts';
 import { ensureOwnClaim as ownClaimError, postClaim } from '../lib/claim.ts';
 import { computeQueue, critiqueClaimedBefore, issueFacts, prFacts } from '../lib/facts.ts';
-import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
+import { fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
 import { expectedPlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
@@ -88,12 +88,13 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力
  *   node harness/scripts/agent.ts label-audit [番号..]      必須ラベルの不足と違反の一覧（ダッシュボードの「ラベルが足りない Issue・PR」と同じ検査）。
  *                                                           番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲（agent:* か epic の開いた Issue と Agent PR）
- *   node harness/scripts/agent.ts fleet-status [--max <n>] [<Issue 番号>...]
+ *   node harness/scripts/agent.ts fleet-status [--max <n>] [--json] [<Issue 番号>...]
  *                                                           fleet で並行して進める Issue・PR ごとの段階・次にやること・選ぶか（待つ理由）・触るファイルの重なり・
  *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue と、agent:* の無い、コラボレーターか App が立てた開いた Issue（harness/lib/fleet.ts の fleetTargets）。
  *                                                           開いた PR 同士は head を fetch して git merge-tree で試し、衝突する組だけ後の側が待つ。
  *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）
- *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする
+ *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする。
+ *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
  *   node harness/scripts/agent.ts arch-review-range [--since <sha>] [--until <sha>] [--last <n>]
  *                                                           arch-review が見る Merge 済みの PR の範囲（JSON。読むだけ）。--since（40桁の SHA）か、無ければダッシュボード Issue の
  *                                                           前回の arch-review の記録の headSha から、--until（既定は既定ブランチの先頭）までの compare のコミットを PR に対応させる。
@@ -528,8 +529,10 @@ function prConflicts(issues: FleetIssue[]): PrConflict[] {
 
 /** fleet の事実を GitHub から読み（書き込みはしない）、段階・選び方の表を返す。判断は harness/lib/fleet.ts の純粋関数 */
 async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
-  const usage = 'fleet-status [--max <n>] [<Issue 番号>...]';
-  const a = splitArgs(args, ['--max']);
+  const usage = 'fleet-status [--max <n>] [--json] [<Issue 番号>...]';
+  // --json は値を取らないので、splitArgs（値を取るオプションだけを扱う）の前に取り除く
+  const json = args.includes('--json');
+  const a = splitArgs(args.filter((x) => x !== '--json'), ['--max']);
   if (!a.ok) fail([...a.errors, usage]);
   const maxArg = a.value.options['--max'];
   if ((maxArg !== undefined && !/^[1-9]\d*$/.test(maxArg)) || a.value.positional.some((p) => !/^\d+$/.test(p))) fail([usage]);
@@ -593,7 +596,9 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const rows = fleetStatus(facts);
   // Assignee を確かめる設定のときだけ、今の GitHub のユーザーを読む（Issue #172）
   const me = requireAssignee(config) ? (await gh.get<{ login: string }>('/user')).login : null;
-  return renderFleetStatus(rows, selectFleet(config, facts, rows, max, currentSession(), me), max, mode);
+  const session = currentSession();
+  const sel = selectFleet(config, facts, rows, max, session, me);
+  return json ? JSON.stringify(fleetStatusData(facts, rows, sel, max, session, mode), null, 2) : renderFleetStatus(rows, sel, max, mode);
 }
 
 function readJson(file: string): unknown {

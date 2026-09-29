@@ -306,30 +306,137 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
 
 const NEXT_LABELS: Record<FleetNext, string> = { plan: 'plan', implement: 'implement', judge: 'judge', fix: 'fix', sync: 'sync', none: '—' };
 
+type FleetMode = { nesting: 'orca' | 'flat'; maxParallelShips: number };
+
+/** 表と JSON の行の並び順（選んだものを選んだ順に先、残りは Issue 番号順） */
+function sortedRows(rows: FleetRow[], sel: FleetSelection): FleetRow[] {
+  return [...rows].sort((a, b) => Number(sel.selected.includes(b.issue)) - Number(sel.selected.includes(a.issue)) || sel.selected.indexOf(a.issue) - sel.selected.indexOf(b.issue) || a.issue - b.issue);
+}
+
+/** 行ごとの選択・待つ理由・重なり・メモ（表と JSON が同じ判断から作るための共通部分） */
+function rowView(r: FleetRow, sel: FleetSelection): { selected: boolean; waitReason: string; overlaps: number[]; sharedOnlyOverlaps: number[]; note: string } {
+  return {
+    selected: sel.selected.includes(r.issue),
+    waitReason: sel.excluded.get(r.issue) ?? '',
+    overlaps: [...(sel.overlaps.get(r.issue) ?? [])],
+    sharedOnlyOverlaps: [...(sel.sharedOnlyOverlaps.get(r.issue) ?? [])],
+    note: [r.note, sel.notes.get(r.issue)].filter((x) => x).join('。'),
+  };
+}
+
+/** 入れ子のときに同時に動かす ship の数。--max があれば --max、無ければ maxParallelShips */
+const parallelShips = (max: number | null, mode: FleetMode): number => max ?? mode.maxParallelShips;
+
 /**
  * fleet-status の表（Markdown）。mode（fleetConfig）を渡すと、末尾に進め方の行を足す。
  * 入れ子（orca）で同時に動かす ship の数は、--max があれば --max、無ければ maxParallelShips
  */
-export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: number | null, mode?: { nesting: 'orca' | 'flat'; maxParallelShips: number }): string {
+export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: number | null, mode?: FleetMode): string {
   const cell = (s: string): string => s.replace(/\|/g, '\\|');
   const lines = [
     '| Issue | PR | 段階 | 次にやること | 選択 | 重なり | メモ |',
     '| --- | --- | --- | --- | --- | --- | --- |',
   ];
-  const sorted = [...rows].sort((a, b) => Number(sel.selected.includes(b.issue)) - Number(sel.selected.includes(a.issue)) || sel.selected.indexOf(a.issue) - sel.selected.indexOf(b.issue) || a.issue - b.issue);
-  for (const r of sorted) {
-    const chosen = sel.selected.includes(r.issue) ? '選ぶ' : `待つ：${sel.excluded.get(r.issue) ?? ''}`;
-    const blocking = (sel.overlaps.get(r.issue) ?? []).map((n) => `#${n}`).join(', ');
-    const shared = (sel.sharedOnlyOverlaps.get(r.issue) ?? []).map((n) => `#${n}`).join(', ');
+  for (const r of sortedRows(rows, sel)) {
+    const v = rowView(r, sel);
+    const chosen = v.selected ? '選ぶ' : `待つ：${v.waitReason}`;
+    const blocking = v.overlaps.map((n) => `#${n}`).join(', ');
+    const shared = v.sharedOnlyOverlaps.map((n) => `#${n}`).join(', ');
     const overlap = [blocking, shared ? `共有ファイルのみ（並行可）：${shared}` : ''].filter((x) => x).join('。') || '—';
-    const note = [r.note, sel.notes.get(r.issue)].filter((x) => x).join('。');
-    lines.push(`| #${r.issue} ${cell(r.title)} | ${r.pr === null ? '—' : `#${r.pr}`} | ${FLEET_STAGES[r.stage]} | ${NEXT_LABELS[r.next]} | ${cell(chosen)} | ${overlap} | ${cell(note)} |`);
+    lines.push(`| #${r.issue} ${cell(r.title)} | ${r.pr === null ? '—' : `#${r.pr}`} | ${FLEET_STAGES[r.stage]} | ${NEXT_LABELS[r.next]} | ${cell(chosen)} | ${overlap} | ${cell(v.note)} |`);
   }
   lines.push('', max === null ? `選んだ数：${sel.selected.length}（衝突しない範囲で本数を制限しない。絞るときは --max）` : `選んだ数：${sel.selected.length}/${max}（--max で指定した本数）`);
   if (mode) {
     lines.push(mode.nesting === 'orca'
-      ? `進め方：入れ子（orca）。ship をサブエージェントで並行に動かす。同時に動かす ship は ${max ?? mode.maxParallelShips} まで`
+      ? `進め方：入れ子（orca）。ship をサブエージェントで並行に動かす。同時に動かす ship は ${parallelShips(max, mode)} まで`
       : '進め方：交互（flat）。1つのセッションで段階を交互に進める');
   }
   return lines.join('\n');
+}
+
+/** fleet-status --json の着手宣言。stage・session は宣言に無ければ null（鍵を落とさない） */
+export interface FleetClaimInfo {
+  by: 'manual' | 'routine';
+  stage: string | null;
+  session: string | null;
+  /** このセッションの手動の宣言か（isOwnClaim） */
+  own: boolean;
+}
+
+/** fleet-status --json の1行。表の1行と同じ中身 */
+export interface FleetStatusRow {
+  issue: number;
+  title: string;
+  pr: number | null;
+  stage: FleetStage;
+  /** 表の段階の列の文言（FLEET_STAGES） */
+  stageLabel: string;
+  next: FleetNext;
+  selected: boolean;
+  /** 待つ理由（表の「待つ：」の後ろ）。選ぶときは null */
+  waitReason: string | null;
+  /** 衝突・触るファイルが重なる Issue（表の重なりの列） */
+  overlaps: number[];
+  /** 共有ファイルだけで重なる Issue（表の「共有ファイルのみ（並行可）」） */
+  sharedOnlyOverlaps: number[];
+  /** 表のメモの列と同じ文。無ければ null */
+  note: string | null;
+  /** Issue の解除されていない着手宣言 */
+  claim: FleetClaimInfo | null;
+  /** 行の開いた PR の解除されていない着手宣言 */
+  prClaim: FleetClaimInfo | null;
+}
+
+/** fleet-status --json の出力 */
+export interface FleetStatusData {
+  version: 1;
+  /** 表と同じ順の行 */
+  rows: FleetStatusRow[];
+  selectedCount: number;
+  /** 選んだ Issue（選んだ順） */
+  selected: number[];
+  /** --max。無ければ null */
+  max: number | null;
+  /** 進め方。parallel は入れ子で同時に動かす ship の数（表の進め方の行と同じ）。mode を渡さなければ null */
+  mode: { nesting: 'orca' | 'flat'; parallel: number } | null;
+}
+
+function claimInfo(claim: Claim | null, currentSession: string | null): FleetClaimInfo | null {
+  if (claim === null || claim.released) return null;
+  return { by: claim.by, stage: claim.stage ?? null, session: claim.session ?? null, own: isOwnClaim(claim, currentSession) };
+}
+
+/**
+ * fleet-status の表（renderFleetStatus）と同じ中身を、機械が読める形で返す（fleet-status --json）。
+ * 表示のペインや hq が Markdown の表を読み直さずに済むようにする。並び順・理由・重なり・メモは表と同じ関数から作る。
+ */
+export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetSelection, max: number | null, currentSession: string | null, mode?: FleetMode): FleetStatusData {
+  const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
+  return {
+    version: 1,
+    rows: sortedRows(rows, sel).map((r) => {
+      const v = rowView(r, sel);
+      const i = byNumber.get(r.issue);
+      const prClaim = i !== undefined && r.pr !== null && r.stage !== 'merged' ? openPrClaim(i, r) : null;
+      return {
+        issue: r.issue,
+        title: r.title,
+        pr: r.pr,
+        stage: r.stage,
+        stageLabel: FLEET_STAGES[r.stage],
+        next: r.next,
+        selected: v.selected,
+        waitReason: v.selected ? null : v.waitReason,
+        overlaps: v.overlaps,
+        sharedOnlyOverlaps: v.sharedOnlyOverlaps,
+        note: v.note === '' ? null : v.note,
+        claim: claimInfo(i?.facts.claim ?? null, currentSession),
+        prClaim: claimInfo(prClaim, currentSession),
+      };
+    }),
+    selectedCount: sel.selected.length,
+    selected: [...sel.selected],
+    max,
+    mode: mode ? { nesting: mode.nesting, parallel: parallelShips(max, mode) } : null,
+  };
 }
