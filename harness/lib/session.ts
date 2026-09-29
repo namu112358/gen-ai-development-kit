@@ -10,7 +10,7 @@ export function sessionFromEnv(env: Record<string, string | undefined>): string 
   return env.AGENT_HARNESS_SESSION || null;
 }
 
-/** 記録のファイル名（`<ID>.jsonl`）に使ってよい ID の形。SessionStart の hook と同じ規則 */
+/** 記録のファイル名（`<ID>.jsonl`）とシェルに渡す値に使ってよい ID の形。SessionStart の hook（.claude/hooks/session-env.ts）と記録の選択が同じものを使う（規則はここだけ） */
 export const TRANSCRIPT_SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
 /**
