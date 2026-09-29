@@ -318,7 +318,7 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
    - `claim` は宣言を投稿した後、少し待って読み直し、持ち主が自分でなければ取り下げのコメントを書いて、先に宣言したセッションを示して 0 以外で終わる。`ensureOwnClaim` も同じ決め方を使い、確かめる場所に plan-critique の前と PR を作る前を足す（読み直しで気づかなくても、次の確認で止まる）。
    - セッションの ID が得られなければ手動の宣言を止める。定期 Routine かどうかを `CLAUDE_CODE_REMOTE_SESSION_ID` の有無で決めず、クラウドの付き添いのセッションでも宣言を確かめる（今は Routine とみなされて確かめない）。
    - 人どうし（#172）：`harness.config.json` の設定が有効なとき、Issue の Assignee がちょうど1人で、今の GitHub のユーザーであるときだけ宣言する。空・他人・2人以上なら理由を示して止まる。`ensureOwnClaim` も確かめ、途中でアサインが変われば次の段階で止まる。PR の段階は、PR が Close する Issue の Assignee で確かめる。fleet は Assignee が自分1人の Issue だけを候補にし、外した理由を示す。設定が無効なら今と同じ動き。
-   - 場所：`harness/scripts/agent.ts` の `claim`・`ensureOwnClaim`、`harness/lib/facts.ts` の `claimOf`（Assignee を事実に足す）、`harness/lib/queue.ts` の `isOwnClaim`・`claimBlocker`・`requireOwnClaim`、`harness/lib/fleet.ts`、`harness/lib/config.ts`、`harness.config.json`。
+   - 場所：判定は `harness/lib/assignee.ts`（純粋関数と `checkAssignee`）、宣言の前と後の確かめは `harness/lib/claim.ts` の `postClaim`（`before`）・`ensureOwnClaim`、呼び出しは `harness/scripts/agent.ts` の `claim`・`ensureOwnClaim`・`fleet-status`、fleet の除外は `harness/lib/fleet.ts` の `selectFleet`、設定は `harness/lib/config.ts` と `harness.config.json` の `requireAssignee`。Routine の選び方（`queue.ts`・`facts.ts`）は変えない。
 3. **`agent.ts step <番号>`**
    - GitHub の事実とグラフのデータから、今やってよいノードを1つだけ返す（ノード、前提、許す操作、入力、出力の書式）。
    - 前提の確かめ（担当・宣言）、着手宣言、ループの上限、同じ指摘の繰り返しの数えを中で行い、当たれば理由コード付きの stop を返す。

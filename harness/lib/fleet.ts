@@ -1,3 +1,4 @@
+import { assigneeExclusion, requireAssignee } from './assignee.ts';
 import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import { patternsOverlap } from './epic.ts';
 import { globToRegExp } from './scope.ts';
@@ -30,6 +31,8 @@ export interface FleetIssue {
   /** 計画ゲートの記録の計画の files。記録が無ければ null（領域・重なりが分からない） */
   planFiles: string[] | null;
   prs: FleetPr[];
+  /** Issue の Assignee の login（requireAssignee が true のときだけ見る。無ければ誰もいないとみなす） */
+  assignees?: string[];
 }
 
 /** fleet-status が番号なしで集める Issue の一覧の1件（/issues の応答の一部） */
@@ -203,12 +206,14 @@ function overlapKind(a: string[], b: string[], sharedFiles: string[]): 'none' | 
  * 止まる印・依存・ほかのセッションの着手宣言（PR の無い Issue は Issue の宣言、PR のある Issue はその行の PR の宣言。currentSession と同じ session の手動の宣言は自分のもの）のあるものを除いて、衝突しない範囲で選ぶ。本数は max（--max）を渡したときだけ制限する。
  * 重なりの相手にする着手宣言は、ほかのセッションの解除されていない宣言と、このセッションの実装中（段階 implement）の宣言だけ。
  * このセッションのほかの段階（plan・plan-gate など）の宣言どうしは並び順の先の側を選ぶ（互いを相手にして両方とも待たないため）。
+ * requireAssignee が true なら、Assignee が自分（me）1人でない Issue を理由付きで外す（PR の段階も Issue の Assignee で見る。Issue #172）。
  * 領域の上限（areaConcurrency）は見ない。config.fleet?.sharedFiles は、計画の files が重なるかの判定でだけ使う（共有ファイルだけの重なりでは待たない）。
  * 両方に PR がある組は、実際に試して衝突した組（prConflicts）だけ、既に選んだ PR と衝突する後の側が待つ。
  * PR がまだ無い Issue は、既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
  * 計画の無い Issue は重なりが分からないので、その判定から外して選ぶ（計画の後に重なれば、後から選んだほうが待つ）。
  */
-export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null): FleetSelection {
+export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null, me: string | null = null): FleetSelection {
+  const checkAssignee = requireAssignee(config);
   const sharedFiles = config.fleet?.sharedFiles ?? [];
   const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
   const rowOf = new Map(rows.map((r) => [r.issue, r]));
@@ -238,6 +243,8 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
     const i = byNumber.get(r.issue)!;
     if (r.stage === 'merged') { excluded.set(r.issue, 'Merge 済み'); continue; }
     if (r.stage === 'stopped') { excluded.set(r.issue, r.note ?? '止まる印あり'); continue; }
+    const notMine = checkAssignee ? assigneeExclusion(i.assignees ?? [], me) : null;
+    if (notMine) { excluded.set(r.issue, notMine); continue; }
     // PR の無い段階は Issue の宣言、PR の段階はその行の PR の宣言（claim <PR番号> --stage judge|fix|sync）を見る
     const claim = inFlight(r) ? openPrClaim(i, r) : i.facts.claim;
     if (claim && !claim.released && !isOwnClaim(claim, currentSession)) {
