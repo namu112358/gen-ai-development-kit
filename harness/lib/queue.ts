@@ -8,9 +8,13 @@ import { LABELS, priorityRank } from './config.ts';
 
 /**
  * 着手宣言（コメントの agent-claim）。ラベルは使わない。
- * 解除コメント（released）か、宣言より新しい計画・判定コメントがあれば終わったとみなす（facts.ts の claimOf）。
+ * 最初の宣言が持ち主で、持ち主の解除コメント（released）か、宣言より新しい計画・判定コメントがあれば終わったとみなす（facts.ts の claimOf）。
+ * takeover は --takeover で出した宣言の印（ほかのセッションの持ち主から引き継ぐ）。
  */
-export type Claim = ({ by: 'routine'; session: string; at: string; stage?: ClaimStage } | { by: 'manual'; at: string; session?: string; stage?: ClaimStage }) & { released?: boolean };
+export type Claim = ({ by: 'routine'; session: string; at: string; stage?: ClaimStage } | { by: 'manual'; at: string; session?: string; stage?: ClaimStage }) & {
+  released?: boolean;
+  takeover?: true;
+};
 
 /** 着手宣言の段階（claim --stage）。どの段階で着手しているかを、ほかのセッションとダッシュボードに見せる */
 export const CLAIM_STAGES = ['plan', 'plan-critique', 'plan-gate', 'implement', 'judge', 'fix', 'sync'] as const;
@@ -46,11 +50,15 @@ export function claimBlocker(claim: Claim | null, current: string | null, opts: 
   return withDetail(`ほかのセッションの着手宣言があります${stale}`, c) + '。引き継ぐなら人に確かめてから --takeover を付けてください';
 }
 
-/** critic-input・post-plan・worktree の前の確かめ：このセッションの有効な宣言があるか */
+/** 今のセッションの ID が得られないときの error（ID が無ければ自分の宣言とは見分けられない） */
+export const SESSION_ID_MISSING =
+  'このセッションの ID が得られないため、着手宣言が自分のものか見分けられません。SessionStart の hook（.claude/hooks/session-env.ts）の AGENT_HARNESS_SESSION か CLAUDE_CODE_REMOTE_SESSION_ID が要ります';
+
+/** critic-input・post-plan・worktree・ensure-claim の前の確かめ：このセッションの有効な宣言があるか */
 export function requireOwnClaim(claim: Claim | null, current: string | null): { error: string | null; warning: string | null } {
   const c = activeClaim(claim);
   if (!c) return { error: '着手宣言がありません。先に claim <番号> --manual --stage <段階> で宣言してください', warning: null };
-  if (current === null || current === '') return { error: null, warning: 'このセッションの ID が得られないため、着手宣言が自分のものか見分けられません' };
+  if (current === null || current === '') return { error: SESSION_ID_MISSING, warning: null };
   if (isOwnClaim(c, current)) return { error: null, warning: null };
   return { error: withDetail('ほかのセッションの着手宣言があります', c) + '。引き継ぐなら人に確かめてから claim --manual --takeover を実行してください', warning: null };
 }
@@ -63,12 +71,13 @@ export function claimAfterPlan(expectedGate: { pass: boolean }): 'plan-gate' | '
   return expectedGate.pass ? 'plan-gate' : 'release';
 }
 
-/** post-plan が投稿する着手宣言の値。base はこのセッションの手動の宣言（段階と解除の印は上書きする） */
+/** post-plan が投稿する着手宣言の値。base はこのセッションの手動の宣言（段階と解除の印は上書きし、takeover は持ち越さない） */
 export function claimValueAfterPlan(expectedGate: { pass: boolean }, base: Extract<Claim, { by: 'manual' }>): Claim {
-  return claimAfterPlan(expectedGate) === 'plan-gate' ? { ...base, stage: 'plan-gate' } : { ...base, released: true };
+  const { takeover: _takeover, ...rest } = base;
+  return claimAfterPlan(expectedGate) === 'plan-gate' ? { ...rest, stage: 'plan-gate' } : { ...rest, released: true };
 }
 
-/** worktree の前に宣言を確かめる Issue の番号。claude/issue-<番号>- のブランチで、--detach でも Routine でもないときだけ */
+/** worktree の前に宣言を確かめる Issue の番号。claude/issue-<番号>- のブランチで、--detach でも --routine（定期 Routine が渡す）でもないときだけ */
 export function worktreeClaimIssue(branch: string, detach: boolean, routine: boolean): number | null {
   if (detach || routine) return null;
   const m = branch.match(/^claude\/issue-(\d+)-/);

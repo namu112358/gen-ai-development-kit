@@ -7,6 +7,7 @@
 | --- | --- | --- |
 | `arch-review.ts` | arch-review（Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す skill）の決まる部分。 | ○ |
 | `blocks.ts` | コメントに埋め込む構造化データと目印。 | ○ |
+| `claim.ts` | 着手宣言の投稿と読み直し（Issue #171）。 | ○ |
 | `classify.ts` | PR の分類ラベル（表示用）。 | 対象外 |
 | `concurrency.ts` | 領域（area）ごとの、同時に開いてよい PR の上限。 | 対象外 |
 | `config.ts` | `harness.config.json` の読み込みと、ラベル・理由コード・必須チェックの名前などの定義。 | ○ |
@@ -26,6 +27,7 @@
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
+| `qa-retro.ts` | Merge 済みの PR の振り返り（qa-retro の skill）の集計。 | ○ |
 | `queue.ts` | Routine の次の行動を決める純粋関数。 | 対象外 |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）の純粋関数。 | ○ |
 | `review-panel.ts` | 合体版のレビュー（公式の code-review に、このハーネスの観点⑥〜⑧を足したもの）の組み立てと記録。 | ○ |

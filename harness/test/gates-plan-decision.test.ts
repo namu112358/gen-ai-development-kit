@@ -14,7 +14,7 @@ import type { HarnessConfig } from '../lib/config.ts';
 import type { askJev } from '../lib/jev.ts';
 import type { Plan } from '../lib/plan.ts';
 import { onComment } from '../gates/on-comment.ts';
-import { APP, acceptanceFake, config, ctxFor, pr, type FakeGitHub } from './support/gate-fixtures.ts';
+import { APP, acceptanceFake, config, CRITIQUE, critiqueClaim, ctxFor, pr, type FakeGitHub } from './support/gate-fixtures.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const sha256 = (text: string) => createHash('sha256').update(text).digest('hex');
@@ -29,7 +29,7 @@ const DECISION_AT = P + 3_600_000;
 /** 申告付きの計画（理由1件・質問1件）。答えればガードレールに触れず通る */
 const plan: Plan = {
   version: 1, issue: 3, risk: 'low', needsHuman: true, needsHumanReasons: ['既定値を決める'], acChangeProposed: false,
-  openQuestions: ['shadow から始めるか'], files: ['docs/a.md'],
+  openQuestions: ['shadow から始めるか'], files: ['docs/a.md'], critique: CRITIQUE,
 };
 
 const planBodyOf = (p: unknown) => `${CLAUDE_MARK}\n## 計画\n\n${renderBlock('agent-plan', p)}`;
@@ -76,10 +76,10 @@ function decisionEvent(raw: unknown, opts: { id?: number; labels?: string[]; bod
   };
 }
 
-/** Issue #3 のコメントと events を差し替えた偽の GitHub */
+/** Issue #3 のコメントと events を差し替えた偽の GitHub（計画コメントより前に段階 plan-critique の宣言を置く。計画ゲートの批評の関所を通る） */
 function world(comments: { id: number }[], events: unknown[], labels = ['agent:ready', 'agent:plan-review']): FakeGitHub {
   return acceptanceFake({ pr: pr() })
-    .on('GET', /\/issues\/3\/comments/, () => comments)
+    .on('GET', /\/issues\/3\/comments/, () => [critiqueClaim(), ...comments])
     .on('GET', /\/issues\/3\/events/, () => events)
     .on('GET', /\/issues\/3\/timeline/, () => events)
     .on('GET', /\/issues\/comments\/(\d+)$/, (m) => {

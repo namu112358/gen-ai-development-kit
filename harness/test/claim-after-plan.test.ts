@@ -71,6 +71,18 @@ test('claimValueAfterPlan：plan-gate なら段階 plan-gate の宣言、release
   assert.equal(isOwnClaim(released, SESSION), false, '解除した宣言は自分の宣言として残らない');
 });
 
+// Issue #171：--takeover の印は引き継いだときの宣言だけのもの。post-plan の宣言し直しには持ち越さない
+test('claimValueAfterPlan：base に takeover があっても、plan-gate・release のどちらの値にも持ち越さない', () => {
+  const taken: Extract<Claim, { by: 'manual' }> = { ...base, stage: 'plan-critique', takeover: true };
+  for (const gate of [{ pass: true }, { pass: false }]) {
+    const v = claimValueAfterPlan(gate, taken);
+    assert.equal('takeover' in v, false, `pass=${gate.pass}`);
+    assert.equal(v.session, SESSION);
+  }
+  assert.deepEqual(claimValueAfterPlan({ pass: true }, taken), { ...base, stage: 'plan-gate' });
+  assert.deepEqual(claimValueAfterPlan({ pass: false }, taken), { ...base, stage: 'plan-critique', released: true });
+});
+
 // ---- post-plan が投稿するコメントの並びで claimOf が返すもの ----
 
 let nextId = 1;

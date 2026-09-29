@@ -14,9 +14,12 @@ import { onSchedule } from './stale.ts';
  * 足りないラベルを付ける（docs/operations.md の「必須ラベルの規則」）。
  * - App（決定的に決まるもの）：タイトルから type:*、子を持つ Issue に epic、計画ゲートを通った計画の files から area:*
  * - Jev（決まらないもの）：priority:* と、計画の無い Issue の area:*。classification.issueTriage が label で、確率が
- *   jev.thresholds.labelProbability 以上のときだけ付ける。同じ Issue には一度だけ問う（App の記録 issue-triage / label-triage で判断）
+ *   そのラベルの下限（jev.thresholds.labelProbabilityByLabel、無ければ labelProbability）以上のときだけ付ける。
+ *   同じ Issue には一度だけ問う（App の記録 issue-triage / label-triage で判断）
+ * - 付け直し：下限を見直した後、label-triage の記録で下限に届かなかったものを、記録の確率で1回だけ付ける
+ *   （Jev に問い直さない。App の記録 label-reapply がある Issue にはしない。Q94）
  * 人が付けたラベルは外さない。App が前に付けたもの（events API の labeled の actor が App）だけを付け替える。
- * 判断は純粋な関数（planLabelChanges・decideJevLabels ほか）、API の読み書きは applyAppLabels・triageLabels・labelApply。
+ * 判断は純粋な関数（planLabelChanges・decideJevLabels・decideReapply ほか）、API の読み書きは applyAppLabels・triageLabels・reapplyJevLabels・labelApply。
  */
 
 const TYPE_LABELS: string[] = TITLE_TYPES.map(typeLabel);
@@ -130,13 +133,24 @@ export interface JevLabelResult {
   reason?: string;
 }
 
+/**
+ * ラベルを付ける確率の下限。labelProbabilityByLabel にそのラベルがあり 0〜1 の有限の数ならその値、無ければ labelProbability。
+ * labelProbability が未設定なら undefined（付けない。提案のみ）
+ */
+export function labelThreshold(config: HarnessConfig, label: string): number | undefined {
+  const { labelProbability, labelProbabilityByLabel } = config.jev.thresholds;
+  if (labelProbability === undefined) return undefined;
+  const own = labelProbabilityByLabel && Object.hasOwn(labelProbabilityByLabel, label) ? labelProbabilityByLabel[label] : undefined;
+  return typeof own === 'number' && Number.isFinite(own) && own >= 0 && own <= 1 ? own : labelProbability;
+}
+
 /** Jev の答えから、付けるラベルと付けなかったもの（知らせる）を決める */
 export function decideJevLabels(config: HarnessConfig, summary: Pick<TriageSummary, 'priority' | 'area'>, needs: JevNeeds): JevLabelResult[] {
-  const threshold = config.jev.thresholds.labelProbability;
   const areas = Object.keys(config.classification.areas);
   const out: JevLabelResult[] = [];
   const decide = (question: 'priority' | 'area', [choice, probability]: [string, number], label: string | null) => {
     let reason: string | undefined;
+    const threshold = label === null ? undefined : labelThreshold(config, label);
     if (label === null) reason = `選択肢「${choice}」に当たるラベルがありません`;
     else if (threshold === undefined) reason = '`jev.thresholds.labelProbability` が未設定のため付けません（提案のみ）';
     else if (!(probability >= threshold)) reason = `確率 ${pct(probability)} が下限 ${pct(threshold)} 未満`;
@@ -230,12 +244,69 @@ export async function triageLabels(
     model: r.model,
     answers: flattenAnswers(r.answers),
     threshold: ctx.config.jev.thresholds.labelProbability ?? null,
+    thresholdByLabel: { ...(ctx.config.jev.thresholds.labelProbabilityByLabel ?? {}) },
     added: add,
     notApplied: results.filter((x) => !x.applied).map(({ question, choice, probability, label, reason }) => ({ question, choice, probability, label, reason })),
     // Jev に送った材料の大きさ（Q90。inputTokens は応答の usage.input_tokens、無ければ null）
     size: { ...measureRequest(request), inputTokens: r.inputTokens ?? null },
   });
   return true;
+}
+
+// --- 付け直し（Q94） ---
+
+export interface ReapplyItem {
+  label: string;
+  probability: number;
+  threshold: number;
+}
+
+export interface ReapplyRecord {
+  version: 1;
+  /** 確率を読んだ label-triage のコメント */
+  triageCommentId: number;
+  added: ReapplyItem[];
+}
+
+/**
+ * label-triage の記録（value）の notApplied のうち、今も足りず、記録の確率が今の下限以上のものを返す。
+ * notApplied が配列でない古い記録、label の無いもの、確率が数でないものは付けない
+ */
+export function decideReapply(config: HarnessConfig, record: unknown, needs: JevNeeds): ReapplyItem[] {
+  const notApplied = (record as { notApplied?: unknown } | null | undefined)?.notApplied;
+  if (!Array.isArray(notApplied)) return [];
+  const areas = Object.keys(config.classification.areas).map((a) => `${AREA_PREFIX}${a}`);
+  const out: ReapplyItem[] = [];
+  for (const item of notApplied as { label?: unknown; probability?: unknown }[]) {
+    const label = item?.label;
+    const probability = item?.probability;
+    if (typeof label !== 'string' || typeof probability !== 'number' || !Number.isFinite(probability)) continue;
+    const wanted = (needs.priority && PRIORITIES.includes(label)) || (needs.area && areas.includes(label));
+    if (!wanted || out.some((x) => x.label === label)) continue;
+    const threshold = labelThreshold(config, label);
+    if (threshold !== undefined && probability >= threshold) out.push({ label, probability, threshold });
+  }
+  return out;
+}
+
+/**
+ * 下限に届かず付かなかったラベルを、最新の label-triage の記録の確率で1回だけ付ける（Jev に問わないので jevApiKey は要らない）。
+ * classification.issueTriage が label のときだけ。label-reapply の記録があれば何もしない。付けるものが無ければコメントも書かない。
+ * 付けたラベルを返す
+ */
+export async function reapplyJevLabels(ctx: GateContext, issue: { number: number; labels: string[] }, comments: IssueComment[]): Promise<string[]> {
+  if (ctx.config.classification.issueTriage !== 'label') return [];
+  const triage = appRecords(ctx.config, comments, 'label-triage').at(-1);
+  if (!triage || appRecords(ctx.config, comments, 'label-reapply').length > 0) return [];
+  const items = decideReapply(ctx.config, triage.value, jevNeeds(ctx.config, issue.labels, hasPlanRecord(ctx, comments)));
+  if (items.length === 0) return [];
+  const add = items.map((x) => x.label);
+  await ctx.gh.addLabels(issue.number, add);
+  const lines = items.map((x) => `- \`${x.label}\`（${pct(x.probability)}、下限 ${pct(x.threshold)}）`);
+  const body = [`ラベルの下限を見直したので、[Jev の分類の記録](${triage.comment.html_url}) の確率で、付けなかったラベルを付けました（Jev には問い直していません。1つの Issue に1回だけ）。`, '', ...lines].join('\n');
+  await appComment(ctx, issue.number, 'label-reapply', body, { version: 1, triageCommentId: triage.comment.id, added: items } satisfies ReapplyRecord);
+  ctx.log(`#${issue.number} のラベルを記録の確率で付け直しました: ${add.join(',')}`);
+  return add;
 }
 
 interface OpenIssue {
@@ -265,7 +336,11 @@ export async function labelApply(ctx: GateContext): Promise<void> {
       const audit = auditLabels(ctx.config, { kind: 'issue', title: i.title, labels, subIssues });
       const plannedFiles = audit.missing.includes('area:*') ? passedPlanFiles(ctx, await getComments()) : null;
       const change = await applyAppLabels(ctx, i.number, { kind: 'issue', title: i.title, labels, subIssues, plannedFiles }, getComments);
-      const after = applyChanges(labels, change);
+      let after = applyChanges(labels, change);
+      const missing = jevNeeds(ctx.config, after, false);
+      if (ctx.config.classification.issueTriage === 'label' && (missing.priority || missing.area)) {
+        after = applyChanges(after, { add: await reapplyJevLabels(ctx, { number: i.number, labels: after }, await getComments()), remove: [] });
+      }
       const mayNeedJev = ctx.config.classification.issueTriage === 'label' && ctx.secrets.jevApiKey && asked < JEV_PER_RUN;
       const needs = jevNeeds(ctx.config, after, false);
       if (mayNeedJev && (needs.priority || needs.area)) {
