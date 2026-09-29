@@ -75,9 +75,10 @@ export function verdict(patch: Partial<Verdict> = {}): Verdict {
 /**
  * 判定の受け付けに必要な応答を揃えた偽の GitHub。
  * dashboardEvents はダッシュボード（#1）の timeline の応答（委任 Merge のラベルを付けた記録）、
+ * issueComments は Issue #3 のコメント（既定は planGateComment だけ。計画ゲートのテストは critiqueClaim を足す）、
  * closedPrs は閉じた PR の一覧（GET /pulls?state=closed。定期実行のダッシュボードの「委任 Merge で Merge された PR」）の応答。
  */
-export function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabels?: string[]; prComments?: unknown[]; allowAutoMerge?: boolean; behindBy?: number; dashboardEvents?: unknown[]; closedPrs?: unknown[] }): FakeGitHub {
+export function acceptanceFake(state: { pr: ReturnType<typeof pr>; issueComments?: unknown[]; dashboardLabels?: string[]; prComments?: unknown[]; allowAutoMerge?: boolean; behindBy?: number; dashboardEvents?: unknown[]; closedPrs?: unknown[] }): FakeGitHub {
   let autoMerge: unknown = state.pr.auto_merge;
   return new FakeGitHub()
     .on('GET', /\/repos\/o\/r$/, () => ({ allow_auto_merge: state.allowAutoMerge ?? true }))
@@ -85,7 +86,7 @@ export function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabe
     .on('GET', /\/compare\//, (_m, _b, o) => (o.raw ? DIFF : { behind_by: state.behindBy ?? 0 }))
     .on('GET', /\/pulls\/5\/files/, () => [{ filename: 'docs/a.md', additions: 1, deletions: 1 }])
     .on('GET', /\/pulls\/5\/reviews/, () => [])
-    .on('GET', /\/issues\/3\/comments/, () => [planGateComment])
+    .on('GET', /\/issues\/3\/comments/, () => state.issueComments ?? [planGateComment])
     .on('GET', /\/issues\/5\/comments/, () => state.prComments ?? [])
     // 開いた PR の一覧（計画の投稿で plan-link を書き直す相手を、スタックの層の Refs からも探すため）。テストごとの .on が優先する
     .on('GET', /\/pulls\?state=open/, () => [])
@@ -118,7 +119,7 @@ let claudeCommentId = 200;
  * PR・Issue のコメントとして置ける着手宣言（Claude の目印と agent-claim ブロック。本文は agent.ts の claimBody と同じ形）。
  * at の既定は今の時刻（ゲートは実行時の時刻で期限を数えるため）。association の既定は OWNER（信頼できる作成者）
  */
-export function claimComment(opts: { stage?: ClaimStage; by?: 'manual' | 'routine'; at?: string; released?: boolean; association?: string } = {}) {
+export function claimComment(opts: { stage?: ClaimStage; by?: 'manual' | 'routine'; at?: string; released?: boolean; association?: string; id?: number } = {}) {
   const at = opts.at ?? new Date().toISOString();
   const base: Claim = opts.by === 'routine'
     ? { by: 'routine', session: 'https://claude.ai/code/session_01ABCDEFGHxyz', at, ...(opts.stage ? { stage: opts.stage } : {}) }
@@ -126,11 +127,22 @@ export function claimComment(opts: { stage?: ClaimStage; by?: 'manual' | 'routin
   const value: Claim = opts.released ? { ...base, released: true } : base;
   const who = value.by === 'routine' ? `Routine: ${value.session}` : '手動';
   const what = value.released ? `着手を解除しました（${who}）。` : `着手しました（${who}${value.stage ? `、段階 ${value.stage}` : ''}）。`;
-  const id = claudeCommentId++;
+  const id = opts.id ?? claudeCommentId++;
   return {
     id, created_at: at, updated_at: '', html_url: `c${id}`, author_association: opts.association ?? 'OWNER', user: { login: 'me', type: 'User' },
     body: [claudeMark(), what, '', renderBlock('agent-claim', value)].join('\n'),
   };
+}
+
+/** 批評を通した計画の critique の既定値（計画ゲートの批評の関所を通る） */
+export const CRITIQUE = { verdict: 'go', rounds: 1 } as const;
+
+/**
+ * 計画より前に置く段階 plan-critique の着手宣言（計画ゲートの批評の関所を通る印）。
+ * id の既定は 10（テストの計画コメントの id 80 より前）
+ */
+export function critiqueClaim(opts: { id?: number; by?: 'manual' | 'routine'; association?: string } = {}) {
+  return claimComment({ ...opts, stage: 'plan-critique', id: opts.id ?? 10 });
 }
 
 /** Claude の判定コメント（agent-verdict ブロック入り。投稿すると着手宣言が終わる） */

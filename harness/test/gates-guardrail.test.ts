@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { appMark, renderBlock } from '../lib/blocks.ts';
 import { onComment } from '../gates/on-comment.ts';
-import { APP, acceptanceFake, ctxFor, pr, verdict, verdictEvent, type FakeGitHub } from './support/gate-fixtures.ts';
+import { APP, acceptanceFake, CRITIQUE, critiqueClaim, ctxFor, planGateComment, pr, verdict, verdictEvent, type FakeGitHub } from './support/gate-fixtures.ts';
 
 /** 計画の files を差し替えた受け付けの偽物（変更ファイルも差し替える） */
 function fakeWith(planned: string[], files: { filename: string; previous_filename?: string }[]): FakeGitHub {
@@ -53,7 +53,7 @@ test('ガードレールに触れない PR は、従来どおり Risk Agent の�
   assert.doesNotMatch(acceptanceBody(medium), /ガードレールに触れます/);
 });
 
-const plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['harness/lib/plan.ts'] };
+const plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['harness/lib/plan.ts'], critique: CRITIQUE };
 const planEvent = (p: unknown) => ({
   action: 'created',
   issue: { number: 3, labels: [{ name: 'agent:ready' }], state: 'open' },
@@ -62,13 +62,13 @@ const planEvent = (p: unknown) => ({
 const gateBody = (fake: FakeGitHub): string => String(fake.calls.find((c) => c.method === 'POST' && c.path.endsWith('/issues/3/comments'))!.body.body);
 
 test('計画ゲート（App）：files がガードレールに触れると、想定 Risk が low でも plan-review で止める', async () => {
-  const fake = acceptanceFake({ pr: pr() });
+  const fake = acceptanceFake({ pr: pr(), issueComments: [critiqueClaim(), planGateComment] });
   await onComment(ctxFor(fake, 'issue_comment', planEvent(plan)));
   assert.deepEqual(fake.writes().slice(0, 3), ['label-agent:plan-ok', 'label+agent:plan-review', 'comment:plan-gate']);
   assert.match(gateBody(fake), /reason code=high-risk/);
   assert.match(gateBody(fake), /ガードレールに触れます.*harness\/lib\/plan\.ts/);
 
-  const ok = acceptanceFake({ pr: pr() });
+  const ok = acceptanceFake({ pr: pr(), issueComments: [critiqueClaim(), planGateComment] });
   await onComment(ctxFor(ok, 'issue_comment', planEvent({ ...plan, files: ['harness/lib/usage.ts'] })));
   assert.equal(ok.writes()[0], 'label+agent:plan-ok', '除外したファイルは止めない');
 });
