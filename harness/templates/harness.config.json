@@ -61,10 +61,12 @@
     "mode": "shadow",
     "model": "jev-1.13.0",
     "maxDiffChars": 80000,
+    "decisionRelease": "shadow",
     "thresholds": {
       "lowProbability": 0.9,
       "noulSafe": 0.9,
-      "labelProbability": 0.8
+      "labelProbability": 0.8,
+      "decisionProbability": 0.9
     }
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",

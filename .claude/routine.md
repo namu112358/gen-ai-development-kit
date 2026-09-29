@@ -11,7 +11,7 @@
 - **ラベルの変更は、ゲートを起動するコメント（計画・判定）を投稿する前に済ませる。** MCP のラベル更新はラベルの一覧を丸ごと置き換えるので、投稿の後に更新すると、その間に App が付けたラベル（`agent:plan-ok` など）を消してしまう。更新するときは直前に現在のラベルを読み、変えたいものだけを足し引きした一覧を渡す。
 - **承認を求める状況を作らない。** Routine には確認する人がいない。操作が拒否されたら、同じ目的を別のコマンドや別の経路で試さず、そのアクションを飛ばして（`render-claim --release`）、何が足りないかを最後の要約に書く。環境変数・資格情報・トークンは調べない。
 - **作業は常に worktree で行う。** `node harness/scripts/agent.ts worktree <ブランチ>` で作り（出力がパス）、そのディレクトリで作業する。判定のテスト実行は `worktree <headSha> --detach`。終わったら `worktree-remove <ブランチ|SHA>` で消す。clone した作業ツリーでは直接作業しない。
-- **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` の付け外し、main への push、force push、Issue 本文の書き換え。これらは App と人の役割。
+- **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` の付け外し、main への push、force push、Issue 本文の書き換え。これらは App と人の役割。決定の記録（```` ```agent-decision ````）の投稿もしない（人の答えを記録するもので、人のいない Routine は書かない）。
 
 ## 手順
 
@@ -43,7 +43,7 @@
    - `revise`：必須の `fixes` を反映して計画を直し、もう一度批評させる。回数だけでは止めない。次のどちらかに当たったら止める：**前回と同じ必須の指摘が直っていない**（堂々巡り）、**3回目でも必須が残る**（上限）。Routine（無人）では `render-block needs-decision <理由>` で人に返す（有人セッションでの扱いは CLAUDE.md）。
    - `split`：分け方の案に従い、計画ブロックに `split`（子課題ごとの title・goal・requirements・acceptanceCriteria・files・dependsOn。書式は [docs/formats.md](../docs/formats.md)）を書き、`critique` の `verdict` を `split` にして次へ（案に無い requirements・acceptanceCriteria は Issue から補う。兄弟の `files` は重ならないように分ける）。分け方の検査に通れば App が子 Issue を作り、子課題ごとの計画でまた批評する。
    - `drop`：`render-block needs-decision <理由>` で人に返す。
-5. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。`addLabels` の `agent:plan-review` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）のときだけ。App のゲートの停止の後に出し直した計画は、止めた理由が当たらなければ App が `agent:plan-review` を外して通す（Planner の申告や人が付けた印は人が外すまで残る）。
+5. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。`addLabels` の `agent:plan-review` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）のときだけ。App のゲートの停止の後に出し直した計画は、止めた理由が当たらなければ App が `agent:plan-review` を外して通す（人が付けた印は人が外すまで残る）。Planner の申告は、付き添いのセッションが記録した人の決定を App が確かめて外すことがある。Routine は記録を書かない。
 6. 実装は**しない**。
 
 ### implement（実装）

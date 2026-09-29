@@ -44,7 +44,7 @@ Routine が Issue に投稿する実装方針。末尾の ```` ```agent-plan ```
 
 ### `agent:plan-ok` / `agent:plan-review`
 
-計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は、付き添いのセッションで、人が進めると決めてから実装する。App のゲートの停止による `agent:plan-review` は、止めた理由が当たらない計画を出し直せば App が外す。Planner の申告や人が付けた印は、人が外すまで残る。詳細：[operations.md](operations.md#ラベル)
+計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は、付き添いのセッションで、人が進めると決めてから実装する。App のゲートの停止による `agent:plan-review` は、止めた理由が当たらない計画を出し直せば App が外す。Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが記録した人の決定（```` ```agent-decision ````）を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき App が外す。AC の変更提案と人が付けた印は、人が外すまで残る。詳細：[operations.md](operations.md#ラベル)
 
 ## 実装
 
