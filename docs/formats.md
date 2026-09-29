@@ -10,6 +10,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-claim ```` | Claude | Issue / PR コメント | `harness/lib/queue.ts` |
 | ```` ```agent-decision ```` | 付き添いのセッション（Routine は書かない） | Issue コメント | `harness/lib/decision.ts` |
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
+| ```` ```arch-review ```` | 付き添いのセッション（arch-review の skill） | ダッシュボード Issue のコメント | `harness/lib/arch-review.ts` |
 
 共通ルール：
 
@@ -184,6 +185,45 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - `quote` は人の言葉そのまま（空は不可）。選択肢で答えたときは `choice` に選んだ項目を書き、`quote` に書き添えた文を書く。`at` は ISO 8601 の日時。
 - App が外すのは、最新の計画ゲートの記録が Planner の申告（`planReviewOrigin: planner`）の停止で、印がその計画の投稿（`post-plan`）か App の停止で付いたものだけ（`harness/lib/decision.ts` の `decisionEligibility`）。App のゲートの停止・人が付けた印・`acChangeProposed` は、この経路で外れない。
 - App が Jev に渡すのは、App の記録にある計画の写しの `needsHumanReasons`・`openQuestions` と、答えの `to`・`choice`・`quote` だけ（本文の要約と `at` は渡さない）。
+
+## arch-review の記録
+
+arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）が、見た範囲と要約を残す（`node harness/scripts/agent.ts arch-review-record <ファイル>`。`--dry-run` は本文を出すだけ）。置き場所は App が作ったダッシュボード Issue（`dashboardIssueTitle`）へのコメント。ダッシュボードの本文は App が書き換えるので本文には書かない。
+
+````markdown
+<!-- agent-harness:claude session=<id> -->
+arch-review の記録です（…）。次の arch-review はここから読みます。
+
+見つけたずれ：
+- 着手宣言の読み取りが2か所にある
+
+作った Issue：
+- #201 refactor(harness): 着手宣言の読み取りを1か所にする
+
+```arch-review
+{
+  "version": 1,
+  "baseSha": "前回の headSha（無ければ null）",
+  "headSha": "今回見た main の SHA（40桁）",
+  "prs": [157, 158],
+  "summary": ["着手宣言の読み取りが2か所にある"],
+  "drafts": [{ "title": "refactor(harness): 着手宣言の読み取りを1か所にする", "created": 201 }]
+}
+```
+````
+
+| フィールド | 内容 |
+| --- | --- |
+| `version` | 書式の版（`1`） |
+| `baseSha` | 見た範囲の始まり（前回の記録の `headSha` か `--since`。直近 N 本を見たときは `null`） |
+| `headSha` | 見た既定ブランチの SHA（40桁）。次の実行はここから読む |
+| `prs` | 見た Merge 済みの PR の番号 |
+| `summary` | 見つけたずれの要約（1件1行） |
+| `drafts` | 人に示した下書き。`created` は人が選んで作った Issue の番号（作らなかったものは `null`） |
+
+- フェンスの名前は `agent-` で始まらない。App の記録（`agent-*`）と混同せず、`gate.yml` の `if:` にも当たらないので、ゲートは起動しない。App の記録ではなく、PR ごとの判定の材料にもしない。
+- 次の実行（`arch-review-range`）は、ダッシュボード Issue のコメントのうち、コラボレーター（OWNER・MEMBER・COLLABORATOR。App を除く）が書いた Claude の目印付きで、```` ```arch-review ```` が1つだけあり JSON が正しいものの最新を前回とする（`harness/lib/arch-review.ts` の `latestArchReviewRecord`）。ダッシュボードが無ければ前回なしとして扱う。
+- 下書きは `node harness/scripts/agent.ts arch-review-drafts <ファイル>` で検査する（`[{ title, body, duplicateOf? }]`。タイトルは Conventional Commits、本文は Issue Form の必須の見出し、`labels` に `agent:ready` があれば誤り）。
 
 ## App の記録（agent-app）
 
