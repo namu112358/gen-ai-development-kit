@@ -1,7 +1,7 @@
 ---
 name: review-intake
 description: 合体版のレビューの段階0〜2として、PR が対象か、関係する CLAUDE.md のパス、変更の要約を返す。review-panel の skill から呼ぶ。
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write
 model: haiku
 ---
 
@@ -12,6 +12,8 @@ model: haiku
 ## 入力
 
 呼び出し元が指示に含めて渡すもの：judge-input のファイルの中身（先頭行の `headSha` が判定する head。「=== PR の状態」「=== 前回の判定」の節を含む）。
+
+出力のパス（呼び出し元が渡す。リポジトリの外の一時ディレクトリ）：返す JSON を書く先。
 
 自分で読むもの：diff とリポジトリ。
 
@@ -37,3 +39,5 @@ model: haiku
   "summary": "変更の要約"
 }
 ```
+
+返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。

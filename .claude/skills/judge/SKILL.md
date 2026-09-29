@@ -20,10 +20,14 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `off`：今までどおり。手順4〜5で reviewer と risk-agent だけを動かす。
    - `shadow`：手順4の reviewer・risk-agent と、review-panel の skill（段階0〜4）を並行に動かす。全部が終わってから、review-panel の compose と post で合体版の記録を投稿し、その後に手順6・7（判定は reviewer の出力）。合体版が失敗しても判定は止めず、記録が無いことを人に伝える。
    - `enforce`：reviewer を呼ばない。手順4の risk-agent と review-panel の skill を動かし、review-panel の compose の出力 `review-<PR番号>-<head7>.json` を、手順6の compose-verdict の reviewer の出力の位置に渡す。合体版が失敗したら判定せず人に返す。review-intake が `eligible: false`（PR が closed、または前回の判定と同じ head）を返したら、判定を投稿せずに終え、理由を人に伝える（同じ head を二重に判定しない。closed の PR は判定しない）。
-4. サブエージェントを並列に呼ぶ。どれにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押す。
-   - **reviewer**（`enforce` では呼ばない）：judge-input のファイルの中身を指示に含めて渡す。Agent の説明は `reviewer <PR番号> <head7>` にする（合体版と費用を分けて数えるため）。
-   - **risk-agent**：PR 番号と head SHA **だけ**を渡す（Issue・PR の説明は渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
-5. それぞれの出力の JSON を、書き換えずにファイル（scratchpad の `reviewer-<PR番号>-<headSha の先頭7文字>.json`・`risk-<PR番号>-<headSha の先頭7文字>.json`）に保存する。PR 番号と head を名前に入れるのは、並行して別の PR や別の head を判定しても取り違えないため。
+4. 担当を呼ぶ前に、`git status --porcelain --untracked-files=all` の結果を scratchpad の `worktree-<PR番号>-<head7>.txt` に書き出して控える（`shadow`・`enforce` で review-panel を並行に動かすときも、控えるのはここの1回で、review-panel の skill は控えない）。続けてサブエージェントを並列に呼ぶ。どれにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押し、出力のパスを渡して「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。出力のパスは scratchpad の `reviewer-<PR番号>-<head7>.json`・`risk-<PR番号>-<head7>.json`（head7 は headSha の先頭7文字）。PR 番号と head を名前に入れるのは、並行して別の PR や別の head を判定しても取り違えないため。
+   - **reviewer**（`enforce` では呼ばない）：judge-input のファイルの中身と、出力のパス `reviewer-<PR番号>-<head7>.json` を指示に含めて渡す。Agent の説明は `reviewer <PR番号> <head7>` にする（合体版と費用を分けて数えるため）。
+   - **risk-agent**：PR 番号と head SHA と、出力のパス `risk-<PR番号>-<head7>.json` **だけ**を渡す（Issue・PR の説明は渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
+5. 全部の担当（`shadow`・`enforce` では review-panel の担当も）が返った後に、次を確かめる。呼び出し元は担当の出力のファイルを書かない、直さない（担当の代わりに書かない）。
+   - 担当が書いたファイルが出力のパスにあり、JSON として読めること（`node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読むだけ）。
+   - ファイルが無いときは、同じパスを渡してその担当を1回だけ呼び直す。2回目も無ければ判定せず人に返す。
+   - ファイルがあって JSON として読めないときは、呼び直さずに判定せず人に返す。
+   - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、判定せず人に返す（担当が出力のパスの外を書いた恐れがある）。付き添いの作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
 6. `node harness/scripts/agent.ts compose-verdict <PR番号> <reviewer-<PR番号>-<head7>.json> <risk-<PR番号>-<head7>.json> --judge-input <judge-input のファイル> --model <モデル名>` で判定コメントを作る（出力はファイルのパス。`enforce` では reviewer の出力の位置に合体版の組み立ての出力を渡す）。現在の head が判定した head と違えば止まるので、手順1からやり直す。
 7. `node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル>` で投稿する。
 8. App が受け付けたかを `gh pr view <PR番号> --json isDraft,statusCheckRollup` で確かめる。合格なら `agent/review`・`agent/risk` が成功し、`isDraft` が false になる。数分待っても変わらなければ、PR のコメント（App の `verdict-rejected` など）とゲートの実行（`gh run list --workflow gate.yml`）の結果を見る。確かめてから人に報告する。
@@ -48,5 +52,7 @@ judge-input の「再レビューの範囲（補足）」には、前回の head
 - `compose-verdict` や `post-verdict` が書式の誤りや権限で失敗した（拒否された操作は別の方法で試さない）
 - hook（`.claude/hooks/guard.ts`）が操作を止めた（別の方法で試さない。理由が「展開しないと分からない」ときだけ、値をそのまま書いて実行し直してよい）
 - サブエージェントが入力の不足を報告した
+- 担当が出力のパスにファイルを書かなかった（同じパスで呼び直しても無い）、または書いたファイルが JSON として読めない
+- 担当を呼んだ後の `git status --porcelain --untracked-files=all` に、呼ぶ前と比べて増えた行・変わった行がある
 - `enforce` で合体版が失敗した、または review-intake が対象外と答えた（`shadow` では判定を続け、記録が無いことだけを伝える）
-- やってはいけないこと：サブエージェントの答えの書き換え、Merge、auto-merge の設定、Draft の解除（`gh pr ready`）、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` と `*:exempt` のラベルの付け外し
+- やってはいけないこと：サブエージェントの答えの書き換え、担当の出力のファイルを書く・直すこと、Merge、auto-merge の設定、Draft の解除（`gh pr ready`）、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` と `*:exempt` のラベルの付け外し
