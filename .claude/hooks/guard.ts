@@ -858,7 +858,13 @@ function checkGhApi(args: Word[], ctx: GuardContext, stdin: StdinSource): string
   return null;
 }
 
-function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
+function checkGh(allArgs: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
+  // サブコマンドの前のフラグ（gh -R o/r issue edit … など）を読み飛ばす。-R・--repo は次の語が値
+  let i = 0;
+  for (let w = allArgs[i]; w && !w.dynamic && w.text.startsWith('-'); w = allArgs[i]) {
+    i += w.text === '-R' || w.text === '--repo' ? 2 : 1;
+  }
+  const args = allArgs.slice(i);
   const group = args[0];
   const sub = args[1];
   if (!group) return null;

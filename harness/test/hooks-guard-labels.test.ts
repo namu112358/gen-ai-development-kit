@@ -74,11 +74,20 @@ function wrapped(label: string): string[] {
     `GH_REPO=o/r gh issue edit 1 --add-label ${label}`,
     `eval "gh issue edit 1 --add-label ${label}"`,
     `echo $(gh issue edit 1 --add-label ${label})`,
+    `gh -R o/r issue edit 1 --add-label ${label}`,
+    `gh --repo o/r pr edit 1 --remove-label ${label}`,
+    `gh --repo=o/r issue create --title t -l ${label}`,
+    `gh -R o/r label delete ${label}`,
   ];
 }
 
 test('保護ラベル・例外ラベルを gh issue|pr edit|create・gh label・gh api で付け外しするのを止める', () => {
   for (const label of LABEL_NAMES) for (const cmd of ghLabelCmds(label)) assertDenyAll(bash(cmd), cmd);
+});
+
+test('サブコマンドの前に -R・--repo を置いた gh pr merge・gh pr ready も止める', () => {
+  for (const cmd of ['gh -R o/r pr merge 1', 'gh --repo o/r pr merge 1 --squash', 'gh --repo=o/r pr ready 1']) assertDenyAll(bash(cmd), cmd);
+  assertAllowAll(bash('gh -R o/r pr view 1'), 'gh -R o/r pr view 1');
 });
 
 test('bash -c・&&・;・env・代入の前置き・eval・$(...) の中の付け外しも止める', () => {
