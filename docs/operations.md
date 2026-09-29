@@ -101,10 +101,12 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 - Jev（決まらないもの）：`classification.issueTriage` が `label` のとき、優先度の無い Issue に `priority:*`、計画が無く `area:*` の無い Issue に `area:*` を、Jev の答えの確率が `jev.thresholds.labelProbability` 以上のときだけ付ける。下限未満のもの、下限が未設定のとき（提案のみ）は付けずに `label-triage` のコメントで知らせる。本文が Issue Form として読めない Issue には問わない。同じ Issue には一度だけ問う（`issue-triage` か `label-triage` の記録があれば問い済み）。`agent:ready` が付いたときは提案のコメントを出したうえで足りないものを付ける。1回の定期実行で問う Issue は 5 件まで（残りは次の実行）。
 - PR の `risk:*`：App が判定を受け付けたとき、受け付けた判定の Risk を付け、ほかの `risk:*` を外す（判定し直せば付け替える）。判定を受け付けなかったときは変えない。
 
+`priority:*`・`area:*` の付与は Jev に任せる（2026-09-29 の人の決定）。付き添いのセッションは、Issue を作ったときも最後の一覧でも、ラベルの不足を人に聞かず、伝えず、推測で付けない。Jev が下限未満で付けなかったものは、ダッシュボードの「ラベルが足りない Issue・PR」に出る。
+
 必須ラベルの検査（`harness/lib/label-rules.ts`）は、足りないラベルと次の違反を返す：優先度（`priority:*`）が2つ以上、子（Sub-issues）を持つのに `epic` が無い、Epic に `type:*` がある、`type:*` がタイトルの type と食い違う（`type:*` が2つ以上を含む）、タイトルが `type(scope): 説明` の形式でない。`epic` が付いた Issue は、子課題を作る途中で子が 0 でも Epic として扱う。`area:*` と `size:*` は `harness.config.json` にある名前だけを数える。
 
 - ダッシュボードの「ラベルが足りない Issue・PR」の節：定期実行のたびに、開いた Issue のうち `agent:*` か `epic` の付いたものと Agent PR を検査し、番号・タイトル・足りないもの・違反を1行ずつ出す（人がまだ整えていない Issue、人や bot の PR は出さない）。
-- `node harness/scripts/agent.ts label-audit [番号..]`：同じ検査の一覧を出す。番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲。ship の skill は最後に扱った Issue・PR をこれで確かめ、見つかったものを人がすることの一覧に書く。
+- `node harness/scripts/agent.ts label-audit [番号..]`：同じ検査の一覧を出す。番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲。ダッシュボードと同じ検査を人が手元で見るためのもので、セッションは走らせない。
 
 ## Epic（大きな課題を分ける）
 
@@ -219,7 +221,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 修正回数の上限 | PR に `agent:blocked` | 指摘を確認して人が直すか Close |
 | 判定が古い | App の `verdict-rejected` | 何もしない（次の実行で判定し直す） |
 | コンフリクト・停滞 | ダッシュボードの各一覧 | 人が解消する |
-| ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | 人が足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す） |
+| ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | セッションは聞かないので、人がダッシュボードを見て、足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す） |
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる |
 
 判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。集計のしかたと切り替えの基準は [security.md](security.md#jev) を見る。同じ集計の最後に、合体版のレビューの記録と今の判定を比べる節（「合体版のレビュー（記録だけの期間の比較）」）が出る。その切り替えの基準は [plan.md](plan.md) の決定ログの Q91。
