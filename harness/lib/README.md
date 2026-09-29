@@ -5,6 +5,7 @@
 <!-- readme:generated start -->
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
+| `api-count.ts` | GitHub API の呼び出しの回数を、メソッドとパスの形（番号などを伏せたもの）ごとに数える（#247）。 | ○ |
 | `arch-review.ts` | arch-review（Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す skill）の決まる部分。 | ○ |
 | `blocks.ts` | コメントに埋め込む構造化データと目印。 | ○ |
 | `claim.ts` | 着手宣言の投稿と読み直し（Issue #171）。 | ○ |
