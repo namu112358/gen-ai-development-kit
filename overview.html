@@ -361,6 +361,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
       <tr><td><code>agent:blocked</code></td><td data-k="付ける者">Claude / App / 人</td><td data-k="意味">人の対応が必要。理由をコメントに残す</td></tr>
       <tr><td><code>agent:hold</code></td><td data-k="付ける者">人</td><td data-k="意味">この Issue・PR だけ止める</td></tr>
       <tr><td><code>agent:auto-merge-stopped</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">停止スイッチ。ダッシュボードに付くと自動 Merge が全部止まる（自動 Merge した PR が revert されると App が付ける）</td></tr>
+      <tr><td><code>agent:delegate-merge</code></td><td data-k="付ける者">人のみ</td><td data-k="意味">委任 Merge。ダッシュボードに付けると期限つきで Merge を App に委ねる（動作は #211・#212 で入る）</td></tr>
       <tr><td><code>risk:*</code></td><td data-k="付ける者">Claude / App</td><td data-k="意味">壊れたときの影響の大きさ（low・medium・high・critical）</td></tr>
       <tr><td><code>priority:*</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">優先度（highest〜lowest の5段階）。高いものから進める</td></tr>
       <tr><td><code>type:*</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">課題の種類（feat・fix・docs など。タイトルと同じ）</td></tr>
