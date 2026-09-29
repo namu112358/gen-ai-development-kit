@@ -31,6 +31,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 判定の対象 | 同じリポジトリの PR は、計画のある Issue に紐付いていればブランチに関係なく判定する。人の PR は判定が出るまで `agent/review` を通さない。例外は人が付ける `review:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。fork からの PR は判定せず、例外でのみ通る |
 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。自動 Merge の経路に乗るのはこれだけ |
 | 停止スイッチ | ダッシュボードの `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い |
+| 委任 Merge のスイッチ | ダッシュボードの `agent:delegate-merge` は人だけが付ける。セッションは本人の名義で動き GitHub では区別できないため、hook（`.claude/hooks/guard.ts` の保護ラベル）と `.claude/settings.json` の deny、規則の「やってはいけないこと」で止める。自動 Merge の仕組みそのもの（`delegateMergeExclude`、`harness.config.json` は常に）は委ねない |
 | 別リポジトリの参照 | `Closes`・親 Issue・依存の参照先が別リポジトリなら無視する |
 
 ## 受け入れているリスク

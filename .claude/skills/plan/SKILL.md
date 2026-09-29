@@ -44,4 +44,4 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 - 批評が止める条件に当たった、または `drop`（「進める／直す／やめる」を AskUserQuestion で聞く）
 - 要件・AC を変えたほうがよい（Issue 本文は書き換えない。コメントで提案する）
 - `post-plan` が書式の誤りや権限で失敗した（拒否された操作は別の方法で試さない）
-- やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
+- やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
