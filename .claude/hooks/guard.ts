@@ -1101,7 +1101,8 @@ function gitBranch(dir: string): string | null {
   return r.status === 0 && typeof r.stdout === 'string' ? r.stdout.trim() : null;
 }
 
-if (import.meta.main) {
+/** hook の本体。直接起動したとき（import.meta.main）と、入口（run.mjs）から呼ばれたときに動く */
+export async function main(): Promise<void> {
   let raw = '';
   let out = '';
   try {
@@ -1133,3 +1134,5 @@ if (import.meta.main) {
   }
   if (out) process.stdout.write(`${out}\n`);
 }
+
+if (import.meta.main) await main();
