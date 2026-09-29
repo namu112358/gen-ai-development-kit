@@ -67,6 +67,17 @@ export interface CheckResult {
   outputTail: string;
 }
 
+/**
+ * ⑧の `npm ci` が失敗したときのメッセージ。起動できなければその理由、0 以外で終われば終了コードと出力の末尾 20 行。
+ * Windows では shell を通すので、npm が見つからないときは起動の失敗ではなく 0 以外の終了になり、理由は出力の末尾に入る
+ */
+export function npmCiFailureMessage(r: { status: number | null; error?: Error; stdout?: string | null; stderr?: string | null }): string {
+  const head = 'npm ci が失敗しました（⑧の指摘にはしません。やり直すか人に返す）:';
+  if (r.error) return `${head}\n起動できませんでした: ${r.error.message}`;
+  const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-20).join('\n');
+  return `${head}\n終了コード ${r.status ?? '(シグナルで終了)'}${tail ? `\n${tail}` : ''}`;
+}
+
 /** ファイル → 新しい側の変わった行 */
 export type ChangedLines = Record<string, number[]>;
 
