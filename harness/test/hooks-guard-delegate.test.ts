@@ -93,10 +93,14 @@ test('関係の無いラベルの付け外しは設定が読めないとき（ct
   }
 });
 
-test('.claude/settings.json と deny の雛形に Bash(*agent:delegate-merge*) がある', () => {
+test('.claude/settings.json と deny の雛形に、agent:delegate-merge を付け外しする gh issue edit・gh pr edit・gh api の規則がある', () => {
   for (const p of ['.claude/settings.json', 'harness/templates/claude-settings.deny.json']) {
     const json = JSON.parse(readFileSync(join(root, p), 'utf8')) as { permissions?: { deny?: string[] } };
-    assert.ok(json.permissions?.deny?.includes(`Bash(*${DELEGATE}*)`), `${p} の permissions.deny に Bash(*${DELEGATE}*) が無い`);
+    for (const c of ['gh issue edit', 'gh pr edit', 'gh api']) {
+      for (const rule of [`Bash(${c} *${DELEGATE}*)`, `Bash(* ${c} *${DELEGATE}*)`]) {
+        assert.ok(json.permissions?.deny?.includes(rule), `${p} の permissions.deny に ${rule} が無い`);
+      }
+    }
   }
 });
 

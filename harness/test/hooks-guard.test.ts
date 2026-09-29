@@ -222,7 +222,7 @@ test('settings.json に PreToolUse の hook が登録され、既存の deny・a
     'guard.ts を呼ぶ command hook がありません',
   );
   const deny = settings.permissions?.deny ?? [];
-  for (const rule of ['Bash(gh pr merge *)', 'Bash(git push --force*)', 'Bash(*agent:hold*)', 'mcp__github__merge_pull_request']) {
+  for (const rule of ['Bash(gh pr merge *)', 'Bash(git push --force*)', 'Bash(gh issue edit *agent:hold*)', 'mcp__github__merge_pull_request']) {
     assert.ok(deny.includes(rule), `permissions.deny に ${rule} がありません`);
   }
   assert.ok((settings.permissions?.allow ?? []).includes('Bash(npm run check)'), 'permissions.allow に Bash(npm run check) がありません');
