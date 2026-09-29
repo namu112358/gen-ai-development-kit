@@ -113,9 +113,18 @@ export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions)
 /** `npm ci` の結果（`spawnSync` の結果のうち使うところ） */
 export type NpmCiResult = { status: number | null; error?: Error };
 
+/**
+ * `npm ci` の起動の仕方。Windows の npm は `npm.cmd` で、Node は shell を通さないと `.cmd` を起動できないので shell を通す。
+ * 引数は固定の `ci` だけで外から来る文字列を渡さない。shell: true に引数の配列を渡すと Node 24 が DEP0190 の警告を出すので、1つの文字列にする
+ */
+export function npmCiCommand(platform: NodeJS.Platform): { command: string; args: string[]; shell: boolean } {
+  return platform === 'win32' ? { command: 'npm ci', args: [], shell: true } : { command: 'npm', args: ['ci'], shell: false };
+}
+
 /** 既定の `npm ci`。npm の出力は標準エラーへ流し、標準出力（worktree のパス）を汚さない */
 function defaultNpmCi(cwd: string): NpmCiResult {
-  return spawnSync('npm', ['ci'], { cwd, stdio: ['ignore', 2, 2] });
+  const { command, args, shell } = npmCiCommand(process.platform);
+  return spawnSync(command, args, { cwd, stdio: ['ignore', 2, 2], shell });
 }
 
 /**
