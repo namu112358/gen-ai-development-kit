@@ -24,7 +24,7 @@ test('critique の書式違いは拒否する', () => {
   }
 });
 
-test('critique はゲートの判断に使わない（revise のままでも他の条件だけで決まる）', () => {
+test('evaluatePlanGate は critique を見ない（批評の関所は evaluateCritiqueGate。revise のままでも他の条件だけで決まる）', () => {
   const r = parsePlan({ ...base, critique: { verdict: 'revise', rounds: 1 } });
   assert.ok(r.ok);
   assert.deepEqual(r.ok && evaluatePlanGate(r.value, 7, noGuardrail), { pass: true, reasons: [] });
@@ -53,7 +53,7 @@ test('critique の mustRemaining は任意。あれば 0 以上の整数', () =>
   }
 });
 
-test('mustRemaining もゲートの判断に使わない', () => {
+test('evaluatePlanGate は mustRemaining も見ない（批評の関所は evaluateCritiqueGate）', () => {
   const r = parsePlan({ ...base, critique: { verdict: 'revise', rounds: 3, mustRemaining: 2 } });
   assert.ok(r.ok);
   assert.deepEqual(r.ok && evaluatePlanGate(r.value, 7, noGuardrail), { pass: true, reasons: [] });

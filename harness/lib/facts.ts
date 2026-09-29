@@ -43,6 +43,21 @@ export function claimOf(comments: IssueComment[]): Claim | null {
   return null;
 }
 
+/**
+ * 計画コメント（planCommentId）より前に、段階 plan-critique の着手宣言があるか（計画ゲートの批評の関所）。
+ * 読み方は claimOf と同じ（Claude の目印・コラボレーターの作成者・読める agent-claim ブロック）。解除の宣言は数えない。by は manual・routine のどちらでもよい。
+ * 「前」はコメントの id の大小で決める（id は投稿順に増える。created_at は同じ秒で並ぶことがあるので使わない）
+ */
+export function critiqueClaimedBefore(comments: IssueComment[], planCommentId: number): boolean {
+  return comments.some((c) => {
+    if (c.id >= planCommentId || !hasClaudeMark(c.body) || !isTrustedComment(c)) return false;
+    const b = extractBlock(c.body, 'agent-claim');
+    if (!b.found || !b.ok) return false;
+    const claim = b.value as Claim;
+    return claim.stage === 'plan-critique' && !claim.released;
+  });
+}
+
 function latestClaudeBlockAt(comments: IssueComment[], kind: 'agent-plan' | 'agent-verdict'): IssueComment | null {
   return [...comments].reverse().find((c) => isTrustedComment(c) && hasClaudeMark(c.body) && extractBlock(c.body, kind).found) ?? null;
 }

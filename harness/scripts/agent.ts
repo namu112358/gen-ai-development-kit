@@ -7,11 +7,11 @@ import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } fr
 import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
 import { fleetConfig, LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
-import { claimOf, computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
+import { claimOf, computeQueue, critiqueClaimedBefore, issueFacts, prFacts } from '../lib/facts.ts';
 import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
-import { GitHub, transportFromEnv } from '../lib/github.ts';
+import { GitHub, transportFromEnv, type IssueComment } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
-import { evaluatePlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
+import { expectedPlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
 import { CLAIM_STAGES, claimBlocker, claimValueAfterPlan, requireOwnClaim, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
 import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
@@ -32,7 +32,9 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  * ■ Routine 用（GitHub API を呼ばない。投稿・ラベル操作は Routine が GitHub の MCP ツールで行う）
  *   node harness/scripts/agent.ts render-claim [--manual] [--release] [--stage <段階>]  着手宣言（または解除）コメントの本文
  *   node harness/scripts/agent.ts render-block <reason-code> <text>       人に返すとき（agent:blocked）のコメント本文。理由コードは必須
- *   node harness/scripts/agent.ts render-plan <issue> <file>              計画コメントを検査し {body, addLabels, removeLabels}
+ *   node harness/scripts/agent.ts render-plan <issue> <file>              計画コメントを検査し {body, addLabels, removeLabels, expectedGate}。
+ *                                                           見込み（expectedGate）は批評の関所を含む（critique が無ければ止まる見込み。
+ *                                                           GitHub を読まないので、計画より前の段階 plan-critique の宣言は確かめない）
  *   node harness/scripts/agent.ts render-verdict <pr> <headSha> <file>    判定コメントを検査し本文を出力
  *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金は usage と同じ記録から自動で記入。読めなければ tokens か unknown。最も新しい記録に戻ったときは本文にそう書く）
  *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）。
@@ -53,7 +55,8 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
- *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）
+ *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）。
+ *                                                           見込みは批評の関所を含む（critique が無い、またはこの Issue に段階 plan-critique の宣言が無ければ止まる見込み）
  *   node harness/scripts/agent.ts post-decision <issue> <file>  決定の記録（agent-decision）を検査して投稿（App の最新の計画ゲートの記録の計画コメントと、答えの無い項目が無いことを確かめる。ラベルは変えない）
  *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿。headSha が現在の head と違っても PR 自身の差分（patch-id）が同じなら
  *                                                           判定した head のまま投稿する。違えば止まる
@@ -138,7 +141,8 @@ function manualClaim(stage?: ClaimStage): Extract<Claim, { by: 'manual' }> {
 
 function claimBody(manual: boolean, release = false, stage?: ClaimStage): string {
   const url = sessionUrl();
-  const base: Claim = manual || !url ? manualClaim(stage) : { by: 'routine', session: url, at: new Date().toISOString() };
+  // Routine の宣言にも段階を書く（計画ゲートが、計画より前の段階 plan-critique の宣言を確かめるため）
+  const base: Claim = manual || !url ? manualClaim(stage) : { by: 'routine', session: url, at: new Date().toISOString(), ...(stage ? { stage } : {}) };
   return renderClaim(release ? { ...base, released: true } : base);
 }
 
@@ -174,19 +178,20 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
 }
 
 /** critic-input・post-plan・worktree の前に、このセッションの着手宣言を確かめる（Routine では確かめない） */
-async function ensureOwnClaim(gh: GitHub, n: number): Promise<void> {
+async function ensureOwnClaim(gh: GitHub, n: number, comments?: IssueComment[]): Promise<void> {
   if (isRoutine()) return;
-  const r = requireOwnClaim(claimOf(await gh.listComments(n)), currentSession());
+  const r = requireOwnClaim(claimOf(comments ?? (await gh.listComments(n))), currentSession());
   if (r.error) fail([`#${n}: ${r.error}`]);
   if (r.warning) console.error(`注意: #${n}: ${r.warning}`);
 }
 
 /** 計画コメントを検査し、投稿する本文と付け外しするラベルを返す（表示用の risk:* と、必要なら plan-review） */
-function renderPlan(n: number, file: string): { body: string; addLabels: string[]; removeLabels: string[]; expectedGate: { pass: boolean; reasons: string[] } } {
+function renderPlan(n: number, file: string, critiqueClaimed: boolean | null = null): { body: string; addLabels: string[]; removeLabels: string[]; expectedGate: { pass: boolean; reasons: string[] } } {
   const checked = checkFile(file);
   if (checked.kind !== 'plan' || checked.errors.length > 0) fail(checked.errors);
   const plan = checked.value as Plan;
-  const gate = evaluatePlanGate(plan, n, config);
+  // 批評の関所を含む見込み。critiqueClaimed が null（render-plan）なら、段階 plan-critique の宣言は確かめない
+  const gate = expectedPlanGate(plan, n, config, critiqueClaimed);
   const risks = (['low', 'medium', 'high', 'critical'] as const).map(riskLabel);
   return {
     body: readBlockFile(file),
@@ -239,8 +244,11 @@ function checkFile(file: string): { kind: 'plan' | 'verdict' | 'decision'; error
 }
 
 async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
-  const r = renderPlan(n, file);
-  await ensureOwnClaim(gh, n);
+  renderPlan(n, file);
+  const comments = await gh.listComments(n);
+  await ensureOwnClaim(gh, n, comments);
+  // 投稿する計画より前（今あるコメントすべて）に段階 plan-critique の宣言があるかで、ゲートの見込みを出す
+  const r = renderPlan(n, file, critiqueClaimedBefore(comments, Number.MAX_SAFE_INTEGER));
   for (const l of r.removeLabels) await gh.removeLabel(n, l);
   await gh.addLabels(n, r.addLabels);
   const posted = await gh.comment(n, r.body);
