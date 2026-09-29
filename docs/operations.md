@@ -71,6 +71,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `test:exempt` | 人 | テストを弱める変更を例外として `agent/tests` を通す（Issue 本文にテストを変える理由があるとき）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する。自動 Merge の対象の PR で使う（Human Merge の PR では要らない。下記「テストの改ざん検査」） |
 | `area:*` | App | PR の変更ファイルの領域、Issue の計画（計画ゲートを通ったもの）の files の領域（`harness.config.json` の `classification.areas`）。計画の無い Issue には Jev が付ける。足すだけで外さない |
 | `agent:delegate-merge` | 人のみ | ダッシュボード専用。期限つきで Merge の判断を App に委ねる「委任 Merge」のスイッチ（`harness.config.json` の `delegateMerge`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けると、`delegateMerge.hours` の間、条件を満たす Agent PR にガードレール・Risk の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#委任-merge)）。外すと、委任で付けた auto-merge を外して人にレビューを依頼する。期限が切れると定期実行が同じように外し、ラベルも外してダッシュボードに書く |
+| `agent:bypass-merge` | 人のみ | ダッシュボード専用。ブロッキング指摘の無い Agent PR の Merge を App に任せる「bypass モード」のスイッチ（`harness.config.json` の `bypassMerge`）。セッションは付け外ししない（hook と deny で止める）。付けている間（期限なし）、ブロッキング指摘が無く範囲照合と `agent/tests` を通る Agent PR に、Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#bypass-モード)）。外す・停止スイッチで、bypass で付けた auto-merge を外して人にレビューを依頼する |
 
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
 
@@ -209,6 +210,8 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 人の PR（`claude/` 以外のブランチから人が自分で書いた PR） | 計画のある Issue に紐付いていれば judge の skill で判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
 | `agent:blocked` | 理由のコメントを読み、直してからラベルを外す |
 | 委任 Merge を始める | 見ていられる時間だけ、ダッシュボードに `agent:delegate-merge` を付ける（`delegateMerge.hours` で期限が切れる）。条件を満たす Agent PR は、ガードレール・Risk が理由でも自動 Merge される（[risk-policy.md](risk-policy.md#委任-merge)） |
+| bypass モードを始める | ダッシュボードに `agent:bypass-merge` を付ける（外すまで続く）。ブロッキング指摘の無い Agent PR は、ハーネス自身の変更も含めて自動 Merge される（[risk-policy.md](risk-policy.md#bypass-モード)） |
+| bypass モードを見返す | ダッシュボードの「bypass で Merge された PR」（直近 `staleHours` 時間）と、PR の App の記録（`kind=bypass-merge`）を見る |
 | 委任 Merge を見返す | ダッシュボードの「委任 Merge で Merge された PR」（直近 `staleHours` 時間）と、PR の App の記録（`kind=delegated-merge`）を見る |
 
 ## 止める仕組み
@@ -217,6 +220,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | --- | --- | --- |
 | 停止スイッチ | 「Agent ダッシュボード」Issue に `agent:auto-merge-stopped` を付ける | App が全 PR の auto-merge を外し、merge-route が自動経路を failure にする。Human Merge は通る |
 | 委任 Merge を終える | ダッシュボードの `agent:delegate-merge` を外す（期限が切れると定期実行が外す）。停止スイッチでも止まる | App が委任で付けた auto-merge を外し（記録 `delegated-merge-end`）、人にレビューを依頼する。自動 Merge の対象の PR（low など）はそのまま |
+| bypass モードを終える | ダッシュボードの `agent:bypass-merge` を外す。停止スイッチでも止まる | App が bypass で付けた auto-merge を外し（記録 `bypass-merge-end`）、人にレビューを依頼する。委任 Merge で乗る PR は委任に引き継ぐ。自動 Merge の対象の PR（low など）はそのまま |
 | 最終手段 | Settings → General → Allow auto-merge を切る | auto-merge が一斉に効かなくなる |
 | 個別停止 | Issue / PR に `agent:hold` を付ける | PR は merge-route が failure、Issue は Routine が処理しない。外されると App が記録する |
 | revert で自動停止 | 自動 Merge された PR を revert する | App が停止スイッチを入れる。人が確認して外すまで再開しない |

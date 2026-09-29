@@ -48,7 +48,7 @@ export interface GuardContext {
 export type Decision = { deny: false } | { deny: true; reason: string };
 
 /** 設定が読めないときに使う保護ラベル */
-const FALLBACK_LABELS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-merge'];
+const FALLBACK_LABELS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-merge', 'agent:bypass-merge'];
 const MAX_DEPTH = 8;
 const ALLOW: Decision = { deny: false };
 
@@ -1108,7 +1108,7 @@ if (import.meta.main) {
     for await (const chunk of process.stdin) raw += String(chunk);
     let ctx: GuardContext | null = null;
     try {
-      const { loadConfig, LABELS, delegateMergeConfig } = await import('../../harness/lib/config.ts');
+      const { loadConfig, LABELS, delegateMergeConfig, bypassMergeConfig } = await import('../../harness/lib/config.ts');
       const config = loadConfig();
       if (typeof config.defaultBranch !== 'string' || config.defaultBranch === '' || typeof config.autoMergeStopLabel !== 'string') throw new Error('config');
       let cwd = process.cwd();
@@ -1120,7 +1120,7 @@ if (import.meta.main) {
       }
       ctx = {
         defaultBranch: config.defaultBranch,
-        protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateMergeConfig(config).label],
+        protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateMergeConfig(config).label, bypassMergeConfig(config).label],
         currentBranch: gitBranch(cwd),
         branchAt: gitBranch,
       };
