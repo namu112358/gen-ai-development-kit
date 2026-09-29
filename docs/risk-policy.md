@@ -56,8 +56,8 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 
 委任承認（どちらのラベルでも）が有効な間、計画ゲートで「ガードレールに触れる」「想定 Risk が high / critical」だけで止まる計画には、App が `agent:plan-ok` を付ける。通過の記録（`plan-gate`）に `delegated` が残り、コメントに飛ばした理由・ラベル・付けた人・付けた時刻を書く。
 
-- 委任でも止まるもの：Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）、`issue` の不一致、`files` の欠落・書式の誤り、`split` の不正、人が付けた `agent:plan-review`、`delegateMergeExclude` か `harness.config.json` に重なりうる `files`（`harness/**` のような広いパターンも、重なりうれば止まる）。`delegateMergeExclude` が無い設定ではすべて止まる。
-- ラベルを付けたとき（計画の委任が有効になったとき）と定期実行で、App のゲートの停止（ガードレール・Risk だけで、印を App が付けた）で止まっている Issue を判定し直し、通れば `agent:plan-ok` にする。Planner の申告・人の印・exclude に当たるもの・計画コメントの本文が変わったものは止まったまま。
+- 委任でも止まるもの：Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）、`issue` の不一致、`files` の欠落・書式の誤り、`split` の不正、人が付けた `agent:plan-review`、批評の関所（`critique` が無い・計画より前に `plan-critique` の着手宣言が無い。[formats.md](formats.md)）、`delegateMergeExclude` か `harness.config.json` に重なりうる `files`（`harness/**` のような広いパターンも、重なりうれば止まる）。`delegateMergeExclude` が無い設定ではすべて止まる。
+- ラベルを付けたとき（計画の委任が有効になったとき）と定期実行で、App のゲートの停止（ガードレール・Risk だけで、印を App が付けた）で止まっている Issue を判定し直し、通れば `agent:plan-ok` にする。Planner の申告・人の印・exclude に当たるもの・批評の関所に当たるもの・計画コメントの本文が変わったものは止まったまま。
 - ラベルを外しても、委任で付けた `agent:plan-ok` は外さない。
 
 ### Merge の委任

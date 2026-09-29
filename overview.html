@@ -207,7 +207,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     <li class="step">
       <div class="step-head"><span class="num">2</span><h3>計画</h3><span class="who claude">Claude</span><span class="who app">App</span></div>
       <p>Claude が実装方針と「触るファイル一覧」・想定 Risk を計画コメントに書きます（投稿前に plan-critic が批評）。App の<strong>計画ゲート</strong>が中身を機械的に検査し、通れば <code>agent:plan-ok</code> を付けます。</p>
-      <div class="branch"><strong>人に返る分かれ道：</strong>人の判断が要る、AC を変える提案がある、未解決の質問がある、Risk が high 以上、触るファイル一覧が無い、ガードレールに触れる、のどれかなら <code>agent:plan-review</code> で止まり、人が「進める／直す／やめる」を決めます。ただし人がダッシュボードに委任承認（<code>agent:delegate-plan</code> か <code>agent:delegate-merge</code>）を付けている間は、Risk が high 以上・ガードレールに触れる、だけで止まる計画は App が通します（<code>delegateMergeExclude</code> に重なる計画と、ほかの理由では止まります）。</div>
+      <div class="branch"><strong>人に返る分かれ道：</strong>人の判断が要る、AC を変える提案がある、未解決の質問がある、Risk が high 以上、触るファイル一覧が無い、ガードレールに触れる、批評の記録か批評の着手宣言が無い、のどれかなら <code>agent:plan-review</code> で止まり、人が「進める／直す／やめる」を決めます。ただし人がダッシュボードに委任承認（<code>agent:delegate-plan</code> か <code>agent:delegate-merge</code>）を付けている間は、Risk が high 以上・ガードレールに触れる、だけで止まる計画は App が通します（<code>delegateMergeExclude</code> に重なる計画と、批評の関所を含むほかの理由では止まります）。</div>
     </li>
     <li class="step">
       <div class="step-head"><span class="num">3</span><h3>実装</h3><span class="who claude">Claude</span></div>

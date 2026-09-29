@@ -98,6 +98,8 @@ export interface PlanGateRecord {
   decisionCommentId?: number;
   /** 委任承認で通したとき（飛ばした理由・ラベル・段階・付けた人・付けた時刻）。harness/lib/delegate.ts の delegatePlanGate */
   delegated?: PlanDelegation;
+  /** 批評で必須の指摘が残ったまま、人が進めると決めて通った計画（critique が revise で mustRemaining が1以上）。古い記録には無い */
+  critiqueProceeded?: { verdict: 'revise'; mustRemaining: number };
 }
 
 export function latestPlanGate(config: HarnessConfig, comments: IssueComment[]): { comment: IssueComment; value: PlanGateRecord } | null {

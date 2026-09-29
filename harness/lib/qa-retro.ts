@@ -3,14 +3,15 @@ import { appLogin, projectChecks, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
 import type { Acceptance } from './merge-route.ts';
 import { fixPrsFor, isFixPr, type MergedPr } from './report.ts';
-import { appRecords, changedFiles, fixRequestCount, isAgentPr, isAppComment, isTrustedComment, type PullRequest } from './state.ts';
+import { appRecords, closingIssues, fixRequestCount, isAgentPr, isAppComment, isTrustedComment, type PullRequest } from './state.ts';
 import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
 import { DELEGATED_MERGE_KIND } from '../gates/delegation.ts';
 
 /**
  * Merge 済みの PR の振り返り（qa-retro の skill）の集計。決まるもの（数える・組にする）だけを行い、判断（見落としか、どの問いで拾えたか）は skill の手順でセッションが行う。
  * GitHub から事実を集める collectQaRetro と、集めた事実を読む・数える純粋関数に分ける。GitHub には書かない。
- * 後追いの修正は harness/lib/report.ts の fixPrsFor（Merge 後 7 日以内、変更ファイルが重なる fix の PR）、revert は on-main-push.ts と同じ読み方。
+ * 後追いの修正は harness/lib/report.ts の fixPrsFor（Merge 後 7 日以内、変更ファイルが重なり、行か参照で元の PR に結び付く fix の PR。
+ * 判定の集計の harness/scripts/report.ts と同じ材料：変更ファイルと patch・本文・Closes する Issue の番号）、revert は on-main-push.ts と同じ読み方。
  * 報告は判定の材料にしない（reviewer・risk-agent・Jev に渡さない）。
  */
 
@@ -305,17 +306,40 @@ export async function collectQaRetro(gh: GitHub, config: HarnessConfig, period: 
   if (closed.length >= MAX_PAGES * 100) truncated.push(`閉じた PR（${closed.length} 件で打ち切り）`);
   const merged = closed.filter((p) => within(p.merged_at, since, until)).sort((a, b) => a.number - b.number);
 
-  const filesOf = new Map<number, string[]>();
-  const files = async (n: number): Promise<string[]> => {
-    if (!filesOf.has(n)) filesOf.set(n, await changedFiles(gh, n));
+  // 結び付けの材料（harness/scripts/report.ts と同じ）：変更ファイルと patch（リネームは旧パスにも同じ patch）、Closes する Issue の番号。PR 番号でキャッシュする
+  const filesOf = new Map<number, { files: string[]; patches: Record<string, string | undefined> }>();
+  const prFiles = async (n: number) => {
+    if (!filesOf.has(n)) {
+      const list = await gh.paginate<{ filename: string; previous_filename?: string; patch?: string }>(`/pulls/${n}/files`, 30);
+      const patches: Record<string, string | undefined> = {};
+      for (const f of list) {
+        patches[f.filename] = f.patch;
+        if (f.previous_filename) patches[f.previous_filename] = f.patch;
+      }
+      filesOf.set(n, { files: list.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename])), patches });
+    }
     return filesOf.get(n)!;
   };
+  const closesOf = new Map<number, number[]>();
+  const closes = async (n: number): Promise<number[]> => {
+    if (!closesOf.has(n)) closesOf.set(n, await closingIssues(gh, n).catch(() => []));
+    return closesOf.get(n)!;
+  };
+  const material = async (p: ClosedPr): Promise<MergedPr> => ({
+    number: p.number,
+    title: p.title,
+    headRef: p.head.ref,
+    mergedAt: p.merged_at ?? null,
+    body: p.body,
+    ...(await prFiles(p.number)),
+    closes: await closes(p.number),
+  });
 
   // fix の候補：期間の終わりから 7 日後までに Merge された fix の PR（期間の終わりに Merge された PR の後追いを落とさない）
   const fixCandidates: MergedPr[] = [];
   for (const p of closed.filter((c) => within(c.merged_at, since, until + WEEK)).sort((a, b) => a.number - b.number)) {
     if (!isFixPr({ title: p.title, headRef: p.head.ref })) continue;
-    fixCandidates.push({ number: p.number, title: p.title, headRef: p.head.ref, mergedAt: p.merged_at ?? null, files: await files(p.number) });
+    fixCandidates.push(await material(p));
   }
 
   // revert：main のコミットメッセージから（on-main-push.ts と同じ読み方）
@@ -338,8 +362,9 @@ export async function collectQaRetro(gh: GitHub, config: HarnessConfig, period: 
     const comments = await gh.listComments(p.number);
     const acceptances = appRecords<Acceptance>(config, comments, 'acceptance');
     const last = acceptances.at(-1)?.value ?? null;
-    const mine = await files(p.number);
-    const fixedBy = fixPrsFor({ number: p.number, title: p.title, headRef: p.head.ref, mergedAt: p.merged_at ?? null, files: mine }, fixCandidates);
+    const original = await material(p);
+    const mine = original.files;
+    const fixedBy = fixPrsFor(original, fixCandidates);
     const metricRows = [
       ...comments.filter((c) => isTrustedComment(c)).flatMap((c) => parseMetricsTables(c.body ?? '', 'comment')),
       ...(isTrustedComment({ author_association: detail.author_association ?? p.author_association ?? '' }) ? parseMetricsTables(detail.body ?? '', 'body') : []),

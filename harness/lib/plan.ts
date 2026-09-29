@@ -19,7 +19,7 @@ export interface Plan {
   files: string[];
   /** Epic として子課題に分けるとき（2件以上）。あれば files は空でよく、Risk では止めない */
   split?: SplitChild[];
-  /** 投稿前の批評の結果（記録用。ゲートの判断には使わない） */
+  /** 投稿前の批評の結果。無い計画は計画ゲートで止める（evaluateCritiqueGate。verdict の値そのものでは止めない） */
   critique?: { verdict: CritiqueVerdict; rounds: number; mustRemaining?: number };
 }
 
@@ -73,6 +73,10 @@ export interface GateResult {
   skippable?: string[];
   /** 委任承認で通したとき（harness/lib/delegate.ts の delegatePlanGate） */
   delegated?: PlanDelegation;
+  /** 止めた理由が批評の関所（evaluateCritiqueGate）だけか（理由コード no-critique） */
+  critiqueOnly?: boolean;
+  /** 批評で必須の指摘が残ったまま、人が進めると決めた計画（revise で mustRemaining が1以上。ゲートの記録に残す） */
+  critiqueProceeded?: CritiqueProceeded;
 }
 
 /** 委任承認で計画ゲートを通した記録（plan-gate の記録の delegated） */
@@ -84,6 +88,11 @@ export interface PlanDelegation {
   mode: 'plan' | 'plan+merge';
   by: string | null;
   since: string | null;
+}
+
+export interface CritiqueProceeded {
+  verdict: 'revise';
+  mustRemaining: number;
 }
 
 /**
@@ -120,6 +129,33 @@ export function evaluatePlanGate(plan: Plan, issueNumber: number, guardrail: Gua
     if (problems.length > 0) return { pass: false, reasons, splitInvalid: true, ...extra };
   }
   return { pass: reasons.length === 0, reasons, ...extra };
+}
+
+/**
+ * 批評の関所：計画に批評（plan-critic）の記録が無い、または計画より前に段階 plan-critique の着手宣言が無ければ止める理由を返す。
+ * critiqueClaimed が null のときは確かめられない（GitHub を読まない render-plan）として、宣言の検査だけ飛ばす。
+ * 批評の中身（verdict の値）では止めない。revise で mustRemaining が1以上なら、止めずに proceeded を返す（記録に残すため）。
+ * split の計画も同じに扱う。
+ */
+export function evaluateCritiqueGate(plan: Plan, critiqueClaimed: boolean | null): { reasons: string[]; proceeded?: CritiqueProceeded } {
+  const reasons: string[] = [];
+  if (!plan.critique) reasons.push('批評（plan-critic）の記録（`critique`）がありません');
+  if (critiqueClaimed === false) reasons.push('計画より前に段階 `plan-critique` の着手宣言がありません（批評の入力を作った印）');
+  if (reasons.length > 0) return { reasons };
+  const k = plan.critique!;
+  return k.verdict === 'revise' && (k.mustRemaining ?? 0) >= 1 ? { reasons, proceeded: { verdict: 'revise', mustRemaining: k.mustRemaining! } } : { reasons };
+}
+
+/** 計画ゲートの結果に批評の関所を合わせる。ほかの理由が無く批評の関所だけで止めたときは critiqueOnly */
+export function withCritiqueGate(gate: GateResult, critique: ReturnType<typeof evaluateCritiqueGate>): GateResult {
+  if (critique.reasons.length === 0) return critique.proceeded ? { ...gate, critiqueProceeded: critique.proceeded } : gate;
+  const onlyCritique = gate.reasons.length === 0 && !gate.splitInvalid;
+  return { ...gate, pass: false, reasons: [...gate.reasons, ...critique.reasons], ...(onlyCritique ? { critiqueOnly: true } : {}) };
+}
+
+/** セッションの見込み（render-plan・post-plan）：計画ゲートと批評の関所を合わせた結果。critiqueClaimed の扱いは evaluateCritiqueGate と同じ */
+export function expectedPlanGate(plan: Plan, issueNumber: number, guardrail: GuardrailConfig, critiqueClaimed: boolean | null): GateResult {
+  return withCritiqueGate(evaluatePlanGate(plan, issueNumber, guardrail), evaluateCritiqueGate(plan, critiqueClaimed));
 }
 
 /** Planner が人の判断を求めているか（needsHuman・AC の変更提案・未解決の質問のどれか） */

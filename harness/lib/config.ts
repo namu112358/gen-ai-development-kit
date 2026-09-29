@@ -136,6 +136,7 @@ export const REASON_CODES = {
   'plan-invalid': '計画の構造化出力が読めない',
   'needs-decision': '仕様・設計・AC について人の判断が必要',
   'high-risk': '想定 Risk が high 以上',
+  'no-critique': '計画の批評（plan-critic）の記録か、計画より前の批評の着手宣言が無い',
   'split-invalid': 'Epic の分け方（split）が検査に通らない',
   'resplit': 'Epic を子課題に分けた後に、別の分け方の計画が来た',
   'split-failed': 'Epic の子課題を作る途中で失敗した',

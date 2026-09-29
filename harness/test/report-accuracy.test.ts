@@ -62,8 +62,9 @@ function passingRows(): ReportRow[] {
   return rows;
 }
 
+/** fix の PR の fake。本文で元の PR（#10）を参照するので、ファイルが重なれば参照の根拠で結び付く（期間・fix の判定・自分自身の条件を確かめるため） */
 function mpr(number: number, title: string, headRef: string, mergedAt: string | null, files: string[]): MergedPr {
-  return { number, title, headRef, mergedAt, files };
+  return { number, title, headRef, mergedAt, files, body: 'Refs #10' };
 }
 
 test('isFixPr：タイトルが fix/hotfix で始まるか「修正」を含む、またはブランチのセグメントが fix で始まる', () => {

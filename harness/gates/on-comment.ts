@@ -8,7 +8,8 @@ import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
 import { callJev } from '../lib/jev.ts';
 import { eligibility, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { evaluatePlanGate, parsePlan, planReviewOrigin, priorPlanReviewReleased, type GateResult, type Plan } from '../lib/plan.ts';
+import { critiqueClaimedBefore } from '../lib/facts.ts';
+import { evaluateCritiqueGate, evaluatePlanGate, parsePlan, planReviewOrigin, priorPlanReviewReleased, withCritiqueGate, type GateResult, type Plan } from '../lib/plan.ts';
 import { checkScope } from '../lib/scope.ts';
 import { classifyBase, type BaseKind } from '../lib/stack.ts';
 import {
@@ -111,8 +112,11 @@ async function onPlan(
     gate.pass = false;
     gate.reasons.push(epic.resplit);
   }
+  // 批評の関所：critique が無い、または計画より前に段階 plan-critique の着手宣言が無い計画は止める（split の計画も同じ）
+  gate = withCritiqueGate(gate, evaluateCritiqueGate(judged, critiqueClaimedBefore(await ctx.gh.listComments(issue.number), comment.id)));
   const record = { version: 1, planCommentId: comment.id, planBodySha256: sha256(comment.body), pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan; planBodySha256: string };
   if (decision) record.decisionCommentId = decision.commentId;
+  if (gate.pass && gate.critiqueProceeded) record.critiqueProceeded = gate.critiqueProceeded;
   if (!gate.pass) record.planReviewOrigin = planReviewOrigin(judged, labelled && !released);
   const delegated = gate.pass ? gate.delegated : undefined;
   if (delegated) record.delegated = delegated;
@@ -123,6 +127,7 @@ async function onPlan(
     : decision
       ? `人の決定の記録（[コメント](${decision.url})）を Jev が確かめ、Planner の申告による \`agent:plan-review\` を外しました。`
       : '前の計画ゲートの停止（`agent:plan-review`）を外しました。';
+  const proceededNote = gate.pass && gate.critiqueProceeded ? `批評で必須の指摘が ${gate.critiqueProceeded.mustRemaining} 件残ったまま、人が進めると決めた計画です。` : '';
   if (gate.pass && plan.split && epic) {
     await splitEpic(ctx, issue, comment, { ...plan, split: plan.split }, record, epic);
   } else if (gate.pass) {
@@ -131,8 +136,8 @@ async function onPlan(
     const areas = planAreaLabels(ctx.config, plan.files, issue.labels.map((l) => l.name));
     if (areas.length > 0) await ctx.gh.addLabels(issue.number, areas);
     const text = delegated
-      ? renderDelegatedPass(comment.html_url, delegated, releasedNote)
-      : `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。${releasedNote}`;
+      ? renderDelegatedPass(comment.html_url, delegated, `${releasedNote}${proceededNote}`)
+      : `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。${releasedNote}${proceededNote}`;
     await appComment(ctx, issue.number, 'plan-gate', text, record);
   } else {
     await ctx.gh.removeLabel(issue.number, LABELS.planOk);
@@ -157,6 +162,8 @@ async function releasesPriorPlanReview(ctx: GateContext, issueNumber: number): P
 }
 
 function stopCode(plan: Plan, gate: GateResult): ReasonCode {
+  // 批評の関所だけで止めたとき。ほかの理由と重なるときは今までのコード
+  if (gate.critiqueOnly) return 'no-critique';
   if (gate.splitInvalid) return 'split-invalid';
   if (gate.guardrail) return 'high-risk';
   return !plan.split && (plan.risk === 'high' || plan.risk === 'critical') ? 'high-risk' : 'needs-decision';
@@ -208,7 +215,9 @@ async function reviewDelegatedPlan(ctx: GateContext, issue: OpenIssue, state: De
   const decisionComment = record.decisionCommentId === undefined ? null : comments.find((c) => c.id === record.decisionCommentId);
   if (record.decisionCommentId !== undefined && !decisionComment) return;
   const judged = decisionComment ? answeredPlan(record.plan) : record.plan;
-  if (!delegatePlanGate(evaluatePlanGate(judged, issue.number, ctx.config), judged, ctx.config, state).pass) return;
+  // 批評の関所は委任でも飛ばさない（批評の無い計画を判定し直しても、また止まって停止のコメントが増えるだけ）
+  const critique = evaluateCritiqueGate(judged, critiqueClaimedBefore(comments, record.planCommentId));
+  if (!withCritiqueGate(delegatePlanGate(evaluatePlanGate(judged, issue.number, ctx.config), judged, ctx.config, state), critique).pass) return;
   const events = await ctx.gh.paginate<TimelineEvent>(`/issues/${issue.number}/events`);
   if (lastLabeled(events, LABELS.planReview)?.actor?.login !== appLogin(ctx.config)) return;
   const planComment = comments.find((c) => c.id === record.planCommentId);

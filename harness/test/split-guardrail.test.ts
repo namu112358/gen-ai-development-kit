@@ -4,13 +4,13 @@ import { extractBlock, renderBlock } from '../lib/blocks.ts';
 import type { SplitChild } from '../lib/epic.ts';
 import { evaluatePlanGate, type Plan } from '../lib/plan.ts';
 import { onComment } from '../gates/on-comment.ts';
-import { APP, acceptanceFake, config, ctxFor, pr } from './support/gate-fixtures.ts';
+import { APP, acceptanceFake, config, CRITIQUE, critiqueClaim, ctxFor, pr } from './support/gate-fixtures.ts';
 
 // Issue #94：split の計画は、子の files がガードレールに触れても計画ゲートでは止めない（子課題の計画で止まる）
 
 const child = (title: string, files: string[], dependsOn: number[] = []): SplitChild => ({ title, goal: 'g', requirements: ['r'], acceptanceCriteria: ['a'], files, dependsOn });
 const guardedSplit: SplitChild[] = [child('fix(harness): ゲート', ['harness/gates/x.ts']), child('docs: 説明', ['docs/guide/**'], [0])];
-const base: Plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['docs/plan.md'] };
+const base: Plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['docs/plan.md'], critique: CRITIQUE };
 const splitPlan: Plan = { ...base, risk: 'critical', files: [], split: guardedSplit };
 
 test('計画ゲート：split の子の files がガードレールに触れても止めない（guardrail は付かない）', () => {
@@ -74,7 +74,8 @@ const event = (p: unknown) => ({
 
 /** 子 Issue を作れる偽の GitHub（harness/test/gates-epic.test.ts の epicFake を必要な分だけ） */
 function epicFake() {
-  const comments: unknown[] = [];
+  // 計画より前に段階 plan-critique の宣言を置く（批評の関所を通る）
+  const comments: unknown[] = [critiqueClaim()];
   let next = 100;
   return acceptanceFake({ pr: pr() })
     .on('GET', /\/issues\/3\/comments/, () => comments)

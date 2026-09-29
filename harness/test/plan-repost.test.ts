@@ -7,14 +7,14 @@ import { test } from 'node:test';
 import { appMark, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { plannerRequestsHuman, planReviewOrigin, priorPlanReviewReleased, type Plan } from '../lib/plan.ts';
 import { onComment } from '../gates/on-comment.ts';
-import { APP, acceptanceFake, ctxFor, pr, type FakeGitHub } from './support/gate-fixtures.ts';
+import { APP, acceptanceFake, CRITIQUE, critiqueClaim, ctxFor, pr, type FakeGitHub } from './support/gate-fixtures.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 
 type Origin = 'gate' | 'planner';
 
-/** ガードレールに触れず、印が無ければ通る計画 */
-const passPlan: Plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['docs/a.md'] };
+/** ガードレールに触れず、印が無ければ通る計画（批評の関所も通る） */
+const passPlan: Plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['docs/a.md'], critique: CRITIQUE };
 /** ガードレール（harness/lib/**）に触れるだけで止まる計画 */
 const guardrailPlan: Plan = { ...passPlan, files: ['harness/lib/plan.ts'] };
 
@@ -36,10 +36,10 @@ function gateRecordComment(record: Record<string, unknown>) {
 
 const labeledBy = (login: string) => ({ event: 'labeled', created_at: '2026-09-26T00:00:00Z', label: { name: 'agent:plan-review' }, actor: { login } });
 
-/** 前の記録と印の付け手を差し替えた偽の GitHub */
+/** 前の記録と印の付け手を差し替えた偽の GitHub（計画より前に段階 plan-critique の宣言を置く） */
 function repostFake(comments: unknown[], events: unknown[]): FakeGitHub {
   return acceptanceFake({ pr: pr() })
-    .on('GET', /\/issues\/3\/comments/, () => comments)
+    .on('GET', /\/issues\/3\/comments/, () => [critiqueClaim(), ...comments])
     .on('GET', /\/issues\/3\/events/, () => events);
 }
 
@@ -156,10 +156,11 @@ test('印の無い Issue：前の記録も events も読まず、書き込みは
   await onComment(ctxFor(fake, 'issue_comment', planEvent(passPlan, ['agent:ready'])));
   assert.deepEqual(fake.writes(), ['label+agent:plan-ok', 'label+area:docs', 'comment:plan-gate', 'check:agent/plan-link=success']);
   assert.ok(!fake.calls.some((c) => c.path.includes('/issues/3/events')), 'events を読まない');
-  // Issue のコメントは後の plan-link の書き直しでも読むので、計画ゲートの記録の投稿より前に読んでいないことを確かめる
+  // Issue のコメントは後の plan-link の書き直しでも読むので、計画ゲートの記録の投稿より前の読み取りを数える。
+  // 前の記録のためには読まず、読むのは批評の関所（計画より前の段階 plan-critique の宣言）の1回だけ
   const postAt = fake.calls.findIndex((c) => c.method === 'POST' && c.path.endsWith('/issues/3/comments'));
-  const getAt = fake.calls.findIndex((c) => c.method === 'GET' && c.path.includes('/issues/3/comments'));
-  assert.ok(getAt === -1 || getAt > postAt, '判定の前に Issue のコメントを読まない');
+  const reads = fake.calls.slice(0, postAt).filter((c) => c.method === 'GET' && c.path.includes('/issues/3/comments'));
+  assert.equal(reads.length, 1, '判定の前に Issue のコメントを読むのは批評の関所の1回だけ');
 });
 
 // ---- 停止の記録の出どころ ----

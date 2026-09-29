@@ -9,7 +9,7 @@ import type { Plan } from '../lib/plan.ts';
 import { onComment, reviewDelegatedPlans } from '../gates/on-comment.ts';
 import { onIssue } from '../gates/on-issue.ts';
 import { onSchedule } from '../gates/stale.ts';
-import { APP, DELEGATE, config, ctxFor, delegateLabeled, delegateUnlabeled, delegateWorldFake, type DelegateWorld, type FakeGitHub } from './support/gate-fixtures.ts';
+import { APP, CRITIQUE, DELEGATE, config, critiqueClaim, ctxFor, delegateLabeled, delegateUnlabeled, delegateWorldFake, type DelegateWorld, type FakeGitHub } from './support/gate-fixtures.ts';
 import { appRecordComment, countCalls, dashboardLabelEvent } from './support/stack-fixtures.ts';
 
 const PLAN = DELEGATE.planLabel;
@@ -22,7 +22,7 @@ const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toIS
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 
 const planOf = (issue: number, patch: Partial<Plan> = {}): Plan => ({
-  version: 1, issue, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: [GUARDED], ...patch,
+  version: 1, issue, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: [GUARDED], critique: CRITIQUE, ...patch,
 });
 
 let nextCommentId = 5000;
@@ -60,7 +60,7 @@ function stoppedRecord(comment: ReturnType<typeof planComment>, plan: Plan, o: {
 function addStopped(w: DelegateWorld, n: number, plan: Plan, o: { origin?: 'gate' | 'planner'; sha?: string; withPlan?: boolean; events?: unknown[] } = {}): void {
   const comment = planComment(plan);
   (w.issues ??= {})[n] = [LABELS.ready, LABELS.planReview];
-  (w.comments ??= {})[n] = [comment, stoppedRecord(comment, plan, o)];
+  (w.comments ??= {})[n] = [critiqueClaim(), comment, stoppedRecord(comment, plan, o)];
   (w.issueEvents ??= {})[n] = o.events ?? [planReviewLabeled(APP)];
 }
 
@@ -97,7 +97,7 @@ async function postPlan(w: DelegateWorld, plan: Plan, o: { n?: number; labels?: 
   const n = o.n ?? plan.issue;
   const labels = o.labels ?? [LABELS.ready];
   (w.issues ??= {})[n] = [...labels];
-  (w.comments ??= {})[n] ??= [];
+  (w.comments ??= {})[n] ??= [critiqueClaim()];
   if (o.events) (w.issueEvents ??= {})[n] = o.events;
   const fake = delegateWorldFake(w);
   await onComment(ctxFor(fake, 'issue_comment', planEvent(n, labels, planComment(plan))));
