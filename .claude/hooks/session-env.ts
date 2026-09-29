@@ -5,18 +5,28 @@
  * 以降の Bash で harness/scripts/agent.ts がこの値を読み、着手宣言とコメントの目印に今のセッションの ID を入れる（Issue #157）。
  * /clear などで ID が変わると、自分の古い着手宣言はほかのセッションのものに見える（人に確かめて claim --takeover）。
  * session_id が無い・CLAUDE_ENV_FILE が無い・JSON が読めない・ID に英数字と - _ 以外が入るときは何も書かない。どの場合も exit 0。
+ * ID の形の規則は harness/lib/session.ts の TRANSCRIPT_SESSION_ID だけにある（記録の選択と同じもの）。読めなければ何も書かない。
  */
 import { appendFileSync } from 'node:fs';
 
+/** ID の形（harness/lib/session.ts）。lib が欠けていても exit 0 で終わるよう、try の中で読む */
+let idShape: RegExp | null = null;
+try {
+  ({ TRANSCRIPT_SESSION_ID: idShape } = await import('../../harness/lib/session.ts'));
+} catch {
+  idShape = null;
+}
+
 /** CLAUDE_ENV_FILE に書く行（書かないなら null）。シェルに渡すので、ID は英数字と - _ だけを受け付ける */
 export function envLine(raw: string): string | null {
+  if (!idShape) return null;
   let id: unknown;
   try {
     id = (JSON.parse(raw) as { session_id?: unknown }).session_id;
   } catch {
     return null;
   }
-  return typeof id === 'string' && /^[A-Za-z0-9_-]+$/.test(id) ? `export AGENT_HARNESS_SESSION=${id}\n` : null;
+  return typeof id === 'string' && idShape.test(id) ? `export AGENT_HARNESS_SESSION=${id}\n` : null;
 }
 
 if (import.meta.main) {
