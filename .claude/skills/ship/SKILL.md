@@ -17,13 +17,13 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 ## 手順
 
 1. 状態を読み、次の段階を決める。PR があれば手順4から、計画ゲートを通った計画があれば手順3から始める。
-   - 着手宣言：Issue に手を付ける最初に、その段階の skill の手順どおり `claim <番号> --manual --stage <段階>` で宣言する（計画・批評の前も）。宣言にはこのセッションの ID が入り、ほかのセッションとダッシュボードに段階が見える。ほかのセッションの宣言があれば `claim` は止まるので、人に返す（引き継ぐのは人が決めたときだけ `--takeover`）。
-   - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（`post-plan` が出す `plan-gate` の宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`/clear` などでセッション ID が変わったら、自分の古い宣言は人に確かめて `claim --takeover` で出し直す。
+   - 着手宣言：Issue に手を付ける最初に、その段階の skill の手順どおり `claim <番号> --manual --stage <段階>` で宣言する（計画・批評の前も）。宣言にはこのセッションの ID が入り、ほかのセッションとダッシュボードに段階が見える。ほかのセッションの宣言があれば `claim` は止まるので、引き継ぐかを AskUserQuestion で人に聞く（引き継ぐのは人が決めたときだけ `--takeover`）。
+   - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`post-plan` はゲートを通らない見込みなら自分で解除する。`/clear` などでセッション ID が変わったら、自分の古い宣言は人に確かめて `claim --takeover` で出し直す。
    - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
-2. 計画が無ければ plan の skill で計画を書いて投稿する。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
+2. 計画が無ければ plan の skill で計画を書いて投稿する。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を AskUserQuestion で聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
    - `agent:plan-ok`：次へ。
-   - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：理由を人に示す。付き添いのセッションなので、人が進めてよいと言えば次へ（CLAUDE.md の規則どおり）。言わなければ人に返す。止めた理由が計画で直せる（ゲートの停止）なら、計画を直して出し直す選択肢も人に示す（plan の skill の出し直しの扱い）。
+   - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：宣言が残っていれば（`post-plan` の出力の `claim` が `plan-gate`）先に `release <番号>` で解除する。理由を示し、進めてよいかを AskUserQuestion で聞く（選択肢は、進める・止める、止めた理由が計画で直せる（ゲートの停止）なら計画を直して出し直す（plan の skill の出し直しの扱い）も）。人が進めてよいと答えれば次へ（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の規則どおり。implement の `claim --stage implement` で宣言し直す）。答えなければ人に返す。
    - `epic`：手順1の `epic` に戻る。
 3. implement の skill で実装し、Draft PR を出す。worktree は消さずに続ける。
 4. judge の skill で判定する。現在の head にコラボレーターのレビューがあれば、先に fix の skill をする。
@@ -45,13 +45,13 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 
 - 次のどちらか。
   - 人の Merge 待ち：Ready の PR があり、App が auto-merge を付けたか、`kind=human-review` のコメントを付けた。
-  - 人の判断待ち：どの段階の、何を決めてほしいかを人に示した。
+  - 人の判断待ち：どの段階の、何を決めてほしいかを AskUserQuestion で聞いた（拒まれた・答えが無いときは文章で示した）。
 - 人がすることの一覧を出した。
 
 ## 人に返す条件
 
 - Issue に `agent:hold`・`agent:blocked`・`agent:waiting` が付いている
-- 計画の批評が止める条件に当たった、または `drop`（「進める／直す／やめる」を聞く）
+- 計画の批評が止める条件に当たった、または `drop`（「進める／直す／やめる」を AskUserQuestion で聞く）
 - 計画ゲートで止まり（`agent:plan-review`）、人が進めてよいと言わない
 - 判定の不合格が修正の上限を超えた（`fix-limit`）
 - 両方の意図を残して解消できない衝突がある

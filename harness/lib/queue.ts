@@ -55,6 +55,19 @@ export function requireOwnClaim(claim: Claim | null, current: string | null): { 
   return { error: withDetail('ほかのセッションの着手宣言があります', c) + '。引き継ぐなら人に確かめてから claim --manual --takeover を実行してください', warning: null };
 }
 
+/**
+ * post-plan の後の着手宣言。ゲートを通る見込みなら、結果を待つ間ほかのセッションに取られないよう plan-gate で出し直す。
+ * 通らない見込み（agent:plan-review で人の判断待ち）なら解除する（宣言を残すと「着手中なのに進まない」ように見え、ほかのセッションを待たせる）
+ */
+export function claimAfterPlan(expectedGate: { pass: boolean }): 'plan-gate' | 'release' {
+  return expectedGate.pass ? 'plan-gate' : 'release';
+}
+
+/** post-plan が投稿する着手宣言の値。base はこのセッションの手動の宣言（段階と解除の印は上書きする） */
+export function claimValueAfterPlan(expectedGate: { pass: boolean }, base: Extract<Claim, { by: 'manual' }>): Claim {
+  return claimAfterPlan(expectedGate) === 'plan-gate' ? { ...base, stage: 'plan-gate' } : { ...base, released: true };
+}
+
 /** worktree の前に宣言を確かめる Issue の番号。claude/issue-<番号>- のブランチで、--detach でも Routine でもないときだけ */
 export function worktreeClaimIssue(branch: string, detach: boolean, routine: boolean): number | null {
   if (detach || routine) return null;
