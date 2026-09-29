@@ -1,8 +1,22 @@
-import { loadConfig } from '../lib/config.ts';
+import { appMarkKind } from '../lib/blocks.ts';
+import { appLogin, loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
-import { fixPrsFor, isFixPr, renderReport, renderTokenRatios, summarize, tokenRatios, type MergedPr, type ReportRow } from '../lib/report.ts';
-import { appRecords, changedFiles, fixRequestCount, isAgentPr, type PullRequest } from '../lib/state.ts';
+import {
+  fixPrsFor,
+  isFixPr,
+  panelComparison,
+  panelPairs,
+  renderPanelComparison,
+  renderReport,
+  renderTokenRatios,
+  summarize,
+  tokenRatios,
+  type MergedPr,
+  type PanelPairRow,
+  type ReportRow,
+} from '../lib/report.ts';
+import { appRecords, changedFiles, fixRequestCount, isAgentPr, type PullRequest, type Review } from '../lib/state.ts';
 import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
 
 /**
@@ -12,6 +26,7 @@ import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
  *
  * ここでは GitHub から事実を集めて行にするだけ。集計と基準の判定は harness/lib/report.ts、基準の意味は docs/security.md の「Jev」。
  * 受け付けられなかった判定コメントも件数に出す。
+ * 最後に合体版のレビューの記録と今の判定を比べる節を出す（基準は docs/plan.md の Q91）。
  */
 
 const config = loadConfig();
@@ -52,6 +67,8 @@ for (const p of merged) {
 }
 
 const rows: ReportRow[] = [];
+const panelRows: PanelPairRow[] = [];
+const panelExcluded: Record<string, number> = {};
 for (const pr of agentPrs) {
   const comments = await gh.listComments(pr.number);
   const fixedBy = pr.merged_at
@@ -68,6 +85,32 @@ for (const pr of agentPrs) {
     reverted: revertedPrs.has(pr.number),
     fixedBy,
   });
+
+  // 合体版のレビューの記録と今の判定の組（App の fix-request と、レビューコメント）
+  const row = rows.at(-1)!;
+  const reviews = await gh.paginate<Review>(`/pulls/${pr.number}/reviews`);
+  const reviewComments = await gh.paginate<{ path: string; created_at: string; author_association: string; user: { login: string } | null; body: string }>(
+    `/pulls/${pr.number}/comments`,
+  );
+  const fixPrFiles: Record<number, string[]> = {};
+  for (const n of fixedBy) fixPrFiles[n] = await files(n);
+  const panel = panelPairs(config, {
+    pr: pr.number,
+    mergedAt: row.mergedAt,
+    reverted: row.reverted,
+    fixedBy,
+    fixRequests: row.fixRequests,
+    comments,
+    acceptances: appRecords<Acceptance>(config, comments, 'acceptance'),
+    fixRequestReviews: reviews
+      .filter((r) => r.user?.login === appLogin(config) && appMarkKind(r.body) === 'fix-request')
+      .map((r) => ({ commitId: r.commit_id, submittedAt: r.submitted_at, body: r.body })),
+    reviewComments: reviewComments.map((c) => ({ path: c.path, createdAt: c.created_at, authorAssociation: c.author_association, login: c.user?.login ?? '', body: c.body })),
+    fixPrFiles,
+  });
+  panelRows.push(...panel.rows);
+  for (const [k, n] of Object.entries(panel.excluded)) panelExcluded[k] = (panelExcluded[k] ?? 0) + n;
 }
 
 console.log(`${renderReport(summarize(config, rows), rows, days)}\n\n${renderTokenRatios(tokenRatios(rows))}`);
+console.log(`\n${renderPanelComparison(panelComparison(panelRows), panelRows, panelExcluded)}`);

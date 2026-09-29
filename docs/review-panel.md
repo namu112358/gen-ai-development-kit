@@ -100,6 +100,6 @@ shadow の期間の「前回の判定」と⑥⑦の `unfixedPrevious` は、今
 ## 切り替えの手順
 
 1. shadow で、判定コメントと記録のコメントの組（同じ PR・同じ head）を集める。
-2. 集計の組が 20 件に達したら、人が集計を回す（Epic #142 の子課題3）。
+2. 集計の組が 20 件に達したら、人が集計（`node harness/scripts/report.ts <owner>/<repo> [日数]`）を回し、「合体版のレビュー（記録だけの期間の比較）」の節で基準（[plan.md](plan.md) の決定ログの Q91）を見る。
 3. 合体版だけが出した指摘と、誤検知の疑い（今の reviewer が出さず、合体版がブロッキングにしたもの）の全件を、人が diff と照らして確かめる。④の材料の量（`material`）も見る。
 4. 切り替えてよいと決めたら、人が `reviewPanel.mode` を `enforce` にする Issue を立てる（`agent:ready` は人が決めてから付ける）。変更は `harness.config.json` の1行。
