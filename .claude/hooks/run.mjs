@@ -12,6 +12,7 @@
  * - 判定の規則（保護ラベル・push の判定など）は持たない。hook の中身はそれぞれのファイルにある。
  * - このファイル自身が読めない・壊れたときは今までと同じく fail-open になる（残る守りは permissions.deny と GitHub の Ruleset）。
  */
+import { realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
 /** Node 24 以上か。先頭の v は許す。読めない版は false */
@@ -64,8 +65,19 @@ export async function run({ version, hook, load }) {
   }
 }
 
-/** 直接起動されたか（import.meta.main は Node 24 より前に無いので、起動したパスと比べる） */
-const isEntry = typeof process.argv[1] === 'string' && pathToFileURL(process.argv[1]).href === import.meta.url;
+/**
+ * 直接起動されたか（import.meta.main は Node 24 より前に無いので、起動したパスと比べる）。
+ * Node はメインのモジュールを実体のパスで読むので、シンボリックリンク・ジャンクションを通した起動でも合うよう、argv[1] も実体のパスにしてから比べる
+ */
+function isEntryPath(argv1) {
+  if (typeof argv1 !== 'string') return false;
+  try {
+    return pathToFileURL(realpathSync(argv1)).href === import.meta.url;
+  } catch {
+    return false;
+  }
+}
+const isEntry = isEntryPath(process.argv[1]);
 if (isEntry) {
   const hook = hookFor(process.argv[2] ?? '');
   if (hook === null) {

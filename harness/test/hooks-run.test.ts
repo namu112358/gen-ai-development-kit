@@ -1,7 +1,7 @@
 // Issue #257：hook の入口（.claude/hooks/run.mjs）が Node の版（24 未満か）を確かめ、足りなければ guard は止める側・session-env は知らせる側に倒すか。24 以上では今までどおり hook の main を動かすか
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -147,6 +147,23 @@ test('子プロセス：run.mjs 経由の guard は main への push を deny �
     const ok = spawnRun([guardArg], bashInput('ls'));
     assert.equal(ok.status, 0, `ls: exit code（stderr: ${ok.stderr}）`);
     assert.equal(ok.stdout.trim(), '', 'ls は何も出さない');
+  }
+});
+
+test('子プロセス：シンボリックリンク（Windows はジャンクション）を通したパスで起動しても、run.mjs 経由の guard は main への push を deny する', () => {
+  // Node はメインのモジュールを実体のパスで読むので、起動したパスのまま比べると直接起動と見なせず、何も出さずに終わる（fail-open）
+  const dir = mkdtempSync(join(tmpdir(), 'hooks-run-link-'));
+  const link = join(dir, 'hooks');
+  try {
+    symlinkSync(join(root, '.claude', 'hooks'), link, process.platform === 'win32' ? 'junction' : 'dir');
+    const r = spawnSync(process.execPath, [join(link, 'run.mjs'), join(link, 'guard.ts')], { cwd: root, input: bashInput('git push origin HEAD:main'), encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const out = JSON.parse(r.stdout) as DenyOutput;
+    assert.equal(out.hookSpecificOutput?.permissionDecision, 'deny');
+  } finally {
+    // リンクを先に外す（リンク先の .claude/hooks を消さない）
+    if (existsSync(link)) unlinkSync(link);
+    rmSync(dir, { recursive: true, force: true });
   }
 });
 
