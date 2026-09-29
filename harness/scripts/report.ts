@@ -9,6 +9,7 @@ import {
   fixLinksFor,
   fixPrFilesOf,
   isFixPr,
+  laterPassHead,
   panelComparison,
   panelPairs,
   renderDecisionAgreement,
@@ -20,6 +21,7 @@ import {
   tokenRatios,
   type DecisionRow,
   type MergedPr,
+  type PanelCompareInput,
   type PanelPairRow,
   type ReportRow,
 } from '../lib/report.ts';
@@ -91,6 +93,43 @@ for (const p of merged) {
   fixCandidates.push({ number: p.number, title: p.title, headRef: p.head.ref, mergedAt: p.merged_at ?? null, body: p.body, ...(await prFiles(p.number)), closes: await closes(p.number) });
 }
 
+/**
+ * 組の head ごとに、その後の最初の合格の head（`laterPassHead`）までの PR 自身のコミットの変更ファイル（合体版の比較の「後の head で直された」）。
+ * 今の reviewer が不合格にした head だけ読む。compare（H...L）の commits を PR のコミットの一覧に入っているものに絞り、
+ * 親が2つ以上の merge コミットを除く（main の取り込みで入った main 側の変更は数えない。harness/gates/push-claim.ts と同じ絞り方）。
+ * force push で H が L の祖先でなくなったときは、compare の commits で読める範囲だけを数える。compare が失敗したら（H が消えたなど）その head は空。
+ */
+async function laterHeadFilesOf(pr: number, input: Pick<PanelCompareInput, 'comments' | 'acceptances'>): Promise<Record<string, string[]>> {
+  const out: Record<string, string[]> = {};
+  const seen = new Set<string>();
+  let own: Set<string> | null = null;
+  for (const a of input.acceptances) {
+    const head = a.value.verdictHeadSha;
+    if (seen.has(head)) continue;
+    seen.add(head);
+    if (a.value.reviewPass) continue;
+    const later = laterPassHead(input, head);
+    if (!later) continue;
+    try {
+      own ??= new Set((await gh.paginate<{ sha: string }>(`/pulls/${pr}/commits`)).map((c) => c.sha));
+      const cmp = await gh.get<{ commits?: { sha: string; parents?: unknown[] }[] }>(`/compare/${head}...${later}`);
+      const files = new Set<string>();
+      for (const c of cmp.commits ?? []) {
+        if (!own.has(c.sha) || (c.parents?.length ?? 0) >= 2) continue;
+        const detail = await gh.get<{ files?: { filename: string; previous_filename?: string }[] }>(`/commits/${c.sha}`);
+        for (const f of detail.files ?? []) {
+          files.add(f.filename);
+          if (f.previous_filename) files.add(f.previous_filename);
+        }
+      }
+      out[head] = [...files];
+    } catch {
+      out[head] = [];
+    }
+  }
+  return out;
+}
+
 const rows: ReportRow[] = [];
 const panelRows: PanelPairRow[] = [];
 const panelExcluded: Record<string, number> = {};
@@ -132,6 +171,7 @@ for (const pr of agentPrs) {
   );
   // fix-pr の裏付けは、Jev・Claude の外れと同じ結び付けの、根拠になったファイルだけで見る
   const fixPrFiles = fixPrFilesOf(fixLinks);
+  const acceptances = appRecords<Acceptance>(config, comments, 'acceptance');
   const panel = panelPairs(config, {
     pr: pr.number,
     mergedAt: row.mergedAt,
@@ -139,12 +179,13 @@ for (const pr of agentPrs) {
     fixedBy,
     fixRequests: row.fixRequests,
     comments,
-    acceptances: appRecords<Acceptance>(config, comments, 'acceptance'),
+    acceptances,
     fixRequestReviews: reviews
       .filter((r) => r.user?.login === appLogin(config) && appMarkKind(r.body) === 'fix-request')
       .map((r) => ({ commitId: r.commit_id, submittedAt: r.submitted_at, body: r.body })),
     reviewComments: reviewComments.map((c) => ({ path: c.path, createdAt: c.created_at, authorAssociation: c.author_association, login: c.user?.login ?? '', body: c.body })),
     fixPrFiles,
+    laterHeadFiles: await laterHeadFilesOf(pr.number, { comments, acceptances }),
   });
   panelRows.push(...panel.rows);
   for (const [k, n] of Object.entries(panel.excluded)) panelExcluded[k] = (panelExcluded[k] ?? 0) + n;

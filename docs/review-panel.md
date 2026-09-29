@@ -89,6 +89,8 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 
 shadow の期間の「前回の判定」と⑥⑦の `unfixedPrevious` は、今の reviewer の判定（App が受け付けた判定コメント）を基準にする。合体版自身の前回の結果ではない。比べるときは、合体版の再レビューの指摘が「今の reviewer が前回出した指摘」に対するものであることに注意する。
 
+集計の「片方だけのブロッキング指摘」で、今の reviewer だけの指摘の「裏付け」が「未確認（後の head で直された）」のものは、指摘のファイルを、その head の後の最初の合格の head（判定コメントより後に作られた、別の head の最初の受け付けのうち合格のもの）までの PR 自身のコミットが変えたもの（compare を PR のコミットに絞り、merge コミットを除く。main の取り込みで入った変更は数えない。force push で古い head が祖先でなくなったときは compare で読める範囲だけ）。指摘を受けたセッションは誤りでも直すことがあるので本物の強い証拠ではなく、「裏付けあり」とは別に数え、Q91 の基準 (2) には数えない。代わりに基準の判定の文に件数を添えるので、切り替えの前に人が全件を diff と照らして確かめる（#268）。
+
 ## 出どころ
 
 - 元：[anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) のコミット `fa59bc9037741ecfa131aa27938272605710d7b2` の `plugins/code-review/commands/code-review.md`（Apache License 2.0）
