@@ -1,4 +1,5 @@
 import { appLogin, bypassMergeConfig, delegateConfig, LABELS, PRIORITY_LABELS, priorityRank, reasonMark } from '../lib/config.ts';
+import type { IssueComment } from '../lib/github.ts';
 import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
 import { parseTitle } from '../lib/title.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage } from '../lib/issue-triage.ts';
@@ -22,6 +23,7 @@ const PRIORITY_VALUES: string[] = Object.values(PRIORITY_LABELS);
 /**
  * issues：
  * - 作成とタイトルの編集で、足りない type:*（と子を持つ Issue の epic）を付ける。App が前に付けた type:* だけ付け替える（label-apply.ts）
+ * - 作成では続けて、足りない priority:*・area:* を Jev に問うて付ける（triageOnOpen。App が作った Issue は除く。タイトルの編集では問わない）
  * - agent:ready が付いたら Issue 本文を読み、読めなければ agent:blocked（静かに止めない）
  * - agent:plan-ok を App 以外が付けたら外す
  * - agent:hold が外されたら記録
@@ -38,7 +40,10 @@ export async function onIssue(ctx: GateContext): Promise<void> {
     const { title, sub_issues_summary } = ctx.event.issue as { title: string; sub_issues_summary?: { total?: number } | null };
     if (title === ctx.config.dashboardIssueTitle || issue.state !== 'open') return;
     const target = { kind: 'issue' as const, title, labels: issue.labels.map((l) => l.name), subIssues: sub_issues_summary?.total ?? 0 };
-    await applyAppLabels(ctx, issue.number, target, () => ctx.gh.listComments(issue.number));
+    let comments: Promise<IssueComment[]> | undefined;
+    const getComments = () => (comments ??= ctx.gh.listComments(issue.number));
+    await applyAppLabels(ctx, issue.number, target, getComments);
+    if (action === 'opened') await triageOnOpen(ctx, issue.number, sender, getComments);
     return;
   }
 
@@ -170,6 +175,24 @@ async function closeParentIfDone(ctx: GateContext, number: number): Promise<void
   if (!parent.subIssues.nodes.every((s) => s.state === 'CLOSED')) return;
   await appComment(ctx, parent.number, 'parent-closed', 'Sub-issues がすべて閉じたため、この Issue を閉じます。');
   await ctx.gh.request('PATCH', `/issues/${parent.number}`, { body: { state: 'closed', state_reason: 'completed' } });
+}
+
+/**
+ * Issue の作成で、足りない priority:*・area:* を Jev に問うて付ける（agent:ready を待たない。失敗してもゲートは止めない）。
+ * classification.issueTriage が label で Jev の鍵があるときだけ（無ければ API を呼ばない）。App が作った Issue（Epic の子課題。
+ * 親の priority:* を後で引き継ぐ）には問わない。イベントの中身は古いことがあるので、今のタイトル・本文・ラベル・状態を読み直し、
+ * 開いていてタイトルの形式が正しいときだけ問う。Issue Form として読めるか・問い済みか・足りないものがあるかは triageLabels が見る
+ */
+async function triageOnOpen(ctx: GateContext, number: number, sender: string | undefined, getComments: () => Promise<IssueComment[]>): Promise<void> {
+  if (ctx.config.classification.issueTriage !== 'label' || !ctx.secrets.jevApiKey) return;
+  if (sender === appLogin(ctx.config)) return;
+  try {
+    const now = await ctx.gh.get<{ title: string; body: string | null; state: string; labels: { name: string }[] }>(`/issues/${number}`);
+    if (now.state !== 'open' || now.title === ctx.config.dashboardIssueTitle || !parseTitle(now.title).ok) return;
+    await triageLabels(ctx, { number, title: now.title, body: now.body, labels: now.labels.map((l) => l.name) }, await getComments(), { proposal: false });
+  } catch (e) {
+    ctx.log(`#${number} の作成時の分類に失敗しました: ${(e as Error).message}`);
+  }
 }
 
 /**
