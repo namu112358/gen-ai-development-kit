@@ -22,10 +22,14 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 5. `npm run check` を通す。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
 7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
-8. PR を作る前に `node harness/scripts/agent.ts ensure-claim <番号>` で、このセッションの着手宣言が今も持ち主かを確かめる。止まったら PR を出さずに人に返す（ほかのセッションが先に宣言していた、または引き継いだ）。
-9. `gh pr create --draft --base main` で **Draft** PR を出す。タイトルは Issue のタイトル。本文は [.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
-10. `node harness/scripts/agent.ts release <番号>` で着手を解除する。
-11. `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` は、続けて judge・fix をしないときだけ行う。
+8. PR を作る前に、worktree で `node harness/scripts/agent.ts scope-check <番号>` を走らせ、変更が計画の `files` に収まるかを App の範囲照合と同じ関数で確かめる（読むだけ）。終了コードではなく出力の JSON で分ける。
+   - 範囲の外のファイルがある（`delegate.outside`、使える計画が無ければ `delegate.latestPlanOutside`）：PR を作らずに、計画を出し直す（plan の skill の出し直し）か、その変更を外すかを AskUserQuestion で聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。変更を外したら、commit・push し直して `scope-check` をもう一度走らせる。
+   - 委任・bypass の範囲照合に使える計画が無い（`delegate.usable` が false。Planner の申告で止まり、人が進めると決めた計画など）：範囲の外のファイルが無ければ聞かずに進め、委任・bypass の範囲照合に乗らないことを PR 本文の「人に見てほしい点」に書く。
+   - `untracked` にあるファイルは PR にまだ入っていない。入れるものは手順6に戻って commit する。
+9. PR を作る前に `node harness/scripts/agent.ts ensure-claim <番号>` で、このセッションの着手宣言が今も持ち主かを確かめる。止まったら PR を出さずに人に返す（ほかのセッションが先に宣言していた、または引き継いだ）。
+10. `gh pr create --draft --base main` で **Draft** PR を出す。タイトルは Issue のタイトル。本文は [.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
+11. `node harness/scripts/agent.ts release <番号>` で着手を解除する。
+12. `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` は、続けて judge・fix をしないときだけ行う。
 
 ## 終わりの状態
 
@@ -38,6 +42,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 - `claim --manual` が領域の上限で止まった
 - `claim` が先に宣言したセッションがあるため取り下げて止まった、または `ensure-claim` で止まった（PR を出さない）
 - 計画の `files` の外を変える必要がある、または計画どおりでは AC を満たせない
+- `scope-check` が範囲の外のファイルを出した（計画を出し直すか、その変更を外すかを AskUserQuestion で聞く）
 - `npm run check` が、この変更と関係ない理由で落ちる
 - push や PR の作成が拒否された（別の方法で試さない）
 - やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し

@@ -272,11 +272,23 @@ export async function plannedFilesForPr(gh: GitHub, config: HarnessConfig, prOrN
   const pr = await linkablePr(gh, prOrNumber);
   const issues = await linkedIssues(gh, config, pr);
   if (issues.length === 0) return { missing: missingLinkText(config, pr) };
+  return filesOfIssues(issues, (n) => issuePlannedFiles(gh, config, n));
+}
+
+/** Issue 1件の、計画ゲートを通過した計画の files（agent/scope の照合。ローカルの scope-check も使う）。無ければ理由を返す */
+export async function issuePlannedFiles(gh: GitHub, config: HarnessConfig, n: number): Promise<{ files: string[] } | { missing: string }> {
+  const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
+  if (!gate?.value.pass || !gate.value.plan) return { missing: `#${n} に計画ゲートを通過した計画がありません` };
+  return { files: gate.value.plan.files };
+}
+
+/** Issue ごとの files を順に集める。1件でも無ければその理由を返す */
+async function filesOfIssues(issues: number[], one: (n: number) => Promise<{ files: string[] } | { missing: string }>): Promise<{ files: string[] } | { missing: string }> {
   const files: string[] = [];
   for (const n of issues) {
-    const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
-    if (!gate?.value.pass || !gate.value.plan) return { missing: `#${n} に計画ゲートを通過した計画がありません` };
-    files.push(...gate.value.plan.files);
+    const r = await one(n);
+    if ('missing' in r) return r;
+    files.push(...r.files);
   }
   return { files };
 }
@@ -289,14 +301,18 @@ export async function plannedFilesForDelegate(gh: GitHub, config: HarnessConfig,
   const pr = await linkablePr(gh, prOrNumber);
   const issues = await linkedIssues(gh, config, pr);
   if (issues.length === 0) return { missing: missingLinkText(config, pr) };
-  const files: string[] = [];
-  for (const n of issues) {
-    const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
-    const usable = gate?.value.pass === true || (gate?.value.pass === false && gate.value.planReviewOrigin === 'gate');
-    if (!gate || !usable || !gate.value.plan) return { missing: `#${n} に委任承認で照合できる計画がありません（ゲートを通ったか、ゲートの停止で止まった計画だけを使う）` };
-    files.push(...gate.value.plan.files);
-  }
-  return { files };
+  return filesOfIssues(issues, (n) => issueDelegateFiles(gh, config, n));
+}
+
+/**
+ * Issue 1件の、委任承認（計画＋Merge）・bypass の範囲照合に使う計画の files（ローカルの scope-check も使う）。
+ * ゲートを通った計画か、ゲートの停止（planReviewOrigin: gate）で止まった計画だけ。無ければ理由を返す
+ */
+export async function issueDelegateFiles(gh: GitHub, config: HarnessConfig, n: number): Promise<{ files: string[] } | { missing: string }> {
+  const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
+  const usable = gate?.value.pass === true || (gate?.value.pass === false && gate.value.planReviewOrigin === 'gate');
+  if (!gate || !usable || !gate.value.plan) return { missing: `#${n} に委任承認で照合できる計画がありません（ゲートを通ったか、ゲートの停止で止まった計画だけを使う）` };
+  return { files: gate.value.plan.files };
 }
 
 /**
