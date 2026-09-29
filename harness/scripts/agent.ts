@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, writeSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
+import { apiCountFromEnv, CountingTransport, type ApiCounter } from '../lib/api-count.ts';
 import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
 import { fleetConfig, LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
@@ -103,6 +104,13 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts session-url               この実行のセッション URL
  *
  * リポジトリは GITHUB_REPOSITORY か git remote から決める。
+ *
+ * ■ API の呼び出しの回数（#247）
+ *   AGENT_HARNESS_API_COUNT=1 を付けて動かすと、終わり（正常・process.exit・例外のどれでも）に標準エラーへ要約を出す。
+ *   付けない（未設定・空・0）ときは何も足さない（gh api の引数も出力も今と同じ）。要約の形（harness/lib/api-count.ts）：
+ *     [api-count] <コマンド>: 計 N 回（HTTP の応答 M 回）   ← 計は呼び出しの数、応答はやり直しを含む HTTP の応答の数
+ *     [api-count]   core: remaining R / used U / limit L    ← 資源ごとに最後に見た上限のヘッダー
+ *     [api-count]   <回数>  <メソッド> <パスの形>            ← 番号を伏せた形ごと（回数の多い順）
  */
 
 const config = loadConfig();
@@ -643,14 +651,23 @@ function fail(errors: string[]): never {
   process.exit(2);
 }
 
+/** GitHub を作る。counter があれば呼び出しを数え、応答の上限のヘッダーを覚える */
+function newGitHub(counter: ApiCounter | null): GitHub {
+  if (!counter) return new GitHub(transportFromEnv(), repository());
+  return new GitHub(new CountingTransport(transportFromEnv({ onResponse: counter.observe }), counter), repository());
+}
+
 async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
+  const counter = apiCountFromEnv(process.env);
+  // exit は process.exit・例外でも呼ばれる。writeSync は exit の中でも書き込みを取りこぼさない
+  if (counter) process.on('exit', () => void writeSync(2, counter.summary(cmd ?? '(none)')));
   if (cmd === 'session-url') return void console.log(sessionUrl() ?? '(none)');
   if (cmd === 'worktree') {
     const detach = args.includes('--detach');
     const target = worktreeClaimIssue(args[0] ?? '', detach, args.includes('--routine'));
     if (target !== null) {
-      const gh = new GitHub(transportFromEnv(), repository());
+      const gh = newGitHub(counter);
       // fix・sync は PR 番号に宣言するので、そのブランチの開いた PR があれば PR の宣言を見る
       const open = await gh.get<PullRequest[]>(`/pulls?state=open&head=${encodeURIComponent(`${gh.owner}:${args[0]}`)}`);
       await ensureOwnClaim(gh, open[0]?.number ?? target);
@@ -681,7 +698,7 @@ async function main(): Promise<void> {
     if (r.errors.length) fail(r.errors);
     return void console.log(`OK (${r.kind})`);
   }
-  const gh = new GitHub(transportFromEnv(), repository());
+  const gh = newGitHub(counter);
   const n = Number(args[0]);
   switch (cmd) {
     case 'queue': return void console.log(JSON.stringify(await computeQueue(gh, config, currentSession()), null, 2));
