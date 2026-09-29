@@ -12,6 +12,7 @@ import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFl
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
 import { evaluatePlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
+import { collectQaRetro, parseQaRetroArgs } from '../lib/qa-retro.ts';
 import { CLAIM_STAGES, claimBlocker, claimValueAfterPlan, requireOwnClaim, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
 import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
@@ -79,6 +80,10 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue と、agent:* の無い、コラボレーターか App が立てた開いた Issue（harness/lib/fleet.ts の fleetTargets）。
  *                                                           開いた PR 同士は head を fetch して git merge-tree で試し、衝突する組だけ後の側が待つ。
  *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）
+ *   node harness/scripts/agent.ts qa-retro-data [--days <n>] [--since <YYYY-MM-DD>] [--until <YYYY-MM-DD>]
+ *                                                           Merge 済みの PR の振り返り（qa-retro の skill）の集計（既定は直近 14 日。until はその日を含む）。
+ *                                                           PR ごとの risk・Merge の経路・判定の回数・メトリクス、後追いの修正と revert の組、risk ごとの割合、
+ *                                                           同じ head で失敗の後に成功した CI の実行とテスト名（harness/lib/qa-retro.ts）を JSON でファイルに書き、パスを出力（読むだけ）
  *   node harness/scripts/agent.ts wait <issue> <blockers..> 依存待ち（agent:waiting）
  *   node harness/scripts/agent.ts block <n> <reason-code> <text>  agent:blocked＋理由コード
  *   node harness/scripts/agent.ts check <file>              plan / verdict / decision ブロックの書式検査のみ
@@ -667,6 +672,11 @@ async function main(): Promise<void> {
     case 'compose-verdict': return void console.log(await composeVerdictFile(gh, args));
     case 'label-audit': return void console.log(await labelAudit(gh, args));
     case 'fleet-status': return void console.log(await fleetStatusText(gh, args));
+    case 'qa-retro-data': {
+      const period = parseQaRetroArgs(args, new Date());
+      if (!period.ok) fail(period.errors);
+      return void console.log(writeTemp('qa-retro.json', JSON.stringify(await collectQaRetro(gh, config, period.value), null, 2)));
+    }
     case 'footer': {
       const [, stage, model, minutes, tokens] = args;
       const pr = await gh.get<PullRequest>(`/pulls/${n}`);
