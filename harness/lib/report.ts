@@ -581,6 +581,11 @@ export interface PanelCompareInput {
   reviewComments: PrReviewComment[];
   /** fix の PR のファイル（結び付けの根拠になったファイル。`fixPrFilesOf`） */
   fixPrFiles: Record<number, string[]>;
+  /**
+   * 組の head から、その後の最初の合格の head（`laterPassHead`）までの PR 自身のコミットの変更ファイル（キーは組の head）。
+   * main の取り込みで入った main 側の変更は含めない。無ければ空とみなす（「後の head で直された」に当たらない）。
+   */
+  laterHeadFiles?: Record<string, string[]>;
 }
 
 export type PanelEvidence = 'fix-request' | 'human-review' | 'fix-pr' | 'revert';
@@ -590,6 +595,11 @@ export type PanelBacking = 'backed' | 'unconfirmed' | 'suspected';
 export interface PanelOnlyFinding extends BlockingFinding {
   backing: PanelBacking;
   evidence: PanelEvidence[];
+  /**
+   * 後の head で直された：今の reviewer だけの指摘で、指摘のファイルを後の合格の head までのコミットが変えた（合体版だけの指摘は常に false）。
+   * 指摘を受けたセッションは誤りでも直すことがあるので、本物の強い証拠ではない。`backing` とは別に数え、Q91 の基準 (2) には数えない。
+   */
+  fixedLater: boolean;
 }
 
 /** 組の行（受け付け1つと、その判定コメントより前の記録1つ） */
@@ -638,6 +648,23 @@ function fixRequestFindings(body: string): BlockingFinding[] {
 }
 
 const isFixRequest = (r: FixRequestReview) => appMarkKind(r.body) === 'fix-request';
+
+/**
+ * 組の head の後の、最初の合格の head。head の最初の受け付けの判定コメント（無ければ受け付けのコメント）より後に作られた、
+ * 別の head の最初の受け付けのうち、`reviewPass` が true の最初のもの。無ければ null。
+ * push の時刻は GitHub から確かには読めないので、「判定の後に push された head」の代わりに「判定コメントより後の受け付けの head」を使う
+ * （受け付けは App がその head の判定コメントを受けて作るので、判定コメントより後の受け付けの head は、組の head の判定の後に判定された head）。
+ * harness/scripts/report.ts もこれで compare の相手を決める（取る範囲と数える条件をずらさない）。
+ */
+export function laterPassHead(input: Pick<PanelCompareInput, 'comments' | 'acceptances'>, head: string): string | null {
+  const firstByHead = new Map<string, { comment: IssueComment; value: Acceptance }>();
+  for (const a of input.acceptances) if (!firstByHead.has(a.value.verdictHeadSha)) firstByHead.set(a.value.verdictHeadSha, a);
+  const own = firstByHead.get(head);
+  if (!own) return null;
+  const cutoff = input.comments.find((c) => c.id === own.value.verdictCommentId) ?? own.comment;
+  for (const [h, a] of firstByHead) if (h !== head && a.value.reviewPass && isAfter(a.comment, cutoff)) return h;
+  return null;
+}
 
 /** 同じファイル（両方にファイルがあるとき）か、両方ファイルが無いときは同じ種類 */
 const sameFinding = (a: BlockingFinding, b: BlockingFinding) => (a.file && b.file ? a.file === b.file : !a.file && !b.file && a.kind === b.kind);
@@ -710,6 +737,7 @@ export function panelPairs(config: HarnessConfig, input: PanelCompareInput): { r
     );
     const humanFiles = new Set(humanComments.map((rc) => rc.path));
     const fixPrFiles = new Set(input.fixedBy.flatMap((n) => input.fixPrFiles[n] ?? []));
+    const fixedLaterFiles = new Set(laterPassHead(input, head) ? (input.laterHeadFiles?.[head] ?? []) : []);
     const back = (b: BlockingFinding, panelOnly: boolean): PanelOnlyFinding => {
       const evidence: PanelEvidence[] = [];
       if (b.file && laterFixFiles.has(b.file)) evidence.push('fix-request');
@@ -717,7 +745,7 @@ export function panelPairs(config: HarnessConfig, input: PanelCompareInput): { r
       if (b.file && fixPrFiles.has(b.file)) evidence.push('fix-pr');
       if (input.reverted) evidence.push('revert');
       const backing: PanelBacking = evidence.length > 0 ? 'backed' : panelOnly && input.mergedAt ? 'suspected' : 'unconfirmed';
-      return { ...b, backing, evidence };
+      return { ...b, backing, evidence, fixedLater: !panelOnly && Boolean(b.file && fixedLaterFiles.has(b.file)) };
     };
 
     // 前から順に1対1で対応させる
@@ -763,6 +791,8 @@ export interface PanelComparison {
   matched: number;
   reviewerOnly: number;
   reviewerOnlyBacked: number;
+  /** 今の reviewer だけの指摘のうち、裏付けが無く後の head で直されたもの（Q91 の基準 (2) には数えない） */
+  reviewerOnlyFixedLater: number;
   panelOnly: number;
   panelOnlyBacked: number;
   suspectedFalsePositives: number;
@@ -811,6 +841,7 @@ export function panelComparison(rows: PanelPairRow[]): PanelComparison {
     matched: rows.reduce((a, r) => a + r.matched, 0),
     reviewerOnly: reviewerOnly.length,
     reviewerOnlyBacked,
+    reviewerOnlyFixedLater: reviewerOnly.filter((x) => x.backing !== 'backed' && x.fixedLater).length,
     panelOnly: panelOnly.length,
     panelOnlyBacked: panelOnly.filter((x) => x.backing === 'backed').length,
     suspectedFalsePositives,
@@ -849,9 +880,17 @@ export function renderPanelComparison(summary: PanelComparison, rows: PanelPairR
   const c = REVIEW_PANEL_SWITCH_CRITERIA;
   const failed = s.criteria.failed.map((k) => PANEL_CRITERIA_LABELS[k]);
   const criteria = s.criteria.met ? '**満たす**（切り替えは人が全件を確かめてから決める）' : `満たさない（満たさない項目：${failed.join('、')}）`;
+  const fixedLaterNote =
+    s.reviewerOnlyFixedLater > 0 ? `。後の head で直された今の reviewer だけの指摘 ${s.reviewerOnlyFixedLater} 件（基準 (2) には数えない。切り替えの前に人が確かめる）` : '';
   const reasons = [...PANEL_EXCLUDE_REASONS, ...Object.keys(excluded).filter((k) => !(PANEL_EXCLUDE_REASONS as readonly string[]).includes(k))];
   const backingCell = (x: PanelOnlyFinding) =>
-    x.backing === 'backed' ? `あり：${x.evidence.map((e) => EVIDENCE_LABELS[e]).join('・')}` : x.backing === 'suspected' ? '誤検知の疑い' : '未確認';
+    x.backing === 'backed'
+      ? `あり：${x.evidence.map((e) => EVIDENCE_LABELS[e]).join('・')}${x.fixedLater ? '・後の head で直された' : ''}`
+      : x.backing === 'suspected'
+        ? '誤検知の疑い'
+        : x.fixedLater
+          ? '未確認（後の head で直された）'
+          : '未確認';
   const findingRows = (side: string, pick: (r: PanelPairRow) => PanelOnlyFinding[]) =>
     rows.flatMap((r) => pick(r).map((x) => `| ${side} | #${r.pr} | ${r.headSha.slice(0, 7)} | ${x.kind} | ${x.file ? `\`${cell(x.file)}\`` : '-'} | ${backingCell(x)} | ${cell(x.detail, 120)} |`));
   const list = [...findingRows('今の reviewer だけ', (r) => r.reviewerOnly), ...findingRows('合体版だけ', (r) => r.panelOnly)];
@@ -862,11 +901,12 @@ export function renderPanelComparison(summary: PanelComparison, rows: PanelPairR
     '',
     '数える記録：コラボレーターが書き、Claude の目印があり、ブロックが読め、未編集で、head が App の受け付けの verdictHeadSha と同じで、判定コメントより前に作られた shadow の記録。',
     '合体版の指摘・合否・料金はセッションの申告（偽れる）。本物・誤検知は App・GitHub の事実の裏付け（後の head の変更要求・人のレビューコメント・Merge 後 7 日以内の fix の PR・revert）だけで数える。',
+    '「後の head で直された」は、今の reviewer だけの指摘のファイルを、その後の最初の合格の head までの PR 自身のコミットが変えたもの。指摘を受けたセッションは誤りでも直すことがあるので本物の強い証拠ではなく、裏付けとは別に数え、基準 (2) には数えない。',
     '',
     '| 指標 | 値 |',
     '| --- | --- |',
     `| 指摘の一致（同じファイル、ファイルが無ければ同じ種類） | ${s.matched} |`,
-    `| 今の reviewer だけ（うち裏付けあり） | ${s.reviewerOnly}（${s.reviewerOnlyBacked}） |`,
+    `| 今の reviewer だけ（うち裏付けあり・裏付けは無いが後の head で直された） | ${s.reviewerOnly}（${s.reviewerOnlyBacked}・${s.reviewerOnlyFixedLater}） |`,
     `| 合体版だけ（うち裏付けあり・誤検知の疑い） | ${s.panelOnly}（${s.panelOnlyBacked}・${s.suspectedFalsePositives}） |`,
     `| 修正の往復：実際（組になった PR の変更要求の合計） | ${s.fixRounds.actual} |`,
     `| 修正の往復：合体版の仮（合体版が不合格の組） | ${s.fixRounds.provisional} |`,
@@ -887,7 +927,7 @@ export function renderPanelComparison(summary: PanelComparison, rows: PanelPairR
     '| --- | --- | --- |',
     ...reasons.map((k) => `| ${k} | ${PANEL_EXCLUDE_LABELS[k as PanelExcludeReason] ?? '-'} | ${excluded[k] ?? 0} |`),
     '',
-    `切り替えの基準（docs/plan.md の Q91）：${Object.values(PANEL_CRITERIA_LABELS).join('、')} → ${criteria}`,
+    `切り替えの基準（docs/plan.md の Q91）：${Object.values(PANEL_CRITERIA_LABELS).join('、')} → ${criteria}${fixedLaterNote}`,
     '',
     '組ごとの表：「PR」〜「人のコメント」の列は App・GitHub の事実、「合体版」〜「料金」の列はセッションの申告。',
     '',
