@@ -21,7 +21,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - ほかのセッションの着手宣言があれば `claim` は止まる（期限切れでも）。引き継ぐのは人が決めたときだけで、そのときは `--takeover` を付ける（`--force` は領域の上限だけを飛ばし、引き継ぎにはならない）。
 - `critic-input`・`post-plan`・`worktree` は、このセッションの着手宣言が無いと止まる。
 - ほかのローカルのセッションと作業が被らないように、段階を始める前に着手宣言を確かめ、セッション間でやり取りできる手段（`ListAgents`・`SendMessage` など）があれば、ほかのセッションと話して担当を決める。触るファイルが重なりそうなら、始める前に声をかける。
-- Issue を作ったら `node harness/scripts/agent.ts label-audit <番号>` で確かめ、足りないもの（特に `priority:*`）は推測で付けずに人に伝える。
+- `priority:*`・`area:*` のラベルは Jev（App の `label-apply`）に任せる（人の決定）。セッションは Issue を作ったときも最後の一覧でも、ラベルの不足を人に聞かず、伝えず、推測で付けない（`label-audit` も走らせない）。Jev が下限未満で付けなかったものは、ダッシュボードの「ラベルが足りない Issue・PR」に出て、人が見たいときに見る。
 - 計画は投稿の前に **plan-critic** サブエージェントに批評させる（入力の渡し方と判定ごとの扱いは [.claude/routine.md](../.claude/routine.md) の plan と同じ）。ただし止める条件（前回と同じ必須の指摘が直っていない、3回目でも必須が残る）に当たっても、有人セッションでは routine.md の `render-block` に従わず、Issue を止めない。その場で人に要点（残る必須の指摘）を示し、「進める／直す／やめる」を聞く。「進める」なら `critique` は `revise` のまま、`mustRemaining` に残った必須の件数を書く。
 - ブランチは付き添いのセッションでも `claude/issue-<番号>-<短い名前>` にする。書いているのは AI なので Agent PR として扱い、判定・修正と、low なら自動 Merge の経路に乗る（critical は人が Merge する）。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。
