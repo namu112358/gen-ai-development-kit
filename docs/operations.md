@@ -32,6 +32,8 @@ Issue を進めるのは、人が付き添う Claude のセッション。「#�
 
 ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-review` のコメントを付けた）か、人の判断待ち（計画ゲートで止まった、修正の上限、判断できない衝突など）で止まり、人がすること（Merge、例外ラベルを付けるかの判断（`test:exempt` は自動 Merge の対象の PR で `agent/tests` が止まったときだけ。Human Merge の PR では依頼のコメントのテストの変更を Merge の前に確かめる）、`setup.ts` の実行が要るか、Merge 後の確かめ）を一覧にする。段階を1つだけ頼めば、その skill だけを行う。
 
+段階を始める前に、`node harness/scripts/agent.ts claim <番号> --manual --stage <段階>` で着手宣言を出し、段階が変わるたびに更新する（計画は `--stage plan`、批評は `--stage plan-critique`、実装は `--stage implement`、判定・修正・main の取り込みは PR 番号で `--stage judge`・`--stage fix`・`--stage sync`。`post-plan` は投稿の後に `plan-gate` の宣言を出し直す）。人の判断待ちで止めてセッションを終えるときは `release <番号>`。ほかのセッションの着手宣言があれば `claim` は止まり、引き継ぐのは人が決めたときだけ `--takeover` を付ける。`critic-input`・`post-plan`・`worktree` は、このセッションの着手宣言が無いと止まる。ローカルのセッションを複数動かすときは、段階を始める前に着手宣言を確かめ、セッション間でやり取りできる手段（`ListAgents`・`SendMessage` など）があれば、ほかのセッションと話して担当を決める。
+
 複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship の段階を Issue ごとに交互に進めて、人がすることを1つの一覧にする。
 
 いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../harness/scripts/dashboard/README.md)）で見られる。`node harness/scripts/dashboard.ts` を実行して表示された URL を開くと、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。読み取りだけで、GitHub には書かない。
@@ -117,7 +119,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは同じリポジトリの開いた PR すべて。
 
 - 上限に達した領域に計画の触るファイルが入る Issue は、queue が implement を出さずに skip にする（理由はダッシュボードに出る）。
-- 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。急ぐときは `--force` を付ける。
+- 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。急ぐときは `--force` を付ける。ほかのセッションの着手宣言があるときも止まり、こちらは `--force` では越えない。引き継ぐのは人が決めたときだけで、`--takeover` を付ける。
 - 計画・判定・修正の段階は止めない。
 
 ## テストの改ざん検査
@@ -184,7 +186,8 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 場面 | 操作 |
 | --- | --- |
 | PR を出すとき（付き添いのセッションの Agent PR も、人の PR も） | Issue を立てて計画を投稿し、PR 本文に `Closes #番号` を書く。計画のある Issue に紐付かない PR は必須チェック `agent/plan-link` で止まる |
-| `agent:plan-review` の Issue | 人が付き添う Claude のセッションで、人が進めてよいと言えば ship が続きを進める（`node harness/scripts/agent.ts claim <番号> --manual` してから実装し、`claude/` ブランチで同じ書式の PR を出す。Agent PR として判定される）。やめるときは `release <番号>`。ゲートの停止（critical・ガードレールなど）なら、止めた理由を直した計画の出し直しで外れうる |
+| `agent:plan-review` の Issue | 人が付き添う Claude のセッションで、人が進めてよいと言えば ship が続きを進める（`node harness/scripts/agent.ts claim <番号> --manual --stage implement` してから実装し、`claude/` ブランチで同じ書式の PR を出す。Agent PR として判定される）。やめるときは `release <番号>`。ゲートの停止（critical・ガードレールなど）なら、止めた理由を直した計画の出し直しで外れうる |
+| ほかのセッションの着手宣言がある（`claim` が止まった） | 宣言の段階とセッションを見て、そのセッションが続けるか、こちらが引き継ぐかを人が決める。引き継ぐと決めたら `claim <番号> --manual --stage <段階> --takeover` |
 | Agent PR に直してほしい点がある | PR の Review を **Comment として Submit** する（同じ名義の PR には Request changes を付けられない）。最後の push 以降のレビューを fix が修正依頼として扱う |
 | Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を、依頼のコメントにテストの変更（`agent/tests` が neutral のとき）があれば、その行も確かめて確認して Merge する |
 | 人の PR（`claude/` 以外のブランチから人が自分で書いた PR） | 計画のある Issue に紐付いていれば judge の skill で判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
