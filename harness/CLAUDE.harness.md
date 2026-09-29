@@ -17,6 +17,11 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装して人が Merge する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
+- 着手宣言は段階を始める前に `claim <番号> --manual --stage <段階>` で出し、段階が変わるたびに更新する（段階の名前は `harness/lib/queue.ts` の `CLAIM_STAGES`）。計画の前は `--stage plan`、批評の前は `--stage plan-critique`、実装は `--stage implement`。judge・fix・sync は PR 番号で宣言する（`claim <PR番号> --manual --stage judge|fix|sync`。judge は判定コメントの投稿で宣言が終わる）。`post-plan` は投稿の後に `plan-gate` の宣言を出し直す。人の判断待ちで止めてセッションを終えるときは `release <番号>` する。
+- ほかのセッションの着手宣言があれば `claim` は止まる（期限切れでも）。引き継ぐのは人が決めたときだけで、そのときは `--takeover` を付ける（`--force` は領域の上限だけを飛ばし、引き継ぎにはならない）。
+- `critic-input`・`post-plan`・`worktree` は、このセッションの着手宣言が無いと止まる。
+- ほかのローカルのセッションと作業が被らないように、段階を始める前に着手宣言を確かめ、セッション間でやり取りできる手段（`ListAgents`・`SendMessage` など）があれば、ほかのセッションと話して担当を決める。触るファイルが重なりそうなら、始める前に声をかける。
+- Issue を作ったら `node harness/scripts/agent.ts label-audit <番号>` で確かめ、足りないもの（特に `priority:*`）は推測で付けずに人に伝える。
 - 計画は投稿の前に **plan-critic** サブエージェントに批評させる（入力の渡し方と判定ごとの扱いは [.claude/routine.md](../.claude/routine.md) の plan と同じ）。ただし止める条件（前回と同じ必須の指摘が直っていない、3回目でも必須が残る）に当たっても、有人セッションでは routine.md の `render-block` に従わず、Issue を止めない。その場で人に要点（残る必須の指摘）を示し、「進める／直す／やめる」を聞く。「進める」なら `critique` は `revise` のまま、`mustRemaining` に残った必須の件数を書く。
 - ブランチは付き添いのセッションでも `claude/issue-<番号>-<短い名前>` にする。書いているのは AI なので Agent PR として扱い、判定・修正と、low なら自動 Merge の経路に乗る（critical は人が Merge する）。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。

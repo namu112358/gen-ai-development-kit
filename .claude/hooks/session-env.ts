@@ -1,5 +1,5 @@
 /**
- * 付き添いのセッションの SessionStart hook（.claude/settings.json で matcher なしに登録。startup・resume・clear・compact のすべてで動く）。
+ * 付き添いのセッションの SessionStart の hook。.claude/settings.json で matcher なしに登録し、startup・resume・clear・compact のすべてで動く。
  *
  * stdin の JSON の session_id を、CLAUDE_ENV_FILE に `export AGENT_HARNESS_SESSION=<id>` として書く。
  * 以降の Bash で harness/scripts/agent.ts がこの値を読み、着手宣言とコメントの目印に今のセッションの ID を入れる（Issue #157）。
