@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
-import { describeFullAreas, fullAreas } from '../lib/concurrency.ts';
+import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { claimOf, computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
 import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
@@ -48,7 +48,7 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts queue                     次にやること（JSON）
  *   node harness/scripts/agent.ts claim <n> [--manual] [--stage <段階>] [--force] [--takeover]
  *                                                           着手宣言のコメント（段階とこのセッションの ID を書く。同じセッションなら段階の更新）。
- *                                                           --manual は、計画の触るファイルの領域の開いた PR が上限（areaConcurrency）に達していれば止まる（--force で着手）。
+ *                                                           --manual は、計画の触るファイルの領域の判定前の Agent PR（Draft）が上限（areaConcurrency）に達していれば止まる（--force で着手）。
  *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
@@ -161,8 +161,8 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
     const repository = `${gh.owner}/${gh.repo}`;
     const labels: string[][] = [];
     for (const p of await gh.paginate<PullRequest>('/pulls?state=open')) {
-      // この Issue に紐付く PR（続きの作業。スタックの層は本文の Refs／Closes）は数えない
-      if (!isSameRepoPr(p, repository) || (await linkedIssues(gh, config, await withStack(gh, config, p))).includes(n)) continue;
+      // 数えるのは判定前の Agent PR（Draft）だけ。この Issue に紐付く PR（続きの作業。スタックの層は本文の Refs／Closes）は数えない
+      if (!countsTowardAreaLimit(config, p, repository) || (await linkedIssues(gh, config, await withStack(gh, config, p))).includes(n)) continue;
       labels.push(p.labels.map((l) => l.name));
     }
     const full = fullAreas(config, gate?.value.plan?.files ?? [], labels);
@@ -456,7 +456,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
 
   const repository = `${gh.owner}/${gh.repo}`;
   const openPrs = (await gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isSameRepoPr(p, repository));
-  const openPrLabels = openPrs.map((p) => p.labels.map((l) => l.name));
+  const openPrLabels = areaLimitLabels(config, openPrs, repository);
   const prsOf = new Map<number, { number: number; state: string }[]>();
   for (const i of items) prsOf.set(i.number, await closingPrs(gh, i.number));
   const prByIssue = new Map<number, number>();
