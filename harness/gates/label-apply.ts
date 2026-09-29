@@ -17,7 +17,7 @@ import { onSchedule } from './stale.ts';
  *   そのラベルの下限（jev.thresholds.labelProbabilityByLabel、無ければ labelProbability）以上のときだけ付ける。
  *   同じ Issue には一度だけ問う（App の記録 issue-triage / label-triage で判断）
  * - 付け直し：下限を見直した後、label-triage の記録で下限に届かなかったものを、記録の確率で1回だけ付ける
- *   （Jev に問い直さない。App の記録 label-reapply がある Issue にはしない。Q93）
+ *   （Jev に問い直さない。App の記録 label-reapply がある Issue にはしない。Q94）
  * 人が付けたラベルは外さない。App が前に付けたもの（events API の labeled の actor が App）だけを付け替える。
  * 判断は純粋な関数（planLabelChanges・decideJevLabels・decideReapply ほか）、API の読み書きは applyAppLabels・triageLabels・reapplyJevLabels・labelApply。
  */
@@ -253,7 +253,7 @@ export async function triageLabels(
   return true;
 }
 
-// --- 付け直し（Q93） ---
+// --- 付け直し（Q94） ---
 
 export interface ReapplyItem {
   label: string;
