@@ -119,3 +119,16 @@ Routine の環境には `gh` も API 用のトークンもない。GitHub の操
 3. Merge 後、main を取り込んだセッションで `/plugin` の一覧に出ることを確かめる
 
 `autoUpdate` は `true` にしない。
+
+## 9. 利用者の準備（git の名前とメール）
+
+付き添いのセッションは利用者本人の GitHub 名義で動き、commit の作者はそのパソコンの git の設定になる。セッションを動かすパソコンごとに、最初に1回設定しておく。
+
+```sh
+git config --global user.name "<GitHub のユーザー名>"
+git config --global user.email "<メール>"
+```
+
+メールは GitHub の noreply のメール（`<ID>+<ユーザー名>@users.noreply.github.com`。GitHub の Settings → Emails に出る）でよい。未設定だと、commit（main を PR のブランチに取り込む sync を含む）が `fatal: empty ident name` などで止まる。
+
+**確かめ方**：`git var GIT_AUTHOR_IDENT`。名前とメールが出れば設定済み（リポジトリ単位の設定も含めて見る）。未設定なら commit と同じエラーで止まる。`user.email` だけ未設定だとエラーにならず、ホスト名から作ったメールが出ることがあるので、出た名前とメールが GitHub のユーザー名と noreply のメールと同じかを見る。
