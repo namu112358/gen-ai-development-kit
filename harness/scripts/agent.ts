@@ -11,7 +11,7 @@ import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFl
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
 import { evaluatePlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
-import { CLAIM_STAGES, claimBlocker, requireOwnClaim, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
+import { CLAIM_STAGES, claimBlocker, claimValueAfterPlan, requireOwnClaim, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
 import {
   checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, selectPastPrs, splitArgs,
@@ -49,7 +49,7 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
- *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後に段階 plan-gate の宣言を出し直す
+ *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）
  *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿
  *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの agent-plan ブロックは省く〕、
  *                                                           Epic の子課題なら親 Epic〔子課題の一覧と Validation Requirements〕、計画ゲートの記録の計画、PR 本文、
@@ -123,17 +123,22 @@ export function sessionUrl(): string | null {
 }
 
 
+/** このセッションの手動の宣言の値 */
+function manualClaim(stage?: ClaimStage): Extract<Claim, { by: 'manual' }> {
+  const session = currentSession();
+  return { by: 'manual', at: new Date().toISOString(), ...(session ? { session } : {}), ...(stage ? { stage } : {}) };
+}
+
 function claimBody(manual: boolean, release = false, stage?: ClaimStage): string {
   const url = sessionUrl();
-  const session = currentSession();
-  const at = new Date().toISOString();
-  const base: Claim = manual || !url
-    ? { by: 'manual', at, ...(session ? { session } : {}), ...(stage ? { stage } : {}) }
-    : { by: 'routine', session: url, at };
-  const value: Claim = release ? { ...base, released: true } : base;
+  const base: Claim = manual || !url ? manualClaim(stage) : { by: 'routine', session: url, at: new Date().toISOString() };
+  return renderClaim(release ? { ...base, released: true } : base);
+}
+
+function renderClaim(value: Claim): string {
   const who = value.by === 'routine' ? `Routine: ${value.session}` : '手動';
-  const what = release ? `着手を解除しました（${who}）。` : `着手しました（${who}${value.stage ? `、段階 ${value.stage}` : ''}）。`;
-  return [claudeMark(session), what, '', renderBlock('agent-claim', value)].join('\n');
+  const what = value.released ? `着手を解除しました（${who}）。` : `着手しました（${who}${value.stage ? `、段階 ${value.stage}` : ''}）。`;
+  return [claudeMark(currentSession()), what, '', renderBlock('agent-claim', value)].join('\n');
 }
 
 function blockBody(code: string, text: string): string {
@@ -217,9 +222,11 @@ async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
   for (const l of r.removeLabels) await gh.removeLabel(n, l);
   await gh.addLabels(n, r.addLabels);
   const posted = await gh.comment(n, r.body);
-  // 計画の投稿で宣言は終わったとみなされるので、計画ゲートを待つ間の宣言を出し直す（空白を作らない）
-  if (!isRoutine()) await gh.comment(n, claimBody(true, false, 'plan-gate'));
-  console.log(JSON.stringify({ posted: posted.html_url, expectedGate: r.expectedGate }, null, 2));
+  // 計画の投稿で宣言は終わったとみなされる。ゲートを通る見込みなら結果を待つ間の宣言を出し直し（空白を作らない）、
+  // 通らない見込み（人の判断待ち）なら解除する（harness/lib/queue.ts の claimAfterPlan）
+  const claim = isRoutine() ? null : claimValueAfterPlan(r.expectedGate, manualClaim());
+  if (claim) await gh.comment(n, renderClaim(claim));
+  console.log(JSON.stringify({ posted: posted.html_url, expectedGate: r.expectedGate, ...(claim ? { claim: claim.released ? 'released' : 'plan-gate' } : {}) }, null, 2));
 }
 
 async function postVerdict(gh: GitHub, n: number, file: string): Promise<void> {
