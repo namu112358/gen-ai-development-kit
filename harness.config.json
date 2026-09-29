@@ -64,7 +64,11 @@
   "staleHours": 24,
   "dashboardIssueTitle": "Agent ダッシュボード",
   "reviewPanel": { "mode": "shadow" },
-  "fleet": { "nesting": "orca", "maxParallelShips": 3 },
+  "fleet": {
+    "nesting": "orca",
+    "maxParallelShips": 3,
+    "sharedFiles": ["docs/plan.md", "docs/formats.md", "docs/operations.md", "docs/security.md", "docs/glossary.md", "**/README.md"]
+  },
   "jev": {
     "mode": "shadow",
     "model": "jev-1.13.0",
