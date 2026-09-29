@@ -1,4 +1,5 @@
 // Issue #289：plan の skill で、批評と投稿の前に openQuestions・needsHumanReasons を AskUserQuestion で聞き、答えを計画に書き込む手順
+// Issue #299：fleet の入れ子の ship は投稿の前の質問で投稿せずに止まって fleet に返し、fleet がまとめて聞いて ship を呼び直す
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,6 +10,7 @@ const read = (path: string): string => readFileSync(join(root, path), 'utf8');
 
 const PLAN_SKILL = '.claude/skills/plan/SKILL.md';
 const SHIP_SKILL = '.claude/skills/ship/SKILL.md';
+const FLEET_SKILL = '.claude/skills/fleet/SKILL.md';
 const RULES = 'harness/CLAUDE.harness.md';
 
 /** 箇条（- か「数字.」で始まる行と、その下の続きの行）ごとに分ける */
@@ -84,18 +86,71 @@ test('plan の skill：聞く箇条に、答えで変わった計画を批評に
   assert.ok(item.includes('批評に渡す') || item.includes('plan-critic'), '答えで変わった計画を批評に渡すこと（「批評に渡す」か plan-critic）がありません');
 });
 
-// ---- AC4：Routine と入れ子の ship は聞かない ----
+// ---- AC4：Routine は聞かない（Issue #299 で入れ子の ship は例外でなくなった）----
 
-test('plan の skill：Routine と入れ子の ship はこの手順で聞かないことが、同じ箇条にある', () => {
-  const item = bullets(read(PLAN_SKILL)).find((b) => b.includes('Routine') && b.includes('入れ子') && b.includes('聞かない'));
-  assert.ok(item, 'plan の skill に「Routine」「入れ子」「聞かない」を同じ箇条に含むものがありません');
+test('plan の skill：聞く箇条に、Routine はこの手順で聞かず、申告を残して投稿することがある', () => {
+  const item = askItem();
+  assert.ok(item.includes('Routine'), '聞く箇条に「Routine」がありません');
+  assert.ok(item.includes('聞かない'), '聞く箇条に「聞かない」がありません');
+  assert.ok(item.includes('残して投稿'), '聞く箇条に「残して投稿」がありません');
 });
 
-test('ship の skill：サブエージェントの ship として動くときの節に、投稿の前の質問は聞くことを fleet に返す箇条がある', () => {
+// ---- Issue #299：入れ子の ship は投稿の前の質問で投稿せずに止まり、fleet に返す ----
+
+/** ship の skill の「## サブエージェントの ship として動くとき」の節の箇条（節が無ければ assert で落とす） */
+function nestedShipItems(): string[] {
   const sub = section(read(SHIP_SKILL), '## サブエージェントの ship として動くとき');
   assert.ok(sub !== '', '「## サブエージェントの ship として動くとき」の節がありません');
-  const item = bullets(sub).find((b) => b.includes('投稿の前') && b.includes('fleet に返す'));
-  assert.ok(item, '節に「投稿の前」と「fleet に返す」を含む箇条がありません');
+  return bullets(sub);
+}
+
+test('ship の skill：サブエージェントの ship として動くときの節に、投稿の前の質問では投稿せずに止まり、質問・選択肢・計画のパスを fleet に返す箇条がある', () => {
+  const words = ['投稿の前', '投稿せず', 'fleet に返す', '選択肢', 'パス'];
+  const item = nestedShipItems().find((b) => words.every((w) => b.includes(w)));
+  assert.ok(item, `節に「${words.join('」「')}」をすべて含む箇条がありません`);
+});
+
+test('ship の skill：サブエージェントの ship として動くときの節の「投稿の前」の箇条に、止まらずに申告を残して投稿する古い例外が残っていない', () => {
+  const items = nestedShipItems().filter((b) => b.includes('投稿の前'));
+  for (const b of items) {
+    assert.ok(!b.includes('止まらない'), `「投稿の前」の箇条に「止まらない」が残っています（${b.trim().slice(0, 40)}）`);
+    assert.ok(!b.includes('申告を残して投稿し、聞くこと'), `「投稿の前」の箇条に「申告を残して投稿し、聞くこと」が残っています（${b.trim().slice(0, 40)}）`);
+  }
+});
+
+test('ship の skill：サブエージェントの ship として動くときの節に、呼び直されたら答えを計画に書き込み、解消したものを申告から除いてから批評に進む箇条がある', () => {
+  const words = ['呼び直され', '書き込', '除', '批評'];
+  const item = nestedShipItems().find((b) => words.every((w) => b.includes(w)));
+  assert.ok(item, `節に「${words.join('」「')}」をすべて含む箇条がありません`);
+});
+
+test('plan の skill：聞く箇条に、入れ子の ship は投稿せずに返し、呼び直されたら答えを書き込むことがある', () => {
+  const item = askItem();
+  assert.ok(item.includes('投稿せず'), '聞く箇条に「投稿せず」がありません');
+  assert.ok(item.includes('呼び直され'), '聞く箇条に「呼び直され」がありません');
+});
+
+/** fleet の skill の「## 入れ子の方式」の節の箇条（節が無ければ assert で落とす） */
+function fleetNestedItems(): string[] {
+  const sub = section(read(FLEET_SKILL), '## 入れ子の方式');
+  assert.ok(sub !== '', 'fleet の skill に「## 入れ子の方式」の節がありません');
+  return bullets(sub);
+}
+
+test('fleet の skill：入れ子の方式の節に、返った投稿の前の質問を AskUserQuestion でまとめて聞き、答えを渡して ship を呼び直す箇条がある', () => {
+  const words = ['投稿の前', 'AskUserQuestion', '呼び直す'];
+  const item = fleetNestedItems().find((b) => words.every((w) => b.includes(w)));
+  assert.ok(item, `fleet の skill の「## 入れ子の方式」に「${words.join('」「')}」をすべて含む箇条がありません`);
+});
+
+test('fleet の skill：入れ子の方式の節に、投稿の前の質問に答えの無い Issue の着手宣言を release <番号> で解除する箇条がある', () => {
+  const item = fleetNestedItems().find((b) => b.includes('投稿の前') && b.includes('release <番号>'));
+  assert.ok(item, 'fleet の skill の「## 入れ子の方式」に「投稿の前」と「release <番号>」を含む箇条がありません');
+});
+
+test('fleet の skill：入れ子の ship が申告を残して投稿してから質問を返す、という古い書き方が残っていない', () => {
+  const item = bullets(read(FLEET_SKILL)).find((b) => b.includes('申告を残して投稿して質問を返す'));
+  assert.ok(!item, `fleet の skill に「申告を残して投稿して質問を返す」が残っています（${item?.trim().slice(0, 40)}）`);
 });
 
 // ---- AC5：acChangeProposed の扱いは変えない ----
@@ -119,4 +174,14 @@ test('harness/CLAUDE.harness.md：進め方に、投稿の前に openQuestions �
   const added = items.findIndex((b, i) => i !== existing && b.includes('投稿の前') && b.includes('openQuestions') && b.includes('AskUserQuestion'));
   assert.ok(added >= 0, '進め方に「投稿の前」・openQuestions・AskUserQuestion を含む箇条がありません');
   assert.ok(added > existing, '投稿の前に聞く箇条が、既存の AskUserQuestion の箇条より前にあります');
+});
+
+test('harness/CLAUDE.harness.md：進め方の投稿の前に聞く箇条に、入れ子の ship は投稿せずに fleet に返すことがある', () => {
+  const rules = read(RULES);
+  const start = rules.indexOf('## 進め方');
+  const end = rules.indexOf('## 立場');
+  assert.ok(start >= 0 && end > start, '「## 進め方」「## 立場」がありません');
+  const item = bullets(rules.slice(start, end)).find((b) => b.includes('投稿の前') && b.includes('openQuestions') && b.includes('AskUserQuestion'));
+  assert.ok(item, '進め方に「投稿の前」・openQuestions・AskUserQuestion を含む箇条がありません');
+  for (const w of ['入れ子', '投稿せず', 'fleet']) assert.ok(item.includes(w), `投稿の前に聞く箇条に「${w}」がありません`);
 });
