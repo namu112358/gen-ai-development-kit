@@ -69,10 +69,25 @@ export interface GateResult {
   splitInvalid?: boolean;
   /** ガードレールに当たった計画のパターン（当たったときだけ） */
   guardrail?: string[];
+  /** reasons のうち、委任承認なら飛ばせる理由（ガードレール・想定 Risk high / critical。1件以上のときだけ） */
+  skippable?: string[];
+  /** 委任承認で通したとき（harness/lib/delegate.ts の delegatePlanGate） */
+  delegated?: PlanDelegation;
   /** 止めた理由が批評の関所（evaluateCritiqueGate）だけか（理由コード no-critique） */
   critiqueOnly?: boolean;
   /** 批評で必須の指摘が残ったまま、人が進めると決めた計画（revise で mustRemaining が1以上。ゲートの記録に残す） */
   critiqueProceeded?: CritiqueProceeded;
+}
+
+/** 委任承認で計画ゲートを通した記録（plan-gate の記録の delegated） */
+export interface PlanDelegation {
+  /** 飛ばした理由 */
+  skipped: string[];
+  /** 効いていた委任のラベル */
+  label: string | null;
+  mode: 'plan' | 'plan+merge';
+  by: string | null;
+  since: string | null;
 }
 
 export interface CritiqueProceeded {
@@ -89,19 +104,25 @@ export interface CritiqueProceeded {
  */
 export function evaluatePlanGate(plan: Plan, issueNumber: number, guardrail: GuardrailConfig): GateResult {
   const reasons: string[] = [];
+  // 委任承認なら飛ばせる理由（harness/lib/delegate.ts の delegatePlanGate）
+  const skippable: string[] = [];
+  const skip = (reason: string) => {
+    reasons.push(reason);
+    skippable.push(reason);
+  };
   if (plan.issue !== issueNumber) reasons.push(`計画の issue 番号（#${plan.issue}）がこの Issue（#${issueNumber}）と一致しません`);
   if (plan.needsHuman) reasons.push('Planner が人間の判断が必要と申告しています');
   if (plan.acChangeProposed) reasons.push('要件・AC の変更提案があります');
   if (plan.openQuestions.length > 0) reasons.push(`未解決の質問が ${plan.openQuestions.length} 件あります`);
-  if (!plan.split && (plan.risk === 'high' || plan.risk === 'critical')) reasons.push(`想定 Risk が ${plan.risk} です`);
+  if (!plan.split && (plan.risk === 'high' || plan.risk === 'critical')) skip(`想定 Risk が ${plan.risk} です`);
   if (!plan.split && plan.files.length === 0) reasons.push('触るファイル一覧（files）がありません');
   for (const pattern of plan.files) {
     const problem = validateScopePattern(pattern);
     if (problem) reasons.push(`files「${pattern}」: ${problem}`);
   }
   const guarded = guardrailPatterns(guardrail, plan.files);
-  if (guarded.length > 0) reasons.push(`ガードレールに触れます（人が実装して Merge する）: ${guarded.join(', ')}`);
-  const extra = guarded.length > 0 ? { guardrail: guarded } : {};
+  if (guarded.length > 0) skip(`ガードレールに触れます（人が実装して Merge する）: ${guarded.join(', ')}`);
+  const extra = { ...(guarded.length > 0 ? { guardrail: guarded } : {}), ...(skippable.length > 0 ? { skippable } : {}) };
   if (plan.split) {
     const problems = validateSplit(plan.split);
     reasons.push(...problems);

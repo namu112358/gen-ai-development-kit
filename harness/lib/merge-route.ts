@@ -2,13 +2,13 @@
  * App が PR に残す受け付け記録（```agent-app、kind=acceptance）と、merge-route の評価。
  * merge-route は必須チェック。auto-merge が付いていない PR は通し（Human Merge 経路）、
  * 付いている PR は現在の差分に対して有効な判定が自動 Merge 条件を満たすときだけ通す。
- * 委任 Merge が有効（delegateMode）なら、自動 Merge 条件を満たさなくても、受け付けの記録の delegate.eligible が真なら判定由来の理由では止めない
+ * 委任承認（計画＋Merge）が有効（delegateMode）なら、自動 Merge 条件を満たさなくても、受け付けの記録の delegate.eligible が真なら判定由来の理由では止めない
  * （ガードレール・Risk だけを飛ばす。harness/lib/delegate.ts）。
  * bypass モードが有効（bypassMode）なら、自動 Merge の対象でも委任でも通らない受け付けのうち、bypass.eligible が真のものを判定由来の理由では止めない
  * （Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev を飛ばす。harness/gates/bypass.ts）。
  */
 
-/** 受け付け時にまとめる、委任 Merge なら自動経路に乗せてよいか（harness/lib/delegate.ts の delegateEligibility） */
+/** 受け付け時にまとめる、委任承認（計画＋Merge）なら自動経路に乗せてよいか（harness/lib/delegate.ts の delegateEligibility） */
 export interface DelegateRecord {
   eligible: boolean;
   /** 委任でも自動経路に乗せない理由 */
@@ -52,7 +52,7 @@ export interface Acceptance {
   /** 人にレビューを依頼するときに載せる（判定の写し） */
   humanNotes?: { concerns: string[]; checkPoints: string[] };
   riskRationale?: string;
-  /** 委任 Merge なら自動経路に乗せてよいか（無い古い記録は委任の対象外） */
+  /** 委任承認（計画＋Merge）なら自動経路に乗せてよいか（無い古い記録は委任の対象外） */
   delegate?: DelegateRecord;
   /** bypass モードなら自動経路に乗せてよいか（無い古い記録は bypass の対象外） */
   bypass?: BypassRecord;
@@ -83,7 +83,7 @@ export interface MergeRouteInput {
   acceptance: Acceptance | null;
   /** base が既定ブランチでない（Stacked PR など）。真なら自動経路を通さない（省略時は偽） */
   stacked?: boolean;
-  /** 委任 Merge が今有効か（harness/lib/delegate.ts の delegateState。省略時は偽） */
+  /** 委任承認（計画＋Merge）が今有効か（harness/lib/delegate.ts の delegateState。省略時は偽） */
   delegateMode?: boolean;
   /** bypass モードが今有効か（harness/gates/bypass.ts の bypassState。省略時は偽） */
   bypassMode?: boolean;
@@ -110,14 +110,14 @@ export function evaluateMergeRoute(input: MergeRouteInput): CheckOutcome {
     reasons.push('現在の差分に対して有効な判定がありません');
   } else if (!input.acceptance.autoEligible && !delegated && !bypassed) {
     reasons.push(...input.acceptance.reasons);
-    if (input.delegateMode && input.acceptance.delegate) reasons.push(...input.acceptance.delegate.reasons.map((r) => `委任 Merge でも不可: ${r}`));
+    if (input.delegateMode && input.acceptance.delegate) reasons.push(...input.acceptance.delegate.reasons.map((r) => `委任承認でも不可: ${r}`));
     if (input.bypassMode && input.acceptance.bypass) reasons.push(...input.acceptance.bypass.reasons.map((r) => `bypass でも不可: ${r}`));
   }
   if (reasons.length === 0 && delegated) {
     return {
       conclusion: 'success',
-      title: '委任 Merge の条件を満たしています',
-      summary: ['委任 Merge が有効なため、次の理由を飛ばして自動経路に乗せます。', '', ...input.acceptance!.delegate!.skipped.map((r) => `- ${r}`)].join('\n'),
+      title: '委任承認（計画＋Merge）の条件を満たしています',
+      summary: ['委任承認（計画＋Merge）が有効なため、次の理由を飛ばして自動経路に乗せます。', '', ...input.acceptance!.delegate!.skipped.map((r) => `- ${r}`)].join('\n'),
     };
   }
   if (reasons.length === 0 && bypassed) {

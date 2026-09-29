@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { appMark, renderBlock } from '../lib/blocks.ts';
-import { bypassMergeConfig, CHECKS, delegateMergeConfig, LABELS } from '../lib/config.ts';
+import { bypassMergeConfig, CHECKS, delegateConfig, LABELS } from '../lib/config.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { onComment } from '../gates/on-comment.ts';
 import { onIssue } from '../gates/on-issue.ts';
@@ -13,8 +13,9 @@ import { APP, DIFF, HEAD, acceptanceFake, config, ctxFor, delegateWorldFake, pr,
 import { acceptanceComment, appRecordComment, countCalls, FEATURE_BASE, postedRecord } from './support/stack-fixtures.ts';
 
 const BYPASS = bypassMergeConfig(config).label;
-const D = delegateMergeConfig(config);
-const DELEGATE = D.label;
+const D = delegateConfig(config);
+const DELEGATE = D.mergeLabel;
+const DELEGATE_PLAN = D.planLabel;
 const STOP = config.autoMergeStopLabel;
 /** ガードレールにも delegateMergeExclude にも当たる（委任でも乗らない） */
 const CONFIG_FILE = 'harness.config.json';
@@ -24,7 +25,6 @@ const SKIP_DIFF = "diff --git a/a.test.ts b/a.test.ts\n--- a/a.test.ts\n+++ b/a.
 
 const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
 const hoursAgo = (h: number): string => minutesAgo(h * 60);
-const untilOf = (since: string): string => new Date(Date.parse(since) + D.hours * 3600_000).toISOString();
 const ev = (event: 'labeled' | 'unlabeled', name: string, at: string, login = 'me') => ({ event, created_at: at, actor: { login }, label: { name } });
 const bypassOn = (at = hoursAgo(5), login = 'me') => ev('labeled', BYPASS, at, login);
 const bypassOff = (at = minutesAgo(1), login = 'me') => ev('unlabeled', BYPASS, at, login);
@@ -112,7 +112,7 @@ const bypassEnded = (id: number, headSha: string, reason: string) =>
 
 /** 委任で auto-merge を付けた App の記録（kind=delegated-merge） */
 const delegateArmed = (id: number, headSha: string, since: string) =>
-  appRecordComment(id, 'delegated-merge', '委任 Merge で自動経路に乗せました。', { version: 1, headSha, patchId: patchId(DIFF), since, until: untilOf(since), by: 'me', skipped: DELEGATE_OK.skipped });
+  appRecordComment(id, 'delegated-merge', '委任承認（計画＋Merge）で自動経路に乗せました。', { version: 1, headSha, patchId: patchId(DIFF), since, until: null, by: 'me', skipped: DELEGATE_OK.skipped });
 
 /** 開いた Agent PR（番号ごとに head・node_id を変える） */
 const agentPr = (n: number, patch: Record<string, unknown> = {}) =>
@@ -211,7 +211,7 @@ test('委任と bypass が両方有効：委任で乗る PR には委任の記�
   assert.ok(w.includes('enablePullRequestAutoMerge'), w.join('\n'));
   assert.ok(w.includes('comment:delegated-merge'), w.join('\n'));
   assert.ok(!w.includes('comment:bypass-merge'), w.join('\n'));
-  assert.equal(checks(fake, CHECKS.mergeRoute).at(-1)?.title, '委任 Merge の条件を満たしています');
+  assert.equal(checks(fake, CHECKS.mergeRoute).at(-1)?.title, '委任承認（計画＋Merge）の条件を満たしています');
 });
 
 // ---- AC2：bypass が有効でも付けない ----
@@ -476,26 +476,61 @@ test('委任と bypass が両方有効な間に委任のラベルを外すと、
   assert.equal(checks(fake, CHECKS.mergeRoute, sha(5)).at(-1)?.conclusion, 'success');
 });
 
-test('委任と bypass が両方有効な間に委任が期限切れになると（定期実行）、bypass で乗る PR は auto-merge が付いたまま、delegated-merge-end（expired）の後に bypass-merge を書く', async () => {
-  const since = hoursAgo(D.hours + 0.5);
+test('委任と bypass が両方有効な間に、新しい判定で委任の条件を満たさなくなると、bypass で乗る PR は auto-merge が付いたまま、delegated-merge-end（ineligible）の後に bypass-merge を書く（委任に期限は無い）', async () => {
+  const since = minutesAgo(30);
+  const fake = verdictFake({
+    dashboardLabels: [DELEGATE, BYPASS], events: [bypassOn(), delegateOn(since)],
+    pr: pr(ARMED), prComments: [delegateArmed(92, HEAD, since)],
+  });
+  await accept(fake);
+  const w = fake.writes();
+  assert.ok(!w.includes('disablePullRequestAutoMerge'), `auto-merge は外さない: ${w.join('\n')}`);
+  assert.ok(w.includes('enablePullRequestAutoMerge'), w.join('\n'));
+  assert.equal(postedRecord(fake, 'delegated-merge-end').reason, 'ineligible');
+  assert.ok(w.indexOf('comment:delegated-merge-end') < w.lastIndexOf('comment:bypass-merge'), `delegated-merge-end の後に bypass-merge: ${w.join(',')}`);
+  assert.ok(!w.includes('comment:human-review'), w.join('\n'));
+  assert.equal(checks(fake, CHECKS.mergeRoute).at(-1)?.title, 'bypass モードの条件を満たしています');
+});
+
+test('委任と bypass が両方有効：委任を長く付けたままでも、定期実行は委任を終わらせず（期限なし）、委任で付けた auto-merge も記録も変えない', async () => {
+  const since = hoursAgo(100);
   const w: DelegateWorld = {
     prs: [agentPr(5, ARMED)],
     comments: { 5: [bothAcceptance(91), delegateArmed(92, sha(5), since)] },
     dashboardLabels: [DELEGATE, BYPASS],
-    dashboardEvents: [bypassOn(hoursAgo(D.hours + 1)), delegateOn(since)],
+    dashboardEvents: [bypassOn(hoursAgo(101)), delegateOn(since)],
   };
   const fake = delegateWorldFake(w);
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
   assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge'), [], 'auto-merge は外さない');
-  assert.ok(w.prs[0]!.auto_merge, 'auto-merge が付いたまま');
-  const kinds = kindsOn(fake, 5);
-  assert.ok(kinds.includes('delegated-merge-end'), kinds.join(','));
-  assert.equal(postedRecord(fake, 'delegated-merge-end').reason, 'expired');
-  assert.ok(kinds.indexOf('delegated-merge-end') < kinds.lastIndexOf('bypass-merge'), `delegated-merge-end の後に bypass-merge: ${kinds.join(',')}`);
-  assert.ok(!kinds.includes('human-review'), kinds.join(','));
-  assert.ok(!kinds.includes('auto-merge-removed'), kinds.join(','));
-  assert.ok(!w.dashboardLabels.includes(DELEGATE), '期限切れの委任のラベルは外す');
+  assert.deepEqual(kindsOn(fake, 5), [], '委任の終わりも bypass への乗り換えも書かない');
+  assert.ok(w.dashboardLabels.includes(DELEGATE), '委任のラベルは外さない（期限なし）');
   assert.ok(w.dashboardLabels.includes(BYPASS), 'bypass のラベルは外さない（期限なし）');
+});
+
+test('委任承認（計画のみ）と bypass が有効：Merge は委ねていないので、委任で乗りうる PR も bypass で乗せる（delegated-merge は書かない）', async () => {
+  const fake = verdictFake({ dashboardLabels: [DELEGATE_PLAN, BYPASS], events: [bypassOn(), ev('labeled', DELEGATE_PLAN, minutesAgo(10))], files: [GUARDED] });
+  await accept(fake);
+  const w = fake.writes();
+  assert.ok(w.includes('enablePullRequestAutoMerge'), w.join('\n'));
+  assert.ok(w.includes('comment:bypass-merge'), w.join('\n'));
+  assert.ok(!w.includes('comment:delegated-merge'), w.join('\n'));
+  assert.equal(checks(fake, CHECKS.mergeRoute).at(-1)?.title, 'bypass モードの条件を満たしています');
+});
+
+test('停止スイッチを付けると、委任で付けた auto-merge は delegated-merge-end（stopped）で外し、bypass に引き継がない', async () => {
+  const since = minutesAgo(30);
+  const w: DelegateWorld = {
+    prs: [agentPr(5, ARMED)],
+    comments: { 5: [bothAcceptance(91), delegateArmed(92, sha(5), since)] },
+    dashboardLabels: [DELEGATE, BYPASS, STOP],
+    dashboardEvents: [bypassOn(), delegateOn(since), ev('labeled', STOP, minutesAgo(1))],
+  };
+  const fake = delegateWorldFake(w);
+  await onIssue(ctxFor(fake, 'issues', dashboardEvent('labeled', STOP, 'me', [DELEGATE, BYPASS, STOP])));
+  assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge'), ['PR_5']);
+  assert.equal(postedRecord(fake, 'delegated-merge-end').reason, 'stopped');
+  assert.ok(!kindsOn(fake, 5).includes('bypass-merge'), kindsOn(fake, 5).join(','));
 });
 
 test('委任と bypass が両方有効な間に bypass のラベルを外すと、委任で乗る PR は auto-merge が付いたまま delegated-merge を書き、human-review は出さない', async () => {

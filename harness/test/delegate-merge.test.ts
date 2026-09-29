@@ -1,71 +1,15 @@
-// 委任 Merge の判定（delegateState・delegateExcludeFiles・delegateEligibility）と、merge-route・判定の受け付けへの記録を確かめる（Issue #211）
+// 委任承認（計画＋Merge）の判定（delegateExcludeFiles・delegateEligibility）と、merge-route・判定の受け付けへの記録を確かめる（Issue #211・#241）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { appMark, extractBlock, renderBlock } from '../lib/blocks.ts';
-import { delegateMergeConfig, type HarnessConfig } from '../lib/config.ts';
-import { delegateEligibility, delegateExcludeFiles, delegateState } from '../lib/delegate.ts';
+import { delegateEligibility, delegateExcludeFiles } from '../lib/delegate.ts';
 import { GitHub } from '../lib/github.ts';
 import { evaluateMergeRoute, type Acceptance, type DelegateRecord, type MergeRouteInput } from '../lib/merge-route.ts';
-import { plannedFilesForDelegate, type TimelineEvent } from '../lib/state.ts';
+import { plannedFilesForDelegate } from '../lib/state.ts';
 import { onComment } from '../gates/on-comment.ts';
 import { APP, acceptanceFake, config, ctxFor, pr, verdict, verdictEvent, type FakeGitHub } from './support/gate-fixtures.ts';
 
-const LABEL = delegateMergeConfig(config).label;
-const HOURS = delegateMergeConfig(config).hours;
-const NOW = new Date('2026-09-29T12:00:00Z');
-const hoursAgo = (h: number): string => new Date(NOW.getTime() - h * 3600_000).toISOString();
-
-const dashboard = (...labels: string[]) => ({ labels: labels.map((name) => ({ name })) });
-const labeled = (created_at: string | undefined, login = 'me', name = LABEL): TimelineEvent => ({ event: 'labeled', created_at, actor: { login }, label: { name } });
-
-// ---- delegateState ----
-
-test('delegateState：期限内（人が付けて1時間）なら active、since・until・by を返す', () => {
-  const since = hoursAgo(1);
-  const s = delegateState(dashboard(LABEL), [labeled(since)], config, NOW);
-  assert.equal(s.active, true, s.reason);
-  assert.equal(Date.parse(s.since!), Date.parse(since));
-  assert.equal(Date.parse(s.until!), Date.parse(since) + HOURS * 3600_000);
-  assert.equal(s.by, 'me');
-  assert.equal(typeof s.reason, 'string');
-});
-
-test('delegateState：ダッシュボードにラベルが無い・ダッシュボードが無いなら active でない', () => {
-  assert.equal(delegateState(dashboard(), [labeled(hoursAgo(1))], config, NOW).active, false);
-  assert.equal(delegateState(null, [labeled(hoursAgo(1))], config, NOW).active, false);
-});
-
-test('delegateState：ラベルはあるが付けたイベントが無い・最後が外したイベントなら active でない', () => {
-  assert.equal(delegateState(dashboard(LABEL), [], config, NOW).active, false);
-  const unlabeled: TimelineEvent = { event: 'unlabeled', created_at: hoursAgo(0.5), actor: { login: 'me' }, label: { name: LABEL } };
-  assert.equal(delegateState(dashboard(LABEL), [labeled(hoursAgo(1)), unlabeled], config, NOW).active, false);
-});
-
-test('delegateState：期限切れ（hours を過ぎた・ちょうど hours）なら active でない', () => {
-  assert.equal(delegateState(dashboard(LABEL), [labeled(hoursAgo(HOURS + 1))], config, NOW).active, false);
-  assert.equal(delegateState(dashboard(LABEL), [labeled(hoursAgo(HOURS))], config, NOW).active, false, 'now >= since + hours は切れ');
-});
-
-test('delegateState：停止スイッチ（autoMergeStopLabel）がダッシュボードにあれば active でない', () => {
-  assert.equal(delegateState(dashboard(LABEL, config.autoMergeStopLabel), [labeled(hoursAgo(1))], config, NOW).active, false);
-});
-
-test('delegateState：時刻が読めない・未来の時刻なら active でない', () => {
-  assert.equal(delegateState(dashboard(LABEL), [labeled(undefined)], config, NOW).active, false, 'created_at なし');
-  assert.equal(delegateState(dashboard(LABEL), [labeled('not-a-date')], config, NOW).active, false, '読めない created_at');
-  assert.equal(delegateState(dashboard(LABEL), [labeled(hoursAgo(-1))], config, NOW).active, false, '未来の created_at');
-});
-
-test('delegateState：付けた actor が App か Bot なら active でない', () => {
-  assert.equal(delegateState(dashboard(LABEL), [labeled(hoursAgo(1), APP)], config, NOW).active, false, 'App');
-  assert.equal(delegateState(dashboard(LABEL), [labeled(hoursAgo(1), 'someone[bot]')], config, NOW).active, false, '[bot]');
-});
-
-test('delegateState：hours は設定（delegateMerge.hours）から取る', () => {
-  const longer: HarnessConfig = { ...config, delegateMerge: { ...delegateMergeConfig(config), hours: 10 } };
-  assert.equal(delegateState(dashboard(LABEL), [labeled(hoursAgo(5))], longer, NOW).active, true);
-  assert.equal(delegateState(dashboard(LABEL), [labeled(hoursAgo(5))], config, NOW).active, HOURS > 5);
-});
+// delegateState（期限の無い委任承認の状態）は delegate-config.test.ts で確かめる
 
 // ---- delegateExcludeFiles ----
 
@@ -144,7 +88,7 @@ const routeIn: MergeRouteInput = { autoMergeEnabled: true, isAgentPr: true, hold
 test('merge-route：delegateMode 真かつ delegate.eligible 真なら、autoEligible が偽でも success', () => {
   const r = evaluateMergeRoute(routeIn);
   assert.equal(r.conclusion, 'success', r.summary);
-  assert.equal(r.title, '委任 Merge の条件を満たしています');
+  assert.match(r.title, /^委任承認/, r.title);
   assert.ok(r.summary.includes('Risk レベルが critical'), `summary に skipped: ${r.summary}`);
 });
 
@@ -253,7 +197,7 @@ test('受け付け：ガードレールに触れ Risk が critical の PR は de
   assert.ok(a.delegate.skipped.some((s) => s.includes('ガードレール')), a.delegate.skipped.join('\n'));
   assert.ok(a.delegate.skipped.some((s) => s.includes('critical')), a.delegate.skipped.join('\n'));
   assert.deepEqual(a.delegate.exclude, []);
-  assert.match(acceptanceComment(fake), /\| 委任 Merge \|/);
+  assert.match(acceptanceComment(fake), /\| 委任承認[^|\n]*\|/);
   assert.ok(!fake.writes().includes('enablePullRequestAutoMerge'), '委任ではまだ auto-merge を付けない');
 });
 
@@ -264,7 +208,7 @@ test('受け付け：delegateMergeExclude・harness.config.json に当たる PR 
     const a = recorded(fake);
     assert.equal(a.delegate?.eligible, false, file);
     assert.deepEqual(a.delegate?.exclude, [file]);
-    assert.match(acceptanceComment(fake), /\| 委任 Merge \|/);
+    assert.match(acceptanceComment(fake), /\| 委任承認[^|\n]*\|/);
   }
 });
 

@@ -19,6 +19,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときだけ。Issue の段階ではない） |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装して人が Merge する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
+- 委任承認（ダッシュボードの `agent:delegate-plan`・`agent:delegate-merge`）の間は、ガードレール・Risk だけで止まる計画も計画ゲートを委任で通ることがあり、委任承認（計画＋Merge）で `delegateMergeExclude` に当たらなければ Merge は App の自動経路になる（[docs/risk-policy.md](../docs/risk-policy.md#委任承認)）。
 - 着手宣言は段階を始める前に `claim <番号> --manual --stage <段階>` で出し、段階が変わるたびに更新する（段階の名前は `harness/lib/queue.ts` の `CLAIM_STAGES`）。計画の前は `--stage plan`、批評の前は `--stage plan-critique`、実装は `--stage implement`。judge・fix・sync は PR 番号で宣言する（`claim <PR番号> --manual --stage judge|fix|sync`。judge は判定コメントの投稿で宣言が終わる）。`post-plan` は投稿の後、ゲートを通る見込みなら `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら宣言を解除する。見込みが外れて App が `agent:plan-review` で止め、宣言が残っていたら、人に聞く前に `release <番号>` する。そのほかの人の判断待ちで止めてセッションを終えるときも `release <番号>` する。
 - ほかのセッションの着手宣言があれば `claim` は止まる（期限切れでも）。引き継ぐのは人が決めたときだけで、そのときは `--takeover` を付ける（`--force` は領域の上限だけを飛ばし、引き継ぎにはならない）。
 - `critic-input`・`post-plan`・`worktree` は、このセッションの着手宣言が無いと止まる。
@@ -43,7 +44,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 
 - Merge、auto-merge の設定、Draft の解除（App と人の役割）
 - `agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` の付け外し
-- `agent:delegate-merge` の付け外し（委任 Merge は人だけが始める）
+- `agent:delegate-plan`・`agent:delegate-merge` の付け外し（委任承認は人だけが始める）
 - `agent:bypass-merge` の付け外し（bypass モードは人だけが始める）
 - main への push、force push、Ruleset・Secret・変数の変更
 - Issue 本文の書き換え（要件・AC の変更はコメントで提案する）

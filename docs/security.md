@@ -22,7 +22,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 計画の紐付け | すべての PR（付き添いのセッションの Agent PR も、人の PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録） |
 | 計画の写し | ゲート通過時の計画を App の記録に写す。後で計画コメントが編集されても写しを使う |
 | テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。人が Merge する PR（ガードレール・`humanMergePaths`・自動 Merge の対象外の判定）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の Merge の判断にまとめる（テストを弱めた PR が自動で Merge されるのを防ぐ目的は変わらない。経路が自動 Merge に変わると止める側に戻る） |
-| ガードレール | `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）に触れる PR は、Risk Agent の答えに関わらず自動 Merge せず理由を受け付けのコメントに書く（変更ファイルはリネームの旧パスも）。触れる計画は想定 Risk に関わらず計画ゲートで止める（`harness/lib/guardrail.ts`） |
+| ガードレール | `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）に触れる PR は、Risk Agent の答えに関わらず自動 Merge せず理由を受け付けのコメントに書く（変更ファイルはリネームの旧パスも）。触れる計画は想定 Risk に関わらず計画ゲートで止める（`harness/lib/guardrail.ts`）。委任承認の間の例外は [risk-policy.md](risk-policy.md#委任承認) |
 | 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を照合する。最初の階層にワイルドカードがあるパターンは拒否。全件取得できなければ不可 |
 | 判定の鮮度 | 判定時と現在の head で、PR 自身の差分の `git patch-id --verbatim` が同じときだけ受け付ける（`--stable` は空白を無視するため使わない） |
 | 順序 | push を検知したら最初に auto-merge を解除する。受け付け時は auto-merge → merge-route（直前に PR を取り直す）→ agent/risk → agent/review の順に書き、書き終えた後に auto-merge が変わっていれば merge-route を書き直す |
@@ -31,8 +31,8 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 判定の対象 | 同じリポジトリの PR は、計画のある Issue に紐付いていればブランチに関係なく判定する。人の PR は判定が出るまで `agent/review` を通さない。例外は人が付ける `review:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。fork からの PR は判定せず、例外でのみ通る |
 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。自動 Merge の経路に乗るのはこれだけ |
 | 停止スイッチ | ダッシュボードの `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い |
+| 委任承認のスイッチ | ダッシュボードの `agent:delegate-plan`（計画）と `agent:delegate-merge`（計画＋Merge）は人だけが付ける（App・Bot が付けたもの、付けた時刻が未来のものは無効）。セッションは本人の名義で動き GitHub では区別できないため、hook（`.claude/hooks/guard.ts` の保護ラベル）と `.claude/settings.json` の deny、規則の「やってはいけないこと」で止める。自動 Merge の仕組みそのもの（`delegateMergeExclude`、`harness.config.json` は常に）は、計画ゲートでも Merge でも委ねない。停止スイッチが優先する |
 | bypass モードのスイッチ | ダッシュボードの `agent:bypass-merge` は人だけが付ける。`agent:delegate-merge` と同じく、hook（`.claude/hooks/guard.ts` の保護ラベル）と `.claude/settings.json` の deny、規則の「やってはいけないこと」で止める。App・Bot が付けたものは無効 |
-| 委任 Merge のスイッチ | ダッシュボードの `agent:delegate-merge` は人だけが付ける。セッションは本人の名義で動き GitHub では区別できないため、hook（`.claude/hooks/guard.ts` の保護ラベル）と `.claude/settings.json` の deny、規則の「やってはいけないこと」で止める。自動 Merge の仕組みそのもの（`delegateMergeExclude`、`harness.config.json` は常に）は委ねない |
 | 別リポジトリの参照 | `Closes`・親 Issue・依存の参照先が別リポジトリなら無視する |
 
 ## 受け入れているリスク
@@ -44,7 +44,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 本人名義の操作 | 直接マージ、`agent:hold` の解除、偽の判定コメントは GitHub 側では防げない | deny、App による記録、段階を別の実行に分けること、将来は Jev を Actions から呼ぶ |
 | auto-merge 付与と CI 完了の競合 | 本人名義で medium の PR に auto-merge を付け、ゲートが merge-route を書き換える前に CI が終わると Merge され得る（数秒） | deny |
 | `GITHUB_TOKEN` による auto-merge | PR 側の workflow が `GITHUB_TOKEN` で別の PR に auto-merge を付けるとゲートが起動しない | 定期照合（最大3時間） |
-| 委任 Merge の期限切れの後の窓 | 期限の前に委任で auto-merge を付けた PR は、CI が期限の後に終わると、次のゲートの起動（PR・Issue のイベントか、3時間ごとの定期実行）までの間に Merge されうる | 期限までの残りが `minRemainingMinutes`（既定30分）未満なら付けない、PR・Issue のイベントと定期実行のたびの掃除（記録の期限を過ぎた auto-merge を外す）、merge-route を書くたびに今の委任の状態で評価する |
+| 委任承認の外し忘れ | 委任承認に期限は無く、ダッシュボードのラベルを外すまで続く。外し忘れると、人が見ていない間もガードレール・Risk だけで止まる計画が通り、委任承認（計画＋Merge）なら同じ理由の PR が自動 Merge されうる | ラベルは人だけが付け、停止スイッチが優先する。`delegateMergeExclude`（`harness.config.json` は常に）は委ねない。ダッシュボードの状態の行に委任承認の段階と付けた人が出て、委任で Merge された PR は節「委任承認で Merge された PR」と記録（`delegated-merge`）で見返せる。`agent:delegate-merge` を外すと委任で付けた auto-merge を外す |
 | bypass モードの間のハーネス自身の変更 | bypass モードの間は、ハーネス自身の守り（ゲート・ガードレールの一覧・hook・deny・workflow・`harness.config.json`）を変える Agent PR も、ブロッキング指摘が無く範囲照合と `agent/tests` を通れば、人を通らずに Merge される（持ち主の決定、#245） | 見ていないときはラベルを外す、停止スイッチ、`agent:hold`。ダッシュボードの「bypass で Merge された PR」と PR の記録（`bypass-merge`）で見返す |
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |

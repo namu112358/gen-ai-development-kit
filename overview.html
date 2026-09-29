@@ -207,7 +207,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     <li class="step">
       <div class="step-head"><span class="num">2</span><h3>計画</h3><span class="who claude">Claude</span><span class="who app">App</span></div>
       <p>Claude が実装方針と「触るファイル一覧」・想定 Risk を計画コメントに書きます（投稿前に plan-critic が批評）。App の<strong>計画ゲート</strong>が中身を機械的に検査し、通れば <code>agent:plan-ok</code> を付けます。</p>
-      <div class="branch"><strong>人に返る分かれ道：</strong>人の判断が要る、AC を変える提案がある、未解決の質問がある、Risk が high 以上、触るファイル一覧が無い、ガードレールに触れる、批評の記録か批評の着手宣言が無い、のどれかなら <code>agent:plan-review</code> で止まり、人が「進める／直す／やめる」を決めます。</div>
+      <div class="branch"><strong>人に返る分かれ道：</strong>人の判断が要る、AC を変える提案がある、未解決の質問がある、Risk が high 以上、触るファイル一覧が無い、ガードレールに触れる、批評の記録か批評の着手宣言が無い、のどれかなら <code>agent:plan-review</code> で止まり、人が「進める／直す／やめる」を決めます。ただし人がダッシュボードに委任承認（<code>agent:delegate-plan</code> か <code>agent:delegate-merge</code>）を付けている間は、Risk が high 以上・ガードレールに触れる、だけで止まる計画は App が通します（<code>delegateMergeExclude</code> に重なる計画と、批評の関所を含むほかの理由では止まります）。</div>
     </li>
     <li class="step">
       <div class="step-head"><span class="num">3</span><h3>実装</h3><span class="who claude">Claude</span></div>
@@ -250,7 +250,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <p class="aside">当たるもの：ガードレールに触れる、計画の範囲の外を変えた、<code>humanMergePaths</code>（人が Merge するパス）に触れる、停止スイッチが入っている など</p>
       </section>
     </div>
-    <figcaption>自動 Merge の条件：CI の成功、<code>agent/review</code> の合格、Risk が low で8問すべて安全側、範囲照合 OK、<code>agent:hold</code> が無い、停止スイッチが入っていない。まとめて必須チェック merge-route が確かめます。ダッシュボードの <code>agent:delegate-merge</code>（委任 Merge）と <code>agent:bypass-merge</code>（bypass モード）が付いている間は、Human Merge の理由の一部を飛ばして自動 Merge に回します（詳しくは <a href="docs/risk-policy.md">docs/risk-policy.md</a>）。</figcaption>
+    <figcaption>自動 Merge の条件：CI の成功、<code>agent/review</code> の合格、Risk が low で8問すべて安全側、範囲照合 OK、<code>agent:hold</code> が無い、停止スイッチが入っていない。まとめて必須チェック merge-route が確かめます。ダッシュボードの <code>agent:delegate-merge</code>（委任承認（計画＋Merge））と <code>agent:bypass-merge</code>（bypass モード）が付いている間は、Human Merge の理由の一部を飛ばして自動 Merge に回します（詳しくは <a href="docs/risk-policy.md">docs/risk-policy.md</a>）。</figcaption>
   </figure>
 
   <h2 id="roles">誰が何をするか</h2>
@@ -361,7 +361,8 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
       <tr><td><code>agent:blocked</code></td><td data-k="付ける者">Claude / App / 人</td><td data-k="意味">人の対応が必要。理由をコメントに残す</td></tr>
       <tr><td><code>agent:hold</code></td><td data-k="付ける者">人</td><td data-k="意味">この Issue・PR だけ止める</td></tr>
       <tr><td><code>agent:auto-merge-stopped</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">停止スイッチ。ダッシュボードに付くと自動 Merge が全部止まる（自動 Merge した PR が revert されると App が付ける）</td></tr>
-      <tr><td><code>agent:delegate-merge</code></td><td data-k="付ける者">人のみ</td><td data-k="意味">委任 Merge。ダッシュボードに付けると期限つきで Merge を App に委ね、ガードレール・Risk が理由の PR も自動 Merge する。外す・期限切れ（定期実行が外す）・停止スイッチで、委任で付けた auto-merge を外す</td></tr>
+      <tr><td><code>agent:delegate-plan</code></td><td data-k="付ける者">人のみ</td><td data-k="意味">委任承認（計画）。ダッシュボードに付けている間、ガードレール・Risk だけで止まる計画に App が <code>agent:plan-ok</code> を付ける（期限なし。停止スイッチが優先）。外すと計画の委任が終わるだけ</td></tr>
+      <tr><td><code>agent:delegate-merge</code></td><td data-k="付ける者">人のみ</td><td data-k="意味">委任承認（計画＋Merge）。ダッシュボードに付けている間、計画の委任に加えて、ガードレール・Risk が理由の PR も自動 Merge する（期限なし。停止スイッチが優先）。外す・停止スイッチで、委任で付けた auto-merge を外す</td></tr>
       <tr><td><code>agent:bypass-merge</code></td><td data-k="付ける者">人のみ</td><td data-k="意味">bypass モード。ダッシュボードに付けている間（期限なし）、ブロッキング指摘が無く範囲照合と <code>agent/tests</code> を通る Agent PR を、Human Merge の理由（Risk・ガードレール・ハーネス自身の変更など）を飛ばして自動 Merge する。外す・停止スイッチで、bypass で付けた auto-merge を外す</td></tr>
       <tr><td><code>risk:*</code></td><td data-k="付ける者">Claude / App</td><td data-k="意味">壊れたときの影響の大きさ（low・medium・high・critical）</td></tr>
       <tr><td><code>priority:*</code></td><td data-k="付ける者">人 / App / Claude</td><td data-k="意味">優先度（highest〜lowest の5段階）。高いものから進める</td></tr>

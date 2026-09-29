@@ -40,6 +40,7 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `split`：分け方の案に従い、`split` 付きの計画にして、`critique` の `verdict` を `split` にする。
    - `drop`、または止める条件に当たったとき：有人セッションでは `render-block` で Issue を止めない。その場で人に要点（残る指摘）を示し、「進める／直す／やめる」を AskUserQuestion で聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。「進める」なら `critique` の `verdict` は最後の判定のまま（`revise` なら `revise`）にし、書式に `mustRemaining` があれば残った必須の件数を書く。「直す」なら人の指示で直して手順5から、「やめる」なら投稿しない。
 8. `node harness/scripts/agent.ts post-plan <番号> <ファイル>` で投稿する（検査、ラベルの付け替え、コメントの投稿をまとめて行う。このセッションの着手宣言が要る）。計画の投稿で宣言は終わったとみなされるので、`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（人の判断待ち）なら宣言を解除する（出力の `claim` が `plan-gate` か `released`）。出力の `expectedGate` を人に伝える。
+   - 委任承認（ダッシュボードの `agent:delegate-plan` か `agent:delegate-merge`）の間は、ガードレール・Risk だけで止まる見込みの計画にも App が `agent:plan-ok` を付けることがある（見込みの `claim` は `released` のまま）。そのときは implement の `claim --stage implement` で宣言し直す。
    - App の計画ゲートの結果（`gh issue view <番号> --json labels`）が `agent:plan-review` で、宣言が残っている（出力の `claim` が `plan-gate` だった）なら、`node harness/scripts/agent.ts release <番号>` で解除してから、進めてよいかを AskUserQuestion で聞く。
    - 出し直し（計画ゲートで止まった Issue に計画を出し直す）：前の停止が App のゲートによるもの（critical・ガードレールなど）なら、App は前の印に引きずられずに新しい計画を判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。Planner の申告（`needsHuman`・`openQuestions`）は、手順9の決定の記録を App が確かめて外すことがある。`acChangeProposed` と人が付けた印は、人が外すまで残る。`agent:plan-review` を手で外さない。
 9. `expectedGate` が Planner の申告（`needsHuman`・`openQuestions`）で止まる見込みなら、`needsHumanReasons`・`openQuestions` を人に聞く。答えは人の言葉のまま（選択肢で答えたときは選んだ項目と書き添えた文）を `agent-decision` のファイル（書式は [docs/formats.md](../../../docs/formats.md) の「決定の記録」）に書き、`node harness/scripts/agent.ts post-decision <番号> <ファイル>` で記録する。App が `plan-decision` の記録を付ける（`shadow` なら記録だけ、`enforce` で通れば App が `agent:plan-review` を外す）。人にラベルを外すよう頼まない。
@@ -56,4 +57,4 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 - plan-critic を呼んだ後の `git status --porcelain --untracked-files=all` に、呼ぶ前と比べて増えた行・変わった行がある
 - 要件・AC を変えたほうがよい（Issue 本文は書き換えない。コメントで提案する）
 - `post-plan` が書式の誤りや権限で失敗した（拒否された操作は別の方法で試さない）
-- やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
+- やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
