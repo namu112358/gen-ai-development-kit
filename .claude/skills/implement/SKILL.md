@@ -15,16 +15,17 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 
 ## 手順
 
-1. `node harness/scripts/agent.ts claim <番号> --manual --stage implement` で着手を宣言する（段階の更新。ほかのセッションの宣言があれば止まる）。同じ領域の判定前の Agent PR（Draft）が上限で止まったら、AskUserQuestion で人に聞く（急ぐと言われたときだけ `--force`）。
+1. `node harness/scripts/agent.ts claim <番号> --manual --stage implement` で着手を宣言する（段階の更新。ほかのセッションの宣言があれば止まる。先に宣言したセッションがあって自分の宣言を取り下げて止まったら、作業を始めずに ship / fleet の扱いに従う）。同じ領域の判定前の Agent PR（Draft）が上限で止まったら、AskUserQuestion で人に聞く（急ぐと言われたときだけ `--force`）。
 2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作る（出力がパス。置き場所はリポジトリの外）。以降はそのディレクトリで作業する。`node_modules` が無ければ worktree が `npm ci` まで行う。
 3. **test-designer** サブエージェントにテストを書かせる。GitHub は読ませないので、Issue 番号、AC、Validation Requirements、計画の `files` を指示に含めて渡す。
 4. 計画の `files` の範囲で実装する。範囲外の変更が要るなら、先に AskUserQuestion で人に聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方。範囲外として出すなら PR 本文の「範囲外の変更」に理由を書き、計画を出し直すなら plan の skill に戻る）。
 5. `npm run check` を通す。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
 7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
-8. `gh pr create --draft --base main` で **Draft** PR を出す。タイトルは Issue のタイトル。本文は [.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
-9. `node harness/scripts/agent.ts release <番号>` で着手を解除する。
-10. `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` は、続けて judge・fix をしないときだけ行う。
+8. PR を作る前に `node harness/scripts/agent.ts ensure-claim <番号>` で、このセッションの着手宣言が今も持ち主かを確かめる。止まったら PR を出さずに人に返す（ほかのセッションが先に宣言していた、または引き継いだ）。
+9. `gh pr create --draft --base main` で **Draft** PR を出す。タイトルは Issue のタイトル。本文は [.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
+10. `node harness/scripts/agent.ts release <番号>` で着手を解除する。
+11. `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` は、続けて judge・fix をしないときだけ行う。
 
 ## 終わりの状態
 
@@ -35,6 +36,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 ## 人に返す条件
 
 - `claim --manual` が領域の上限で止まった
+- `claim` が先に宣言したセッションがあるため取り下げて止まった、または `ensure-claim` で止まった（PR を出さない）
 - 計画の `files` の外を変える必要がある、または計画どおりでは AC を満たせない
 - `npm run check` が、この変更と関係ない理由で落ちる
 - push や PR の作成が拒否された（別の方法で試さない）

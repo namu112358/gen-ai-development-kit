@@ -144,17 +144,19 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 { "by": "routine", "session": "https://claude.ai/code/session_...", "at": "2026-09-26T12:00:00.000Z" }
 ```
 
-付き添いのセッションの宣言（`claim <番号> --manual [--stage <段階>]`）には、任意で `session`（セッションの ID）と `stage`（`plan`・`plan-critique`・`plan-gate`・`implement`・`judge`・`fix`・`sync`）が入る。古い宣言（どちらも無い）も読む。
+付き添いのセッションの宣言（`claim <番号> --manual [--stage <段階>]`）には、任意で `session`（セッションの ID）と `stage`（`plan`・`plan-critique`・`plan-gate`・`implement`・`judge`・`fix`・`sync`）が入る。古い宣言（どちらも無い）も読む。`--takeover` で出した宣言には `"takeover": true` が入る（ほかのセッションの持ち主から引き継いだ印。`--takeover` でない宣言には書かない）。
 
 ```agent-claim
 { "by": "manual", "session": "3f2a9c1e-…", "stage": "plan-critique", "at": "2026-09-27T12:00:00.000Z" }
 ```
 
 - 宣言の `session` が今のセッションの ID と同じ（どちらも空でない）なら自分の宣言として扱い、`fleet-status`・`queue` は「ほかのセッションが着手中」にしない。段階とセッションの短い形は、`fleet-status` の表とダッシュボードの理由に出る。
-- `claim --manual` は、ほかのセッションの有効な手動の宣言があれば止まる（期限を過ぎていても）。同じセッションなら段階の更新として通る。引き継ぐのは人が決めたときだけ `--takeover`（`--force` は領域の上限だけを飛ばす）。
-- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）は、このセッションの宣言が無いと止まる（Routine では確かめない）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除のコメントを出す（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除のコメントを出すのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
+- 持ち主の決め方（`harness/lib/facts.ts` の `claimOf`）：**最初の宣言が持ち主**。コメントを古い順に見て、持ち主がいなければ解除でない宣言のセッションが持ち主になる。持ち主と同じセッション（`by` と `session` が同じ。`session` の無い古い宣言同士も含む）の宣言は段階の更新で、解除なら持ち主がなくなる。ほかのセッションの宣言は、`takeover: true` か、持ち主が `routine` の宣言のときだけ持ち主を移し、それ以外（ほかのセッションの解除も）は無視する。計画・判定コメントで持ち主がなくなる。有効な着手宣言は持ち主の最新の段階の宣言。
+- `claim --manual` は、ほかのセッションの有効な手動の宣言があれば止まる（期限を過ぎていても）。同じセッションなら段階の更新として通る。引き継ぐのは人が決めたときだけ `--takeover`（`--force` は領域の上限だけを飛ばす）。このセッションの ID が得られなければ投稿せずに止まる（`release` も同じ）。
+- 読み直し（`harness/lib/claim.ts` の `postClaim`）：`claim` は投稿の後に少し（5秒）待って読み直し、持ち主が自分でなければ（ほぼ同時にほかのセッションが先に宣言した）、自分の宣言を取り下げる解除のコメント（`released: true`）を書き、先に宣言したセッションを示して 0 以外で終わる。ほかのセッションの解除は持ち主を消さないので、取り下げで先の側の宣言は消えない。
+- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）・`ensure-claim <番号>`（PR を作る前に使う）は、このセッションの宣言（持ち主）が無いと止まる。読み直しで気づかなくても、ここで同じ決め方で止まる。定期 Routine は `worktree … --routine` で確かめを飛ばす（Routine の環境には `gh` が無い）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除のコメントを出す（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除のコメントを出すのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
 
-`"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
+持ち主の `"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
 ## 決定の記録（agent-decision）
 
@@ -206,6 +208,7 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | `unclaimed-push` | PR | 着手宣言の無いセッションの push の通知（止めない）。`{ headSha, reason, commitSessions, claimSessions }`。`reason` は `no-claim`（push の時点で PR にも Close する Issue にも有効な宣言が無い）/ `session-mismatch`（commit の `Claude-Session` が宣言のセッションと食い違う）。セッションは短い形。同じ `headSha` には1回だけ書く |
 | `fix-request` | PR（レビュー） | Reviewer のブロッキング指摘（修正回数はこの数で数える） |
 | `issue-triage` | Issue | Jev による分類の提案と、その確率 |
-| `label-triage` | Issue | `classification.issueTriage` が `label` のときに Jev に問った結果と付けたラベル。`{ model, answers, threshold, added, notApplied, size }`。`size`（`chars`・`jaRatio`・`inputTokens`）は `acceptance` の `jev.size` と同じ意味。`notApplied` は付けなかったもの（確率が下限未満、下限が未設定、当たるラベルが無い）と理由。`issue-triage` か `label-triage` がある Issue には二度と問わない |
+| `label-triage` | Issue | `classification.issueTriage` が `label` のときに Jev に問った結果と付けたラベル。`{ model, answers, threshold, thresholdByLabel, added, notApplied, size }`。`thresholdByLabel` は問うたときの `jev.thresholds.labelProbabilityByLabel` の写し（無ければ `{}`）。`size`（`chars`・`jaRatio`・`inputTokens`）は `acceptance` の `jev.size` と同じ意味。`notApplied` は付けなかったもの（確率が下限未満、下限が未設定、当たるラベルが無い）と理由。`issue-triage` か `label-triage` がある Issue には二度と問わない |
+| `label-reapply` | Issue | ラベルの下限を見直した後、最新の `label-triage` の記録の確率で、下限に届かず付かなかったラベルを付けた記録。`{ triageCommentId, added }`。`added` は `{ label, probability, threshold }` の一覧。Jev には問い直さない。1つの Issue に1回だけ（この記録があれば二度と付け直さない） |
 | `label-mismatch` | Issue / PR | 人が付けた（App が付けたと確かめられない）`type:*` がタイトルと食い違う、または Epic に付いていることの通知。`{ title, labels }`。同じタイトルと同じラベルには1回だけ書く |
 | `human-review` / `priority-conflict` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `epic-inherit` / `epic-split-failed` / `auto-merge-stopped` / `delegate-merge-switch` / `bypass-merge-switch` / `dashboard` | 各所 | 通知・記録 |

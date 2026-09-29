@@ -10,7 +10,7 @@
 - 自分が書くコメントは `node harness/scripts/agent.ts render-*` で作る（書式検査と、先頭の目印 `<!-- agent-harness:claude -->` が付く。Routine ではセッションの URL を入れた `<!-- agent-harness:claude session=<URL> -->` になる）。投稿後にコメントを読み直し、目印が `&lt;!--` のように HTML エンティティに変わっていたら、コメントの更新で元の文字に直す。
 - **ラベルの変更は、ゲートを起動するコメント（計画・判定）を投稿する前に済ませる。** MCP のラベル更新はラベルの一覧を丸ごと置き換えるので、投稿の後に更新すると、その間に App が付けたラベル（`agent:plan-ok` など）を消してしまう。更新するときは直前に現在のラベルを読み、変えたいものだけを足し引きした一覧を渡す。
 - **承認を求める状況を作らない。** Routine には確認する人がいない。操作が拒否されたら、同じ目的を別のコマンドや別の経路で試さず、そのアクションを飛ばして（`render-claim --release`）、何が足りないかを最後の要約に書く。環境変数・資格情報・トークンは調べない。
-- **作業は常に worktree で行う。** `node harness/scripts/agent.ts worktree <ブランチ>` で作り（出力がパス）、そのディレクトリで作業する。判定のテスト実行は `worktree <headSha> --detach`。終わったら `worktree-remove <ブランチ|SHA>` で消す。clone した作業ツリーでは直接作業しない。
+- **作業は常に worktree で行う。** `node harness/scripts/agent.ts worktree <ブランチ> --routine` で作り（出力がパス）、そのディレクトリで作業する（`--routine` は着手宣言の確かめを飛ばす印。Routine の環境には `gh` が無く、確かめは GitHub の API を呼ぶため）。判定のテスト実行は `worktree <headSha> --detach`。終わったら `worktree-remove <ブランチ|SHA>` で消す。clone した作業ツリーでは直接作業しない。
 - **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` の付け外し、main への push、force push、Issue 本文の書き換え。これらは App と人の役割。決定の記録（```` ```agent-decision ````）の投稿もしない（人の答えを記録するもので、人のいない Routine は書かない）。
 
 ## 手順
@@ -49,7 +49,7 @@
 ### implement（実装）
 
 1. 入力は queue の `planFiles`（App が写した計画の触るファイル一覧）と、`planCommentId` の計画コメント。Issue 本文が後で変わっても計画に従う。計画コメントがゲート後に編集されていたら（App の plan-gate コメントの記録と食い違うなら）`planFiles` だけに従う。
-2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作り、そこで作業する（ブランチがリモートにあれば続きから）。`node_modules` が無ければ worktree が `npm ci` まで行う。
+2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前> --routine` で worktree を作り、そこで作業する（ブランチがリモートにあれば続きから）。`node_modules` が無ければ worktree が `npm ci` まで行う。
 3. **test-designer** サブエージェントにテストを書かせる。サブエージェントは GitHub を読めないので、Issue 番号、AC、Validation Requirements、`planFiles` を指示に含めて渡す。
 4. `planFiles` の範囲で実装する。範囲外の変更が必要になったら、PR 本文に理由を書く（範囲照合で自動 Merge の対象外になる）。
 5. `npm run check` を通す（`npm ci` は worktree が行っている）。
@@ -81,13 +81,13 @@ Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同�
 ### fix（修正）
 
 1. `reason` が `review` なら、App の最新の変更要求レビュー（本文に `kind=fix-request`、作成者が App）の指摘を直す。`human` なら、最後の push 以降のコラボレーターのレビューの指摘を直す。
-2. `node harness/scripts/agent.ts worktree <PR のブランチ>` で worktree を作って修正し、`npm run check` を通して push する（force push しない。main への追従が必要なら merge する）。
+2. `node harness/scripts/agent.ts worktree <PR のブランチ> --routine` で worktree を作って修正し、`npm run check` を通して push する（force push しない。main への追従が必要なら merge する）。
 3. 何を直したかを PR にコメントし（先頭に `<!-- agent-harness:claude -->`）、`render-claim --release` と `render-metrics fix ...` の出力もコメントする。
 4. 判定は次の実行で行う。
 
 ### resolve-conflict（衝突の解消）
 
-1. `node harness/scripts/agent.ts worktree <PR のブランチ>` で worktree を作る。
+1. `node harness/scripts/agent.ts worktree <PR のブランチ> --routine` で worktree を作る。
 2. `git merge origin/main` で main を取り込み、衝突を解消する。両方の変更の意図を残す（main 側の変更を消さない）。判断がつかない衝突は解消せず、`render-block needs-decision <説明>` で人に返す。
 3. `npm run check` を通して push する（force push しない）。差分が変わるので、判定は次の実行でやり直しになる。
 4. 何をどう解消したかを PR にコメントし、`render-claim --release` をコメントする。
