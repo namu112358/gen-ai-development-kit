@@ -19,6 +19,8 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 
 `harness.config.json` の `guardrailPaths` に、Agent が自分を縛る仕組み（ゲート、判定の基準、deny、依存など）のパスを範囲パターンで並べ、その中で普通に判定するものを `guardrailExclude` に並べる。触れる PR は自動 Merge せず、触れる計画は計画ゲートで止まる（[risk-policy.md](risk-policy.md#ガードレール)）。`harness.config.json` 自身は常にガードレール。`guardrailPaths` を書かないと、すべてのファイルがガードレールとして扱われ自動 Merge が起きない。
 
+`classification.issueTriage` が `label` なら、Jev が Issue の `priority:*` を問う。段階ごとの基準は `classification.priorityCriteria`（`highest`・`high`・`medium`・`low`・`lowest` → 英文）で導入先の仕事に合わせて書き換えられる（雛形には既定の英文が入っている。書かない段階は既定のまま。[operations.md](operations.md#足りないラベルを付ける)）。
+
 導入先の製品で必ず人が Merge したいパス（認証・マイグレーション・課金など）があれば、`humanMergePaths` に並べる（[operations.md](operations.md#人が-merge-するパスhumanmergepaths)）。
 
 ## 2. GitHub App を作る
