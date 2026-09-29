@@ -28,6 +28,7 @@
 | `ruleset.ts` | 既定ブランチの Ruleset の本文（harness/scripts/setup.ts の ruleset が適用する）。 | ○ |
 | `scope.ts` | 計画の「触るファイル一覧」と実際の diff の照合（範囲照合）。 | ○ |
 | `session-inputs.ts` | 有人セッションで判定（Reviewer）・批評（plan-critic）に渡す入力と、判定コメントの組み立て。 | ○ |
+| `session.ts` | 今のセッションの ID を環境の値から決める（lib は process.env を直接読まず、呼び出し元が渡す）。 | ○ |
 | `stack.ts` | PR の base の見分け（既定ブランチ宛て・Stacked PR の層・スタックでないのに base が既定ブランチ以外）。 | ○ |
 | `state.ts` | GitHub 上の状態の読み取り。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
