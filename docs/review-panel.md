@@ -10,8 +10,8 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 
 | 段階 | 担当（`.claude/agents/`） | モデル | すること |
 | --- | --- | --- | --- |
-| 0〜2 | `review-intake` | haiku | 対象か（closed か、前回の判定と同じ head のときだけ対象外）、CLAUDE.md のパス、変更の要約 |
-| 3 ①〜⑤ | `review-lens`（観点の番号を変えて5回） | sonnet | ① CLAUDE.md、② 明らかなバグ、③ 履歴（`git log`・`git blame`）、④ 過去の PR のコメント、⑤ コードのコメント |
+| 0〜2 | `review-intake` | haiku | 対象か（closed か、前回の判定と同じ head のときだけ対象外）、CLAUDE.md のパス（CLAUDE.md が `@` で読み込むファイルも含む）、変更の要約 |
+| 3 ①〜⑤ | `review-lens`（観点の番号を変えて5回） | sonnet | ① CLAUDE.md（`@` で読み込むファイルの規則も含む）、② 明らかなバグ、③ 履歴（`git log`・`git blame`）、④ 過去の PR のコメント、⑤ コードのコメント |
 | 3 ⑥ | `review-ac-scope` | opus | AC を満たすか（`ac-unmet`）、範囲外の変更（`out-of-scope`） |
 | 3 ⑦ | `review-safety` | sonnet | `data-destruction`・`secret-leak`・`regression` |
 | 3 ⑧ | `review-panel.ts` の `check` | — | head の detached の worktree で `npm ci` と `npm run check`。終了コードと出力の末尾 60 行 |
@@ -67,7 +67,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 
 ## 記録の書式
 
-`node harness/scripts/review-panel.ts post` が PR に投稿する。Claude の目印、人が読む短い要約（合否・ブロッキングの数・扱いの数・⑧の終了コード・④の材料の量・推定料金。指摘の本文は入れない）と、```` ```agent-review-panel ```` のブロック（JSON）：
+`node harness/scripts/review-panel.ts post` が PR に投稿する。Claude の目印（`post` がこのセッションの ID を入れる。付き添いのセッションは `AGENT_HARNESS_SESSION`、Routine はセッションの URL。ID が無ければ ID の無い目印のまま）、人が読む短い要約（合否・ブロッキングの数・扱いの数・⑧の終了コード・④の材料の量・推定料金。指摘の本文は入れない）と、```` ```agent-review-panel ```` のブロック（JSON）：
 
 | キー | 内容 |
 | --- | --- |
