@@ -24,6 +24,7 @@
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
+| `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
 | `queue.ts` | Routine の次の行動を決める純粋関数。 | 対象外 |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）の純粋関数。 | ○ |
 | `review-panel.ts` | 合体版のレビュー（公式の code-review に、このハーネスの観点⑥〜⑧を足したもの）の組み立てと記録。 | ○ |
