@@ -19,6 +19,19 @@ export interface Transport {
   request(method: string, path: string, opts?: RequestOptions): Promise<unknown>;
 }
 
+/** 応答1つの状態とヘッダー（名前は小文字）。上限（X-RateLimit-*）を外から見るために渡す */
+export interface ResponseInfo {
+  status: number;
+  headers: Record<string, string>;
+}
+
+export type ResponseObserver = (info: ResponseInfo) => void;
+
+export interface TransportOptions {
+  /** 応答ごとに呼ぶ（FetchTransport はやり直しの各回も）。GhTransport は、あるときだけ gh api に --include を付ける */
+  onResponse?: ResponseObserver;
+}
+
 export class HttpError extends Error {
   readonly status: number;
   constructor(status: number, message: string) {
@@ -30,9 +43,11 @@ export class HttpError extends Error {
 export class FetchTransport implements Transport {
   private readonly token: string;
   private readonly baseUrl: string;
-  constructor(token: string, baseUrl = 'https://api.github.com') {
+  private readonly onResponse: ResponseObserver | undefined;
+  constructor(token: string, baseUrl = 'https://api.github.com', opts: TransportOptions = {}) {
     this.token = token;
     this.baseUrl = baseUrl;
+    this.onResponse = opts.onResponse;
   }
 
   async request(method: string, path: string, opts: RequestOptions = {}): Promise<unknown> {
@@ -50,6 +65,11 @@ export class FetchTransport implements Transport {
     }
     for (let attempt = 0; ; attempt++) {
       const res = await fetch(url, { method, headers, body });
+      if (this.onResponse) {
+        const seen: Record<string, string> = {};
+        res.headers.forEach((value, name) => { seen[name.toLowerCase()] = value; });
+        this.onResponse({ status: res.status, headers: seen });
+      }
       if (res.status === 404 && opts.allow404) return null;
       if ((res.status >= 500 || res.status === 429) && attempt < 2) {
         await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
@@ -63,23 +83,60 @@ export class FetchTransport implements Transport {
   }
 }
 
+/**
+ * `gh api` の引数。include が偽なら --include を付けない（今までと同じ引数）。
+ * 本文は --input - で標準入力から渡す（呼び出し元が JSON.stringify(opts.body) を渡す）
+ */
+export function ghApiArgs(method: string, path: string, opts: RequestOptions, include: boolean): string[] {
+  const args = ['api', '--method', method, path.replace(/^\//, ''), '-H', `Accept: ${opts.accept ?? 'application/vnd.github+json'}`];
+  if (include) args.push('--include');
+  if (opts.body !== undefined) args.push('--input', '-');
+  return args;
+}
+
+/**
+ * `gh api --include` の標準出力を、状態行・ヘッダーと本文に分ける（最初の空行で分けるので、本文の中の空行では切れない）。
+ * エラーの応答（4xx・5xx）でも gh は標準出力に頭と本文を書く。HTTP/ で始まらなければ info は null で、全部を本文とする
+ */
+export function parseGhInclude(stdout: string): { info: ResponseInfo | null; body: string } {
+  if (!stdout.startsWith('HTTP/')) return { info: null, body: stdout };
+  const sep = /\r?\n\r?\n/.exec(stdout);
+  const head = sep ? stdout.slice(0, sep.index) : stdout;
+  const body = sep ? stdout.slice(sep.index + sep[0].length) : '';
+  const [statusLine = '', ...lines] = head.split(/\r?\n/);
+  const headers: Record<string, string> = {};
+  for (const line of lines) {
+    const i = line.indexOf(':');
+    if (i <= 0) continue;
+    headers[line.slice(0, i).trim().toLowerCase()] = line.slice(i + 1).trim();
+  }
+  return { info: { status: Number(statusLine.match(/^HTTP\/\S+\s+(\d{3})/)?.[1] ?? 0), headers }, body };
+}
+
 export class GhTransport implements Transport {
+  private readonly onResponse: ResponseObserver | undefined;
+  constructor(opts: TransportOptions = {}) {
+    this.onResponse = opts.onResponse;
+  }
+
   async request(method: string, path: string, opts: RequestOptions = {}): Promise<unknown> {
-    const args = ['api', '--method', method, path.replace(/^\//, ''), '-H', `Accept: ${opts.accept ?? 'application/vnd.github+json'}`];
-    let input: string | undefined;
-    if (opts.body !== undefined) {
-      args.push('--input', '-');
-      input = JSON.stringify(opts.body);
-    }
+    const args = ghApiArgs(method, path, opts, this.onResponse !== undefined);
+    const input = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
     const res = spawnSync('gh', args, { input, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+    let stdout = res.stdout ?? '';
+    if (this.onResponse) {
+      const parsed = parseGhInclude(stdout);
+      if (parsed.info) this.onResponse(parsed.info);
+      stdout = parsed.body;
+    }
     if (res.status !== 0) {
       const stderr = res.stderr ?? '';
       const status = Number(stderr.match(/HTTP (\d{3})/)?.[1] ?? 0);
       if (status === 404 && opts.allow404) return null;
       throw new HttpError(status, `gh api ${method} ${path} failed: ${stderr.slice(0, 500)}`);
     }
-    if (opts.raw) return res.stdout;
-    return res.stdout.trim() === '' ? null : JSON.parse(res.stdout);
+    if (opts.raw) return stdout;
+    return stdout.trim() === '' ? null : JSON.parse(stdout);
   }
 }
 
@@ -165,8 +222,9 @@ export interface IssueComment {
   user: { login: string; type: string } | null;
 }
 
-export function transportFromEnv(): Transport {
+/** opts（onResponse）は選んだ Transport に渡す。渡さなければ今までと同じ */
+export function transportFromEnv(opts: TransportOptions = {}): Transport {
   const token = process.env.GH_APP_TOKEN ?? process.env.GITHUB_TOKEN;
-  if (token) return new FetchTransport(token, process.env.GITHUB_API_URL ?? 'https://api.github.com');
-  return new GhTransport();
+  if (token) return new FetchTransport(token, process.env.GITHUB_API_URL ?? 'https://api.github.com', opts);
+  return new GhTransport(opts);
 }

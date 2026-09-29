@@ -21,7 +21,7 @@ test('計画ゲート：通過なら plan-ok と計画の写し、停止なら p
 
   const stop = acceptanceFake({ pr: pr(), issueComments: comments });
   await onComment(ctxFor(stop, 'issue_comment', event({ ...plan, openQuestions: ['?'] })));
-  assert.deepEqual(stop.writes(), ['label-agent:plan-ok', 'label+agent:plan-review', 'comment:plan-gate', 'check:agent/plan-link=success'], '人の判断待ちの計画も計画ありとみなす');
+  assert.deepEqual(stop.writes(), ['label-agent:plan-ok', 'label+agent:plan-review', 'comment:plan-gate', 'label+area:docs', 'check:agent/plan-link=success'], '人の判断待ちの計画も計画ありとみなす');
 });
 
 test('App 以外が付けた plan-ok は外す', async () => {
