@@ -22,9 +22,11 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 5. `npm run check` を通す。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
 7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
-8. PR を作る前に、worktree で `node harness/scripts/agent.ts scope-check <番号>` を走らせ、変更が計画の `files` に収まるかを App の範囲照合と同じ関数で確かめる（読むだけ）。終了コードではなく出力の JSON で分ける。
-   - 範囲の外のファイルがある（`delegate.outside`、使える計画が無ければ `delegate.latestPlanOutside`）：PR を作らずに、計画を出し直す（plan の skill の出し直し）か、その変更を外すかを AskUserQuestion で聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。変更を外したら、commit・push し直して `scope-check` をもう一度走らせる。
-   - 委任・bypass の範囲照合に使える計画が無い（`delegate.usable` が false。Planner の申告で止まり、人が進めると決めた計画など）：範囲の外のファイルが無ければ聞かずに進め、委任・bypass の範囲照合に乗らないことを PR 本文の「人に見てほしい点」に書く。
+8. PR を作る前に、worktree で `node harness/scripts/agent.ts scope-check <番号>` を走らせ、変更が計画の `files` に収まるかを App の範囲照合と同じ関数で確かめる（読むだけ。worktree のどのディレクトリから走らせてもよい）。`agent/scope`（ゲートを通った計画）と委任・bypass の範囲照合の両方を見て、終了コードと出力の JSON の `problems`（`check` がどちらの照合か、`kind` が `outside`（範囲の外）か `no-plan`（使える計画が無い））で分ける。
+   - 終了コード 0：両方の照合に計画があり、範囲の外が無い。次へ。
+   - 終了コード 1（範囲の外のファイルがある。`problems` の `outside` の `files`）：PR を作らずに、計画を出し直す（plan の skill の出し直し）か、その変更を外すかを AskUserQuestion で聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。変更を外したら、commit・push し直して `scope-check` をもう一度走らせる。
+   - 終了コード 3（範囲の外は無いが、どちらかの照合に使える計画が無い。`problems` の `no-plan`。ゲートの停止で止まった計画は `agent/scope` で、Planner の申告で止まり人が進めると決めた計画は両方で計画なし）：聞かずに進め、どの照合（`agent/scope`・委任・bypass）に乗らないかを PR 本文の「人に見てほしい点」に書く。
+   - それ以外（終了コード 2 など、JSON が出ずに終わった。引数・git・GitHub のエラー）：照合できていないので、範囲の外が無い扱いにせず、PR を作らずに人に返す。
    - `untracked` にあるファイルは PR にまだ入っていない。入れるものは手順6に戻って commit する。
 9. PR を作る前に `node harness/scripts/agent.ts ensure-claim <番号>` で、このセッションの着手宣言が今も持ち主かを確かめる。止まったら PR を出さずに人に返す（ほかのセッションが先に宣言していた、または引き継いだ）。
 10. `gh pr create --draft --base main` で **Draft** PR を出す。タイトルは Issue のタイトル。本文は [.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
@@ -43,6 +45,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 - `claim` が先に宣言したセッションがあるため取り下げて止まった、または `ensure-claim` で止まった（PR を出さない）
 - 計画の `files` の外を変える必要がある、または計画どおりでは AC を満たせない
 - `scope-check` が範囲の外のファイルを出した（計画を出し直すか、その変更を外すかを AskUserQuestion で聞く）
+- `scope-check` が JSON を出さずに終わった（終了コード 2 など。PR を作らない）
 - `npm run check` が、この変更と関係ない理由で落ちる
 - push や PR の作成が拒否された（別の方法で試さない）
 - やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し
