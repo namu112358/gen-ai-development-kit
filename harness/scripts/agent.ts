@@ -33,7 +33,7 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts render-block <reason-code> <text>       人に返すとき（agent:blocked）のコメント本文。理由コードは必須
  *   node harness/scripts/agent.ts render-plan <issue> <file>              計画コメントを検査し {body, addLabels, removeLabels}
  *   node harness/scripts/agent.ts render-verdict <pr> <headSha> <file>    判定コメントを検査し本文を出力
- *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金は usage と同じ記録から自動で記入。読めなければ tokens か unknown）
+ *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金は usage と同じ記録から自動で記入。読めなければ tokens か unknown。最も新しい記録に戻ったときは本文にそう書く）
  *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）。
  *                                                           パスが無ければ AGENT_HARNESS_SESSION の <ID>.jsonl を選び、無ければ最も新しい記録（そのことを note に書く）
  *   node harness/scripts/agent.ts check <file>                            plan / verdict ブロックの書式検査のみ
@@ -558,6 +558,7 @@ function usageReport(explicit?: string) {
   const cost = estimateCost(summary, config.pricing ?? {});
   return {
     files,
+    bySession,
     perModel: Object.fromEntries(Object.entries(summary).map(([m, tokens]) => [m, { tokens, estimatedUsd: cost.perModel[m] ?? null }])),
     total: totalTokens(summary),
     estimatedUsd: cost.totalUsd,
@@ -579,7 +580,9 @@ function renderMetrics(stage: string, model: string, minutes: string, tokensArg?
     '| --- | --- | --- | --- | --- | --- | --- |',
     `| ${new Date().toISOString().slice(0, 16)} | ${stage} | ${model} | ${minutes} | ${tokens} | ${usd} | ${sessionUrl() ?? '手動'} |`,
     '',
-    'トークン数と推定料金は、このセッションのここまでの累計（サブエージェントを含む）。サブスク利用ではトークン単位の請求はなく、API で動かした場合の目安。',
+    u && !u.bySession
+      ? 'トークン数と推定料金は、今のセッションの記録が見つからないため、最も新しい記録（ほかのセッションのものかもしれない）の累計（サブエージェントを含む）。サブスク利用ではトークン単位の請求はなく、API で動かした場合の目安。'
+      : 'トークン数と推定料金は、このセッションのここまでの累計（サブエージェントを含む）。サブスク利用ではトークン単位の請求はなく、API で動かした場合の目安。',
   ].join('\n');
 }
 
