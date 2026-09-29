@@ -17,9 +17,10 @@ import {
   checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, selectPastPrs, splitArgs,
   lowerLayers, PAST_PR_FILE_LIMIT, type CheckRun, type JudgeFacts, type ParentEpic, type PastPrReview, type PastPrReviewComment, type PastPrs, type PrCommit, type StackFacts,
 } from '../lib/session-inputs.ts';
+import { transcriptSessionId } from '../lib/session.ts';
 import { classifyBase, stackOf } from '../lib/stack.ts';
 import { changedFiles, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
-import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
+import { estimateCost, findSessionTranscriptsWithNote, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
 import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
 
@@ -31,8 +32,9 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts render-block <reason-code> <text>       人に返すとき（agent:blocked）のコメント本文。理由コードは必須
  *   node harness/scripts/agent.ts render-plan <issue> <file>              計画コメントを検査し {body, addLabels, removeLabels}
  *   node harness/scripts/agent.ts render-verdict <pr> <headSha> <file>    判定コメントを検査し本文を出力
- *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金はセッション記録から自動で記入。読めなければ tokens か unknown）
- *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）
+ *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金は usage と同じ記録から自動で記入。読めなければ tokens か unknown）
+ *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）。
+ *                                                           パスが無ければ AGENT_HARNESS_SESSION の <ID>.jsonl を選び、無ければ最も新しい記録（そのことを note に書く）
  *   node harness/scripts/agent.ts check <file>                            plan / verdict ブロックの書式検査のみ
  *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）。
  *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
@@ -521,7 +523,7 @@ export function appendFooter(body: string, row: { stage: string; model: string; 
 
 /** セッション記録の集計。記録が無ければ null（処理は止めない） */
 function usageReport(explicit?: string) {
-  const files = findSessionTranscripts(process.cwd(), explicit);
+  const { files, bySession } = findSessionTranscriptsWithNote(process.cwd(), explicit, transcriptSessionId(process.env));
   const lines: string[] = [];
   for (const f of files) {
     try {
@@ -538,7 +540,10 @@ function usageReport(explicit?: string) {
     perModel: Object.fromEntries(Object.entries(summary).map(([m, tokens]) => [m, { tokens, estimatedUsd: cost.perModel[m] ?? null }])),
     total: totalTokens(summary),
     estimatedUsd: cost.totalUsd,
-    note: 'API で動かした場合の推定料金（USD）。サブスク利用ではトークン単位の請求はない',
+    note: [
+      'API で動かした場合の推定料金（USD）。サブスク利用ではトークン単位の請求はない',
+      ...(bySession ? [] : ['今のセッションの記録が見つからないため、最も新しい記録を集計した（ほかのセッションのものかもしれない）']),
+    ].join('。'),
   };
 }
 
