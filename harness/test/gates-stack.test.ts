@@ -170,10 +170,10 @@ test('stacked：現在の差分に受け付け済みの合格があれば Ready 
   assert.ok(!w.includes('comment:human-review'), '受け付け直しではない（fresh:false）ので依頼を出し直さない');
 });
 
-test('stacked：App の orphan-base の記録が無ければ、plan-link・scope・merge-route の書き直しだけ', async () => {
+test('stacked：App の orphan-base の記録が無ければ、plan-link・scope・merge-route の書き直しと、stack-link の記録だけ', async () => {
   const fake = stackFake({ pr: stackedPr() });
   const w = await runPr(fake, 'stacked');
-  assert.deepEqual([...w].map((x) => x.replace(/=.*/, '')).sort(), ['check:agent/plan-link', 'check:agent/scope', 'check:merge-route'], w.join(' / '));
+  assert.deepEqual([...w].map((x) => x.replace(/=.*/, '')).sort(), ['check:agent/plan-link', 'check:agent/scope', 'check:merge-route', 'comment:stack-link'], w.join(' / '));
 });
 
 test('stacked：最新の記録が base-resolved（解消済み）なら何も外さず、記録も書き直さない', async () => {

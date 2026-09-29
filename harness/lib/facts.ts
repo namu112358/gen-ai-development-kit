@@ -7,7 +7,6 @@ import { buildQueue, type Action, type Claim, type IssueFacts, type PrFacts } fr
 import {
   acceptanceForPatch,
   appRecords,
-  closingIssues,
   hasLabel,
   isAgentPr,
   isSameRepoPr,
@@ -15,9 +14,11 @@ import {
   isTrustedComment,
   lastLabeled,
   latestPlanGate,
+  linkedIssues,
   planLinkedIssues,
   prDiff,
   timeline,
+  withStack,
   type PlanGateRecord,
   type PullRequest,
   type Review,
@@ -101,14 +102,15 @@ export function humanFeedback(reviews: Review[], headSha: string, app: string): 
 }
 
 export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, readyAt: Map<number, string | null>, issueLabels: Map<number, string[]>): Promise<PrFacts> {
-  const [detail, comments, reviews, commit, checks, issues] = await Promise.all([
+  const [detail, comments, reviews, commit, checks] = await Promise.all([
     gh.get<PullRequest>(`/pulls/${pr.number}`),
     gh.listComments(pr.number),
     gh.paginate<Review>(`/pulls/${pr.number}/reviews`),
     gh.get<{ commit: { committer: { date: string } } }>(`/commits/${pr.head.sha}`),
     gh.paginate<{ name: string; started_at: string; app: { slug: string } | null }>(`/commits/${pr.head.sha}/check-runs`),
-    closingIssues(gh, pr.number),
   ]);
+  // 取り直した PR（stack が確か）で紐付く Issue を引く。スタックの層は本文の Refs／Closes
+  const issues = await linkedIssues(gh, cfg, detail);
   const fromApp = checks.filter((c) => c.app?.slug === cfg.appSlug);
   // push の時刻は、App がその head に範囲照合を書いた時刻（なければコミット日時）。コミット日時は push の時刻と一致しないことがある
   const pushedAt = fromApp.find((c) => c.name === CHECKS.scope)?.started_at ?? commit.commit.committer.date;
@@ -150,18 +152,20 @@ export interface QueueResult {
 /** 次にやることを計算する。implement には計画ゲートを通過した計画の files（App の写し）を付ける */
 export async function computeQueue(gh: GitHub, config: HarnessConfig, currentSession: string | null, now: Date = new Date()): Promise<QueueResult> {
   const issues = (await gh.paginate<{ number: number; title: string; labels: { name: string }[]; pull_request?: unknown }>(`/issues?state=open&labels=${encodeURIComponent(LABELS.ready)}`)).filter((i) => !i.pull_request);
-  // Agent PR と、計画のある Issue を Closes する人の PR（例外ラベル付きは除く）を判定の対象にする
+  // Agent PR と、計画のある Issue に紐付く（Closes。スタックの層は Refs も）人の PR（例外ラベル付きは除く）を判定の対象にする
   const repository = `${gh.owner}/${gh.repo}`;
   const prs: PullRequest[] = [];
   const openPrs = await gh.paginate<PullRequest>('/pulls?state=open');
   // 領域ごとの上限には、Agent PR 以外も含めて同じリポジトリの開いた PR をすべて数える
   const openPrLabels = openPrs.filter((p) => isSameRepoPr(p, repository)).map((p) => p.labels.map((l) => l.name));
-  for (const p of openPrs) {
+  for (const item of openPrs) {
+    // 一覧の要素に stack が無いときは取り直す（スタックの層の Refs #N で紐付けるため）
+    const p = await withStack(gh, config, item);
     if (isAgentPr(config, p, repository)) prs.push(p);
-    else if (isSameRepoPr(p, repository) && !hasLabel(p, REVIEW_EXEMPT_LABEL) && (await planLinkedIssues(gh, config, p.number)).linked.length > 0) prs.push(p);
+    else if (isSameRepoPr(p, repository) && !hasLabel(p, REVIEW_EXEMPT_LABEL) && (await planLinkedIssues(gh, config, p)).linked.length > 0) prs.push(p);
   }
   const prByIssue = new Map<number, number>();
-  for (const pr of prs) for (const n of await closingIssues(gh, pr.number)) prByIssue.set(n, pr.number);
+  for (const pr of prs) for (const n of await linkedIssues(gh, config, pr)) prByIssue.set(n, pr.number);
   const iFacts = await Promise.all(issues.map((i) => issueFacts(gh, config, i, prByIssue, openPrLabels)));
   const readyAt = new Map(iFacts.map((f) => [f.number, f.readyAt]));
   const issueLabels = new Map(iFacts.map((f) => [f.number, f.labels]));

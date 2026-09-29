@@ -13,7 +13,7 @@
 | `on-issue.ts` | Issue の出来事ごとの処理。 | ○ |
 | `on-main-push.ts` | main に push されたときの処理。 | ○ |
 | `on-pr.ts` | PR の出来事（作成・push・編集・ラベル）ごとの処理。 | ○ |
-| `plan-link.ts` | 必須チェック agent/plan-link：PR が計画のある Issue を Closes しているか。 | ○ |
+| `plan-link.ts` | 必須チェック agent/plan-link：PR が計画のある Issue に紐付いているか（本文の `Closes #N`、Stacked PR の層は `Refs #N` も）。 | ○ |
 | `publish-queue.ts` | 次にやること（queue）を App が計算し、ダッシュボード Issue の本文に公開する。 | ○ |
 | `run.ts` | ゲートの入口で、イベントの種類ごとに処理を選び、最後に queue を公開し直す。 | ○ |
 | `stale.ts` | 定期実行：停滞検知。 | ○ |
