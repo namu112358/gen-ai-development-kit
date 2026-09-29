@@ -397,7 +397,7 @@ test('collectQaRetro：Merge 後 7 日以内に同じファイルを変えた fi
   const { data } = await collect({
     prs: [
       { number: 10, mergedAt: sep(18), files: ['src/a.ts', 'docs/a.md'], comments: [acceptanceComment({ riskLevel: 'medium' })] },
-      { number: 11, title: 'fix: a を直す', mergedAt: sep(20), files: ['src/a.ts'] },
+      { number: 11, title: 'fix: a を直す', mergedAt: sep(20), files: ['src/a.ts'], body: 'Refs #10' },
     ],
   });
   assert.deepEqual(prIn(data, 10).fixedBy, [11]);
@@ -446,7 +446,7 @@ test('collectQaRetro：期間の終わりの後（7 日以内）に Merge され
   const { data } = await collect({
     prs: [
       { number: 10, mergedAt: sep(27), files: ['src/a.ts'] },
-      { number: 11, title: 'fix: a を直す', mergedAt: '2026-10-01T12:00:00Z', files: ['src/a.ts'] },
+      { number: 11, title: 'fix: a を直す', mergedAt: '2026-10-01T12:00:00Z', files: ['src/a.ts'], body: 'Refs #10' },
     ],
   });
   assert.deepEqual(prIn(data, 10).fixedBy, [11]);
