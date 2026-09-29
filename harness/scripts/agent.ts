@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
 import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
-import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
+import { fleetConfig, LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { claimOf, computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
 import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
@@ -465,6 +465,13 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const maxArg = a.value.options['--max'];
   if ((maxArg !== undefined && !/^[1-9]\d*$/.test(maxArg)) || a.value.positional.some((p) => !/^\d+$/.test(p))) fail([usage]);
   const max = maxArg === undefined ? null : Number(maxArg);
+  // 進め方が決まらないまま表を出さない（設定の誤りは GitHub を読む前に止める）
+  let mode: ReturnType<typeof fleetConfig>;
+  try {
+    mode = fleetConfig(config);
+  } catch (e) {
+    fail([`harness.config.json: ${(e as Error).message}`]);
+  }
   const items: FleetIssueItem[] = a.value.positional.length > 0
     ? await Promise.all(a.value.positional.map((n) => gh.get<FleetIssueItem>(`/issues/${n}`)))
     : fleetTargets(await gh.paginate<FleetIssueItem>('/issues?state=open', 10), config);
@@ -515,7 +522,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
 
   const facts = { issues, prConflicts: prConflicts(issues) };
   const rows = fleetStatus(facts);
-  return renderFleetStatus(rows, selectFleet(config, facts, rows, max, currentSession()), max);
+  return renderFleetStatus(rows, selectFleet(config, facts, rows, max, currentSession()), max, mode);
 }
 
 function readJson(file: string): unknown {
