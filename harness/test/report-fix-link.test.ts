@@ -67,7 +67,7 @@ const SETUP_B = ['@@ -60,3 +60,8 @@ ## 8. プラグイン（全員に同じ版�
 
 test('fixLinksFor：#182 と #244 の形（同じファイルに別の節を足すだけ・消した行も参照も無い）は結び付けない', () => {
   const base = mpr({ number: 182, title: 'docs: プラグインの節を足す', files: ['docs/setup.md'], patches: { 'docs/setup.md': SETUP_A }, closes: [180] });
-  const fix = mpr({ number: 244, title: 'fix(harness): Windows の注意を足す', headRef: 'claude/issue-243-windows', mergedAt: at(3 * DAY), files: ['docs/setup.md'], body: 'Closes #243', closes: [243], closingText: 'Windows で動かないのを直す', patches: { 'docs/setup.md': SETUP_B } });
+  const fix = mpr({ number: 244, title: 'fix(harness): Windows の注意を足す', headRef: 'claude/issue-243-windows', mergedAt: at(3 * DAY), files: ['docs/setup.md'], body: 'Closes #243', closes: [243], patches: { 'docs/setup.md': SETUP_B } });
   assert.deepEqual(fixLinksFor(base, [fix]), []);
   assert.deepEqual(fixPrsFor(base, [fix]), []);
 });
@@ -103,10 +103,10 @@ test('fixLinksFor：fix の本文が元の PR 番号を参照する → 参照�
   assert.deepEqual(fixLinksFor(base, [fix]), [{ pr: 11, basis: ['ref'], files: ['b.ts', 'a.ts'] }]);
 });
 
-test('fixLinksFor：fix の題名・closingText・/pull/n の参照でも参照になる', () => {
-  const base = mpr({ number: 10, files: ['a.ts'] });
+test('fixLinksFor：fix の題名・/pull/n の参照と、元の PR と同じ Issue を Closes することでも参照になる', () => {
+  const base = mpr({ number: 10, files: ['a.ts'], closes: [50] });
   const byTitle = mpr({ number: 11, title: 'fix: #10 の続き', mergedAt: at(DAY), files: ['a.ts'] });
-  const byClosing = mpr({ number: 12, title: 'fix: 直す', mergedAt: at(DAY), files: ['a.ts'], closes: [50], closingText: '#10 で入った不具合' });
+  const byClosing = mpr({ number: 12, title: 'fix: 直す', mergedAt: at(DAY), files: ['a.ts'], closes: [50] });
   const byUrl = mpr({ number: 13, title: 'fix: 直す', mergedAt: at(DAY), files: ['a.ts'], body: 'https://github.com/o/r/pull/10 を直す' });
   assert.deepEqual(fixLinksFor(base, [byTitle, byClosing, byUrl]).map((l) => [l.pr, l.basis]), [[11, ['ref']], [12, ['ref']], [13, ['ref']]]);
 });
@@ -119,7 +119,20 @@ test('fixLinksFor：元の PR が Closes した Issue の番号を fix の本文
 
 test('fixLinksFor：#100 のように後ろに数字が続く参照だけなら結び付けない', () => {
   const base = mpr({ number: 10, files: ['a.ts'] });
-  const fix = mpr({ number: 11, title: 'fix: 直す', mergedAt: at(DAY), files: ['a.ts'], body: '#100 を直す', closingText: 'abc#10 と /issues/101' });
+  const fix = mpr({ number: 11, title: 'fix: 直す', mergedAt: at(DAY), files: ['a.ts'], body: '#100 を直す。abc#10 と /issues/101' });
+  assert.deepEqual(fixLinksFor(base, [fix]), []);
+});
+
+test('fixLinksFor：#267 の形（背景で過去の PR を名指しする Issue を Closes する fix の PR）は、Issue の本文を見ないので結び付けない', () => {
+  // 元の PR #244 は Issue #243 を Closes した。fix の PR #271 は Issue #267（本文で #182・#244 に触れる）を Closes し、同じ README を触る
+  const base = mpr({ number: 244, files: ['harness/test/README.md', '.gitattributes'], closes: [243] });
+  const fix = mpr({ number: 271, title: 'fix(harness): 判定の集計で結び付けを絞る', headRef: 'claude/issue-267-fix-link', mergedAt: at(DAY), files: ['harness/test/README.md'], body: 'Closes #267', closes: [267] });
+  assert.deepEqual(fixLinksFor(base, [fix]), []);
+});
+
+test('fixLinksFor：元の PR と違う Issue を Closes するだけなら結び付けない', () => {
+  const base = mpr({ number: 10, files: ['a.ts'], closes: [7] });
+  const fix = mpr({ number: 11, title: 'fix: 直す', mergedAt: at(DAY), files: ['a.ts'], body: 'Closes #9', closes: [9] });
   assert.deepEqual(fixLinksFor(base, [fix]), []);
 });
 

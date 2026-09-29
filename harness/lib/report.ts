@@ -12,7 +12,7 @@ import { BLOCKING_KINDS, parseVerdict, RISK_QUESTIONS, type BlockingFinding, typ
  *
  * 「外れ」＝ Merge 後 7 日以内に revert された、または元の PR を直す fix の PR が Merge された。
  * fix の PR は、変更ファイルが重なることに加えて、行（元の PR が足した行を消した・消した行を足し戻した）か
- * 参照（題名・本文・Closes する Issue の本文に、元の PR か元の PR が Closes した Issue の番号がある）で結び付ける（`fixLinksFor`）。
+ * 参照（題名・本文に元の PR か元の PR が Closes した Issue の番号がある、または元の PR と同じ Issue を Closes する）で結び付ける（`fixLinksFor`）。
  * 比べる相手は Claude ではなく結果。基準の意味は docs/security.md の「Jev」。
  * Jev の数と切り替えの基準は、今の問いの版（`JEV_QUESTION_SET`）の記録だけで数える（Q88）。
  */
@@ -52,8 +52,6 @@ export interface MergedPr {
   patches?: Record<string, string | undefined>;
   /** この PR が Closes する Issue の番号 */
   closes?: number[];
-  /** この PR が Closes する Issue の本文をつないだもの */
-  closingText?: string;
 }
 
 /** 結び付けの根拠：lines＝行の内容が重なる、ref＝fix の PR から元の PR（かその Issue）への参照 */
@@ -105,13 +103,15 @@ function linesOverlap(original: string, fix: string): boolean {
 /**
  * pr の Merge 後 7 日以内に Merge された fix の PR のうち、変更ファイルが重なり、
  * 行（重なるファイルで、fix の PR が pr の足した行を消した・消した行を足し戻した）か
- * 参照（fix の PR の題名・本文・Closes する Issue の本文に、pr か pr が Closes した Issue の番号がある）で結び付くもの。
+ * 参照（fix の PR の題名・本文に、pr か pr が Closes した Issue の番号がある、または fix の PR が pr と同じ Issue を Closes する）で結び付くもの。
+ * Closes する Issue の本文は見ない（背景で過去の PR を名指しする Issue を Closes する PR を結び付けないため）。
  * Jev の low の外れ・Claude の「可」の外れ・合体版の比較の fix-pr の裏付けは、どれもこの結果を使う。
  */
 export function fixLinksFor(pr: MergedPr, mergedPrs: MergedPr[]): FixLink[] {
   if (!pr.mergedAt) return [];
   const mergedAt = new Date(pr.mergedAt).getTime();
   const targets = [pr.number, ...(pr.closes ?? [])];
+  const mine = new Set(pr.closes ?? []);
   const out: FixLink[] = [];
   for (const other of mergedPrs) {
     if (other.number === pr.number || !other.mergedAt) continue;
@@ -126,8 +126,8 @@ export function fixLinksFor(pr: MergedPr, mergedPrs: MergedPr[]): FixLink[] {
       const b = other.patches?.[f];
       return a !== undefined && b !== undefined && linesOverlap(a, b);
     });
-    const text = [other.title, other.body ?? '', other.closingText ?? ''].join('\n');
-    const ref = targets.some((n) => references(text, n));
+    const text = [other.title, other.body ?? ''].join('\n');
+    const ref = targets.some((n) => references(text, n)) || (other.closes ?? []).some((n) => mine.has(n));
     const basis: FixBasis[] = [];
     if (lineFiles.length > 0) basis.push('lines');
     if (ref) basis.push('ref');
@@ -380,7 +380,7 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
     '',
     `切り替えの基準（docs/security.md）：否定側 ${c.minNegatives} 件以上、Jev の low の外れ ${c.maxJevLowMisses} 件、Jev だけが「可」${c.maxJevOnly} 件 → ${criteria}`,
     '',
-    'fix PR の根拠：行＝元の PR が足した行を消した・消した行を足し戻した、参照＝題名・本文・Closes する Issue の本文に元の PR（かその Issue）の番号がある。',
+    'fix PR の根拠：行＝元の PR が足した行を消した・消した行を足し戻した、参照＝題名・本文に元の PR（かその Issue）の番号がある、または同じ Issue を Closes する。',
     '',
     '| PR | Merge | Claude | Jev | revert | fix PR | 修正の往復 | 停滞（時間） | 却下 |',
     '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',

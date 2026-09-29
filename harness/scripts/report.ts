@@ -77,25 +77,15 @@ async function prFiles(n: number) {
   return value;
 }
 
-// Closes する Issue と、その本文（番号でキャッシュする）
+// Closes する Issue の番号（PR 番号でキャッシュする。Issue の本文は結び付けに使わない）
 const closesOf = new Map<number, number[]>();
 const closes = async (n: number) => closesOf.get(n) ?? closesOf.set(n, await closingIssues(gh, n).catch(() => [])).get(n)!;
-const issueBodyOf = new Map<number, string>();
-async function issueBody(n: number) {
-  const cached = issueBodyOf.get(n);
-  if (cached !== undefined) return cached;
-  const body = (await gh.get<{ body: string | null }>(`/issues/${n}`).catch(() => ({ body: null }))).body ?? '';
-  issueBodyOf.set(n, body);
-  return body;
-}
 
-// fix の PR の候補（タイトルかブランチで fix と分かる Merge 済みの PR）だけ、変更ファイル・patch・本文・Closes する Issue の本文を取る
+// fix の PR の候補（タイトルかブランチで fix と分かる Merge 済みの PR）だけ、変更ファイル・patch・本文・Closes する Issue を取る
 const fixCandidates: MergedPr[] = [];
 for (const p of merged) {
   if (!isFixPr({ title: p.title, headRef: p.head.ref })) continue;
-  const closed = await closes(p.number);
-  const closingText = (await Promise.all(closed.map(issueBody))).join('\n');
-  fixCandidates.push({ number: p.number, title: p.title, headRef: p.head.ref, mergedAt: p.merged_at ?? null, body: p.body, ...(await prFiles(p.number)), closes: closed, closingText });
+  fixCandidates.push({ number: p.number, title: p.title, headRef: p.head.ref, mergedAt: p.merged_at ?? null, body: p.body, ...(await prFiles(p.number)), closes: await closes(p.number) });
 }
 
 const rows: ReportRow[] = [];
