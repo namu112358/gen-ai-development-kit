@@ -7,6 +7,8 @@
 | --- | --- | --- |
 | `apply.ts` | 受け付けた判定を PR に反映する。 | ○ |
 | `context.ts` | ゲートの実行コンテキスト。 | ○ |
+| `delegate-merge.ts` | 委任 Merge の始まりと終わりの動作（ダッシュボードのラベルの付け外しと期限切れ）。 | ○ |
+| `delegation.ts` | 委任 Merge の今の状態と、PR を委任で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |
 | `epic-split.ts` | Epic の子 Issue を作り、Sub-issues と依存を登録する。 | ○ |
 | `label-apply.ts` | 足りないラベルを付ける（docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `on-comment.ts` | issue_comment（created）：計画ゲートと判定の受け付け | ○ |
