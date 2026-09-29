@@ -11,6 +11,7 @@ import { acceptanceForPatch, hasLabel, isAgentPr, isSameRepoPr, prDiff, type Pul
 import { applyAcceptance, enforceBase, refreshMergeRoute, resumeFromOrphan, writeScopeCheck } from './apply.ts';
 import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
 import { sweepExpiredDelegation } from './delegate-merge.ts';
+import { bypassFor, bypassRoute } from './bypass.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
 import { applyAppLabels } from './label-apply.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
@@ -132,12 +133,15 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
 
   if (action === 'unlabeled' && ctx.event.label?.name === LABELS.hold) {
     await appComment(ctx, number, 'hold-removed', `\`agent:hold\` が @${ctx.event.sender?.login} により外されました（記録）。`);
-    // 自動 Merge の条件を満たす判定（委任が有効なら委任で乗る判定も）があれば、auto-merge を付け直す（hold 中は付けていないため）
+    // 自動 Merge の条件を満たす判定（委任が有効なら委任で乗る判定、bypass が有効なら bypass で乗る判定も）があれば、auto-merge を付け直す（hold 中は付けていないため）
     const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(number), patchId(await getDiff()));
     const now = new Date();
     const delegation = acceptance?.reviewPass && !acceptance.autoEligible && acceptance.delegate?.eligible ? await delegationFor(ctx, now) : undefined;
-    if (acceptance && (acceptance.autoEligible || (delegation && delegatedRoute(delegation, acceptance, ctx.config, now).ok))) {
-      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff(), ...(delegation ? { delegation } : {}) });
+    const delegated = Boolean(acceptance && delegation && delegatedRoute(delegation, acceptance, ctx.config, now).ok);
+    const bypass = !delegated && acceptance?.reviewPass && !acceptance.autoEligible && acceptance.bypass?.eligible ? await bypassFor(ctx) : undefined;
+    const bypassed = Boolean(bypass && bypassRoute(bypass, acceptance).ok);
+    if (acceptance && (acceptance.autoEligible || delegated || bypassed)) {
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff(), ...(delegation ? { delegation } : {}), ...(bypass ? { bypass } : {}) });
       return;
     }
   }
