@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { extractBlock } from '../lib/blocks.ts';
-import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
+import { parseIssueBody } from '../lib/issue-form.ts';
 import { buildTriageRequest } from '../lib/issue-triage.ts';
 import { measureRequest, type askJev } from '../lib/jev.ts';
 import { triageLabels } from '../gates/label-apply.ts';
@@ -52,7 +52,7 @@ const ISSUE_WITH_CONTEXT: Target = { ...ISSUE, number: 61, labels: ['type:feat',
 async function run(jev: ReturnType<typeof fakeJev>, issue: Target = ISSUE): Promise<FakeGitHub> {
   const fake = fakeGitHub();
   const ctx = ctxFor(fake, 'issues', {}, { secrets: { jevApiKey: 'jev-key' }, askJev: jev.fn });
-  const asked = await (triageLabels as unknown as (...args: unknown[]) => Promise<boolean>)(ctx, issue, [], { proposal: true });
+  const asked = await triageLabels(ctx, issue, [], { proposal: true });
   assert.equal(asked, true);
   return fake;
 }
@@ -69,7 +69,7 @@ test('label-triage の記録に size（chars・jaRatio・inputTokens）が入る
 function measureExpected(issue: Target) {
   const form = parseIssueBody(issue.body);
   assert.ok(form.ok);
-  const build = buildTriageRequest as unknown as (c: typeof config, t: string, k: IssueContract, ctx?: { labels?: string[]; subIssues?: number }) => Parameters<typeof measureRequest>[0];
+  const build = buildTriageRequest;
   return measureRequest(build(config, issue.title, form.contract, { labels: issue.labels, subIssues: issue.subIssues }));
 }
 

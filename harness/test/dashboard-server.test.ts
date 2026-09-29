@@ -1,10 +1,12 @@
 // Issue #176：ダッシュボードのローカルのサーバー（HTML・SSE・Host の確認）と、画面（page.html）が外部を読み込まないこと
+// Issue #278：起動の引数（--interval・--min-remaining）、接続の数・接続時の status イベント・send、画面の読み込みの状態の文（statusText）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { request, type IncomingMessage } from 'node:http';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { isAllowedHost, PAGE_PATH, startServer, type DashboardServer } from '../scripts/dashboard.ts';
+import { runInNewContext } from 'node:vm';
+import { isAllowedHost, PAGE_PATH, parseOptions, startServer, type DashboardServer } from '../scripts/dashboard.ts';
 import { COLUMNS, type Graph, type Task } from '../scripts/dashboard/graph.ts';
 
 const root = join(import.meta.dirname, '..', '..');
@@ -92,6 +94,144 @@ test('/events：接続時に snapshot、publish のたびに各イベントを S
       req.destroy();
     }
   });
+});
+
+/** /events に繋ぎ、届いた本文を読めるようにする。close で切る */
+function connect(port: number): { until: (pred: (buf: string) => boolean) => Promise<string>; close: () => void } {
+  let buf = '';
+  const waiters: (() => void)[] = [];
+  const req = request({ host: '127.0.0.1', port, path: '/events', method: 'GET', headers: { host: `127.0.0.1:${port}`, accept: 'text/event-stream' } }, (r) => {
+    r.setEncoding('utf8');
+    r.on('data', (c: string) => { buf += c; waiters.splice(0).forEach((w) => w()); });
+  });
+  req.on('error', () => {});
+  req.end();
+  return {
+    until: (pred) => new Promise<string>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(`届かない：${buf}`)), 5000);
+      const check = () => { if (pred(buf)) { clearTimeout(timer); resolve(buf); } else waiters.push(check); };
+      check();
+    }),
+    close: () => req.destroy(),
+  };
+}
+
+/** 条件が成り立つまで少しずつ待つ（サーバー側で切断が見えるまで） */
+async function eventually(pred: () => boolean, what: string): Promise<void> {
+  for (let i = 0; i < 200; i++) {
+    if (pred()) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
+  assert.fail(what);
+}
+
+test('parseOptions：既定は port 4177・30 秒・minRemaining 0.3', () => {
+  assert.deepEqual(parseOptions([]), { port: 4177, intervalMs: 30_000, minRemaining: 0.3 });
+});
+
+test('parseOptions：--interval は秒で、5 より小さければ 5 に丸める。--port・--min-remaining を読む', () => {
+  assert.equal(parseOptions(['--interval', '60']).intervalMs, 60_000);
+  assert.equal(parseOptions(['--interval', '5']).intervalMs, 5000);
+  assert.equal(parseOptions(['--interval', '2']).intervalMs, 5000);
+  assert.equal(parseOptions(['--interval', '0']).intervalMs, 5000);
+  assert.equal(parseOptions(['--port', '5000']).port, 5000);
+  assert.equal(parseOptions(['--min-remaining', '0.5']).minRemaining, 0.5);
+  assert.equal(parseOptions(['--min-remaining', '0']).minRemaining, 0);
+  assert.equal(parseOptions(['--min-remaining', '1']).minRemaining, 1);
+  assert.deepEqual(parseOptions(['--port', '0', '--interval', '10', '--min-remaining', '0.1']), { port: 0, intervalMs: 10_000, minRemaining: 0.1 });
+});
+
+test('parseOptions：--min-remaining が 0〜1 の外や数でなければ Error', () => {
+  for (const v of ['1.5', '-0.1', 'abc']) assert.throws(() => parseOptions(['--min-remaining', v]), Error, v);
+  assert.throws(() => parseOptions(['--min-remaining']), Error, '値が無い');
+});
+
+test('startServer：clients() は /events の接続の数。接続のたびに onConnect を呼び、切れたら減る', async () => {
+  let connected = 0;
+  const s = await startServer({ port: 0, html: HTML, snapshot, onConnect: () => { connected++; } });
+  try {
+    assert.equal(s.clients(), 0);
+    const a = connect(s.port);
+    await a.until((b) => /event: snapshot\n/.test(b));
+    await eventually(() => connected === 1, 'onConnect が呼ばれない');
+    assert.equal(s.clients(), 1);
+    const b = connect(s.port);
+    await b.until((x) => /event: snapshot\n/.test(x));
+    await eventually(() => connected === 2, '2つ目の onConnect が呼ばれない');
+    assert.equal(s.clients(), 2);
+    a.close();
+    await eventually(() => s.clients() === 1, '切れても clients() が減らない');
+    b.close();
+    await eventually(() => s.clients() === 0, '切れても clients() が 0 にならない');
+    assert.equal(connected, 2);
+    assert.equal((await get(s.port, '/')).res.statusCode, 200);
+    assert.equal(s.clients(), 0, '/ の読み込みは接続に数えない');
+  } finally {
+    await s.close();
+  }
+});
+
+test('/events：status があれば snapshot の後に event: status を送る。send で全員に送る', async () => {
+  const status = { state: 'paused', until: 1_800_000_000_000, resource: 'core' };
+  const s = await startServer({ port: 0, html: HTML, snapshot, status: () => status });
+  try {
+    const c = connect(s.port);
+    const buf = await c.until((b) => /event: status\ndata: .*\n\n/.test(b));
+    assert.ok(buf.indexOf('event: snapshot') < buf.indexOf('event: status'), 'snapshot の後に status');
+    assert.deepEqual(JSON.parse(buf.match(/event: status\ndata: (.*)\n\n/)![1]!), status);
+    s.send('status', { state: 'running' });
+    const after = await c.until((b) => (b.match(/event: status\n/g) ?? []).length >= 2);
+    const all = [...after.matchAll(/event: status\ndata: (.*)\n\n/g)].map((m) => JSON.parse(m[1]!));
+    assert.deepEqual(all.at(-1), { state: 'running' });
+    c.close();
+  } finally {
+    await s.close();
+  }
+});
+
+test('/events：status が無ければ event: status を送らない', async () => {
+  const s = await startServer({ port: 0, html: HTML, snapshot });
+  try {
+    const c = connect(s.port);
+    await c.until((b) => /event: snapshot\ndata: .*\n\n/.test(b));
+    s.publish([{ type: 'remove', id: 'pr-1' }]);
+    const buf = await c.until((b) => /event: remove\n/.test(b));
+    assert.doesNotMatch(buf, /event: status/);
+    c.close();
+  } finally {
+    await s.close();
+  }
+});
+
+type StatusText = (s: unknown) => string;
+function loadStatusText(): StatusText {
+  const html = readFileSync(PAGE_PATH, 'utf8');
+  const m = /<script>([\s\S]*?)<\/script>/.exec(html);
+  assert.ok(m, 'page.html に <script> が無い');
+  const context: Record<string, unknown> = {};
+  runInNewContext(m[1]!, context);
+  assert.equal(typeof context.statusText, 'function', 'statusText が定義されていない');
+  return context.statusText as StatusText;
+}
+
+test('page.html の statusText：running か null なら空。paused は上限で止めていること、backoff は失敗して読み直すことを時刻つきで示す', () => {
+  const statusText = loadStatusText();
+  const until = new Date(2026, 8, 30, 14, 5).getTime();
+  assert.equal(statusText(null), '');
+  assert.equal(statusText({ state: 'running' }), '');
+  const paused = statusText({ state: 'paused', until, resource: 'core' });
+  assert.match(paused, /上限/);
+  assert.match(paused, /止めています/);
+  assert.match(paused, /\d{1,2}:\d{2}/);
+  const backoff = statusText({ state: 'backoff', until, attempt: 2, error: 'GET /x -> 502' });
+  assert.match(backoff, /失敗/);
+  assert.match(backoff, /読み直します/);
+  assert.match(backoff, /\d{1,2}:\d{2}/);
+});
+
+test('page.html は /events の status イベントを受ける', () => {
+  const html = readFileSync(PAGE_PATH, 'utf8');
+  assert.match(html, /addEventListener\(\s*['"]status['"]/);
 });
 
 test('isAllowedHost：127.0.0.1:<port> と localhost:<port> だけ', () => {

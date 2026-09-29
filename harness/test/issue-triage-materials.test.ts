@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { loadConfig, type HarnessConfig } from '../lib/config.ts';
 import type { IssueContract } from '../lib/issue-form.ts';
-import { buildTriageRequest } from '../lib/issue-triage.ts';
+import { buildTriageRequest, DEFAULT_PRIORITY_CRITERIA } from '../lib/issue-triage.ts';
 import type { askJev } from '../lib/jev.ts';
 import { triageLabels } from '../gates/label-apply.ts';
 import { onIssue } from '../gates/on-issue.ts';
@@ -14,19 +14,11 @@ const contract: IssueContract = {
   goal: 'g', background: 'b', requirements: 'r', nonGoals: 'n', acceptanceCriteria: '- [ ] a', dependencies: '#216 の後', validation: '',
 };
 
-/** 既定の priority の基準（harness/lib/issue-triage.ts の PRIORITIES と同じ英文） */
-const DEFAULT_PRIORITIES = {
-  highest: 'Emergency: security, data loss, a broken main branch, or everything else is blocked on it. Drop other work.',
-  high: 'Urgent: blocks users or other planned work; should be done before regular work.',
-  medium: 'Regular planned work.',
-  low: 'Nice to have; can wait until there is spare capacity.',
-  lowest: 'Someday: only if nothing else is waiting.',
-};
+/** 既定の priority の基準（harness/lib/issue-triage.ts の DEFAULT_PRIORITY_CRITERIA） */
+const DEFAULT_PRIORITIES = DEFAULT_PRIORITY_CRITERIA;
 
 type State = Record<string, unknown>;
-type Build = (config: HarnessConfig, title: string, c: IssueContract, context?: { labels?: string[]; subIssues?: number }) => ReturnType<typeof buildTriageRequest>;
-/** 第4引数（context）付きで呼ぶ（実装の前でも型検査が通るように緩めて呼ぶ） */
-const build = buildTriageRequest as unknown as Build;
+const build = buildTriageRequest;
 const stateOf = (req: { state: unknown }) => req.state as State;
 const priorityCriteria = (req: { questions: Record<string, unknown> }) => (req.questions.priority as { criteria: Record<string, string> }).criteria;
 
@@ -153,7 +145,7 @@ test('triageLabels：Issue のラベルと子の数が要求の known_labels・s
   const jev = fakeJev();
   const ctx = ctxFor(writableFake(), 'issues', {}, { secrets: { jevApiKey: 'jev-key' }, askJev: jev.fn });
   const issue = { number: 61, title: 'feat: 材料を足す', body: FORM_BODY, labels: ['type:feat', 'area:harness', 'agent:ready'], subIssues: 2 };
-  const asked = await (triageLabels as unknown as (...args: unknown[]) => Promise<boolean>)(ctx, issue, [], { proposal: true });
+  const asked = await triageLabels(ctx, issue, [], { proposal: true });
   assert.equal(asked, true);
   assert.equal(jev.requests.length, 1);
   const s = stateOf(jev.requests[0]!);
@@ -201,4 +193,23 @@ test('on-issue（shadow）：sub_issues_summary が無ければ sub_issue_count 
   const s = stateOf(jev.requests[0]!);
   assert.deepEqual(s.known_labels, ['type:feat']);
   assert.ok(!('sub_issue_count' in s));
+});
+
+test('on-issue（label・opened）：作成時に読み直した Issue のラベルと sub_issues_summary.total が要求に入る', async () => {
+  const jev = fakeJev();
+  const fake = writableFake().on('GET', /\/issues\/\d+$/, () => ({
+    number: 65, title: 'feat: 材料を足す', body: FORM_BODY, state: 'open', html_url: 'i', user: { login: 'me' },
+    labels: [{ name: 'type:feat' }, { name: 'risk:low' }],
+    sub_issues_summary: { total: 4, completed: 0, percent_completed: 0 },
+  }));
+  const label: HarnessConfig = { ...fixtureConfig, classification: { ...fixtureConfig.classification, issueTriage: 'label' } };
+  const event = {
+    action: 'opened', sender: { login: 'me' },
+    issue: { number: 65, title: 'feat: 材料を足す', body: FORM_BODY, state: 'open', labels: [{ name: 'type:feat' }] },
+  };
+  await onIssue(ctxFor(fake, 'issues', event, { config: label, secrets: { jevApiKey: 'jev-key' }, askJev: jev.fn }));
+  assert.equal(jev.requests.length, 1);
+  const s = stateOf(jev.requests[0]!);
+  assert.deepEqual(s.known_labels, ['risk:low', 'type:feat']);
+  assert.equal(s.sub_issue_count, 4);
 });

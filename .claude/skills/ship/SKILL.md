@@ -24,7 +24,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - `claim` が Assignee で止まった（`harness.config.json` の `requireAssignee` が有効で、誰もアサインされていない・ほかの人・2人以上）：自分をアサインせずに進めず、人に返す（質問にはせず、止まった理由を手順9の一覧に書いて終える。アサインするかは人が決める。[docs/operations.md](../../../docs/operations.md) の担当）。途中の段階の確かめ（`critic-input`・`post-plan`・`worktree`・`ensure-claim`）で止まったときも同じ。
    - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
-2. 計画が無ければ plan の skill で計画を書いて投稿する。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を AskUserQuestion で聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
+2. 計画が無ければ plan の skill で計画を書いて投稿する。Planner の質問（`openQuestions`・`needsHumanReasons`）は plan の skill の手順3どおり投稿の前に AskUserQuestion で聞いて計画に書き込むので、投稿の後に申告が残るのは答えの無かったものだけになる。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を AskUserQuestion で聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
    - `agent:plan-ok`：次へ。委任承認（ダッシュボードの `agent:delegate-plan` か `agent:delegate-merge`）の間は、`post-plan` が通らない見込みとして宣言を解除していても App が `agent:plan-ok` を付けることがある。そのときも implement の `claim --stage implement` で宣言し直す。
    - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：宣言が残っていれば（`post-plan` の出力の `claim` が `plan-gate`）先に `release <番号>` で解除する。理由を示し、進めてよいかを AskUserQuestion で聞く（選択肢は、進める・止める、止めた理由が計画で直せる（ゲートの停止）なら計画を直して出し直す（plan の skill の出し直しの扱い）も）。人が進めてよいと答えれば次へ（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の規則どおり。implement の `claim --stage implement` で宣言し直す）。答えなければ人に返す。
      - Planner の申告（理由コード `needs-decision`）なら、plan の skill の手順9どおり人の答えを `agent-decision` で記録し（`post-decision`）、App の `plan-decision` の結果を待つ。`enforce` で通れば次へ、`shadow` なら人が「進める」と言えば次へ（ラベルを外すよう人に頼まない）。答えで計画が変わるなら、App が判定し直した後（`agent:plan-ok` か `gate` の停止）に計画を出し直す。
@@ -52,6 +52,7 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 
 - 最初に、自分が Agent ツールを使えるかを確かめる。使えなければ何もせず（着手宣言もしない）「入れ子不可」と返す。
 - 各 skill が AskUserQuestion で人に聞くところ（plan-critic の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、引き継ぎ（`--takeover`）、計画の `files` の外の変更など）では聞かずに止まり、Issue 番号・段階・聞きたいこと・選択肢（おすすめを先頭）を返す。宣言の扱いは、人の判断待ちで止めるときと同じ（必要なら `release <番号>`）。fleet から答えを渡されて呼び直されたら、その答えを人の答えとして続きから進める。
+- 例外：plan の投稿の前の質問（plan の skill の手順3の「投稿の前に人に聞く」）では止まらない。人に聞かずに申告（`openQuestions`・`needsHumanReasons`）を残して投稿し、聞くことを fleet に返す（計画ゲートが申告で止めるので、人の判断待ちとして返す）。fleet から答えを渡されて呼び直されたら、plan の skill の手順9どおり `post-decision` で記録する。
 - implement の前と sync の前に、fleet から渡された Issue 番号の集合と `--max` で `node harness/scripts/agent.ts fleet-status [--max <n>] <番号>...` を読み、自分の行が「待つ」なら進めずに、その理由を返す（自分の番号だけで読むと、ほかの Issue との重なり・PR 同士の衝突・本数が数えられない）。
 - `claim <番号> --manual --stage implement` が領域の上限（`areaConcurrency`）で止まったら、`--force` を付けずに「待つ（領域の上限）」として返す（`--force` を付けるかは fleet が決める）。
 - 手順9の一覧は人に出さず、その項目（Merge・例外ラベル・setup の要否・Merge 後の確かめ）を返す。fleet がまとめて人に出す。

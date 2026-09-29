@@ -8,9 +8,11 @@
 | `*-guardrail.test.ts` | ガードレールの範囲と、それに触れる計画・PR の扱い（止めるか通すか）のテスト |
 | `hooks-*.test.ts` | hook（`.claude/hooks/`）：見張りの hook（`guard.ts`）が止めるべき操作を止めるか、SessionStart の hook（`session-env.ts`）がセッションの ID を書き残すか、入口（`run.mjs`）が Node の版を確かめて、動けないときに guard は止め SessionStart は知らせるか |
 | `skills.test.ts`・`ship-skill.test.ts`・`qa-retro-skill.test.ts`・`label-delegation.test.ts`・`label-session-decide.test.ts`・`arch-review-skill.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、ラベルを Jev に任せる手順・Jev が下限未満で付けなかったものをセッションが決めて付ける手順・arch-review の手順と arch-reviewer の定義の検査 |
+| `plan-ask-before-post.test.ts` | plan の skill で、Planner の質問（`openQuestions`・`needsHumanReasons`）を批評と投稿の前に人に聞き、答えを計画に書き込んで申告から除く手順と、Routine・入れ子の ship は聞かないこと、`harness/CLAUDE.harness.md` の規則の検査（#289） |
 | `readme-*.test.ts` | 各ディレクトリの README が、直下の実在する名前・先頭のコメントから生成した表と食い違っていないかの検査（`readme-index.test.ts`・`readme-generate.test.ts`・`readme-stale-names.test.ts`・`readme-mjs.test.ts`） |
 | `report-*.test.ts` | 判定の集計（`harness/lib/report.ts`）のテスト：外れの数え方と fix の PR の結び付け（行・参照の根拠）、Jev の問いの版・問いごとの確率、文字数とトークン数の比 |
 | `review-panel-*.test.ts` | 合体版のレビューの組み立て・記録・担当の定義と、今の判定と比べる集計のテスト |
+| `dashboard-*.test.ts` | 手元のダッシュボード（`harness/scripts/dashboard.ts`・`harness/scripts/dashboard/`）のテスト：グラフの組み方・カード・サーバー・画面、GitHub の見張りと facts の取り直し、API の上限で止まる・backoff + jitter・接続が0の間は読まない見張りの回し方 |
 | `overview-labels.test.ts` | `overview.html` のラベル表示が `harness.config.json` の定義と食い違っていないかの検査 |
 | `gitattributes.test.ts` | root の `.gitattributes` が LF で取り出す設定になっているか（`git check-attr`・`git ls-files --eol`）と、docs/setup.md の改行コードをそろえる手順の検査 |
 | `plan-review-origin-legacy.test.ts` | 出どころの欄が無い古い計画ゲートの記録から、出し直した計画の前の印を解くか・止めたときの出どころを推し量るか（`recordedOrigin`）と、その計画が委任・bypass の範囲照合に使われるか（#274） |
@@ -18,6 +20,7 @@
 | `assignee.test.ts`・`claim-assignee.test.ts` | 担当（Issue の Assignee）の判定（自分1人・空・他人・2人以上）と `checkAssignee`（無効なら読まない、PR は Close する Issue で見る）、`postClaim` の `before`・`ensureOwnClaim` の `assignee` で宣言を止めること（#172） |
 | `label-on-open.test.ts`・`label-area-from-stopped-plan.test.ts` | Issue の作成で足りない `priority:*`・`area:*` を Jev に問うて付けること（`on-issue.ts`）と、計画ゲートで止まった計画の files が1つの領域に収まるときに App が付ける `area:*`（`on-comment.ts`・`label-apply.ts`）のテスト |
 | `issue-triage-materials.test.ts` | Jev にラベルを問う材料（`dependencies`・今の `type:*`・`risk:*`・`area:*`・`epic` のラベル・子の数）と、設定の `classification.priorityCriteria` で priority の基準を上書きすること、`label-apply.ts`・`on-issue.ts` が材料を渡すこと（#259） |
+| `scope-check.test.ts` | PR を出す前のローカルの範囲照合（`harness/lib/scope-check.ts`）：ローカルの変更の集め方、App の範囲照合と同じ関数での照合、使える計画が無いときの出力、implement の skill の手順（#290） |
 | `fleet-*.test.ts` | fleet の選び方（重なり・PR 同士の衝突・着手宣言の扱い）と、進め方（入れ子の orca／交互の flat）のテスト |
 | `usage-*.test.ts` | usage の集計（今のセッションの記録の選び方、入れ子のサブエージェントの記録も含めること）のテスト |
 | `test-tamper-jev.test.ts` | テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問う材料・問い方・答えのまとめ（`harness/lib/test-tamper-jev.ts`）のテスト |
