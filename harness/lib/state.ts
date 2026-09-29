@@ -2,6 +2,7 @@ import { appMarkKind, extractBlock } from './blocks.ts';
 import { appLogin, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
 import type { Acceptance } from './merge-route.ts';
+import type { PlanDelegation } from './plan.ts';
 import { classifyBase, stackOf } from './stack.ts';
 
 /**
@@ -95,6 +96,8 @@ export interface PlanGateRecord {
   planReviewOrigin?: 'gate' | 'planner';
   /** 決定の記録（agent-decision）で判定し直したときのコメント */
   decisionCommentId?: number;
+  /** 委任承認で通したとき（飛ばした理由・ラベル・段階・付けた人・付けた時刻）。harness/lib/delegate.ts の delegatePlanGate */
+  delegated?: PlanDelegation;
 }
 
 export function latestPlanGate(config: HarnessConfig, comments: IssueComment[]): { comment: IssueComment; value: PlanGateRecord } | null {
@@ -260,7 +263,7 @@ export async function plannedFilesForPr(gh: GitHub, config: HarnessConfig, prOrN
 }
 
 /**
- * 委任 Merge の範囲照合に使う計画の files。ゲートを通った計画か、ゲートの停止（planReviewOrigin: gate。ガードレール・Risk などで App が止め、
+ * 委任承認（計画＋Merge）の範囲照合に使う計画の files。ゲートを通った計画か、ゲートの停止（planReviewOrigin: gate。ガードレール・Risk などで App が止め、
  * Planner の申告が無いもの）で止まった計画だけを使う。Planner の申告で止まった計画・古い停止・記録が無いときは理由を返す
  */
 export async function plannedFilesForDelegate(gh: GitHub, config: HarnessConfig, prOrNumber: number | LinkablePr): Promise<{ files: string[] } | { missing: string }> {
@@ -271,7 +274,7 @@ export async function plannedFilesForDelegate(gh: GitHub, config: HarnessConfig,
   for (const n of issues) {
     const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
     const usable = gate?.value.pass === true || (gate?.value.pass === false && gate.value.planReviewOrigin === 'gate');
-    if (!gate || !usable || !gate.value.plan) return { missing: `#${n} に委任 Merge で照合できる計画がありません（ゲートを通ったか、ゲートの停止で止まった計画だけを使う）` };
+    if (!gate || !usable || !gate.value.plan) return { missing: `#${n} に委任承認で照合できる計画がありません（ゲートを通ったか、ゲートの停止で止まった計画だけを使う）` };
     files.push(...gate.value.plan.files);
   }
   return { files };

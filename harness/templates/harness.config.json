@@ -1,5 +1,5 @@
 {
-  "$comment": "導入先の harness.config.json の雛形（harness/managed.json の projectOwned。初回だけ写し、以後は導入先が持つ）。書き換える場所：appSlug（setup.ts app-convert が書く）、projectChecks（導入先の CI のチェック名）、guardrailPaths（ハーネスが配るものに加え、導入先で Agent を縛る仕組みがあれば足す）、classification.areas（導入先の領域）、humanMergePaths（認証・マイグレーション・課金など、必ず人が Merge するパス）。それ以外は既定値のままでよい（delegateMergeExclude は自動 Merge の仕組みそのものを委任 Merge から守る一覧なので、減らさない）",
+  "$comment": "導入先の harness.config.json の雛形（harness/managed.json の projectOwned。初回だけ写し、以後は導入先が持つ）。書き換える場所：appSlug（setup.ts app-convert が書く）、projectChecks（導入先の CI のチェック名）、guardrailPaths（ハーネスが配るものに加え、導入先で Agent を縛る仕組みがあれば足す）、classification.areas（導入先の領域）、humanMergePaths（認証・マイグレーション・課金など、必ず人が Merge するパス）。それ以外は既定値のままでよい（delegateMergeExclude は自動 Merge の仕組みそのものを委任承認（計画・Merge とも）から守る一覧なので、減らさない）",
   "appSlug": "",
   "defaultBranch": "main",
   "agentBranchPrefix": "claude/",
@@ -75,10 +75,9 @@
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
   "humanMergePaths": [],
-  "delegateMerge": {
-    "label": "agent:delegate-merge",
-    "hours": 2,
-    "minRemainingMinutes": 30
+  "delegate": {
+    "planLabel": "agent:delegate-plan",
+    "mergeLabel": "agent:delegate-merge"
   },
   "delegateMergeExclude": [
     "harness/lib/merge-route.ts",

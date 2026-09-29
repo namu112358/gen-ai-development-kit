@@ -118,9 +118,9 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ダッシュボード Issue に付ける `agent:auto-merge-stopped` ラベル。付いている間は自動 Merge がすべて止まり、自動 Merge された PR が revert されると App が自動で付ける。詳細：[operations.md](operations.md#止める仕組み)
 
-### 委任 Merge
+### 委任承認
 
-人が期限つきで Merge の判断を App に委ねること。ダッシュボード Issue に `agent:delegate-merge` を人だけが付け、`delegateMerge.hours` の間は、ガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する（`delegateMergeExclude` に当たるものは除く）。停止スイッチが優先する。期限が切れると定期実行がラベルを外し、委任で付けた auto-merge を外して Human Merge に戻す。詳細：[operations.md](operations.md#ラベル)
+人が計画ゲートの承認と Merge の判断を App に委ねること。期限は無く、ダッシュボード Issue に人だけが付けるラベルが付いている間ずっと有効で、停止スイッチが優先する。`agent:delegate-plan` は委任承認（計画）で、ガードレールや想定 Risk だけで計画ゲートに止まる計画に App が `agent:plan-ok` を付ける。`agent:delegate-merge` は委任承認（計画＋Merge）で、それに加えてガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する。どちらも `delegateMergeExclude` に当たるものは委ねない。旧称は委任 Merge（今の委任承認（計画＋Merge））。詳細：[risk-policy.md](risk-policy.md#委任承認)
 
 ### `agent:hold`
 

@@ -1,5 +1,5 @@
 import { appMark } from '../lib/blocks.ts';
-import { delegateMergeConfig, LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
+import { delegateConfig, LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
 import type { DelegateState } from '../lib/delegate.ts';
 import { labelAuditRows, renderAuditLines } from '../lib/label-rules.ts';
 import { patchId } from '../lib/patch-id.ts';
@@ -7,14 +7,15 @@ import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, 
 import { classifyBase } from '../lib/stack.ts';
 import { enforceBase, refreshMergeRoute, resumeFromOrphan } from './apply.ts';
 import { appComment, disableAutoMerge, getPr, judgingHold, updateBranchIfBehind, type GateContext } from './context.ts';
-import { expireDelegation } from './delegate-merge.ts';
 import { delegatedArm, delegationFor } from './delegation.ts';
+import { reviewDelegatedPlans } from './on-comment.ts';
 
 /**
  * 定期実行：停滞検知。24 時間動きがない Issue・PR、期限切れの人の claim、コンフリクトしている PR、
  * 人の対応待ち（blocked / plan-review）、必須ラベルの不足・違反を App のダッシュボード Issue に一覧化する。
  * 遅れている Agent PR（既定ブランチ宛て）を追従させる（判定中は除く）。
- * 委任 Merge の期限切れ（ラベルを外し、委任で付けた auto-merge を外す）を最初に行い、委任の状態と委任で Merge された PR も書く。
+ * 計画の委任（委任承認）が有効なら、ゲートの停止で止まっている計画を最初に判定し直し（on-comment.ts の reviewDelegatedPlans）、
+ * 委任承認の状態と委任で Merge された PR も書く。委任承認に期限は無いので、定期実行はラベルも auto-merge も外さない。
  */
 
 interface IssueItem {
@@ -45,7 +46,7 @@ export async function ensureDashboard(ctx: GateContext): Promise<number> {
 /**
  * auto-merge が付いた PR を照合し直す。自動 Merge の条件を満たさないものは auto-merge を外し、merge-route を書き直す。
  * GITHUB_TOKEN による auto-merge の設定は workflow を起動しないため、イベントだけでは拾えない。
- * 委任 Merge が有効な間は、受け付けの delegate.eligible が真の PR の auto-merge も外さない。
+ * 委任承認（計画＋Merge）が有効な間は、受け付けの delegate.eligible が真の PR の auto-merge も外さない。
  */
 async function reconcileAutoMerge(ctx: GateContext, now: Date): Promise<number> {
   const mode = await autoMergeMode(ctx.gh, ctx.config);
@@ -108,27 +109,30 @@ async function followOnSchedule(ctx: GateContext, pr: PullRequest, now: Date): P
   }
 }
 
-/** ダッシュボードの委任 Merge の状態の行 */
-async function delegateLine(ctx: GateContext, dashboard: DashboardIssue | null, now: Date): Promise<string> {
-  const { label, hours } = delegateMergeConfig(ctx.config);
-  if (!dashboard || !hasLabel(dashboard, label)) {
-    return `**委任 Merge: 無効**（このダッシュボードに \`${label}\` を付けると、${hours} 時間、ガードレール・Risk の理由を飛ばして自動 Merge します。docs/risk-policy.md）`;
-  }
-  let state: DelegateState;
+/** 委任承認の状態。読めなければ null（ログだけ書く） */
+async function readDelegation(ctx: GateContext, dashboard: DashboardIssue | null, now: Date): Promise<DelegateState | null> {
   try {
-    state = await delegationFor(ctx, now, dashboard);
+    return await delegationFor(ctx, now, dashboard);
   } catch (e) {
-    ctx.log(`委任 Merge の状態を読めませんでした: ${(e as Error).message}`);
-    return `**委任 Merge: 状態を読めませんでした**（\`${label}\` は付いています）`;
+    ctx.log(`委任承認の状態を読めませんでした: ${(e as Error).message}`);
+    return null;
   }
-  return state.active
-    ? `**委任 Merge: 有効**（期限 ${state.until}、@${state.by}。このダッシュボードの \`${label}\` を外すと終わります）`
-    : `**委任 Merge: 無効**（\`${label}\` は付いていますが、${state.reason}）`;
+}
+
+/** ダッシュボードの委任承認の状態の行（計画＋Merge・計画のみ・無効） */
+function delegateLine(ctx: GateContext, dashboard: DashboardIssue | null, state: DelegateState | null): string {
+  const { planLabel, mergeLabel } = delegateConfig(ctx.config);
+  const how = `このダッシュボードに \`${planLabel}\` を付けると計画ゲートの承認だけを、\`${mergeLabel}\` を付けると計画ゲートの承認と Merge を App に委ねます。docs/risk-policy.md`;
+  if (!dashboard || (!hasLabel(dashboard, planLabel) && !hasLabel(dashboard, mergeLabel))) return `**委任承認: 無効**（${how}）`;
+  if (!state) return '**委任承認: 状態を読めませんでした**（委任のラベルは付いています）';
+  if (state.mode === 'plan+merge') return `**委任承認: 計画＋Merge**（@${state.by}、${state.since} から。このダッシュボードの \`${mergeLabel}\` を外すと終わります）`;
+  if (state.mode === 'plan') return `**委任承認: 計画のみ**（@${state.by}、${state.since} から。このダッシュボードの \`${planLabel}\` を外すと終わります）`;
+  return `**委任承認: 無効**（委任のラベルは付いていますが、${state.reason}）`;
 }
 
 /**
- * 委任 Merge で Merge された PR（直近 staleHours 時間）。閉じた PR の一覧（1ページ）のうち、Merge が staleHours 以内で、
- * 最後の委任の記録が delegated-merge のもの。ラベルの有無にかかわらず読む（期限切れ・ラベルを外した後も一覧に出す）。読めなければ null。
+ * 委任承認（計画＋Merge）で Merge された PR（直近 staleHours 時間）。閉じた PR の一覧（1ページ）のうち、Merge が staleHours 以内で、
+ * 最後の委任の記録が delegated-merge のもの。ラベルの有無にかかわらず読む（ラベルを外した後も一覧に出す）。読めなければ null。
  */
 async function delegatedMerged(ctx: GateContext, now: Date, staleMs: number): Promise<string[] | null> {
   try {
@@ -137,21 +141,24 @@ async function delegatedMerged(ctx: GateContext, now: Date, staleMs: number): Pr
     for (const pr of closed) {
       if (!pr.merged_at || now.getTime() - new Date(pr.merged_at).getTime() > staleMs) continue;
       const arm = delegatedArm(ctx.config, await ctx.gh.listComments(pr.number));
-      if (arm) rows.push(`- [#${pr.number}](${pr.html_url}) ${pr.title} — Merge ${pr.merged_at}（委任：期限 ${arm.until}、@${arm.by}）`);
+      if (arm) rows.push(`- [#${pr.number}](${pr.html_url}) ${pr.title} — Merge ${pr.merged_at}（委任承認：@${arm.by}、${arm.since} から）`);
     }
     return rows;
   } catch (e) {
-    ctx.log(`委任 Merge で Merge された PR を読めませんでした: ${(e as Error).message}`);
+    ctx.log(`委任承認で Merge された PR を読めませんでした: ${(e as Error).message}`);
     return null;
   }
 }
 
 export async function onSchedule(ctx: GateContext, now: Date = new Date()): Promise<void> {
-  // 委任の期限切れを先に片付ける（委任で付けた auto-merge を外してからラベルを外す）。失敗してもダッシュボードの更新は止めない
-  try {
-    await expireDelegation(ctx, now);
-  } catch (e) {
-    ctx.log(`委任 Merge の期限切れの処理に失敗しました: ${(e as Error).message}`);
+  // 計画の委任が有効なら、ゲートの停止で止まっている計画を判定し直す。失敗してもダッシュボードの更新は止めない
+  const delegation = await readDelegation(ctx, await findDashboard(ctx.gh, ctx.config), now);
+  if (delegation?.planActive) {
+    try {
+      await reviewDelegatedPlans(ctx, now, delegation);
+    } catch (e) {
+      ctx.log(`止まっている計画の判定し直しに失敗しました: ${(e as Error).message}`);
+    }
   }
   const reconciled = await reconcileAutoMerge(ctx, now);
   const staleMs = ctx.config.staleHours * 3600_000;
@@ -195,8 +202,8 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     ...section('停滞している Issue', stale.map((i) => line(i))),
     ...section('ラベルが足りない Issue・PR', labelProblems),
     ...(delegatedRows === null
-      ? [`### 委任 Merge で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, '', '読めませんでした', '']
-      : section(`委任 Merge で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, delegatedRows)),
+      ? [`### 委任承認で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, '', '読めませんでした', '']
+      : section(`委任承認で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, delegatedRows)),
     '失敗した Actions の実行は [Actions](../../actions?query=is%3Afailure) を確認してください。',
   ].join('\n');
 
@@ -206,7 +213,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   const mode = stopped
     ? `**自動 Merge モード: 停止中**（このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外すと有効になります。docs/operations.md）`
     : `**自動 Merge モード: 有効**（このダッシュボードに \`${ctx.config.autoMergeStopLabel}\` ラベルを付けると一斉に止まります）`;
-  const withMode = body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${mode}\n${await delegateLine(ctx, current, now)}\n`);
+  const withMode = body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${mode}\n${delegateLine(ctx, current, delegation)}\n`);
   const existing = (await ctx.gh.get<{ body: string | null }>(`/issues/${dashboard}`)).body ?? '';
   const queueStart = existing.indexOf('<!-- agent-harness:queue:start -->');
   // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
