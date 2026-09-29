@@ -74,6 +74,7 @@
       "lowProbability": 0.9,
       "noulSafe": 0.9,
       "labelProbability": 0.8,
+      "labelProbabilityByLabel": { "priority:medium": 0.5 },
       "decisionProbability": 0.9
     }
   },
