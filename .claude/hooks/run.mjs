@@ -68,6 +68,7 @@ export async function run({ version, hook, load }) {
 /**
  * 直接起動されたか（import.meta.main は Node 24 より前に無いので、起動したパスと比べる）。
  * Node はメインのモジュールを実体のパスで読むので、シンボリックリンク・ジャンクションを通した起動でも合うよう、argv[1] も実体のパスにしてから比べる
+ * パスの書き方の違い（UNC パスなど）で合わなくても黙って fail-open にならないよう、起動したファイルの名前が run.mjs なら入口と見なす（テストが import したときは argv[1] がテストのファイルなので動かない）
  */
 function isEntryPath(argv1) {
   if (typeof argv1 !== 'string') return false;
@@ -77,7 +78,7 @@ function isEntryPath(argv1) {
     return false;
   }
 }
-const isEntry = isEntryPath(process.argv[1]);
+const isEntry = isEntryPath(process.argv[1]) || (typeof process.argv[1] === 'string' && /(^|[\\/])run\.mjs$/.test(process.argv[1]));
 if (isEntry) {
   const hook = hookFor(process.argv[2] ?? '');
   if (hook === null) {
