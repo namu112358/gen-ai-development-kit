@@ -34,7 +34,7 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を複数の Issue に
    - `claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue を飛ばして次の Issue へ進み、最後の一覧に「#番号 は session … が着手中」と載せる（引き継ぐかは人が決める）。
    - 着手宣言（`claim <番号> --manual`）が領域の上限で止まったら、`--force` を付けて宣言する（fleet は領域の上限を見ないため）。
 2. 「選ぶ」の Issue ごとに（選択が「待つ」の行は、次にやること（fix・judge など）が出ていても進めない）、表の「次にやること」の段階を ship と同じ判断（ship の手順2〜6）で1つ進める。
-   - plan：plan の skill。批評（plan-critic）は Issue ごとに並行して呼んでよい。Planner の質問（`openQuestions`・`needsHumanReasons`）は plan の skill の手順3どおり投稿の前に AskUserQuestion で聞く（複数の Issue の質問を1回にまとめてよい。1回に4問まで）。入れ子の方式では ship が申告を残して投稿して質問を返すので、手順8でまとめて聞き、答えを渡して ship を呼び直す。計画ゲートが `agent:plan-review` で止めた Issue は、ship の手順2と同じく、宣言が残っていれば `release <番号>` で解除してから、進めてよいかを聞く（手順8でまとめて聞いてよい）。Planner の申告で止まったら、ship の手順2どおり人の答えを `post-decision` で記録する。
+   - plan：plan の skill。批評（plan-critic）は Issue ごとに並行して呼んでよい。Planner の質問（`openQuestions`・`needsHumanReasons`）は plan の skill の手順3どおり投稿の前に AskUserQuestion で聞く（複数の Issue の質問を1回にまとめてよい。1回に4問まで）。入れ子の方式では ship が投稿せずに質問を返すので、「入れ子の方式」の手順2でまとめて聞き、答えを渡して ship を呼び直す。計画ゲートが `agent:plan-review` で止めた Issue は、ship の手順2と同じく、宣言が残っていれば `release <番号>` で解除してから、進めてよいかを聞く（手順8でまとめて聞いてよい）。Planner の申告で止まったら、ship の手順2どおり人の答えを `post-decision` で記録する。
    - implement：implement の skill。worktree は Issue ごとに分ける。test-designer・実装は並行してよい。
    - judge：judge の skill。Reviewer・Risk Agent は Issue ごとに並行して呼んでよい。
    - fix：fix の skill。
@@ -53,7 +53,7 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を複数の Issue に
    - 例外ラベル：`test:exempt` は自動 Merge の対象の PR で `agent/tests` が failure のときだけ（Human Merge の PR では付けず、依頼のコメントに載ったテストの変更を Merge の前に確かめる、を「Merge」の項に書く）。`review:exempt` は付けるかの判断。どちらも、その理由を書いた場所
    - `node harness/scripts/setup.ts` の実行が要る変更か
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
-   - 人の判断待ち：どの Issue の、どの段階の、何を決めてほしいか。一覧を出した後に AskUserQuestion でまとめて聞く（1回に4問まで。聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）
+   - 人の判断待ち：どの Issue の、どの段階の、何を決めてほしいか。一覧を出した後に AskUserQuestion でまとめて聞く（1回に4問まで。聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。入れ子の方式の投稿の前の質問で答えが無いまま終える Issue は、`release <番号>` で解除してから「計画は投稿していない」と書く
    - 待たせた Issue と理由（重なり・PR 同士の衝突・`--max` の本数）
    - 宣言で負けて飛ばした Issue：「#番号 は session … が着手中」
    - 費用：進めた本数と、手順7のトークン数・推定料金
@@ -63,12 +63,13 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を複数の Issue に
 表の「進め方」の行が入れ子（orca）のときの、手順2〜5の代わり。手順1・6〜8と「選び方」はそのまま使う。
 
 1. 表の「選ぶ」の Issue ごとに、ship の skill を general-purpose のサブエージェントで呼ぶ。同時に動かすのは、表の「同時に動かす ship は <n> まで」の数まで（`--max` があれば `--max`、無ければ `fleet.maxParallelShips`）。残りは、1つ返るたびに表を読み直してから呼ぶ。
-   - 渡すもの：Issue 番号、「サブエージェントの ship として動く（ship の skill の「サブエージェントの ship として動くとき」の節に従う）」こと、fleet が `fleet-status` に渡した Issue 番号の集合と `--max`（ship が同じ引数で表を読むため）、呼び直すときは人の判断への答え。
+   - 渡すもの：Issue 番号、「サブエージェントの ship として動く（ship の skill の「サブエージェントの ship として動くとき」の節に従う）」こと、fleet が `fleet-status` に渡した Issue 番号の集合と `--max`（ship が同じ引数で表を読むため）、呼び直すときは人の判断への答え（投稿の前の質問なら、その答えと、ship が返した書きかけの計画のパスも）。
    - worktree は ship が Issue ごとに作る。1つの worktree を複数の ship で共有しない。
    - 着手宣言は ship がこのセッションの ID で出す（入れ子のサブエージェントにも `AGENT_HARNESS_SESSION` が同じ値で渡るので、`critic-input`・`post-plan`・`worktree` は止まらない）。
 2. ship が返したら、その結果（状態・人に聞くこと・人がすることの項目・待つ理由）を控え、`fleet-status` を読み直して次を決める。セッションの記憶に頼らない。
    - 「入れ子不可」：Agent ツールが無く ship の中でサブエージェントを呼べない。以降はこのセッションで交互の方式（手順2〜5）に切り替える。
    - 人の判断待ち：手順8の前でも、たまったらまとめて AskUserQuestion で聞いてよい（1回に4問まで）。答えを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかったら、その Issue は人の判断待ちのまま一覧に書く。
+   - 投稿の前の質問（ship が計画を投稿せずに返した Planner の質問）：ship の宣言が `plan` のまま残っているので、手順8を待たずに、返った質問を複数の Issue の分もまとめて AskUserQuestion で聞く（1回に4問まで。残りは次の回。おすすめを先頭）。答えと、ship が返した書きかけの計画のパスを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかった質問は「答え無し」として渡して呼び直す（ship は申告を残して投稿し、`post-plan` が宣言を解除する。同じ質問を繰り返さない）。聞けないまま、または呼び直せないままセッションを終えるときは、その Issue を `node harness/scripts/agent.ts release <番号>` で解除し、手順8の一覧に「投稿の前の質問に答えが無く、計画は投稿していない（次は plan から）」と書く。
    - 待つ（重なり・PR 同士の衝突・`--max` の本数・領域の上限）：表で「選ぶ」に戻るまで呼び直さない。領域の上限で待つ Issue は、fleet が `claim <番号> --manual --stage implement --force` で宣言し直してから呼び直してよい（fleet は領域の上限を見ないため）。
    - Merge 済みの Issue が出たら、次にやることが sync になった残りの PR の ship を呼び直す。
 3. 「選ぶ」の Issue が全部、人の Merge 待ちか人の判断待ちになるまで、1〜2を繰り返す。その後、手順6〜8に進む（手順8の一覧は、ship が返した人がすることの項目をまとめる）。
