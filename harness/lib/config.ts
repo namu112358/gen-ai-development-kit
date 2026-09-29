@@ -53,7 +53,7 @@ export interface HarnessConfig {
   staleHours: number;
   dashboardIssueTitle: string;
   reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
-  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number } };
+  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;
 }
