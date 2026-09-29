@@ -10,6 +10,8 @@ import type { IssueComment } from '../lib/github.ts';
 import { acceptanceForPatch, hasLabel, isAgentPr, isSameRepoPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, enforceBase, refreshMergeRoute, resumeFromOrphan, writeScopeCheck } from './apply.ts';
 import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
+import { sweepExpiredDelegation } from './delegate-merge.ts';
+import { delegatedRoute, delegationFor } from './delegation.ts';
 import { applyAppLabels } from './label-apply.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
 
@@ -17,6 +19,7 @@ import { testsHumanMerge, testsOutcome } from './tests-check.ts';
  * PR の出来事（作成・push・編集・ラベル）ごとの処理。
  * pull_request_target：PR の head は checkout せず、中身は API で読むだけ。
  * - push（synchronize）：まず auto-merge を解除し、差分が同じなら過去の判定を引き継ぐ
+ * - 委任 Merge の期限切れの掃除（どの action でも、synchronize の auto-merge の解除の直後に1回。delegate-merge.ts）
  * - 作成とタイトルの編集で type:* を付ける（App が前に付けたものだけ付け替える。label-apply.ts）
  * - 範囲照合（agent/scope、情報表示用）
  * - テストの改ざん検査（agent/tests、必須。fork の PR も）
@@ -34,6 +37,8 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
     // 最初に auto-merge を解除する（順序制御）。イベントの内容ではなく API の最新状態を使う
     await disableAutoMerge(ctx, await getPr(ctx, number));
   }
+  // 記録の期限を過ぎた委任の auto-merge を外す（失敗してもこのイベントの処理は続ける）
+  await sweepExpiredDelegation(ctx, new Date());
   const pr = await getPr(ctx, number);
   if (pr.state !== 'open') return;
 
@@ -127,10 +132,12 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
 
   if (action === 'unlabeled' && ctx.event.label?.name === LABELS.hold) {
     await appComment(ctx, number, 'hold-removed', `\`agent:hold\` が @${ctx.event.sender?.login} により外されました（記録）。`);
-    // 自動 Merge の条件を満たす判定があれば、auto-merge を付け直す（hold 中は付けていないため）
+    // 自動 Merge の条件を満たす判定（委任が有効なら委任で乗る判定も）があれば、auto-merge を付け直す（hold 中は付けていないため）
     const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(number), patchId(await getDiff()));
-    if (acceptance?.autoEligible) {
-      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff() });
+    const now = new Date();
+    const delegation = acceptance?.reviewPass && !acceptance.autoEligible && acceptance.delegate?.eligible ? await delegationFor(ctx, now) : undefined;
+    if (acceptance && (acceptance.autoEligible || (delegation && delegatedRoute(delegation, acceptance, ctx.config, now).ok))) {
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff(), ...(delegation ? { delegation } : {}) });
       return;
     }
   }
@@ -185,6 +192,7 @@ async function notifyExemptNotApplied(ctx: GateContext, pr: PullRequest, label: 
 /**
  * 必須チェック agent/tests：テストの削除・skip の追加・アサーションの変更を差分から検出する。
  * 検出があっても、人が Merge する PR（Human Merge）なら止めずに neutral にする（tests-check.ts）。auto-merge が付いていれば緩めない。
+ * 委任 Merge で自動経路に乗る PR は止める（testsHumanMerge が委任の状態を読んで決める）。
  */
 async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () => Promise<string>, exempt: boolean, getComments: () => Promise<IssueComment[]>, getPatch: () => Promise<string>): Promise<void> {
   if (exempt) {
