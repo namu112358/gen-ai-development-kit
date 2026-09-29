@@ -15,11 +15,13 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [judge](../.claude/skills/judge/SKILL.md) | Reviewer と Risk Agent に判定させ、判定コメントを投稿する |
 | [fix](../.claude/skills/fix/SKILL.md) | ブロッキング指摘や人のレビューを直し、判定をやり直す |
 | [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
+| [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときだけ。Issue の段階ではない） |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装して人が Merge する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
 - 着手宣言は段階を始める前に `claim <番号> --manual --stage <段階>` で出し、段階が変わるたびに更新する（段階の名前は `harness/lib/queue.ts` の `CLAIM_STAGES`）。計画の前は `--stage plan`、批評の前は `--stage plan-critique`、実装は `--stage implement`。judge・fix・sync は PR 番号で宣言する（`claim <PR番号> --manual --stage judge|fix|sync`。judge は判定コメントの投稿で宣言が終わる）。`post-plan` は投稿の後、ゲートを通る見込みなら `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら宣言を解除する。見込みが外れて App が `agent:plan-review` で止め、宣言が残っていたら、人に聞く前に `release <番号>` する。そのほかの人の判断待ちで止めてセッションを終えるときも `release <番号>` する。
 - ほかのセッションの着手宣言があれば `claim` は止まる（期限切れでも）。引き継ぐのは人が決めたときだけで、そのときは `--takeover` を付ける（`--force` は領域の上限だけを飛ばし、引き継ぎにはならない）。
 - `critic-input`・`post-plan`・`worktree` は、このセッションの着手宣言が無いと止まる。
+- 最初の宣言が持ち主（`--takeover` でない後の宣言は持ち主にならず、同じセッションの宣言し直しは段階の更新）。`claim` は投稿の後に少し待って読み直し、先に宣言したセッションがあれば自分の宣言を取り下げて止まる。止まったらその Issue は進めず、人がすることの一覧に「#番号 は session … が着手中」と書く（引き継ぐかは人が決める）。PR を作る前は `ensure-claim <番号>` で宣言を確かめる。このセッションの ID が得られないと（SessionStart の hook も `CLAUDE_CODE_REMOTE_SESSION_ID` も無い）、手動の宣言・`release`・宣言の確かめは止まる。
 - ほかのローカルのセッションと作業が被らないように、段階を始める前に着手宣言を確かめ、セッション間でやり取りできる手段（`ListAgents`・`SendMessage` など）があれば、ほかのセッションと話して担当を決める。触るファイルが重なりそうなら、始める前に声をかける。
 - `priority:*`・`area:*` のラベルは、まず Jev（App の `label-apply`）に任せる（人の決定）。Jev が下限未満で付けなかったもの（App の名義（`harness.config.json` の `appSlug`）の `kind=label-triage` の記録の `notApplied`）は、セッションが Issue の本文と Jev の提案を見て決めて付けてよい（提案と違うものでもよい）。付けたら、付けたラベルと理由（Jev の提案と確率、同じか変えたか、決めた根拠）を Issue のコメントに残す。`label-triage` の記録が無いうち（Jev にまだ問っていない）は推測で付けない。付けてよいのは今足りない `priority:*`・`area:*` だけで、人や App が付けたラベル、`type:*`、違反（優先度が複数など）、保護ラベルは変えない。どの場合もラベルの不足を人に聞かず、伝えない（`label-audit` も走らせない）。付かなかったものは、ダッシュボードの「ラベルが足りない Issue・PR」に出る。
 - 人が「作るだけ」と言わない限り、Issue を作ったらそのまま同じセッションで `claim <番号> --manual --stage plan` をして plan の skill（批評と投稿まで）を続ける（作ったまま計画に進まずに放置しない）。

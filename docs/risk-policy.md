@@ -78,6 +78,13 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 - 計画の `files` がガードレールに触れると、想定 Risk に関わらず計画ゲートで止める。Epic に分ける計画（`split`）では子課題の `files` は見ない。子課題はそれぞれの計画でゲートが判定する。
 - ガードレールに触れないハーネスの変更は、ほかの変更と同じく質問1〜8で判定する。
 
+## 見直しの手順
+
+8問・レベルの目安・自動 Merge の条件を見直すときは、付き添いのセッションで qa-retro の skill（`.claude/skills/qa-retro/SKILL.md`）を動かし、その報告（risk ごとの後追い修正と revert の割合、見落としの例と拾えたはずの問い、不安定なテスト）を根拠にする。
+
+- 報告は人に示すだけで、判定の材料にしない（Reviewer・Risk Agent・Jev に渡さない）。
+- しきい値・問いの変更は、報告を見て人が別の Issue で決める（qa-retro の skill の中では変えない）。
+
 ## Jev
 
 `jev.mode` が `shadow` の間は、Actions から Jev に同じ8問を1回で問い、結果を記録するだけにする。Jev には同じ8問を、Jev 向けの英文と境界の例（`criteria`）で問う（文は `harness/lib/jev.ts`）。Jev に渡すのは App が集めたもの（diff・変更ファイル・ガードレールの一覧）だけで、Risk Agent の `facts` や Claude の判定などセッションが書いたものは渡さない。切り替え（`enforce`）の判断は `harness/scripts/report.ts` の集計で行い、基準は [security.md](security.md#jev) に置く。

@@ -5,7 +5,7 @@ import type { JevAnswers } from './jev.ts';
 /**
  * Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。
  * - shadow：agent:ready が付いたときに提案をコメントするだけでラベルは付けない
- * - label：足りない priority:*・area:* を、確率が jev.thresholds.labelProbability 以上のときだけ付ける（harness/gates/label-apply.ts）
+ * - label：足りない priority:*・area:* を、確率がそのラベルの下限（jev.thresholds.labelProbabilityByLabel、無ければ labelProbability）以上のときだけ付ける（harness/gates/label-apply.ts）
  * 着手の可否は人が決める。種類・書き方の問題は、人が見て直すための材料。
  */
 

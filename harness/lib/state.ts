@@ -222,10 +222,27 @@ export interface LinkablePr {
  * スタックの層（一番下が既定ブランチ宛ての形の正しい stack）は、App が本文の `Refs #N`・`Closes #N` を読む
  * （base が既定ブランチでない層の Closes は closingIssuesReferences に入らない見込みのため）。
  * それ以外（スタックでない・形が崩れている・orphan-base）は GitHub の closingIssuesReferences。
+ * ただし base が既定ブランチの PR（default）で一覧が空なら、本文の `Closes #N` で補う。PR を作った直後は GitHub が
+ * closingIssuesReferences をまだ埋めていないことがあるため（#269）。補うのは、このリポジトリの Issue（PR でない）と確かめた番号だけ。
+ * orphan-base は GitHub がもともと一覧を埋めない PR で、本文だけで紐付けないよう補わない。
+ * 補うときは番号ごとに GET /issues/{N} を読むので、queue・ダッシュボードの呼び出しも、その分だけ増える。
  */
 export async function linkedIssues(gh: GitHub, config: HarnessConfig, pr: LinkablePr): Promise<number[]> {
-  if (classifyBase(pr, config.defaultBranch) === 'stacked') return bodyIssueRefs(pr.body).map((r) => r.number);
-  return closingIssues(gh, pr.number);
+  const kind = classifyBase(pr, config.defaultBranch);
+  if (kind === 'stacked') return bodyIssueRefs(pr.body).map((r) => r.number);
+  const closing = await closingIssues(gh, pr.number);
+  if (closing.length > 0 || kind !== 'default') return closing;
+  return bodyClosingIssues(gh, pr.body);
+}
+
+/** 本文の `Closes #N` のうち、このリポジトリの Issue（存在し、PR でない）の番号。404 は飛ばし、それ以外のエラーは投げる */
+async function bodyClosingIssues(gh: GitHub, body: string | null): Promise<number[]> {
+  const out: number[] = [];
+  for (const ref of bodyIssueRefs(body).filter((r) => r.keyword === 'closes')) {
+    const item = await gh.request<{ pull_request?: unknown } | null>('GET', `/issues/${ref.number}`, { allow404: true });
+    if (item && !('pull_request' in item)) out.push(ref.number);
+  }
+  return out;
 }
 
 /**
