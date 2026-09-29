@@ -3,12 +3,12 @@
  * グラフの材料（facts）の取り直し。facts は harness/lib の issueFacts / prFacts / claimOf をそのまま使う。
  */
 import { appMarkKind } from '../../lib/blocks.ts';
-import { isAgentPr, isAppComment, isSameRepoPr, linkedIssues, withStack, type PullRequest } from '../../lib/state.ts';
+import { isAgentPr, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PullRequest } from '../../lib/state.ts';
 import type { HarnessConfig } from '../../lib/config.ts';
 import { issueFacts, prFacts } from '../../lib/facts.ts';
 import type { FleetPr } from '../../lib/fleet.ts';
 import type { GitHub, RequestOptions, Transport } from '../../lib/github.ts';
-import type { DashIssue, DashPr } from './graph.ts';
+import type { DashIssue, DashPr, PlanCopy } from './graph.ts';
 
 /** 書き込みを拒む Transport：GET と、mutation を含まない /graphql への POST だけを通す */
 export class ReadOnlyTransport implements Transport {
@@ -200,7 +200,10 @@ export class DashboardData {
     for (const pr of open) {
       fleetPrs.push((await this.loadPr(pr, item.number, new Map([[item.number, facts.readyAt]]), new Map([[item.number, facts.labels]]))).fleet);
     }
-    this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url });
+    // 計画の写しは issueFacts が返さないので、コメントを別に1回読む（App の名義の記録だけを数える）
+    const gate = latestPlanGate(this.config, await this.gh.listComments(item.number)) as { value: { plan?: PlanCopy } } | null;
+    const plan = gate?.value.plan && typeof gate.value.plan === 'object' ? gate.value.plan : null;
+    this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url, plan });
   }
 
   private async loadPr(pr: PullRequest, issue: number | null, readyAt = new Map<number, string | null>(), issueLabels = new Map<number, string[]>()): Promise<DashPr> {

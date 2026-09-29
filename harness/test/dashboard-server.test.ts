@@ -12,7 +12,7 @@ const HTML = '<!doctype html><title>dash</title><p>test-page</p>';
 const snapshot = (): Graph => ({ columns: COLUMNS, tasks: [], edges: [], sessions: [] });
 const sampleTask: Task = {
   id: 'issue-1', kind: 'issue', number: 1, title: 't1', url: 'https://github.com/o/r/issues/1', column: 'implement', status: 'active', note: null,
-  claim: { by: 'manual', stage: 'implement', session: null, at: '2026-09-29T00:00:00Z' }, sessions: [],
+  claim: { by: 'manual', stage: 'implement', session: null, at: '2026-09-29T00:00:00Z' }, sessions: [], warnings: [],
 };
 
 function get(port: number, path: string, host = `127.0.0.1:${port}`): Promise<{ res: IncomingMessage; body: string }> {

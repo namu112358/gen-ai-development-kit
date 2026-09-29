@@ -9,7 +9,7 @@ import type { ColumnId, Edge, Task, TaskClaim, TaskStatus } from '../scripts/das
 interface CardPr { id: string; number: number; url: string; status: TaskStatus; column: ColumnId; claim: TaskClaim | null; note: string | null }
 interface Card {
   id: string; kind: 'issue' | 'pr'; number: number; title: string; url: string; column: ColumnId; status: TaskStatus;
-  note: string | null; claim: TaskClaim | null; prs: CardPr[]; sessions: string[];
+  note: string | null; claim: TaskClaim | null; prs: CardPr[]; sessions: string[]; warnings: string[];
 }
 type BuildCards = (tasks: Task[], edges: Edge[]) => { cards: Card[]; edges: Edge[] };
 
@@ -32,11 +32,11 @@ function load(): BuildCards {
 const claim = (stage: string | null, session: string | null = null): TaskClaim => ({ by: 'manual', stage, session, at: '2026-09-28T23:50:00Z' });
 const issue = (n: number, patch: Partial<Task> = {}): Task => ({
   id: `issue-${n}`, kind: 'issue', number: n, title: `issue ${n}`, url: `https://example.test/issues/${n}`,
-  column: 'plan-ok', status: 'idle', note: null, claim: null, sessions: [], ...patch,
+  column: 'plan-ok', status: 'idle', note: null, claim: null, sessions: [], warnings: [], ...patch,
 });
 const pr = (n: number, patch: Partial<Task> = {}): Task => ({
   id: `pr-${n}`, kind: 'pr', number: n, title: `pr ${n}`, url: `https://example.test/pull/${n}`,
-  column: 'judge', status: 'idle', note: null, claim: null, sessions: [], ...patch,
+  column: 'judge', status: 'idle', note: null, claim: null, sessions: [], warnings: [], ...patch,
 });
 const closes = (i: number, p: number): Edge => ({ kind: 'closes', from: `issue-${i}`, to: `pr-${p}` });
 const byId = (cards: Card[], id: string): Card => {
@@ -227,4 +227,29 @@ test('Issue の無い PR のカードは、その PR の sessions をそのま�
   const buildCards = load();
   const { cards } = buildCards([pr(5, { sessions: ['a', 'a', 'b'] })], []);
   assert.deepEqual(byId(cards, 'pr-5').sessions, ['a', 'b']);
+});
+
+test('Issue のカードは Issue のタスクの warnings を持ち、Closes の PR が入っても変わらない', () => {
+  const buildCards = load();
+  const alone = buildCards([issue(1, { warnings: ['批評なし'] })], []);
+  assert.deepEqual(byId(alone.cards, 'issue-1').warnings, ['批評なし']);
+  const { cards } = buildCards(
+    [issue(1, { warnings: ['必須の指摘を残して進めた（2 件）'] }), pr(5, { warnings: [] }), pr(7, { warnings: [] })],
+    [closes(1, 5), closes(1, 7)],
+  );
+  assert.deepEqual(byId(cards, 'issue-1').warnings, ['必須の指摘を残して進めた（2 件）']);
+});
+
+test('注意の無い Issue のカードの warnings は空', () => {
+  const buildCards = load();
+  const { cards } = buildCards([issue(1), pr(5)], [closes(1, 5)]);
+  assert.deepEqual(byId(cards, 'issue-1').warnings, []);
+});
+
+test('Issue の無い PR のカードは、その PR の warnings を持つ', () => {
+  const buildCards = load();
+  const { cards } = buildCards([issue(1, { warnings: ['批評なし'] }), pr(5, { warnings: ['x'] })], []);
+  assert.deepEqual(byId(cards, 'pr-5').warnings, ['x']);
+  assert.deepEqual(byId(cards, 'issue-1').warnings, ['批評なし']);
+  assert.deepEqual(byId(buildCards([pr(6)], []).cards, 'pr-6').warnings, []);
 });
