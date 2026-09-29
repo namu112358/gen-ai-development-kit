@@ -35,7 +35,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - Human Merge：App のコメント（本文に `kind=human-review`、作成者が App）が PR に付いたこと（[docs/operations.md](../../../docs/operations.md) の「Human Merge の依頼」）。
    - 数分待ってもどちらも無ければ、App の記録（`kind=acceptance` の `autoEligible` と `reasons`）を読んで人に返す。
 7. 続けて使わなければ `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` で worktree を消す。
-8. ラベル（`priority:*`・`area:*`）は Jev に任せる（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。不足や違反を確かめず、手順9の一覧にも書かない。人にも聞かない。
+8. ラベル（`priority:*`・`area:*`）は、まず Jev に任せる（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。扱った Issue（Epic なら親と子課題）に、App の名義（`appSlug` の App が書いたコメント）の `kind=label-triage` の記録があり、その `notApplied`（下限未満で付けなかったもの）がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順9の一覧に書かず、人にも聞かない。
 9. 人に**人がすること**の一覧を出す。
    - Merge：Human Merge なら PR を確認して Merge する。自動 Merge なら何もしない（止めたければ `agent:hold`）。
    - 例外ラベル：`test:exempt` は自動 Merge の対象の PR で `agent/tests` が failure のときだけ（Human Merge の PR では付けず、依頼のコメントに載ったテストの変更を Merge の前に確かめる、を「Merge」の項に書く）。`review:exempt` は付けるかの判断。どちらも、その理由を書いた場所（Issue か PR のコメント）
