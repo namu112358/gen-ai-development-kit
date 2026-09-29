@@ -50,7 +50,7 @@ GitHub の設定。ここはガードレール（変えると人が Merge する
 
 ## 開発
 
-Node 24（`.node-version`）。TypeScript をビルドせずに実行する。
+Node 24（`.node-version`）。TypeScript をビルドせずに実行する。Node 24 未満で Claude Code を起動すると、hook の入口（`.claude/hooks/run.mjs`）が版が足りないことを知らせ、見張りの hook は Bash と MCP のツールを止める（Node 24 で起動し直す）。
 
 ```bash
 npm ci

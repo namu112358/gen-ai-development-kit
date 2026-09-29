@@ -240,7 +240,7 @@ function extractYmlComment(content: string): string | null {
 /** relPath は拡張子の判定にだけ使う。種類ごとの決まりは docs/plan.md の Q89（Issue #132） */
 export function extractComment(relPath: string, content: string): string | null {
   const ext = extname(relPath);
-  if (ext === '.ts') return extractTsComment(content);
+  if (ext === '.ts' || ext === '.mjs') return extractTsComment(content);
   if (ext === '.md') return extractMdComment(content);
   if (ext === '.yml' || ext === '.yaml') return extractYmlComment(content);
   return null;
