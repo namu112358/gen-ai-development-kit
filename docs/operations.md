@@ -161,6 +161,21 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 - neutral の要約には「人の確認が要る変更あり」と Human Merge とみなした理由、平易な説明（何を見張っているか、なぜ止めていないか、人が確かめること）、検出の一覧を載せる。Human Merge の依頼のコメント（`kind=human-review`）にも、懸念点より前に見つけた行を目立つ形で載せる。
 - 次のときは緩めず、今までどおり failure（`test:exempt` が要る）：`agent:hold` や自動 Merge モードの停止だけが理由のとき（外すと判定のやり直し無しに自動 Merge に戻るため）、人の PR・fork の PR、PR に auto-merge が付いているとき、Reviewer が不合格の判定だけのとき。
 - 誤検出や、Issue 本文にテストを変える理由がある変更は、人が PR に `test:exempt` を付けて通す（付け外しを App が記録し、外すと検査し直す）。自動 Merge の対象の PR で使う（Human Merge の PR では要らない）。例外は付けた時点の差分にだけ効く（次節）。
+- 結論の優先順は「検出0件 → success」「`test:exempt` が効く → success（Jev に問わない）」「Human Merge → neutral」「`jev.testTamper` が `enforce` で Jev が通す → success」「それ以外 → failure」（`harness/gates/tests-check.ts` の `testsOutcome`）。
+
+### Jev の判定（`jev.testTamper`）
+
+検出があると、App はアサーションの書き換えが「テストを弱めていないか」を Jev に問い、確率を記録する（docs/plan.md の Q95。`harness/lib/test-tamper-jev.ts`・`harness/gates/tests-jev.ts`）。
+
+- 問うのは、すべての検出が変更後の行と対になったアサーションの書き換えのときだけ（対ごとに1問。変更前の行が確かめていたことを変更後の行がすべて確かめているか）。削除系（テストファイルの削除・リネーム、テスト定義の削除、skip / only / todo の追加）と、対にならないアサーションの削除が1件でもあるとき、対が 20 を超えるときは問わない（Jev では通らない）。
+- 材料は App が diff から検出した行（ファイル名・変更前・変更後。各行 500 文字まで）だけ。PR 本文・コメント・判定などセッションが書いたものは渡さない。fork の PR と、`JEV_API_KEY` が無いときは問わない。
+- 1つの差分（patch-id）に1回だけ問う。同じ patch-id の記録（`kind=test-tamper-jev`）があれば問い直さず、記録の確率と**今の設定**で通すかを決め直す。Jev がエラーを返したときは記録せず、次のイベントで問い直す。
+- `jev.testTamper`（`jev.mode` とは独立。無ければ `shadow`）：
+  - `shadow`：確率を要約と記録に残すだけで、`agent/tests` の結果は変えない（要約に「記録だけで、この結果は変えません」と出る）。
+  - `enforce`：対ごとの確率の最小値が `jev.thresholds.testTamperProbability` 以上なら success にする（下限が無ければ通さない）。auto-merge が付いていて Human Merge として緩めない PR でも、Jev が通せば success。委任 Merge・bypass モードで自動経路に乗る PR も、Jev が通せば止めずに進む。
+  - `off`：問わない（今までどおり）。
+- Human Merge の PR にも問って記録する（一致率の材料を増やすため。結論は neutral のまま）。経路の判断（Human Merge か、委任・bypass か）は変えない。
+- enforce への切り替えは、`node harness/scripts/report.ts` の「テストの改ざん：Jev と人の判断」の行（一致率と、Jev は通す・人は直させた件数）を見て人が決める（[security.md](security.md#テストの改ざん)）。
 
 ### 分かっている限界
 

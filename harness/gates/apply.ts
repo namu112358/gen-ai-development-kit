@@ -23,6 +23,7 @@ import {
   type TimelineEvent,
 } from '../lib/state.ts';
 import { DEFAULT_TEST_PATTERNS, detectTestTampering, renderTamperForHumanMerge, renderTamperSummary, type TamperFinding } from '../lib/test-tamper.ts';
+import type { TamperJevOutcome } from '../lib/test-tamper-jev.ts';
 import { appComment, convertToDraft, disableAutoMerge, enableAutoMerge, getPr, markReady, updateBranchIfBehind, writeCheck, type GateContext } from './context.ts';
 import {
   DELEGATED_MERGE_END_KIND,
@@ -51,6 +52,7 @@ import {
 } from './bypass.ts';
 import { writePlanLink } from './plan-link.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
+import { tamperJevFor } from './tests-jev.ts';
 
 /**
  * 受け付けた判定を PR に反映する。順序が安全性の要：
@@ -145,7 +147,8 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
     }
   }
   // auto-merge を付けた後にも止める側を書き直す（古い受け付けの記録で neutral を書いた別のゲート実行との競合対策）
-  if (armed && tests) await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(tests.findings, []));
+  // enforce で Jev が通した差分は、ここでも success のまま（failure で上書きしない）
+  if (armed && tests) await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(tests.findings, [], tests.jev));
   const before = await getPr(ctx, pr.number);
   if (before.head.sha !== pr.head.sha) {
     ctx.log(`head が ${before.head.sha.slice(0, 7)} に進んだため反映を中止します（synchronize のゲートが処理する）`);
@@ -243,17 +246,21 @@ export async function writeBypassEnd(ctx: GateContext, pr: PullRequest, reason: 
 
 /**
  * 受け付けた判定で agent/tests を書き直す。検出が0件なら何もしない（API を呼ばない）。
- * test:exempt が効いていれば書かない（on-pr.ts の結果のまま）。書いたときは検出と、緩めたか（Human Merge か）を返す。
+ * test:exempt が効いていれば書かない（on-pr.ts の結果のまま）。書いたときは検出と、緩めたか（Human Merge か）と、Jev の結果（tests-jev.ts）を返す。
  * delegation・bypass は委任・bypass の状態（どちらかで自動経路に乗るなら止める。tests-check.ts の testsHumanMerge）。
  */
-export async function rewriteTestsCheck(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, diff: string, delegation?: DelegateState, bypass?: BypassState): Promise<{ findings: TamperFinding[]; relaxed: boolean } | null> {
+export async function rewriteTestsCheck(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, diff: string, delegation?: DelegateState, bypass?: BypassState): Promise<{ findings: TamperFinding[]; relaxed: boolean; jev: TamperJevOutcome } | null> {
   const findings = detectTestTampering(diff, ctx.config.testPatterns ?? DEFAULT_TEST_PATTERNS);
   if (findings.length === 0) return null;
-  const exempt = exemptState(exemptRecords(ctx.config, await ctx.gh.listComments(pr.number), TEST_EXEMPT_LABEL), hasLabel(pr, TEST_EXEMPT_LABEL), patchId(diff));
+  const comments = await ctx.gh.listComments(pr.number);
+  const patch = patchId(diff);
+  const exempt = exemptState(exemptRecords(ctx.config, comments, TEST_EXEMPT_LABEL), hasLabel(pr, TEST_EXEMPT_LABEL), patch);
   if (exempt === 'valid') return null;
   const reasons = await testsHumanMerge(ctx, pr, acceptance, delegation, bypass);
-  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons));
-  return { findings, relaxed: reasons.length > 0 };
+  // ふつうは on-pr.ts が同じ差分で記録しているので問い直さない（tests-jev.ts）
+  const jev = await tamperJevFor(ctx, pr, findings, patch, comments);
+  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev));
+  return { findings, relaxed: reasons.length > 0, jev };
 }
 
 /**

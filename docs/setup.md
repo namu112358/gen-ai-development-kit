@@ -48,7 +48,7 @@ gh secret set JEV_API_KEY --env gate --repo <owner>/<repo>
 - `environment` は Environment `gate` を作り、実行を既定ブランチに限定する。
 - `app-convert` は App を確定し、秘密鍵を Secret `AGENT_APP_PRIVATE_KEY`（画面には出さない）、変数 `AGENT_APP_CLIENT_ID`・`AGENT_APP_SLUG` に保存し、`harness.config.json` の `appSlug` を書き換える（コミットする）。
 - 組織で手作りした App は、`gh secret set AGENT_APP_PRIVATE_KEY --env gate --repo <owner>/<repo> < key.pem` で鍵を保存し、`node harness/scripts/setup.ts environment <owner>/<repo> <client-id>` で変数を設定し、`appSlug` を手で書き換える。
-- Jev を使わない場合は `JEV_API_KEY` を置かず、`jev.mode` を `off` にする（`jev.decisionRelease` も `off` にする）。
+- Jev を使わない場合は `JEV_API_KEY` を置かず、`jev.mode` を `off` にする（`jev.decisionRelease` と `jev.testTamper` も `off` にする）。`jev.testTamper`（テストの改ざんの検査が見つけた行を Jev に問う）は `jev.mode` と独立なので、Issue の分類のために `JEV_API_KEY` を残して `jev.mode` だけ `off` にすると、テストの行が Jev に送られる。
 
 ## 4. ラベル・リポジトリ設定・Ruleset
 

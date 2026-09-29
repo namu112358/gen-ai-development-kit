@@ -37,6 +37,7 @@
 | `session.ts` | 今のセッションの ID を環境の値から決める（lib は process.env を直接読まず、呼び出し元が渡す）。 | ○ |
 | `stack.ts` | PR の base の見分け（既定ブランチ宛て・Stacked PR の層・スタックでないのに base が既定ブランチ以外）。 | ○ |
 | `state.ts` | GitHub 上の状態の読み取り。 | ○ |
+| `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えを Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
 | `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |
 | `usage.ts` | Claude Code のセッション記録（jsonl）からトークン数を集計し、API で動かした場合の料金を見積もる。 | 対象外 |

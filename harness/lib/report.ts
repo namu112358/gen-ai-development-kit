@@ -3,8 +3,10 @@ import { appLogin, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts'
 import type { IssueComment } from './github.ts';
 import { JEV_QUESTION_SET, jevFailures } from './jev.ts';
 import type { Acceptance, JevRecord } from './merge-route.ts';
+import type { ExemptRecord } from './exempt.ts';
 import { parsePanelRecord, type PanelRecord } from './review-panel.ts';
 import { isTrustedComment } from './state.ts';
+import { tamperAllows, tamperJevThreshold, type TamperJevRecord } from './test-tamper-jev.ts';
 import { BLOCKING_KINDS, parseVerdict, RISK_QUESTIONS, type BlockingFinding, type BlockingKind } from './verdict.ts';
 
 /**
@@ -35,8 +37,27 @@ export interface ReportRow {
   reverted: boolean;
   /** 元の PR を直した fix の PR 番号（`fixLinksFor` で結び付いたもの） */
   fixedBy: number[];
+  /** テストの改ざんの Jev の確率と人の判断（tamperDecision。集計しないときは null か省略） */
+  tamper?: { probability: number; human: 'pass' | 'fix' } | null;
   /** 結び付いた fix の PR ごとの根拠（表の「fix PR」列に出す。無ければ番号だけ出す） */
   fixLinks?: FixLink[];
+}
+
+/**
+ * テストの改ざんの Jev の記録（kind=test-tamper-jev）に対する人の判断（Q95）。PR ごとに最後の記録 L を1件だけ使う。
+ * - pass：L と同じ patch-id の test:exempt の「付けた」記録がある、または Merge され、最後の受け付け記録の patch-id が L と同じ
+ * - fix：pass でなく Merge された（L の差分のままでは Merge されなかった）
+ * - それ以外（未 Merge で閉じた、記録が無い）と、L が enforce で Jev が通した記録（自分で自分を数えないため）は null
+ */
+export function tamperDecision(records: TamperJevRecord[], exempts: ExemptRecord[], merged: boolean, finalPatchId: string | null): { probability: number; human: 'pass' | 'fix' } | null {
+  const last = records.at(-1);
+  if (!last) return null;
+  if (last.mode === 'enforce' && last.allows === true) return null;
+  const probability = typeof last.probability === 'number' ? last.probability : NaN;
+  const exempted = exempts.some((e) => e.action === 'labeled' && e.patchId === last.patchId);
+  if (exempted || (merged && finalPatchId === last.patchId)) return { probability, human: 'pass' };
+  if (merged) return { probability, human: 'fix' };
+  return null;
 }
 
 /** fix の PR を探すときの PR の形（変更ファイルなどは呼び出し元が集めて渡す） */
@@ -256,6 +277,11 @@ export interface ReportSummary {
   criteria: { met: boolean; unmet: string[] };
   /** 問いごとの確率（版ごと）と、使ったしきい値 */
   jevQuestions: { sets: JevQuestionSetStats[]; lowProbability: number; noulSafe: number };
+  /**
+   * テストの改ざん：Jev（probability ≥ testTamperProbability を「通す」。下限が未設定なら通すは0件）と人の判断（Q95）。
+   * jevPassHumanFix（Jev は通す・人は直させた）が enforce で危険側に外れる件数。threshold は数えるのに使った下限（未設定なら null）
+   */
+  tamper: { rows: number; agreed: number; agreement: number | null; jevPassHumanFix: number; jevFixHumanPass: number; threshold: number | null };
 }
 
 const isMiss = (r: ReportRow) => r.reverted || r.fixedBy.length > 0;
@@ -287,6 +313,9 @@ export function summarize(config: HarnessConfig, rows: ReportRow[]): ReportSumma
     return end ? [(new Date(end).getTime() - new Date(r.createdAt).getTime()) / HOUR] : [];
   });
 
+  const tamperRows = rows.flatMap((r) => (r.tamper ? [{ ...r.tamper, jevPass: tamperAllows(config, r.tamper.probability) }] : []));
+  const tamperAgreed = tamperRows.filter((t) => t.jevPass === (t.human === 'pass')).length;
+
   const c = JEV_ENFORCE_CRITERIA;
   const unmet: string[] = [];
   if (negativesJev < c.minNegatives) unmet.push(`否定側が ${negativesJev} 件（${c.minNegatives} 件以上が要る）`);
@@ -314,6 +343,14 @@ export function summarize(config: HarnessConfig, rows: ReportRow[]): ReportSumma
     rejectedTotal: rows.reduce((a, r) => a + r.rejected, 0),
     criteria: { met: unmet.length === 0, unmet },
     jevQuestions: { sets: jevQuestionStats(config, rows), ...config.jev.thresholds },
+    tamper: {
+      rows: tamperRows.length,
+      agreed: tamperAgreed,
+      agreement: tamperRows.length === 0 ? null : tamperAgreed / tamperRows.length,
+      jevPassHumanFix: tamperRows.filter((t) => t.jevPass && t.human === 'fix').length,
+      jevFixHumanPass: tamperRows.filter((t) => !t.jevPass && t.human === 'pass').length,
+      threshold: tamperJevThreshold(config),
+    },
   };
 }
 
@@ -377,6 +414,9 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
     `| 修正の往復（合計 / 平均） | ${s.fixRequestsTotal} / ${num(s.fixRequestsAverage)} |`,
     `| 停滞時間の中央値（作成から Merge・Close まで、時間） | ${num(s.stallMedianHours)} |`,
     `| 受け付けられなかった判定コメント | ${s.rejectedTotal} |`,
+    `| テストの改ざん：Jev と人の判断（件数 / 一致率） | ${s.tamper.rows} / ${pct(s.tamper.agreement)}（Jev が通す下限：${s.tamper.threshold === null ? '未設定' : s.tamper.threshold}） |`,
+    `| テストの改ざん：Jev は通す・人は直させた | ${s.tamper.jevPassHumanFix} |`,
+    `| テストの改ざん：Jev は止める・人は通した | ${s.tamper.jevFixHumanPass} |`,
     '',
     `切り替えの基準（docs/security.md）：否定側 ${c.minNegatives} 件以上、Jev の low の外れ ${c.maxJevLowMisses} 件、Jev だけが「可」${c.maxJevOnly} 件 → ${criteria}`,
     '',
