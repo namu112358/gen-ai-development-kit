@@ -149,7 +149,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 - 宣言の `session` が今のセッションの ID と同じ（どちらも空でない）なら自分の宣言として扱い、`fleet-status`・`queue` は「ほかのセッションが着手中」にしない。段階とセッションの短い形は、`fleet-status` の表とダッシュボードの理由に出る。
 - `claim --manual` は、ほかのセッションの有効な手動の宣言があれば止まる（期限を過ぎていても）。同じセッションなら段階の更新として通る。引き継ぐのは人が決めたときだけ `--takeover`（`--force` は領域の上限だけを飛ばす）。
-- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）は、このセッションの宣言が無いと止まる（Routine では確かめない）。`post-plan` は投稿の後に段階 `plan-gate` の宣言を出し直す。
+- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）は、このセッションの宣言が無いと止まる（Routine では確かめない）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除のコメントを出す（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除のコメントを出すのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
 
 `"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
