@@ -7,12 +7,13 @@ import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } fr
 import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
-import { claimOf, computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
+import { ensureOwnClaim as ownClaimError, postClaim } from '../lib/claim.ts';
+import { computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
 import { fleetStatus, fleetTargets, mergeTreeResult, renderFleetStatus, selectFleet, type FleetIssue, type FleetPr, type PrConflict } from '../lib/fleet.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
 import { evaluatePlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
-import { CLAIM_STAGES, claimBlocker, claimValueAfterPlan, requireOwnClaim, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
+import { CLAIM_STAGES, claimValueAfterPlan, SESSION_ID_MISSING, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
 import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
 import {
@@ -38,10 +39,11 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）。
  *                                                           パスが無ければ AGENT_HARNESS_SESSION の <ID>.jsonl を選び、無ければ最も新しい記録（そのことを note に書く）
  *   node harness/scripts/agent.ts check <file>                            plan / verdict / decision ブロックの書式検査のみ
- *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）。
+ *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach] [--routine]  作業用の worktree を作り、パスを出力（既にあればそのパス）。
  *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
- *                                                           付き添いのセッションで claude/issue-<番号>- のブランチなら、先にこのセッションの着手宣言
- *                                                           （そのブランチの開いた PR があれば PR の宣言、無ければ Issue の宣言）を確かめる
+ *                                                           claude/issue-<番号>- のブランチなら、先にこのセッションの着手宣言
+ *                                                           （そのブランチの開いた PR があれば PR の宣言、無ければ Issue の宣言）を確かめる。
+ *                                                           定期 Routine は --routine を付けて確かめない（Routine の環境には gh が無い）
  *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *   node harness/scripts/agent.ts session-url                             この実行のセッション URL
  *
@@ -50,8 +52,11 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts claim <n> [--manual] [--stage <段階>] [--force] [--takeover]
  *                                                           着手宣言のコメント（段階とこのセッションの ID を書く。同じセッションなら段階の更新）。
  *                                                           --manual は、計画の触るファイルの領域の判定前の Agent PR（Draft）が上限（areaConcurrency）に達していれば止まる（--force で着手）。
- *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）
- *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
+ *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）。
+ *                                                           投稿の後に少し待って読み直し、先に宣言したセッションがあれば（最初の宣言が持ち主）自分の宣言を取り下げて止まる。
+ *                                                           このセッションの ID が得られなければ投稿せずに止まる
+ *   node harness/scripts/agent.ts ensure-claim <番号>        このセッションの着手宣言（持ち主）があるかを確かめるだけ（PR を作る前に使う）
+ *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント（このセッションの ID が得られなければ止まる）
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）
  *   node harness/scripts/agent.ts post-decision <issue> <file>  決定の記録（agent-decision）を検査して投稿（App の最新の計画ゲートの記録の計画コメントと、答えの無い項目が無いことを確かめる。ラベルは変えない）
@@ -84,7 +89,8 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts check <file>              plan / verdict / decision ブロックの書式検査のみ
  *   node harness/scripts/agent.ts footer <pr> <stage> <model> <minutes> <tokens>  PR 本文のメトリクス表に1行追記
  *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）。
- *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）
+ *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
+ *                                                           claude/issue-<番号>- のブランチなら、先にこのセッションの着手宣言を確かめる
  *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *   node harness/scripts/agent.ts session-url               この実行のセッション URL
  *
@@ -113,8 +119,6 @@ function spawnGit(args: string[]): string {
 export function currentSession(): string | null {
   return sessionUrl() ?? (process.env.AGENT_HARNESS_SESSION || null);
 }
-
-const isRoutine = (): boolean => Boolean(process.env.CLAUDE_CODE_REMOTE_SESSION_ID);
 
 function parseStage(args: string[]): ClaimStage | undefined {
   const i = args.indexOf('--stage');
@@ -154,10 +158,6 @@ function blockBody(code: string, text: string): string {
 }
 
 async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, takeover: boolean, stage?: ClaimStage): Promise<void> {
-  if (manual) {
-    const blocker = claimBlocker(claimOf(await gh.listComments(n)), currentSession(), { takeover, now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours });
-    if (blocker) fail([blocker]);
-  }
   if (manual && !force) {
     const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
     const repository = `${gh.owner}/${gh.repo}`;
@@ -170,15 +170,30 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
     const full = fullAreas(config, gate?.value.plan?.files ?? [], labels);
     if (full.length > 0) fail([`${describeFullAreas(full)}。どれかが Merge されてから着手してください（急ぐなら --force）`]);
   }
-  await gh.comment(n, claimBody(manual, false, stage));
+  // 手動の宣言でなくても、Routine のセッション URL が無ければ手動の宣言として書く（claimBody と同じ）
+  const r = await postClaim(gh, n, {
+    current: currentSession(),
+    manual: manual || !sessionUrl(),
+    takeover,
+    stage,
+    render: renderClaim,
+    now: new Date(),
+    humanClaimStaleHours: config.routine.humanClaimStaleHours,
+  });
+  if (r.error) fail([r.error]);
 }
 
-/** critic-input・post-plan・worktree の前に、このセッションの着手宣言を確かめる（Routine では確かめない） */
+/** critic-input・post-plan・worktree・ensure-claim の前に、このセッションの着手宣言（持ち主）を確かめる */
 async function ensureOwnClaim(gh: GitHub, n: number): Promise<void> {
-  if (isRoutine()) return;
-  const r = requireOwnClaim(claimOf(await gh.listComments(n)), currentSession());
-  if (r.error) fail([`#${n}: ${r.error}`]);
-  if (r.warning) console.error(`注意: #${n}: ${r.warning}`);
+  const r = await ownClaimError(gh, n, currentSession());
+  if (r.error) fail([r.error]);
+}
+
+/** 着手宣言の解除。ID が得られなければ持ち主の解除として数えられないので止める */
+async function release(gh: GitHub, n: number): Promise<void> {
+  const session = currentSession();
+  if (session === null || session === '') fail([`#${n}: ${SESSION_ID_MISSING}`]);
+  await gh.comment(n, claimBody(true, true));
 }
 
 /** 計画コメントを検査し、投稿する本文と付け外しするラベルを返す（表示用の risk:* と、必要なら plan-review） */
@@ -246,9 +261,9 @@ async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
   const posted = await gh.comment(n, r.body);
   // 計画の投稿で宣言は終わったとみなされる。ゲートを通る見込みなら結果を待つ間の宣言を出し直し（空白を作らない）、
   // 通らない見込み（人の判断待ち）なら解除する（harness/lib/queue.ts の claimAfterPlan）
-  const claim = isRoutine() ? null : claimValueAfterPlan(r.expectedGate, manualClaim());
-  if (claim) await gh.comment(n, renderClaim(claim));
-  console.log(JSON.stringify({ posted: posted.html_url, expectedGate: r.expectedGate, ...(claim ? { claim: claim.released ? 'released' : 'plan-gate' } : {}) }, null, 2));
+  const claim = claimValueAfterPlan(r.expectedGate, manualClaim());
+  await gh.comment(n, renderClaim(claim));
+  console.log(JSON.stringify({ posted: posted.html_url, expectedGate: r.expectedGate, claim: claim.released ? 'released' : 'plan-gate' }, null, 2));
 }
 
 /** 決定の記録を検査して投稿する（人のセッション用。Routine は書かない）。ラベルは変えない（App が確かめて外す） */
@@ -612,7 +627,8 @@ async function main(): Promise<void> {
   const [cmd, ...args] = process.argv.slice(2);
   if (cmd === 'session-url') return void console.log(sessionUrl() ?? '(none)');
   if (cmd === 'worktree') {
-    const target = worktreeClaimIssue(args[0] ?? '', args.includes('--detach'), isRoutine());
+    const detach = args.includes('--detach');
+    const target = worktreeClaimIssue(args[0] ?? '', detach, args.includes('--routine'));
     if (target !== null) {
       const gh = new GitHub(transportFromEnv(), repository());
       // fix・sync は PR 番号に宣言するので、そのブランチの開いた PR があれば PR の宣言を見る
@@ -650,7 +666,8 @@ async function main(): Promise<void> {
   switch (cmd) {
     case 'queue': return void console.log(JSON.stringify(await computeQueue(gh, config, currentSession()), null, 2));
     case 'claim': return claim(gh, n, args.includes('--manual'), args.includes('--force'), args.includes('--takeover'), parseStage(args));
-    case 'release': return void (await gh.comment(n, claimBody(true, true)));
+    case 'ensure-claim': return ensureOwnClaim(gh, n);
+    case 'release': return release(gh, n);
     case 'show-plan': return showPlan(gh, n);
     case 'post-plan': return postPlan(gh, n, args[1]!);
     case 'post-decision': return postDecision(gh, n, args[1]!);
