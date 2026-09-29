@@ -67,22 +67,28 @@ test('requireOwnClaim：このセッションの宣言なら error も warning �
   assert.deepEqual(requireOwnClaim(manual({ session: SESSION, stage: 'plan-critique' }), SESSION), { error: null, warning: null });
 });
 
-test('requireOwnClaim：今のセッション ID が分からないときは、宣言があれば警告だけにする', () => {
-  const r = requireOwnClaim(manual({ session: OTHER }), null);
-  assert.equal(r.error, null);
-  assert.ok(r.warning, 'ID で見分けられないことを警告する');
-  const old = requireOwnClaim(manual(), null);
-  assert.equal(old.error, null);
-  assert.ok(old.warning);
+// Issue #171：ID が無ければ自分の宣言とは見分けられないので、警告ではなく止める
+test('requireOwnClaim：今のセッション ID が分からないときは、宣言があっても error にする', () => {
+  for (const current of [null, '']) {
+    for (const [label, claim] of [
+      ['別のセッションの宣言', manual({ session: OTHER })],
+      ['session の無い古い宣言', manual()],
+      ['同じ ID の宣言', manual({ session: SESSION })],
+    ] as const) {
+      const r = requireOwnClaim(claim, current);
+      assert.ok(typeof r.error === 'string' && r.error.length > 0, `止めるべき: ${label} / ${JSON.stringify(current)}`);
+      assert.match(r.error, /セッションの ID/, label);
+    }
+  }
 });
 
 // ---- worktreeClaimIssue ----
 
-test('worktreeClaimIssue：claude/issue-<番号>-… のブランチだけ、宣言を確かめる番号を返す', () => {
+test('worktreeClaimIssue：claude/issue-<番号>-… のブランチだけ、宣言を確かめる番号を返す（第3引数は worktree の --routine）', () => {
   assert.equal(worktreeClaimIssue('claude/issue-157-claim-stage-session', false, false), 157);
   assert.equal(worktreeClaimIssue('claude/issue-7-x', false, false), 7);
   assert.equal(worktreeClaimIssue('claude/issue-157-claim-stage-session', true, false), null, '--detach は確かめない');
-  assert.equal(worktreeClaimIssue('claude/issue-157-claim-stage-session', false, true), null, 'Routine は確かめない');
+  assert.equal(worktreeClaimIssue('claude/issue-157-claim-stage-session', false, true), null, '--routine（定期 Routine が渡す）は確かめない');
   for (const branch of ['feature/x', 'claude/106-x', 'claude/issue-abc-x', 'main', 'agent/harness-architecture-config-272b82']) {
     assert.equal(worktreeClaimIssue(branch, false, false), null, branch);
   }
