@@ -24,6 +24,11 @@ export interface HarnessConfig {
   };
   mergeMethod: 'SQUASH' | 'MERGE' | 'REBASE';
   routine: { maxItemsPerRun: number; humanClaimStaleHours: number; routineClaimTakeoverMinutes: number };
+  /**
+   * true なら、Assignee がちょうど1人で今の GitHub のユーザーである Issue（と、その Issue を Close する PR）にだけ着手する（claim --manual・ensureOwnClaim・fleet。harness/lib/assignee.ts）。
+   * 無ければ（または false なら）確かめない（Issue #172）
+   */
+  requireAssignee?: boolean;
   /** テストファイルのパターン（harness/lib/scope.ts の書式）。agent/tests が改ざんを検査する。無ければ既定（harness/lib/test-tamper.ts） */
   testPatterns?: string[];
   /** area 名 → 同時に開いてよい、判定前の Agent PR（Draft）の数。上限に達した領域の Issue には新しく着手しない（無い領域は無制限） */
