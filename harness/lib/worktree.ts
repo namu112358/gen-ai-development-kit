@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
-import { basename, dirname, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
 /**
- * 作業用の git worktree（リポジトリの外の作業場所）の作成と削除。
+ * 作業用の git worktree（リポジトリの外の作業場所）の作成（`node_modules` が無ければ `npm ci` まで）と削除。
  * 作業は常に git worktree で行う。置き場所はリポジトリの外（`../<リポジトリ名>.worktrees/<ブランチ名>`）にし、
  * 作業中の変更やほかの作業ツリーがコミットに紛れ込まないようにする。
  */
@@ -108,6 +108,28 @@ export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions)
     git(root, 'worktree', 'add', '-q', '-b', ref, path, `origin/${defaultBranch}`);
   }
   return path;
+}
+
+/** `npm ci` の結果（`spawnSync` の結果のうち使うところ） */
+export type NpmCiResult = { status: number | null; error?: Error };
+
+/** 既定の `npm ci`。npm の出力は標準エラーへ流し、標準出力（worktree のパス）を汚さない */
+function defaultNpmCi(cwd: string): NpmCiResult {
+  return spawnSync('npm', ['ci'], { cwd, stdio: ['ignore', 2, 2] });
+}
+
+/**
+ * worktree の依存を用意する。`node_modules` があれば何もしない（'present'）。
+ * `package-lock.json` が無ければ `npm ci` は必ず失敗するので何もしない（'skipped'）。
+ * それ以外は `npm ci` を1回動かし（'installed'）、起動できないか 0 以外で終われば理由付きで投げる。
+ */
+export function ensureNodeModules(path: string, runNpmCi: (cwd: string) => NpmCiResult = defaultNpmCi): 'present' | 'installed' | 'skipped' {
+  if (existsSync(join(path, 'node_modules'))) return 'present';
+  if (!existsSync(join(path, 'package-lock.json'))) return 'skipped';
+  const r = runNpmCi(path);
+  if (r.error) throw new Error(`npm ci を起動できませんでした（${path}）: ${r.error.message}`);
+  if (r.status !== 0) throw new Error(`npm ci が失敗しました（${path}）: 終了コード ${r.status ?? '(シグナルで終了)'}`);
+  return 'installed';
 }
 
 /** worktree を削除する。削除に失敗したら理由付きで投げる（prune の失敗は無視する） */
