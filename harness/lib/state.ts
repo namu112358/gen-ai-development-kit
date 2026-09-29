@@ -258,6 +258,24 @@ export async function plannedFilesForPr(gh: GitHub, config: HarnessConfig, prOrN
 }
 
 /**
+ * 委任 Merge の範囲照合に使う計画の files。ゲートを通った計画か、ゲートの停止（planReviewOrigin: gate。ガードレール・Risk などで App が止め、
+ * Planner の申告が無いもの）で止まった計画だけを使う。Planner の申告で止まった計画・古い停止・記録が無いときは理由を返す
+ */
+export async function plannedFilesForDelegate(gh: GitHub, config: HarnessConfig, prOrNumber: number | LinkablePr): Promise<{ files: string[] } | { missing: string }> {
+  const pr = await linkablePr(gh, prOrNumber);
+  const issues = await linkedIssues(gh, config, pr);
+  if (issues.length === 0) return { missing: missingLinkText(config, pr) };
+  const files: string[] = [];
+  for (const n of issues) {
+    const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
+    const usable = gate?.value.pass === true || (gate?.value.pass === false && gate.value.planReviewOrigin === 'gate');
+    if (!gate || !usable || !gate.value.plan) return { missing: `#${n} に委任 Merge で照合できる計画がありません（ゲートを通ったか、ゲートの停止で止まった計画だけを使う）` };
+    files.push(...gate.value.plan.files);
+  }
+  return { files };
+}
+
+/**
  * PR が「計画のある Issue」に紐付いているか（スタックでない PR は Closes、スタックの層は本文の Refs／Closes）。計画ゲートの記録（通過・人の判断待ちのどちらでも）が
  * 読める計画を持っていれば計画あり。人の PR にも求める（Issues を開発状態の唯一の記録にするため）。番号で呼ばれたら PR を取り直して stack を読む。
  */
