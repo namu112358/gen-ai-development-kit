@@ -1,5 +1,5 @@
 import { extractBlock, hasClaudeMark } from './blocks.ts';
-import { describeFullAreas, fullAreas } from './concurrency.ts';
+import { areaLimitLabels, describeFullAreas, fullAreas } from './concurrency.ts';
 import { appLogin, CHECKS, LABELS, REVIEW_EXEMPT_LABEL, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
 import { patchId } from './patch-id.ts';
@@ -167,8 +167,8 @@ export async function computeQueue(gh: GitHub, config: HarnessConfig, currentSes
   const repository = `${gh.owner}/${gh.repo}`;
   const prs: PullRequest[] = [];
   const openPrs = await gh.paginate<PullRequest>('/pulls?state=open');
-  // 領域ごとの上限には、Agent PR 以外も含めて同じリポジトリの開いた PR をすべて数える
-  const openPrLabels = openPrs.filter((p) => isSameRepoPr(p, repository)).map((p) => p.labels.map((l) => l.name));
+  // 領域ごとの上限には、同じリポジトリの Draft の Agent PR（判定の前）だけを数える
+  const openPrLabels = areaLimitLabels(config, openPrs, repository);
   for (const item of openPrs) {
     // 一覧の要素に stack が無いときは取り直す（スタックの層の Refs #N で紐付けるため）
     const p = await withStack(gh, config, item);
