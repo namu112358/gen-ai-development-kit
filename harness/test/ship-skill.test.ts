@@ -8,7 +8,8 @@ const SKILLS = ['plan', 'implement', 'judge', 'fix', 'sync'];
 const HEADINGS = ['## 入力', '## 手順', '## 終わりの状態', '## 人に返す条件'];
 
 const shipPath = join(root, '.claude', 'skills', 'ship', 'SKILL.md');
-const claudeMd = (): string => readFileSync(join(root, 'CLAUDE.md'), 'utf8');
+/** CLAUDE.md と、それが読み込むハーネスの規則（harness/CLAUDE.harness.md、Issue #155）を合わせた本文 */
+const claudeMd = (): string => ['CLAUDE.md', 'harness/CLAUDE.harness.md'].map((f) => readFileSync(join(root, f), 'utf8')).join('\n');
 
 /** 先頭の `---` で囲まれた frontmatter を key: value で読む */
 function frontmatter(text: string): Record<string, string> {
@@ -54,7 +55,7 @@ test('ship が使う agent.ts のコマンドは、使い方のコメントに�
 test('CLAUDE.md が ship と5つの skill を案内する', () => {
   const text = claudeMd();
   assert.match(text, /Issue を進めるときは ship を使う/);
-  for (const name of ['ship', ...SKILLS]) assert.ok(text.includes(`(.claude/skills/${name}/SKILL.md)`), `${name} への案内がありません`);
+  for (const name of ['ship', ...SKILLS]) assert.ok(text.includes(`(../.claude/skills/${name}/SKILL.md)`), `${name} への案内がありません`);
   assert.match(text, /\| `\.claude\/skills\/` \|/);
 });
 
