@@ -1,4 +1,4 @@
-import { LABELS, priorityRank, type HarnessConfig } from './config.ts';
+import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import { patternsOverlap } from './epic.ts';
 import { describeClaim, isOwnClaim, type IssueFacts, type PrFacts } from './queue.ts';
 
@@ -29,6 +29,35 @@ export interface FleetIssue {
   /** 計画ゲートの記録の計画の files。記録が無ければ null（領域・重なりが分からない） */
   planFiles: string[] | null;
   prs: FleetPr[];
+}
+
+/** fleet-status が番号なしで集める Issue の一覧の1件（/issues の応答の一部） */
+export interface FleetTargetItem {
+  number: number;
+  title: string;
+  labels: { name: string }[];
+  pull_request?: unknown;
+  user?: { login: string } | null;
+  author_association?: string;
+}
+
+const TARGET_LABELS: string[] = [LABELS.ready, LABELS.planOk, LABELS.planReview];
+
+/**
+ * fleet-status が番号なしのときの対象。PR とダッシュボードの Issue を除き、
+ * agent:ready・agent:plan-ok・agent:plan-review のどれかが付いた Issue（作成者は問わない。ラベルを付けたのが書き込み権限のある人）と、
+ * agent: のラベルが1つも無く、作成者がコラボレーター（TRUSTED_ASSOCIATIONS）か App（Epic の子課題など）の Issue（作ったまま計画に進んでいないもの）を、元の順に返す。
+ * コラボレーター以外が立てたラベルの無い Issue は対象にしない（人が進めると決めた印が無いため）
+ */
+export function fleetTargets<T extends FleetTargetItem>(items: T[], config: HarnessConfig): T[] {
+  return items.filter((i) => {
+    if (i.pull_request) return false;
+    if (i.title === config.dashboardIssueTitle && i.user?.login === appLogin(config)) return false;
+    const names = i.labels.map((l) => l.name);
+    if (names.some((n) => TARGET_LABELS.includes(n))) return true;
+    // App が作った Issue（Epic の子課題など）は GitHub 上 CONTRIBUTOR になるが、信頼できる印を付ける側なので含める
+    return !names.some((n) => n.startsWith('agent:')) && (TRUSTED_ASSOCIATIONS.has(i.author_association ?? '') || i.user?.login === appLogin(config));
+  });
 }
 
 /** git merge-tree で試して衝突した（または試せなかった）PR の組 */
@@ -145,7 +174,7 @@ function filesOverlap(a: string[], b: string[]): boolean {
 }
 
 /**
- * 並行して進める Issue を選ぶ。PR のある Issue（既に進めているもの）を先に、残りを優先度 → agent:ready が付いた順に、
+ * 並行して進める Issue を選ぶ。PR のある Issue（既に進めているもの）を先に、残りを優先度 → agent:ready が付いた順（agent:ready の無い Issue はその後）に、
  * 止まる印・依存・ほかのセッションの着手宣言（currentSession と同じ session の手動の宣言は自分のもの）のあるものを除いて、衝突しない範囲で選ぶ。本数は max（--max）を渡したときだけ制限する。
  * 領域の上限（areaConcurrency）は見ない（config は呼び出しの形を保つために受け取るだけ）。
  * 両方に PR がある組は、実際に試して衝突した組（prConflicts）だけ、既に選んだ PR と衝突する後の側が待つ。

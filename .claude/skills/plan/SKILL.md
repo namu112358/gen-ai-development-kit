@@ -29,8 +29,9 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `go`：計画ブロックに `critique`（`verdict` と `rounds`）を書いて次へ。
    - `revise`：指摘を反映して直し、手順5からやり直す。
    - `split`：分け方の案に従い、`split` 付きの計画にして、`critique` の `verdict` を `split` にする。
-   - `drop`、または止める条件に当たったとき：有人セッションでは `render-block` で Issue を止めない。その場で人に要点（残る指摘）を示し、「進める／直す／やめる」を聞く。「進める」なら `critique` の `verdict` は最後の判定のまま（`revise` なら `revise`）にし、書式に `mustRemaining` があれば残った必須の件数を書く。「直す」なら人の指示で直して手順5から、「やめる」なら投稿しない。
-8. `node harness/scripts/agent.ts post-plan <番号> <ファイル>` で投稿する（検査、ラベルの付け替え、コメントの投稿をまとめて行う。このセッションの着手宣言が要る）。計画の投稿で宣言は終わったとみなされるので、`post-plan` が投稿の後に段階 `plan-gate` の宣言を出し直す。出力の `expectedGate` を人に伝える。
+   - `drop`、または止める条件に当たったとき：有人セッションでは `render-block` で Issue を止めない。その場で人に要点（残る指摘）を示し、「進める／直す／やめる」を AskUserQuestion で聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。「進める」なら `critique` の `verdict` は最後の判定のまま（`revise` なら `revise`）にし、書式に `mustRemaining` があれば残った必須の件数を書く。「直す」なら人の指示で直して手順5から、「やめる」なら投稿しない。
+8. `node harness/scripts/agent.ts post-plan <番号> <ファイル>` で投稿する（検査、ラベルの付け替え、コメントの投稿をまとめて行う。このセッションの着手宣言が要る）。計画の投稿で宣言は終わったとみなされるので、`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（人の判断待ち）なら宣言を解除する（出力の `claim` が `plan-gate` か `released`）。出力の `expectedGate` を人に伝える。
+   - App の計画ゲートの結果（`gh issue view <番号> --json labels`）が `agent:plan-review` で、宣言が残っている（出力の `claim` が `plan-gate` だった）なら、`node harness/scripts/agent.ts release <番号>` で解除してから、進めてよいかを AskUserQuestion で聞く。
    - 出し直し（計画ゲートで止まった Issue に計画を出し直す）：前の停止が App のゲートによるもの（critical・ガードレールなど）なら、App は前の印に引きずられずに新しい計画を判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）や人が付けた印は、人が外すまで残る。`agent:plan-review` を手で外さない。
 
 ## 終わりの状態
@@ -40,7 +41,7 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 
 ## 人に返す条件
 
-- 批評が止める条件に当たった、または `drop`（「進める／直す／やめる」を聞く）
+- 批評が止める条件に当たった、または `drop`（「進める／直す／やめる」を AskUserQuestion で聞く）
 - 要件・AC を変えたほうがよい（Issue 本文は書き換えない。コメントで提案する）
 - `post-plan` が書式の誤りや権限で失敗した（拒否された操作は別の方法で試さない）
 - やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
