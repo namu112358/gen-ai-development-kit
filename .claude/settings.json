@@ -44,6 +44,7 @@
       "Bash(*agent:plan-ok*)",
       "Bash(*agent:hold*)",
       "Bash(*agent:auto-merge-stopped*)",
+      "Bash(*agent:delegate-merge*)",
       "Bash(*plan:exempt*)",
       "Bash(*review:exempt*)",
       "Bash(*test:exempt*)",
