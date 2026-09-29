@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { hasClaudeMark, withClaudeMark } from '../lib/blocks.ts';
 import { loadConfig } from '../lib/config.ts';
+import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import {
   composePanel, parseChangedLines, parsePanelOutputs, parsePanelRecord, pastPrMaterial, previousFromJudgeInput, renderPanelRecord, subagentCost,
@@ -29,10 +30,12 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *   node harness/scripts/review-panel.ts compose <pr> <dir> --judge-input <file> [--session <jsonl>]
  *       <dir> の担当の出力・score-<id>.json・check.json と、judge-input の前回の判定（あれば git diff -U0 <前回の head> <headSha> の変わった行）から組み立て、
  *       組み立ての出力（review-<PR>-<head7>.json。reviewer の出力と同じ形）と記録のコメント（panel-<PR>-<head7>.md）を書いてパスを出力。
- *       judge-input の PR 番号が <pr> と違う、今の PR の head や check.json の headSha が judge-input の headSha と違えば止まる。
+ *       judge-input の PR 番号が <pr> と違う、check.json の headSha が judge-input の headSha と違えば止まる。
+ *       今の PR の head が judge-input の headSha と違っても PR 自身の差分（patch-id）が同じなら判定した head のまま。違えば止まる。
  *       費用は --session（無ければこのセッション）のサブエージェントの記録から数える
  *   node harness/scripts/review-panel.ts post <pr> <記録のファイル>
- *       記録のコメントを検査し、PR 番号が合い、headSha が今の PR の head と同じときだけ投稿する。
+ *       記録のコメントを検査し、PR 番号が合い、headSha が今の PR の head と同じか、違っても PR 自身の差分（patch-id）が同じときだけ投稿する
+ *       （headSha は判定した head のまま）。
  *       目印にはセッション ID（agent.ts と同じく AGENT_HARNESS_SESSION、Routine はセッションの URL）を入れる
  *
  * リポジトリは GITHUB_REPOSITORY か git remote から決める。
@@ -49,6 +52,14 @@ function fail(errors: string[]): never {
 function git(args: string[], cwd?: string): { status: number | null; stdout: string; stderr: string } {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
   return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+}
+
+/** 判定した head のまま進めてよいか（違えば git fetch の後、PR 自身の差分の patch-id で比べる）。止めるならエラーの文言 */
+function headError(judgedHead: string, current: PullRequest): string | null {
+  return judgedHeadError(judgedHead, current.head.sha, () => {
+    git(['fetch', '-q', 'origin']);
+    return samePrPatch(`origin/${current.base.ref}`, judgedHead, current.head.sha);
+  });
 }
 
 function repository(): string {
@@ -174,9 +185,11 @@ async function compose(gh: GitHub, args: string[]): Promise<string> {
     changedLines = parseChangedLines(diff.stdout);
   }
 
-  // 段階5の再確認（公式の段階7）：組み立てる直前に、判定する head が今の head のままか
+  // 段階5の再確認（公式の段階7）：組み立てる直前に、判定する head が今の head のままか。
+  // 違っても PR 自身の差分（patch-id）が同じなら判定した head のまま組み立てる（App は patch-id で受け付ける）
   const current = await gh.get<PullRequest>(`/pulls/${pr}`);
-  if (current.head.sha !== head) fail([`判定する head（${head}）と今の PR の head（${current.head.sha}）が違います。judge-input からやり直す`]);
+  const composeHeadError = headError(head, current);
+  if (composeHeadError !== null) fail([composeHeadError]);
 
   const composed = composePanel({ findings: outputs.findings, notes: outputs.notes, scores, check: checkRaw as CheckResult, previous: previous.value, changedLines });
   if (!composed.ok) fail(composed.errors);
@@ -208,7 +221,8 @@ async function post(gh: GitHub, pr: number, file: string): Promise<string> {
   if (!parsed.ok) fail(parsed.errors);
   if (parsed.value.pr !== pr) fail([`記録の pr（${parsed.value.pr}）が #${pr} と一致しません`]);
   const current = await gh.get<PullRequest>(`/pulls/${pr}`);
-  if (current.head.sha !== parsed.value.headSha) fail([`記録の headSha が今の head（${current.head.sha}）と一致しません。判定し直す`]);
+  const postHeadError = headError(parsed.value.headSha, current);
+  if (postHeadError !== null) fail([postHeadError]);
   const posted = await gh.comment(pr, body);
   return JSON.stringify({ posted: posted.html_url }, null, 2);
 }

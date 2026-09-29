@@ -15,3 +15,35 @@ export function patchId(diff: string): string {
   if (ids.length === 0) return 'empty';
   return ids.join('+');
 }
+
+/** PR 自身の差分（`<base>...<head>` の3点比較）。手元の git の設定（color・外部 diff・textconv・noprefix）の影響を受けない形で取る */
+function prDiffLocal(base: string, head: string, cwd?: string): string {
+  const result = spawnSync('git', [
+    'diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', `${base}...${head}`,
+  ], { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  if (result.status !== 0) throw new Error(`git diff failed: ${result.stderr}`);
+  return result.stdout;
+}
+
+/**
+ * 判定した head と今の head で、PR 自身の差分（`<base>...<head>`）の patch-id が同じかを返す。
+ * App の受け付け（on-comment.ts の onVerdict：compare API の base...head の patch-id）と同じ比べ方。
+ * git が失敗したら false（止める側）。
+ */
+export function samePrPatch(base: string, judgedHead: string, currentHead: string, cwd?: string): boolean {
+  try {
+    return patchId(prDiffLocal(base, judgedHead, cwd)) === patchId(prDiffLocal(base, currentHead, cwd));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 判定した head のまま組み立て・投稿してよいかを判断する。よければ null、止めるならエラーの文言。
+ * head が同じなら samePatch を呼ばない。違っても samePatch() が true（PR 自身の差分の patch-id が同じ）なら null。
+ */
+export function judgedHeadError(judgedHead: string, currentHead: string, samePatch: () => boolean): string | null {
+  if (judgedHead === currentHead) return null;
+  if (samePatch()) return null;
+  return `判定した head（${judgedHead}）と今の head（${currentHead}）で PR 自身の差分（patch-id）が違う。判定し直す（judge-input からやり直す）`;
+}

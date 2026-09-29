@@ -122,8 +122,19 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
   const verdict = latestClaudeBlockAt(comments, 'agent-verdict');
   const lastGateReply = comments.filter((c) => isAppComment(cfg, c) && /kind=(acceptance|verdict-rejected)/.test(c.body)).at(-1);
   const verdictBlock = verdict ? extractBlock(verdict.body, 'agent-verdict') : null;
-  const verdictForHead = verdictBlock?.found && verdictBlock.ok && (verdictBlock.value as { headSha?: string }).headSha === pr.head.sha;
+  const verdictHead = verdictBlock?.found && verdictBlock.ok ? (verdictBlock.value as { headSha?: unknown }).headSha : undefined;
   const verdictFresh = verdict !== null && Date.now() - new Date(verdict.created_at).getTime() < GATE_REPLY_TIMEOUT_MS;
+  const noReplyYet = verdict !== null && (!lastGateReply || lastGateReply.created_at < verdict.created_at);
+  // 判定した head が今の head と違っても、PR 自身の差分の patch-id が同じなら App は受け付ける（on-comment.ts の onVerdict と同じ条件）。
+  // 判定した head の diff は、判定が新しく返事がまだ無いときだけ取る（API 呼び出しを増やさない）。取れなければ待ちに数えない
+  let verdictForHead = typeof verdictHead === 'string' && verdictHead === pr.head.sha;
+  if (!verdictForHead && typeof verdictHead === 'string' && verdictFresh && noReplyYet) {
+    try {
+      verdictForHead = patchId(await prDiff(gh, pr, verdictHead)) === patch;
+    } catch {
+      verdictForHead = false;
+    }
+  }
   const human = humanFeedback(reviews, pr.head.sha, appLogin(cfg));
   const issue = issues[0] ?? null;
   return {
@@ -138,7 +149,7 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
     headSha: pr.head.sha,
     headPushedAt: pushedAt,
     acceptance: acc && accRecord && applied ? { reviewPass: acc.reviewPass, at: accRecord.comment.created_at } : null,
-    verdictAwaitingGate: Boolean(verdictForHead && verdictFresh && (!lastGateReply || lastGateReply.created_at < verdict!.created_at)),
+    verdictAwaitingGate: verdictForHead && verdictFresh && noReplyYet,
     humanFeedbackSincePush: human.length,
   };
 }
