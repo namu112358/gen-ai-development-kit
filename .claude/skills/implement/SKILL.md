@@ -15,10 +15,10 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 
 ## 手順
 
-1. `node harness/scripts/agent.ts claim <番号> --manual --stage implement` で着手を宣言する（段階の更新。ほかのセッションの宣言があれば止まる）。同じ領域の開いた PR が上限で止まったら、人に聞く（急ぐと言われたときだけ `--force`）。
+1. `node harness/scripts/agent.ts claim <番号> --manual --stage implement` で着手を宣言する（段階の更新。ほかのセッションの宣言があれば止まる）。同じ領域の開いた PR が上限で止まったら、AskUserQuestion で人に聞く（急ぐと言われたときだけ `--force`）。
 2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作る（出力がパス。置き場所はリポジトリの外）。以降はそのディレクトリで作業する。`node_modules` が無ければ `npm ci`。
 3. **test-designer** サブエージェントにテストを書かせる。GitHub は読ませないので、Issue 番号、AC、Validation Requirements、計画の `files` を指示に含めて渡す。
-4. 計画の `files` の範囲で実装する。範囲外の変更が要るなら、先に人に聞く（出すなら PR 本文の「範囲外の変更」に理由を書く）。
+4. 計画の `files` の範囲で実装する。範囲外の変更が要るなら、先に AskUserQuestion で人に聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方。範囲外として出すなら PR 本文の「範囲外の変更」に理由を書き、計画を出し直すなら plan の skill に戻る）。
 5. `npm run check` を通す。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
 7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
