@@ -61,7 +61,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `plan:exempt` | 人 | 計画のある Issue に紐付かない PR を例外として通す（付け外しを App が記録する） |
 | `test:exempt` | 人 | テストを弱める変更を例外として `agent/tests` を通す（Issue 本文にテストを変える理由があるとき）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する。自動 Merge の対象の PR で使う（Human Merge の PR では要らない。下記「テストの改ざん検査」） |
 | `area:*` | App | PR の変更ファイルの領域、Issue の計画（計画ゲートを通ったもの）の files の領域（`harness.config.json` の `classification.areas`）。計画の無い Issue には Jev が付ける。足すだけで外さない |
-| `agent:delegate-merge` | 人のみ | ダッシュボード専用。期限つきで Merge の判断を App に委ねる「委任 Merge」のスイッチ（`harness.config.json` の `delegateMerge`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付いたときの動作は #211・#212 で入り、それまでは付けても何も変わらない |
+| `agent:delegate-merge` | 人のみ | ダッシュボード専用。期限つきで Merge の判断を App に委ねる「委任 Merge」のスイッチ（`harness.config.json` の `delegateMerge`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けると、`delegateMerge.hours` の間、条件を満たす Agent PR にガードレール・Risk の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#委任-merge)）。外すと、委任で付けた auto-merge を外して人にレビューを依頼する。期限が切れると定期実行が同じように外し、ラベルも外してダッシュボードに書く |
 
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。
 
@@ -101,10 +101,12 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 - Jev（決まらないもの）：`classification.issueTriage` が `label` のとき、優先度の無い Issue に `priority:*`、計画が無く `area:*` の無い Issue に `area:*` を、Jev の答えの確率が `jev.thresholds.labelProbability` 以上のときだけ付ける。下限未満のもの、下限が未設定のとき（提案のみ）は付けずに `label-triage` のコメントで知らせる。本文が Issue Form として読めない Issue には問わない。同じ Issue には一度だけ問う（`issue-triage` か `label-triage` の記録があれば問い済み）。`agent:ready` が付いたときは提案のコメントを出したうえで足りないものを付ける。1回の定期実行で問う Issue は 5 件まで（残りは次の実行）。
 - PR の `risk:*`：App が判定を受け付けたとき、受け付けた判定の Risk を付け、ほかの `risk:*` を外す（判定し直せば付け替える）。判定を受け付けなかったときは変えない。
 
+`priority:*`・`area:*` の付与は Jev に任せる（2026-09-29 の人の決定）。付き添いのセッションは、Issue を作ったときも最後の一覧でも、ラベルの不足を人に聞かず、伝えず、推測で付けない。Jev が下限未満で付けなかったものは、ダッシュボードの「ラベルが足りない Issue・PR」に出る。
+
 必須ラベルの検査（`harness/lib/label-rules.ts`）は、足りないラベルと次の違反を返す：優先度（`priority:*`）が2つ以上、子（Sub-issues）を持つのに `epic` が無い、Epic に `type:*` がある、`type:*` がタイトルの type と食い違う（`type:*` が2つ以上を含む）、タイトルが `type(scope): 説明` の形式でない。`epic` が付いた Issue は、子課題を作る途中で子が 0 でも Epic として扱う。`area:*` と `size:*` は `harness.config.json` にある名前だけを数える。
 
 - ダッシュボードの「ラベルが足りない Issue・PR」の節：定期実行のたびに、開いた Issue のうち `agent:*` か `epic` の付いたものと Agent PR を検査し、番号・タイトル・足りないもの・違反を1行ずつ出す（人がまだ整えていない Issue、人や bot の PR は出さない）。
-- `node harness/scripts/agent.ts label-audit [番号..]`：同じ検査の一覧を出す。番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲。ship の skill は最後に扱った Issue・PR をこれで確かめ、見つかったものを人がすることの一覧に書く。
+- `node harness/scripts/agent.ts label-audit [番号..]`：同じ検査の一覧を出す。番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲。ダッシュボードと同じ検査を人が手元で見るためのもので、セッションは走らせない。
 
 ## Epic（大きな課題を分ける）
 
@@ -195,12 +197,15 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を、依頼のコメントにテストの変更（`agent/tests` が neutral のとき）があれば、その行も確かめて確認して Merge する |
 | 人の PR（`claude/` 以外のブランチから人が自分で書いた PR） | 計画のある Issue に紐付いていれば judge の skill で判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
 | `agent:blocked` | 理由のコメントを読み、直してからラベルを外す |
+| 委任 Merge を始める | 見ていられる時間だけ、ダッシュボードに `agent:delegate-merge` を付ける（`delegateMerge.hours` で期限が切れる）。条件を満たす Agent PR は、ガードレール・Risk が理由でも自動 Merge される（[risk-policy.md](risk-policy.md#委任-merge)） |
+| 委任 Merge を見返す | ダッシュボードの「委任 Merge で Merge された PR」（直近 `staleHours` 時間）と、PR の App の記録（`kind=delegated-merge`）を見る |
 
 ## 止める仕組み
 
 | 仕組み | 操作 | 効き方 |
 | --- | --- | --- |
 | 停止スイッチ | 「Agent ダッシュボード」Issue に `agent:auto-merge-stopped` を付ける | App が全 PR の auto-merge を外し、merge-route が自動経路を failure にする。Human Merge は通る |
+| 委任 Merge を終える | ダッシュボードの `agent:delegate-merge` を外す（期限が切れると定期実行が外す）。停止スイッチでも止まる | App が委任で付けた auto-merge を外し（記録 `delegated-merge-end`）、人にレビューを依頼する。自動 Merge の対象の PR（low など）はそのまま |
 | 最終手段 | Settings → General → Allow auto-merge を切る | auto-merge が一斉に効かなくなる |
 | 個別停止 | Issue / PR に `agent:hold` を付ける | PR は merge-route が failure、Issue は Routine が処理しない。外されると App が記録する |
 | revert で自動停止 | 自動 Merge された PR を revert する | App が停止スイッチを入れる。人が確認して外すまで再開しない |
@@ -216,7 +221,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 修正回数の上限 | PR に `agent:blocked` | 指摘を確認して人が直すか Close |
 | 判定が古い | App の `verdict-rejected` | 何もしない（次の実行で判定し直す） |
 | コンフリクト・停滞 | ダッシュボードの各一覧 | 人が解消する |
-| ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | 人が足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す） |
+| ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | セッションは聞かないので、人がダッシュボードを見て、足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す） |
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる |
 
 判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。集計のしかたと切り替えの基準は [security.md](security.md#jev) を見る。同じ集計の最後に、合体版のレビューの記録と今の判定を比べる節（「合体版のレビュー（記録だけの期間の比較）」）が出る。その切り替えの基準は [plan.md](plan.md) の決定ログの Q91。
