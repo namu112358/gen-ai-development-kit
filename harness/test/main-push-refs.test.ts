@@ -30,7 +30,8 @@ function pushFake(state: { pulls: Record<string, unknown[] | Error>; issues?: Re
       return r ?? [];
     })
     .on('GET', /\/pulls\/5$/, () => (state.pulls.s1 instanceof Error ? mergedLayer() : (state.pulls.s1?.[0] ?? mergedLayer())))
-    .on('GET', /\/issues\/5\/comments/, () => state.prComments ?? [])
+    // PR #5 は prComments。ほかの番号（追従の前に判定中かを確かめる PR など）はコメントなし
+    .on('GET', /\/issues\/(\d+)\/comments/, (m) => (m[1] === '5' ? (state.prComments ?? []) : []))
     .on('GET', /\/issues\/(\d+)$/, (m) => state.issues?.[Number(m[1])] ?? { number: Number(m[1]), state: 'open' })
     .on('PATCH', /\/issues\/\d+$/, () => ({}))
     .on('POST', /\/issues\/\d+\/comments/, () => ({ id: 1, html_url: 'u' }))

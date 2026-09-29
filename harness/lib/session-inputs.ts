@@ -2,6 +2,7 @@ import { claudeMark, extractBlock, hasClaudeMark, renderBlock } from './blocks.t
 import { CHECKS, type HarnessConfig } from './config.ts';
 import type { IssueComment } from './github.ts';
 import { parseIssueBody } from './issue-form.ts';
+import { judgedHeadError } from './patch-id.ts';
 import type { Parsed } from './plan.ts';
 import { appRecords, isAppComment, isTrustedComment, latestPlanGate } from './state.ts';
 import { parseVerdict, RISK_QUESTIONS, type BlockingFinding } from './verdict.ts';
@@ -518,6 +519,8 @@ export interface ComposeInput {
   judgedHead: string;
   /** 投稿直前に読んだ PR の head */
   currentHead: string;
+  /** head が違うとき、PR 自身の差分（patch-id）が同じか（samePrPatch の結果）。省略時は head が違えば止まる */
+  samePatch?: boolean;
   reviewer: unknown;
   risk: unknown;
   /** judgedBy は判定者の説明（「付き添いのセッション」やセッションの URL など） */
@@ -527,9 +530,8 @@ export interface ComposeInput {
 /** Reviewer と Risk Agent の出力から判定コメントを作り、書式を検査する */
 /** session は目印に入れるセッション ID（agent.ts が環境から渡す。既定は null で ID の無い目印） */
 export function composeVerdict(input: ComposeInput, session: string | null = input.session ?? null): Parsed<string> {
-  if (input.judgedHead !== input.currentHead) {
-    return { ok: false, errors: [`判定した head（${input.judgedHead}）と現在の head（${input.currentHead}）が違う。判定し直す`] };
-  }
+  const headError = judgedHeadError(input.judgedHead, input.currentHead, () => input.samePatch === true);
+  if (headError !== null) return { ok: false, errors: [headError] };
   const keyErrors = [...checkKeys(input.reviewer, 'reviewer', REVIEWER_KEYS), ...checkKeys(input.risk, 'risk', RISK_KEYS)];
   if (keyErrors.length === 0) {
     const { blocking, humanNotes } = input.reviewer as { blocking: unknown; humanNotes?: unknown };

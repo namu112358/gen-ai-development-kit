@@ -1,5 +1,5 @@
 import { extractBlock, hasClaudeMark } from './blocks.ts';
-import { describeFullAreas, fullAreas } from './concurrency.ts';
+import { areaLimitLabels, describeFullAreas, fullAreas } from './concurrency.ts';
 import { appLogin, CHECKS, LABELS, REVIEW_EXEMPT_LABEL, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
 import { patchId } from './patch-id.ts';
@@ -122,8 +122,19 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
   const verdict = latestClaudeBlockAt(comments, 'agent-verdict');
   const lastGateReply = comments.filter((c) => isAppComment(cfg, c) && /kind=(acceptance|verdict-rejected)/.test(c.body)).at(-1);
   const verdictBlock = verdict ? extractBlock(verdict.body, 'agent-verdict') : null;
-  const verdictForHead = verdictBlock?.found && verdictBlock.ok && (verdictBlock.value as { headSha?: string }).headSha === pr.head.sha;
+  const verdictHead = verdictBlock?.found && verdictBlock.ok ? (verdictBlock.value as { headSha?: unknown }).headSha : undefined;
   const verdictFresh = verdict !== null && Date.now() - new Date(verdict.created_at).getTime() < GATE_REPLY_TIMEOUT_MS;
+  const noReplyYet = verdict !== null && (!lastGateReply || lastGateReply.created_at < verdict.created_at);
+  // 判定した head が今の head と違っても、PR 自身の差分の patch-id が同じなら App は受け付ける（on-comment.ts の onVerdict と同じ条件）。
+  // 判定した head の diff は、判定が新しく返事がまだ無いときだけ取る（API 呼び出しを増やさない）。取れなければ待ちに数えない
+  let verdictForHead = typeof verdictHead === 'string' && verdictHead === pr.head.sha;
+  if (!verdictForHead && typeof verdictHead === 'string' && verdictFresh && noReplyYet) {
+    try {
+      verdictForHead = patchId(await prDiff(gh, pr, verdictHead)) === patch;
+    } catch {
+      verdictForHead = false;
+    }
+  }
   const human = humanFeedback(reviews, pr.head.sha, appLogin(cfg));
   const issue = issues[0] ?? null;
   return {
@@ -138,7 +149,7 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
     headSha: pr.head.sha,
     headPushedAt: pushedAt,
     acceptance: acc && accRecord && applied ? { reviewPass: acc.reviewPass, at: accRecord.comment.created_at } : null,
-    verdictAwaitingGate: Boolean(verdictForHead && verdictFresh && (!lastGateReply || lastGateReply.created_at < verdict!.created_at)),
+    verdictAwaitingGate: verdictForHead && verdictFresh && noReplyYet,
     humanFeedbackSincePush: human.length,
   };
 }
@@ -156,8 +167,8 @@ export async function computeQueue(gh: GitHub, config: HarnessConfig, currentSes
   const repository = `${gh.owner}/${gh.repo}`;
   const prs: PullRequest[] = [];
   const openPrs = await gh.paginate<PullRequest>('/pulls?state=open');
-  // 領域ごとの上限には、Agent PR 以外も含めて同じリポジトリの開いた PR をすべて数える
-  const openPrLabels = openPrs.filter((p) => isSameRepoPr(p, repository)).map((p) => p.labels.map((l) => l.name));
+  // 領域ごとの上限には、同じリポジトリの Draft の Agent PR（判定の前）だけを数える
+  const openPrLabels = areaLimitLabels(config, openPrs, repository);
   for (const item of openPrs) {
     // 一覧の要素に stack が無いときは取り直す（スタックの層の Refs #N で紐付けるため）
     const p = await withStack(gh, config, item);

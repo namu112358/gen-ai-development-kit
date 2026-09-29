@@ -26,7 +26,7 @@ export interface HarnessConfig {
   routine: { maxItemsPerRun: number; humanClaimStaleHours: number; routineClaimTakeoverMinutes: number };
   /** テストファイルのパターン（harness/lib/scope.ts の書式）。agent/tests が改ざんを検査する。無ければ既定（harness/lib/test-tamper.ts） */
   testPatterns?: string[];
-  /** area 名 → 同時に開いてよい PR の数。上限に達した領域の Issue には新しく着手しない（無い領域は無制限） */
+  /** area 名 → 同時に開いてよい、判定前の Agent PR（Draft）の数。上限に達した領域の Issue には新しく着手しない（無い領域は無制限） */
   areaConcurrency?: Record<string, number>;
   /** ガードレール（Agent が自分を縛る仕組み）のパターン。触れる PR は自動 Merge せず、触れる計画は計画ゲートで止める（harness/lib/guardrail.ts）。無ければすべてのファイルをガードレールとして扱う */
   guardrailPaths?: string[];

@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
-import { describeFullAreas, fullAreas } from '../lib/concurrency.ts';
+import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
 import { LABELS, loadConfig, reasonMark, REASON_CODES, riskLabel, type ReasonCode } from '../lib/config.ts';
 import { claimOf, computeQueue, issueFacts, prFacts } from '../lib/facts.ts';
@@ -14,6 +14,7 @@ import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, typ
 import { evaluatePlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
 import { CLAIM_STAGES, claimBlocker, claimValueAfterPlan, requireOwnClaim, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
+import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
 import {
   checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, selectPastPrs, splitArgs,
   lowerLayers, PAST_PR_FILE_LIMIT, type CheckRun, type JudgeFacts, type ParentEpic, type PastPrReview, type PastPrReviewComment, type PastPrs, type PrCommit, type StackFacts,
@@ -48,13 +49,14 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts queue                     次にやること（JSON）
  *   node harness/scripts/agent.ts claim <n> [--manual] [--stage <段階>] [--force] [--takeover]
  *                                                           着手宣言のコメント（段階とこのセッションの ID を書く。同じセッションなら段階の更新）。
- *                                                           --manual は、計画の触るファイルの領域の開いた PR が上限（areaConcurrency）に達していれば止まる（--force で着手）。
+ *                                                           --manual は、計画の触るファイルの領域の判定前の Agent PR（Draft）が上限（areaConcurrency）に達していれば止まる（--force で着手）。
  *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）
  *   node harness/scripts/agent.ts post-decision <issue> <file>  決定の記録（agent-decision）を検査して投稿（App の最新の計画ゲートの記録の計画コメントと、答えの無い項目が無いことを確かめる。ラベルは変えない）
- *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿
+ *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿。headSha が現在の head と違っても PR 自身の差分（patch-id）が同じなら
+ *                                                           判定した head のまま投稿する。違えば止まる
  *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの agent-plan ブロックは省く〕、
  *                                                           Epic の子課題なら親 Epic〔子課題の一覧と Validation Requirements〕、計画ゲートの記録の計画、PR 本文、
  *                                                           PR のコラボレーターのコメント〔判定コメントを除く〕、agent/scope の結果、前回の判定の head とブロッキング指摘、
@@ -64,7 +66,8 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>]
  *                                                           サブエージェントの出力から判定コメントを作って検査し、ファイルのパスを出力（投稿は post-verdict）。
  *                                                           オプションの位置は問わない。judge-input のファイルの PR 番号が <pr> と違えば止まる。
- *                                                           判定した head は judge-input のファイルの headSha。現在の head と違えば止まる。
+ *                                                           判定した head は judge-input のファイルの headSha。現在の head と違っても PR 自身の差分（patch-id）が
+ *                                                           同じなら判定した head のまま。違えば止まる。
  *                                                           metrics.judgedBy はセッション URL（無ければ「付き添いのセッション」）
  *   node harness/scripts/agent.ts critic-input <issue> <plan-file> [--previous <critique.json>]  （このセッションの着手宣言が要る）
  *                                                           plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画。
@@ -160,8 +163,8 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
     const repository = `${gh.owner}/${gh.repo}`;
     const labels: string[][] = [];
     for (const p of await gh.paginate<PullRequest>('/pulls?state=open')) {
-      // この Issue に紐付く PR（続きの作業。スタックの層は本文の Refs／Closes）は数えない
-      if (!isSameRepoPr(p, repository) || (await linkedIssues(gh, config, await withStack(gh, config, p))).includes(n)) continue;
+      // 数えるのは判定前の Agent PR（Draft）だけ。この Issue に紐付く PR（続きの作業。スタックの層は本文の Refs／Closes）は数えない
+      if (!countsTowardAreaLimit(config, p, repository) || (await linkedIssues(gh, config, await withStack(gh, config, p))).includes(n)) continue;
       labels.push(p.labels.map((l) => l.name));
     }
     const full = fullAreas(config, gate?.value.plan?.files ?? [], labels);
@@ -193,14 +196,29 @@ function renderPlan(n: number, file: string): { body: string; addLabels: string[
   };
 }
 
-/** 判定コメントを検査し、投稿する本文を返す。headSha は投稿直前に確かめた PR の head */
-function renderVerdict(n: number, headSha: string, file: string): string {
+/**
+ * 判定コメントを検査し、投稿する本文を返す。headSha は投稿直前に確かめた PR の head。
+ * samePatch を渡すと、head が違っても samePatch(判定した head) が true（PR 自身の差分の patch-id が同じ）なら通す。
+ * 渡さなければ完全一致を求める（render-verdict）
+ */
+function renderVerdict(n: number, headSha: string, file: string, samePatch?: (judgedHead: string) => boolean): string {
   const checked = checkFile(file);
   if (checked.kind !== 'verdict' || checked.errors.length > 0) fail(checked.errors);
   const v = checked.value as { pr: number; headSha: string };
   if (v.pr !== n) fail([`verdict.pr（${v.pr}）が #${n} と一致しません`]);
-  if (v.headSha !== headSha) fail([`verdict.headSha が現在の head（${headSha}）と一致しません。判定し直してください`]);
+  if (samePatch === undefined) {
+    if (v.headSha !== headSha) fail([`verdict.headSha が現在の head（${headSha}）と一致しません。判定し直してください`]);
+  } else {
+    const error = judgedHeadError(v.headSha, headSha, () => samePatch(v.headSha));
+    if (error !== null) fail([error]);
+  }
   return readBlockFile(file);
+}
+
+/** 判定した head と今の head で PR 自身の差分（origin/<base>...<head>）の patch-id が同じか。git fetch の後に比べる */
+function samePatchAsCurrent(pr: PullRequest, judgedHead: string): boolean {
+  spawnSync('git', ['fetch', '-q', 'origin'], { encoding: 'utf8' });
+  return samePrPatch(`origin/${pr.base.ref}`, judgedHead, pr.head.sha);
 }
 
 function readBlockFile(file: string): string {
@@ -250,7 +268,7 @@ async function postDecision(gh: GitHub, n: number, file: string): Promise<void> 
 
 async function postVerdict(gh: GitHub, n: number, file: string): Promise<void> {
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
-  const posted = await gh.comment(n, renderVerdict(n, pr.head.sha, file));
+  const posted = await gh.comment(n, renderVerdict(n, pr.head.sha, file, (judged) => samePatchAsCurrent(pr, judged)));
   console.log(JSON.stringify({ posted: posted.html_url }, null, 2));
 }
 
@@ -455,7 +473,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
 
   const repository = `${gh.owner}/${gh.repo}`;
   const openPrs = (await gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isSameRepoPr(p, repository));
-  const openPrLabels = openPrs.map((p) => p.labels.map((l) => l.name));
+  const openPrLabels = areaLimitLabels(config, openPrs, repository);
   const prsOf = new Map<number, { number: number; state: string }[]>();
   for (const i of items) prsOf.set(i.number, await closingPrs(gh, i.number));
   const prByIssue = new Map<number, number>();
@@ -515,10 +533,13 @@ async function composeVerdictFile(gh: GitHub, args: string[]): Promise<string> {
   const judged = checkJudgeInput(readFileSync(inputFile, 'utf8'), n);
   if (!judged.ok) fail(judged.errors.map((e) => `${inputFile}: ${e}`));
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
+  // head が違うときだけ、PR 自身の差分（patch-id）を比べる（main の取り込みだけなら判定した head のまま組み立てる）
+  const samePatch = judged.value === pr.head.sha ? undefined : samePatchAsCurrent(pr, judged.value);
   const r = composeVerdict({
     pr: n,
     judgedHead: judged.value,
     currentHead: pr.head.sha,
+    ...(samePatch === undefined ? {} : { samePatch }),
     reviewer: readJson(reviewerFile),
     risk: readJson(riskFile),
     meta: { model, judgedBy: sessionUrl() ?? '付き添いのセッション' },

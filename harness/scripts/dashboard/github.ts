@@ -3,6 +3,7 @@
  * グラフの材料（facts）の取り直し。facts は harness/lib の issueFacts / prFacts / claimOf をそのまま使う。
  */
 import { appMarkKind } from '../../lib/blocks.ts';
+import { areaLimitLabels } from '../../lib/concurrency.ts';
 import { isAgentPr, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PullRequest } from '../../lib/state.ts';
 import type { HarnessConfig } from '../../lib/config.ts';
 import { issueFacts, prFacts } from '../../lib/facts.ts';
@@ -193,7 +194,7 @@ export class DashboardData {
   private async loadIssue(item: IssueItem): Promise<void> {
     const open = this.openPrsOf(item.number);
     const prByIssue = new Map<number, number>(open.length > 0 ? [[item.number, open[0]!.number]] : []);
-    const facts = await issueFacts(this.gh, this.config, item, prByIssue, this.openPrs.map((p) => p.labels.map((l) => l.name)));
+    const facts = await issueFacts(this.gh, this.config, item, prByIssue, areaLimitLabels(this.config, this.openPrs, this.repository));
     const target = facts.labels.some((l) => l.startsWith('agent:')) || facts.claim !== null || open.length > 0;
     if (!target) return;
     const fleetPrs: FleetPr[] = (await this.mergedPrs(item.number)).map((number) => ({ number, merged: true, draft: false, autoMerge: false, humanReview: false, behindMain: false, facts: null }));

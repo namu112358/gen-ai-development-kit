@@ -75,6 +75,19 @@ export function worktreeClaimIssue(branch: string, detach: boolean, routine: boo
   return m ? Number(m[1]) : null;
 }
 
+/**
+ * App が main への追従（update-branch）を待つべき判定中の宣言か。有効な宣言で段階が judge、かつ期限内のときだけ true（by は問わない）。
+ * 期限は claimedByOther と同じ数え方：手動は humanClaimStaleHours 時間、Routine は routineClaimTakeoverMinutes 分を過ぎたら追従する（落ちたセッションの宣言で止まり続けないため）
+ */
+export function holdsMainFollow(claim: Claim | null, now: Date, limits: { humanClaimStaleHours: number; routineClaimTakeoverMinutes: number }): boolean {
+  const c = activeClaim(claim);
+  if (!c || c.stage !== 'judge') return false;
+  const minutes = (now.getTime() - new Date(c.at).getTime()) / 60_000;
+  if (Number.isNaN(minutes)) return false;
+  if (c.by === 'manual') return Math.floor(minutes / 60) < limits.humanClaimStaleHours;
+  return minutes < limits.routineClaimTakeoverMinutes;
+}
+
 export interface IssueFacts {
   number: number;
   title: string;
@@ -89,7 +102,7 @@ export interface IssueFacts {
   /** agent:plan-ok を最後に付けたのが App か */
   planOkByApp: boolean;
   openPr: number | null;
-  /** 計画の触るファイルが入る領域のうち、開いた PR の数が上限に達しているもの（説明文。無ければ null） */
+  /** 計画の触るファイルが入る領域のうち、判定前の Agent PR（Draft）の数が上限に達しているもの（説明文。無ければ null） */
   areaFull?: string | null;
 }
 

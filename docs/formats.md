@@ -80,7 +80,7 @@ Issue に `agent:plan-review` が付いているときの出し直しは、App �
 
 ## 判定（agent-verdict）
 
-Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定した時点の PR の head。
+Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定した時点の PR の head。判定の後に main の取り込みなどで今の head と違っても、PR 自身の差分（`<base>...<head>` の patch-id）が同じなら判定した head のまま組み立て・投稿する（App は patch-id の一致で受け付ける）。差分が違えば判定し直す。
 
 ````markdown
 <!-- agent-harness:claude -->

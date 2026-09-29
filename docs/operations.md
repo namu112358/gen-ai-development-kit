@@ -32,7 +32,7 @@ Issue を進めるのは、人が付き添う Claude のセッション。「#�
 
 ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-review` のコメントを付けた）か、人の判断待ち（計画ゲートで止まった、修正の上限、判断できない衝突など）で止まり、人がすること（Merge、例外ラベルを付けるかの判断（`test:exempt` は自動 Merge の対象の PR で `agent/tests` が止まったときだけ。Human Merge の PR では依頼のコメントのテストの変更を Merge の前に確かめる）、`setup.ts` の実行が要るか、Merge 後の確かめ）を一覧にする。段階を1つだけ頼めば、その skill だけを行う。
 
-段階を始める前に、`node harness/scripts/agent.ts claim <番号> --manual --stage <段階>` で着手宣言を出し、段階が変わるたびに更新する（計画は `--stage plan`、批評は `--stage plan-critique`、実装は `--stage implement`、判定・修正・main の取り込みは PR 番号で `--stage judge`・`--stage fix`・`--stage sync`。`post-plan` は投稿の後、ゲートを通る見込みなら `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除する）。見込みが外れて `agent:plan-review` になったときや、ほかの人の判断待ちで止めてセッションを終えるときは `release <番号>`。ほかのセッションの着手宣言があれば `claim` は止まり、引き継ぐのは人が決めたときだけ `--takeover` を付ける。`critic-input`・`post-plan`・`worktree` は、このセッションの着手宣言が無いと止まる。ローカルのセッションを複数動かすときは、段階を始める前に着手宣言を確かめ、セッション間でやり取りできる手段（`ListAgents`・`SendMessage` など）があれば、ほかのセッションと話して担当を決める。
+段階を始める前に、`node harness/scripts/agent.ts claim <番号> --manual --stage <段階>` で着手宣言を出し、段階が変わるたびに更新する（計画は `--stage plan`、批評は `--stage plan-critique`、実装は `--stage implement`、判定・修正・main の取り込みは PR 番号で `--stage judge`・`--stage fix`・`--stage sync`。`post-plan` は投稿の後、ゲートを通る見込みなら `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除する）。見込みが外れて `agent:plan-review` になったときや、ほかの人の判断待ちで止めてセッションを終えるときは `release <番号>`。ほかのセッションの着手宣言があれば `claim` は止まり、引き継ぐのは人が決めたときだけ `--takeover` を付ける。`critic-input`・`post-plan`・`worktree` は、このセッションの着手宣言が無いと止まる。ローカルのセッションを複数動かすときは、段階を始める前に着手宣言を確かめ、セッション間でやり取りできる手段（`ListAgents`・`SendMessage` など）があれば、ほかのセッションと話して担当を決める。判定の着手宣言（`--stage judge`）が有効な間は、App は main への push でその PR を追従させない（auto-merge の PR を除く。判定の途中で head が動かないようにするため）。判定コメントの投稿で宣言が終わると、次の main への push か定期の照合で追従する。期限（手動は `routine.humanClaimStaleHours`、Routine は `routine.routineClaimTakeoverMinutes`）を過ぎた宣言では止めない。Routine の判定の着手宣言には段階が付かないため、Routine の判定ではこれまでどおり判定の途中でも head が動く。
 
 付き添いのセッションで人の判断が要るとき（計画の批評の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、要件・AC の変更、引き継ぎ、計画の外の変更など）は、セッションが AskUserQuestion で選択肢つきで聞く（おすすめが先頭、1回に4問まで）。拒んだり答えなかったりすると、セッションは同じ質問を繰り返さず、要点を文章で示して止まる。規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md) の進め方。
 
@@ -121,10 +121,11 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 ## 同時に開ける PR の数
 
-同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは同じリポジトリの開いた PR すべて。
+同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは、同じリポジトリの Agent PR（`agentBranchPrefix` のブランチ）のうち Draft のもの（判定の前で、まだ push が続く PR）だけ。Ready になった PR（人の Merge 待ちも自動 Merge 待ちも）、人の PR、fork の PR は数えない。App が「Draft＝判定前、Ready＝判定に合格して Merge 待ち」を保つので、PR の一覧の `draft` だけで判定の前かが分かる。ガードレールに触れる PR は人の Merge を待つ間 Ready のままたまるので、それを数えると上限を超えたままになり、止める役に立たない。
 
 - 上限に達した領域に計画の触るファイルが入る Issue は、queue が implement を出さずに skip にする（理由はダッシュボードに出る）。
 - 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。急ぐときは `--force` を付ける。ほかのセッションの着手宣言があるときも止まり、こちらは `--force` では越えない。引き継ぐのは人が決めたときだけで、`--takeover` を付ける。
+- 修正の上限（`agent:blocked`、理由コード `fix-limit`）で止まった Agent PR は Draft のまま人を待つので、数え続ける。人が片付けるまで、同じ領域の新しい着手は止まる。
 - 計画・判定・修正の段階は止めない。
 
 ## テストの改ざん検査

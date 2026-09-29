@@ -1,9 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { appMark, renderBlock } from '../lib/blocks.ts';
 import { loadConfig, type HarnessConfig } from '../lib/config.ts';
+import { claimOf } from '../lib/facts.ts';
 import { FetchTransport, GitHub } from '../lib/github.ts';
 import { askJev, redact } from '../lib/jev.ts';
 import type { CheckOutcome } from '../lib/merge-route.ts';
+import { holdsMainFollow } from '../lib/queue.ts';
 import type { PullRequest } from '../lib/state.ts';
 
 /**
@@ -110,13 +112,29 @@ export async function convertToDraft(ctx: GateContext, pr: PullRequest): Promise
  * PR が base より遅れていれば update-branch する（必須チェックで main への追従を求めているため、遅れた auto-merge 待ちの PR は止まる）。
  * push 直後は mergeable_state が unknown になりやすいので、compare で遅れを直接調べる。
  */
-export async function updateBranchIfBehind(ctx: GateContext, pr: PullRequest): Promise<void> {
+export async function updateBranchIfBehind(ctx: GateContext, pr: PullRequest, skipReason?: () => Promise<string | null>): Promise<void> {
   const cmp = await ctx.gh.get<{ behind_by: number }>(`/compare/${encodeURIComponent(pr.base.ref)}...${pr.head.sha}`);
   if (cmp.behind_by === 0) return;
+  // 遅れていると分かった後にだけ飛ばす理由を調べる（遅れていない PR のコメントは読まない）
+  const reason = skipReason ? await skipReason() : null;
+  if (reason) {
+    ctx.log(`#${pr.number} の追従を飛ばしました（${reason}）`);
+    return;
+  }
   try {
     await ctx.gh.request('PUT', `/pulls/${pr.number}/update-branch`, { body: { expected_head_sha: pr.head.sha } });
     ctx.log(`#${pr.number} を ${pr.base.ref} に追従させました`);
   } catch (e) {
     ctx.log(`#${pr.number} の追従に失敗: ${(e as Error).message}`);
   }
+}
+
+/**
+ * 判定中（着手宣言の段階が judge で期限内）なら追従を飛ばす理由を返す。updateBranchIfBehind の skipReason に渡す。
+ * auto-merge が付いた PR は Merge に要る追従を止めないため null。宣言が判定コメントで終わっていれば claimOf が null を返す
+ */
+export async function judgingHold(ctx: GateContext, pr: PullRequest, now: Date = new Date()): Promise<string | null> {
+  if (pr.auto_merge) return null;
+  const claim = claimOf(await ctx.gh.listComments(pr.number));
+  return holdsMainFollow(claim, now, ctx.config.routine) ? '判定中（着手宣言の段階が judge）。判定の後に追従させます' : null;
 }
