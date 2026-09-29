@@ -7,7 +7,7 @@
  * - skip / only / todo の追加（.skip(、{ skip: … }、xit( など）
  * - アサーション（assert / expect(）を含む行の削除・書き換え（整形だけの変更も含む）
  * 同じファイルで同じ内容の行が消えて足されたもの（移動）は数えない。
- * アサーションの書き換えは、同じ場所の削除と追加が対になれば変更後の行も持たせる（表示のためだけで、判定には使わない）。
+ * アサーションの書き換えは、同じ場所の削除と追加が対になれば変更後の行も持たせる（表示と、Jev に問う材料（harness/lib/test-tamper-jev.ts）に使う。この検査の判定には使わない）。
  */
 import { TEST_EXEMPT_LABEL } from './config.ts';
 import { globToRegExp } from './scope.ts';

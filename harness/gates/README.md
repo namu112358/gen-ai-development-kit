@@ -24,4 +24,5 @@
 | `run.ts` | ゲートの入口で、イベントの種類ごとに処理を選び、最後に queue を公開し直す。 | ○ |
 | `stale.ts` | 定期実行：停滞検知。 | ○ |
 | `tests-check.ts` | 必須チェック agent/tests の書き方（on-pr.ts と apply.ts の両方から使う）。 | ○ |
+| `tests-jev.ts` | agent/tests の検出（アサーションの書き換え）を Jev に問い、App の記録（kind=test-tamper-jev）に残す（Q95）。 | ○ |
 <!-- readme:generated end -->

@@ -21,7 +21,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 段階ゲート | `agent:plan-ok` は App だけ。App 以外が付けたら App が外す |
 | 計画の紐付け | すべての PR（付き添いのセッションの Agent PR も、人の PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録） |
 | 計画の写し | ゲート通過時の計画を App の記録に写す。後で計画コメントが編集されても写しを使う |
-| テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。人が Merge する PR（ガードレール・`humanMergePaths`・自動 Merge の対象外の判定）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の Merge の判断にまとめる（テストを弱めた PR が自動で Merge されるのを防ぐ目的は変わらない。経路が自動 Merge に変わると止める側に戻る） |
+| テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。人が Merge する PR（ガードレール・`humanMergePaths`・自動 Merge の対象外の判定）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の Merge の判断にまとめる（テストを弱めた PR が自動で Merge されるのを防ぐ目的は変わらない。経路が自動 Merge に変わると止める側に戻る）。`jev.testTamper` が enforce なら、アサーションの書き換えだけの差分は Jev の確率が下限以上で通る（下記「Jev」の「テストの改ざん」） |
 | ガードレール | `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）に触れる PR は、Risk Agent の答えに関わらず自動 Merge せず理由を受け付けのコメントに書く（変更ファイルはリネームの旧パスも）。触れる計画は想定 Risk に関わらず計画ゲートで止める（`harness/lib/guardrail.ts`） |
 | 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を照合する。最初の階層にワイルドカードがあるパターンは拒否。全件取得できなければ不可 |
 | 判定の鮮度 | 判定時と現在の head で、PR 自身の差分の `git patch-id --verbatim` が同じときだけ受け付ける（`--stable` は空白を無視するため使わない） |
@@ -81,6 +81,15 @@ Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材
 **実行のしかた**：付き添いのセッションが手で `node harness/scripts/report.ts <owner>/<repo> [日数]` を実行する（ship・fleet の終わりなど）。基準を満たすかと、満たさない項目が表の下に出る。定期実行は Routine の再開と一緒に決める。
 
 **切り替え**：`jev.mode` を `enforce` にするのは、基準を満たしたうえで人が決め、`harness.config.json` を PR で変える（ガードレールなので人が Merge する）。
+
+### テストの改ざん
+
+`agent/tests` が見つけたアサーションの書き換えを、App が Jev に問う（`jev.testTamper`。`jev.mode` とは独立。docs/plan.md の Q95、手順は [operations.md](operations.md#テストの改ざん検査) の「Jev の判定」）。
+
+- **材料**：App が diff から検出した行（ファイル名・変更前・変更後）だけ。PR 本文・コメント・判定などセッションが書いたものは渡さない。
+- **問わないもの**：fork の PR（自動 Merge の経路に乗らず、外部の中身を Jev に送らない）。削除系（テストファイルの削除・リネーム、テスト定義の削除、skip / only / todo の追加）と対にならないアサーションの削除を含む差分は、問わずに今までどおり止める。
+- **Agent が書いた行を問う**：変更前・変更後の行そのものは Agent が書く。行の中に Jev への指示を書き込めば確率を上げられるおそれがあるので、`enforce` にする前に、shadow の記録で人の判断との一致率と「Jev は通す・人は直させた」件数を見る。
+- **集計の見方**：`node harness/scripts/report.ts` の指標の表に「テストの改ざん：Jev と人の判断（件数 / 一致率）」「Jev は通す・人は直させた」「Jev は止める・人は通した」が出る。PR ごとに最後の `test-tamper-jev` の記録を使い、人の判断は、同じ差分に `test:exempt` を付けたか同じ差分のまま Merge したら「通した」、違う差分で Merge したら「直させた」（未 Merge は数えない。enforce で Jev が通した記録も、自分で自分を数えないので数えない）。Jev の「通す」は確率が `jev.thresholds.testTamperProbability` 以上（下限が未設定なら0件）。「Jev は通す・人は直させた」が enforce で危険側に外れる件数。enforce の基準は決めておらず、表を見て人が決める。
 
 ### 日本語の材料の実験
 

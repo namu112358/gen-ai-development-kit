@@ -16,6 +16,7 @@ import { delegatedRoute, delegationFor } from './delegation.ts';
 import { applyAppLabels } from './label-apply.ts';
 import { notifyUnclaimedPush } from './push-claim.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
+import { tamperJevFor } from './tests-jev.ts';
 
 /**
  * PR の出来事（作成・push・編集・ラベル）ごとの処理。
@@ -200,6 +201,7 @@ async function notifyExemptNotApplied(ctx: GateContext, pr: PullRequest, label: 
  * 必須チェック agent/tests：テストの削除・skip の追加・アサーションの変更を差分から検出する。
  * 検出があっても、人が Merge する PR（Human Merge）なら止めずに neutral にする（tests-check.ts）。auto-merge が付いていれば緩めない。
  * 委任 Merge で自動経路に乗る PR は止める（testsHumanMerge が委任の状態を読んで決める）。
+ * 検出があれば Jev に問い（tests-jev.ts）、jev.testTamper が enforce で Jev が通せば、緩めないときでも success にする（Q95）。
  */
 async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () => Promise<string>, exempt: boolean, getComments: () => Promise<IssueComment[]>, getPatch: () => Promise<string>): Promise<void> {
   if (exempt) {
@@ -213,7 +215,9 @@ async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () =>
     // 書く直前に取り直し、auto-merge が付いていれば緩めない
     if (reasons.length > 0 && (await getPr(ctx, pr.number)).auto_merge) reasons = [];
   }
-  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons));
+  // Agent PR でない同じリポジトリの PR でも問って記録する（fork・off・鍵なし・問えない検出は tamperJevFor が問わない）
+  const jev = findings.length > 0 ? await tamperJevFor(ctx, pr, findings, getPatch, getComments) : undefined;
+  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev));
 }
 
 /**

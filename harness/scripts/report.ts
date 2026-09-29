@@ -1,5 +1,6 @@
 import { appMarkKind } from '../lib/blocks.ts';
-import { appLogin, loadConfig } from '../lib/config.ts';
+import { appLogin, loadConfig, TEST_EXEMPT_LABEL } from '../lib/config.ts';
+import { exemptRecords } from '../lib/exempt.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
 import {
@@ -14,6 +15,7 @@ import {
   renderReport,
   renderTokenRatios,
   summarize,
+  tamperDecision,
   tokenRatios,
   type DecisionRow,
   type MergedPr,
@@ -21,6 +23,7 @@ import {
   type ReportRow,
 } from '../lib/report.ts';
 import { appRecords, changedFiles, fixRequestCount, isAgentPr, type PullRequest, type Review } from '../lib/state.ts';
+import { TEST_TAMPER_JEV_KIND, type TamperJevRecord } from '../lib/test-tamper-jev.ts';
 import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
 
 /**
@@ -29,7 +32,7 @@ import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
  *   node harness/scripts/report.ts <owner/repo> [days=30]
  *
  * ここでは GitHub から事実を集めて行にするだけ。集計と基準の判定は harness/lib/report.ts、基準の意味は docs/security.md の「Jev」。
- * 受け付けられなかった判定コメントも件数に出す。
+ * 受け付けられなかった判定コメントも件数に出す。テストの改ざんの Jev の記録と人の判断（test:exempt・Merge した差分）の一致も数える（Q95）。
  * 最後に合体版のレビューの記録と今の判定を比べる節（基準は docs/plan.md の Q91）と、人の決定の記録の Jev の判定と人の判断の一致率の節（Q93）を出す。
  */
 
@@ -78,16 +81,24 @@ for (const pr of agentPrs) {
   const fixedBy = pr.merged_at
     ? fixPrsFor({ number: pr.number, title: pr.title, headRef: pr.head.ref, mergedAt: pr.merged_at, files: await files(pr.number) }, fixCandidates)
     : [];
+  const acceptance = appRecords<Acceptance>(config, comments, 'acceptance').at(-1)?.value ?? null;
   rows.push({
     pr: pr.number,
     createdAt: pr.created_at,
     mergedAt: pr.merged_at ?? null,
     closedAt: pr.closed_at,
-    acceptance: appRecords<Acceptance>(config, comments, 'acceptance').at(-1)?.value ?? null,
+    acceptance,
     rejected: comments.filter((c) => c.body.includes('kind=verdict-rejected')).length,
     fixRequests: await fixRequestCount(gh, config, pr.number),
     reverted: revertedPrs.has(pr.number),
     fixedBy,
+    // テストの改ざんの Jev と人の判断（Q95。読んだコメントだけから決める）
+    tamper: tamperDecision(
+      appRecords<TamperJevRecord>(config, comments, TEST_TAMPER_JEV_KIND).map((r) => r.value),
+      exemptRecords(config, comments, TEST_EXEMPT_LABEL),
+      Boolean(pr.merged_at),
+      acceptance?.patchId ?? null,
+    ),
   });
 
   // 合体版のレビューの記録と今の判定の組（App の fix-request と、レビューコメント）

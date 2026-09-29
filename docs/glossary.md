@@ -102,7 +102,7 @@ App が書く必須チェック。計画のある Issue を `Closes` しない P
 
 ### `agent/tests`
 
-App が書く必須チェック。PR の差分からテストの削除、skip・only・todo の追加、アサーションの削除・書き換えを検出して止める。例外は人が付ける `test:exempt`。人が Merge する PR（Human Merge）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の確認に回す。詳細：[operations.md](operations.md#テストの改ざん検査)
+App が書く必須チェック。PR の差分からテストの削除、skip・only・todo の追加、アサーションの削除・書き換えを検出して止める。例外は人が付ける `test:exempt`。人が Merge する PR（Human Merge）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の確認に回す。`jev.testTamper` が enforce なら、アサーションの書き換えだけの差分は Jev が弱めていないと判定すれば通る（既定は shadow で記録だけ）。詳細：[operations.md](operations.md#テストの改ざん検査)
 
 ### Human Merge / 自動 Merge
 
