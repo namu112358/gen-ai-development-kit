@@ -3,13 +3,13 @@ import { test } from 'node:test';
 import { appMark, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { childMarker, type SplitChild } from '../lib/epic.ts';
 import { onComment } from '../gates/on-comment.ts';
-import { APP, acceptanceFake, ctxFor, pr } from './support/gate-fixtures.ts';
+import { APP, acceptanceFake, CRITIQUE, critiqueClaim, ctxFor, pr } from './support/gate-fixtures.ts';
 
 const split: SplitChild[] = [
   { title: 'feat(x): 一つ目', goal: 'g1', requirements: ['r1'], acceptanceCriteria: ['a1'], files: ['src/a.ts'], dependsOn: [] },
   { title: 'docs: 二つ目', goal: 'g2', requirements: ['r2'], acceptanceCriteria: ['a2'], files: ['docs/guide/**'], dependsOn: [0] },
 ];
-const plan = { version: 1, issue: 3, risk: 'critical', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: [], split };
+const plan = { version: 1, issue: 3, risk: 'critical', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: [], split, critique: CRITIQUE };
 const event = (p: unknown) => ({
   action: 'created',
   issue: { number: 3, labels: [{ name: 'agent:ready' }, { name: 'priority:high' }, { name: 'risk:critical' }], state: 'open' },
@@ -33,7 +33,8 @@ const appRecord = (id: number, kind: string, value: unknown) => ({
 function epicFake(state: { subs?: Item[]; created?: Item[]; blockedBy?: Record<number, number[]>; parentBlockers?: Blocker[]; comments?: unknown[]; failOn?: RegExp } = {}) {
   const subs = state.subs ?? [];
   const created = state.created ?? [];
-  const comments = state.comments ?? [];
+  // 計画より前に段階 plan-critique の宣言を置く（批評の関所を通る）
+  const comments = [critiqueClaim(), ...(state.comments ?? [])];
   let next = 100 + subs.length + created.length;
   const fake = acceptanceFake({ pr: pr() })
     .on('GET', /\/issues\/3\/comments/, () => comments)

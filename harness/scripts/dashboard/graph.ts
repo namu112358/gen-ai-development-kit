@@ -21,7 +21,7 @@ export type Enforcement = 'code' | 'cond' | 'ai' | 'human';
 export const COLUMNS: { id: ColumnId; label: string; enforcement: Enforcement; exit: string; stopper: string }[] = [
   { id: 'no-plan', label: '計画なし', enforcement: 'code', exit: '計画を書いて投稿する', stopper: '必須チェック agent/plan-link（計画ゲートの記録がある Issue への紐付けを求める）' },
   { id: 'plan', label: 'plan', enforcement: 'code', exit: 'agent-plan が書式の検査を通り、post-plan で投稿した', stopper: '必須チェック agent/plan-link' },
-  { id: 'plan-critique', label: 'plan-critique', enforcement: 'ai', exit: '批評の判定が go。revise なら直して批評し直す（止める条件なら人に聞く）', stopper: '無し（plan の skill の文章だけ。計画の critique は記録用で、ゲートは見ない）' },
+  { id: 'plan-critique', label: 'plan-critique', enforcement: 'code', exit: '批評の判定が go。revise なら直して批評し直す（止める条件なら人に聞く）', stopper: 'App の計画ゲート（critique が無い、計画より前に段階 plan-critique の宣言が無い計画は agent:plan-review で止める）。批評の中身は skill の文章だけ' },
   { id: 'plan-gate', label: '計画ゲート待ち', enforcement: 'code', exit: 'App が agent:plan-ok か agent:plan-review を付けた', stopper: 'App の計画ゲート。agent:plan-ok を自分で付けることは禁止' },
   { id: 'plan-review', label: '人の判断待ち', enforcement: 'human', exit: '人が進めると決めた、または計画を直して出し直しゲートが通した', stopper: 'CLAUDE.md の決まりと permissions.deny（保護ラベルの付け外しを拒否）' },
   { id: 'plan-ok', label: '実装待ち', enforcement: 'code', exit: '実装に着手した', stopper: 'App が付けた agent:plan-ok だけを信頼する' },

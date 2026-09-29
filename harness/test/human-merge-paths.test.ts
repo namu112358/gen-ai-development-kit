@@ -6,7 +6,7 @@ import { humanMergeFiles } from '../lib/guardrail.ts';
 import { eligibility } from '../lib/merge-route.ts';
 import { evaluatePlanGate, type Plan } from '../lib/plan.ts';
 import { onComment } from '../gates/on-comment.ts';
-import { APP, acceptanceFake, config, ctxFor, pr, verdict, verdictEvent, type FakeGitHub } from './support/gate-fixtures.ts';
+import { APP, acceptanceFake, config, CRITIQUE, critiqueClaim, ctxFor, planGateComment, pr, verdict, verdictEvent, type FakeGitHub } from './support/gate-fixtures.ts';
 
 /** 導入先の製品を守る humanMergePaths（#105） */
 
@@ -129,7 +129,7 @@ test('受け付け：humanMergePaths に当たらない PR は自動 Merge の�
 
 // ---- 計画ゲートには効かない ----
 
-const plan: Plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['src/auth/**'] };
+const plan: Plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['src/auth/**'], critique: CRITIQUE };
 
 test('計画ゲート：humanMergePaths に触れる計画でも止めない（evaluatePlanGate）', () => {
   const c = withHumanMerge(['src/auth/**']);
@@ -145,7 +145,7 @@ test('計画ゲート（App）：humanMergePaths に触れる計画のイベン�
     issue: { number: 3, labels: [{ name: 'agent:ready' }], state: 'open' },
     comment: { id: 80, body: renderBlock('agent-plan', plan), html_url: 'p', author_association: 'OWNER', created_at: '', updated_at: '', user: { login: 'me', type: 'User' } },
   };
-  const fake = acceptanceFake({ pr: pr() });
+  const fake = acceptanceFake({ pr: pr(), issueComments: [critiqueClaim(), planGateComment] });
   await onComment(ctxFor(fake, 'issue_comment', event, { config: withHumanMerge(['src/auth/**']) }));
   const w = fake.writes();
   assert.equal(w[0], 'label+agent:plan-ok');
