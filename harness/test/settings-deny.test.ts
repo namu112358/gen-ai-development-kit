@@ -1,4 +1,4 @@
-// permissions.deny の保護ラベル・例外ラベルの規則が、ラベルを付け外しする gh のコマンドだけに当たり、読むだけのコマンドには当たらないことを確かめる（Issue #218）
+// permissions.deny の保護ラベル・例外ラベルの規則が、ラベルを付け外しする gh のコマンドだけに当たり、読むだけのコマンドには当たらないことを確かめる（Issue #218・#241）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -19,14 +19,15 @@ const SETTINGS = '.claude/settings.json';
 const TEMPLATE = 'harness/templates/claude-settings.deny.json';
 
 /** 規則に書く印（保護ラベルと、例外ラベルをまとめる :exempt） */
-const MARKS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-merge', ':exempt'];
+const MARKS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-plan', 'agent:delegate-merge', ':exempt'];
 /** ラベルを付け外しできる gh のコマンド */
 const COMMANDS = ['gh issue edit', 'gh issue create', 'gh pr edit', 'gh pr create', 'gh label', 'gh api'];
-/** 保護ラベル・例外ラベルの具体的な名前（今ある7つと、今後増える例外ラベルの例） */
+/** 保護ラベル・例外ラベルの具体的な名前（今ある8つと、今後増える例外ラベルの例） */
 const LABEL_NAMES = [
   'agent:plan-ok',
   'agent:hold',
   'agent:auto-merge-stopped',
+  'agent:delegate-plan',
   'agent:delegate-merge',
   'plan:exempt',
   'review:exempt',
@@ -96,6 +97,7 @@ const READ_ONLY = [
   'rg -n review:exempt harness/lib',
   'git log --grep agent:plan-ok',
   'git log --oneline -S agent:delegate-merge',
+  'git log --oneline -S agent:delegate-plan',
   'gh issue view 218 --comments',
   'gh issue list --label agent:hold',
   'gh pr list --label test:exempt --state open',

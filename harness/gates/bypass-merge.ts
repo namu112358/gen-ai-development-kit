@@ -36,8 +36,8 @@ export async function endBypassMerge(ctx: GateContext, stale: PullRequest, reaso
   if (reason !== 'stopped' && current && diff !== null) {
     const now = new Date();
     const delegation = current.delegate?.eligible ? await delegationFor(ctx, now) : null;
-    if (delegation && delegatedRoute(delegation, current, ctx.config, now).ok) {
-      await writeBypassEnd(ctx, pr, reason, '委任 Merge で自動経路を続けます。');
+    if (delegation && delegatedRoute(delegation, current).ok) {
+      await writeBypassEnd(ctx, pr, reason, '委任承認（計画＋Merge）で自動経路を続けます。');
       await applyAcceptance(ctx, pr, current, { fresh: false, diff, delegation, bypass: off });
       return;
     }

@@ -38,4 +38,4 @@ Routine の resolve-conflict（[.claude/routine.md](../../routine.md)）に、�
 - 両方の意図を残して解消できない衝突がある
 - 取り込み後に `npm run check` が落ち、この PR の範囲で直せない
 - patch-id が同じなのに App が判定を引き継がず、judge でも受け付けられない
-- やってはいけないこと：古い判定の head の書き換え、force push、rebase、Merge、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し
+- やってはいけないこと：古い判定の head の書き換え、force push、rebase、Merge、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し

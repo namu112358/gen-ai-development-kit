@@ -89,7 +89,7 @@ test('規則（進め方）：付けてよいのは priority:*・area:* だけ�
   assert.match(line, /type:\*/, '`type:*` を変えないことが書かれていない');
   assert.match(line, /違反/, '違反を変えないことが書かれていない');
   assert.match(line, /変え(ない|ず)/, '変えないことが書かれていない');
-  for (const label of ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-merge', 'review:exempt', 'test:exempt']) {
+  for (const label of ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-plan', 'agent:delegate-merge', 'review:exempt', 'test:exempt']) {
     assert.ok(!line.includes(label), `Jev の箇条に \`${label}\` が付けてよいものとして入っている`);
   }
   assert.doesNotMatch(line, /:exempt/, 'Jev の箇条に `*:exempt` が入っている');

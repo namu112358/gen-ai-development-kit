@@ -9,8 +9,8 @@
 | `bypass-merge.ts` | bypass モードの始まりと終わりの動作（ダッシュボードのラベルの付け外しと停止スイッチ）。 | ○ |
 | `bypass.ts` | bypass モードの今の状態と、PR を bypass で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |
 | `context.ts` | ゲートの実行コンテキスト。 | ○ |
-| `delegate-merge.ts` | 委任 Merge の始まりと終わりの動作（ダッシュボードのラベルの付け外しと期限切れ）。 | ○ |
-| `delegation.ts` | 委任 Merge の今の状態と、PR を委任で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |
+| `delegate-merge.ts` | 委任承認の始まりと終わりの動作（ダッシュボードの agent:delegate-plan・agent:delegate-merge の付け外し）。 | ○ |
+| `delegation.ts` | 委任承認の今の状態と、PR を委任（計画＋Merge）で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |
 | `epic-split.ts` | Epic の子 Issue を作り、Sub-issues と依存を登録する。 | ○ |
 | `label-apply.ts` | 足りないラベルを付ける（docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `on-comment.ts` | issue_comment（created）：計画ゲートと判定の受け付け | ○ |

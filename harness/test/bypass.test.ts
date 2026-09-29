@@ -191,7 +191,7 @@ test('merge-route：autoEligible・委任で乗る受け付けは、bypassMode �
   const auto: Acceptance = { ...humanOnly, riskLevel: 'low', riskOk: true, guardrail: [], autoEligible: true, reasons: [] };
   assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: auto }).title, '自動 Merge 条件を満たしています');
   const delegated: Acceptance = { ...humanOnly, delegate: { ...delegateNo, eligible: true, reasons: [], exclude: [] } };
-  assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: delegated, delegateMode: true }).title, '委任 Merge の条件を満たしています');
+  assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: delegated, delegateMode: true }).title, '委任承認（計画＋Merge）の条件を満たしています');
   assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: delegated, delegateMode: false }).title, 'bypass モードの条件を満たしています', '委任が無効なら bypass で通す');
 });
 
