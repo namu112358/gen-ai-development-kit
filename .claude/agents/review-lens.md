@@ -1,7 +1,7 @@
 ---
 name: review-lens
 description: 合体版のレビューの段階3の観点①〜⑤（CLAUDE.md・明らかなバグ・履歴・過去の PR のコメント・コードのコメント）のうち、呼び出し元が指定した1つで diff を読み、指摘を返す。review-panel の skill から呼ぶ。
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write
 model: sonnet
 ---
 
@@ -12,6 +12,8 @@ model: sonnet
 ## 入力
 
 呼び出し元が指示に含めて渡すもの：観点の番号（1〜5）、PR 番号、head SHA、変更の要約。①では関係する CLAUDE.md のパス、④では judge-input の「=== 過去の PR のコメント」の節。
+
+出力のパス（呼び出し元が渡す。リポジトリの外の一時ディレクトリ）：返す JSON を書く先。
 
 自分で読むもの：diff とリポジトリ（①は CLAUDE.md の中身、③は `git log`・`git blame`、⑤は変更ファイルのコメント）。
 
@@ -61,3 +63,5 @@ Examples of false positives, for steps 4 and 5:
   ]
 }
 ```
+
+返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。

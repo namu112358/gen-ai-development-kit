@@ -1,7 +1,7 @@
 ---
 name: review-scorer
 description: 合体版のレビューの段階4として、指摘1件が本当の問題か誤検知かの確信度を 0〜100 で返す。review-panel の skill から指摘ごとに呼ぶ。
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Write
 model: haiku
 ---
 
@@ -12,6 +12,8 @@ model: haiku
 ## 入力
 
 呼び出し元が指示に含めて渡すもの：指摘（ID・観点・種類・ファイル・行・内容・根拠）、PR 番号、head SHA、関係する CLAUDE.md のパス（CLAUDE.md が `@` で読み込むファイルも含む）、①〜⑤の指摘かどうか。⑥の指摘には judge-input の Issue 本文と計画の節。
+
+出力のパス（呼び出し元が渡す。リポジトリの外の一時ディレクトリ）：返す JSON を書く先。
 
 自分で読むもの：diff とリポジトリ。
 
@@ -37,3 +39,5 @@ e. 100: Absolutely certain. The agent double checked the issue, and confirmed th
 ```json
 { "id": "lens2-0", "score": 75, "reason": "確かめたことと採点の理由" }
 ```
+
+返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。
