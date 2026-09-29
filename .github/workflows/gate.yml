@@ -34,6 +34,7 @@ jobs:
     # 「この App」はリポジトリ変数 AGENT_APP_SLUG で判定する（他の Bot の操作は起動する）。
     # どの実行も最後に queue（次に Routine がやること）をダッシュボードに公開し直す。
     # GITHUB_TOKEN による操作は workflow を起動しないため、定期実行でも merge-route を照合し直す
+    # 委任 Merge のラベル（ダッシュボード）の付け外しでも起動する。期限切れは定期実行が見る（docs/risk-policy.md）
     if: >-
       (github.event_name != 'issue_comment' ||
         contains(github.event.comment.body, '```agent-plan') ||
@@ -49,6 +50,7 @@ jobs:
         (github.event.label.name == 'agent:plan-ok' && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG)) ||
         github.event.label.name == 'agent:hold' ||
         github.event.label.name == 'agent:auto-merge-stopped' ||
+        github.event.label.name == 'agent:delegate-merge' ||
         startsWith(github.event.label.name, 'priority:')) &&
       (github.event_name != 'pull_request_target' ||
         (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&

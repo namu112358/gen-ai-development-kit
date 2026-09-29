@@ -59,6 +59,7 @@ function scheduleFake(existingBody: string): FakeGitHub {
     .on('GET', /\/issues\?state=open&creator=/, () => [ISSUES.at(-1)])
     .on('GET', /\/issues\?state=open&per_page/, () => ISSUES)
     .on('GET', /\/pulls\?state=open/, () => PRS)
+    .on('GET', /\/pulls\?state=closed/, () => [])
     .on('GET', /\/pulls\/(\d+)$/, (m) => ({ ...PRS.find((p) => p.number === Number(m[1]))!, mergeable_state: 'clean' }))
     .on('GET', /\/issues\/1$/, () => ({ body: existingBody }))
     .on('PATCH', /\/issues\/1$/, () => ({}));
@@ -87,6 +88,7 @@ test('問題が無ければ節は「なし」', async () => {
     .on('GET', /\/issues\?state=open&creator=/, () => [ISSUES.at(-1)])
     .on('GET', /\/issues\?state=open&per_page/, () => [ISSUES[1], ISSUES.at(-1)])
     .on('GET', /\/pulls\?state=open/, () => [])
+    .on('GET', /\/pulls\?state=closed/, () => [])
     .on('GET', /\/issues\/1$/, () => ({ body: '' }))
     .on('PATCH', /\/issues\/1$/, () => ({}));
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date('2026-09-27T01:00:00Z'));
