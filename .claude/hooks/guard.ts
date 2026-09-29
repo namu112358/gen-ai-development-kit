@@ -858,30 +858,35 @@ function checkGhApi(args: Word[], ctx: GuardContext, stdin: StdinSource): string
   return null;
 }
 
-function checkGh(allArgs: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
-  // サブコマンドの前のフラグ（gh -R o/r issue edit … など）を読み飛ばす。-R・--repo は次の語が値
-  let i = 0;
-  for (let w = allArgs[i]; w && !w.dynamic && w.text.startsWith('-'); w = allArgs[i]) {
-    i += w.text === '-R' || w.text === '--repo' ? 2 : 1;
-  }
-  const args = allArgs.slice(i);
-  const group = args[0];
-  const sub = args[1];
+function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
+  // グループ・サブコマンドの前のフラグ（gh -R o/r issue edit …・gh issue -R o/r edit … など）を読み飛ばす。-R・--repo は次の語が値
+  const nextWord = (from: number): number => {
+    let i = from;
+    for (let w = args[i]; w && !w.dynamic && w.text.startsWith('-'); w = args[i]) {
+      i += w.text === '-R' || w.text === '--repo' ? 2 : 1;
+    }
+    return i;
+  };
+  const gi = nextWord(0);
+  const si = nextWord(gi + 1);
+  const group = args[gi];
+  const sub = args[si];
   if (!group) return null;
   if (group.dynamic || sub?.dynamic) return unknown(`gh のサブコマンド（${group.text} ${sub?.text ?? ''}）`);
   const g = group.text;
   const s = sub?.text;
+  const rest = args.slice(si + 1);
   if (g === 'pr' && s === 'merge') return role('PR の Merge（gh pr merge）');
   if (g === 'pr' && s === 'ready' && !args.some((a) => a.text === '--undo')) return role('Draft の解除（gh pr ready）');
   if ((g === 'issue' || g === 'pr') && (s === 'edit' || s === 'create')) {
-    const values = flagValues(args.slice(2), ['--add-label', '--remove-label', '--label'], ['-l']);
+    const values = flagValues(rest, ['--add-label', '--remove-label', '--label'], ['-l']);
     return checkLabelWords(values, ctx.protectedLabels, `gh ${g} ${s}`);
   }
   if (g === 'label' && (s === 'create' || s === 'edit' || s === 'delete')) {
-    const values = args.slice(2).map((a) => (a.text.includes('=') ? { ...a, text: a.text.slice(a.text.indexOf('=') + 1) } : a));
+    const values = rest.map((a) => (a.text.includes('=') ? { ...a, text: a.text.slice(a.text.indexOf('=') + 1) } : a));
     return checkLabelWords(values.filter((a) => a.dynamic || !a.text.startsWith('-')), ctx.protectedLabels, `gh label ${s}`);
   }
-  if (g === 'api') return checkGhApi(args.slice(1), ctx, stdin);
+  if (g === 'api') return checkGhApi(args.slice(gi + 1), ctx, stdin);
   return null;
 }
 

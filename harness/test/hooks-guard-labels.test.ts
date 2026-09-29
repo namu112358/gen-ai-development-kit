@@ -78,6 +78,10 @@ function wrapped(label: string): string[] {
     `gh --repo o/r pr edit 1 --remove-label ${label}`,
     `gh --repo=o/r issue create --title t -l ${label}`,
     `gh -R o/r label delete ${label}`,
+    `gh issue -R o/r edit 1 --add-label ${label}`,
+    `gh pr --repo o/r edit 1 --remove-label ${label}`,
+    `gh issue --repo=o/r create --title t -l ${label}`,
+    `gh label -R o/r create ${label}`,
   ];
 }
 
@@ -86,8 +90,9 @@ test('保護ラベル・例外ラベルを gh issue|pr edit|create・gh label・
 });
 
 test('サブコマンドの前に -R・--repo を置いた gh pr merge・gh pr ready も止める', () => {
-  for (const cmd of ['gh -R o/r pr merge 1', 'gh --repo o/r pr merge 1 --squash', 'gh --repo=o/r pr ready 1']) assertDenyAll(bash(cmd), cmd);
-  assertAllowAll(bash('gh -R o/r pr view 1'), 'gh -R o/r pr view 1');
+  const denied = ['gh -R o/r pr merge 1', 'gh --repo o/r pr merge 1 --squash', 'gh --repo=o/r pr ready 1', 'gh pr -R o/r merge 1', 'gh pr --repo o/r ready 1'];
+  for (const cmd of denied) assertDenyAll(bash(cmd), cmd);
+  for (const cmd of ['gh -R o/r pr view 1', 'gh pr -R o/r view 1', 'gh pr -R o/r ready 1 --undo']) assertAllowAll(bash(cmd), cmd);
 });
 
 test('bash -c・&&・;・env・代入の前置き・eval・$(...) の中の付け外しも止める', () => {
