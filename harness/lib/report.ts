@@ -12,7 +12,9 @@ import { BLOCKING_KINDS, parseVerdict, RISK_QUESTIONS, type BlockingFinding, typ
 /**
  * 判定の集計（Jev の切り替え判断用）の純粋関数。GitHub は呼ばない（集めるのは harness/scripts/report.ts）。
  *
- * 「外れ」＝ Merge 後 7 日以内に revert された、または同じファイルを直す fix の PR が Merge された。
+ * 「外れ」＝ Merge 後 7 日以内に revert された、または元の PR を直す fix の PR が Merge された。
+ * fix の PR は、変更ファイルが重なることに加えて、行（元の PR が足した行を消した・消した行を足し戻した）か
+ * 参照（題名・本文に元の PR か元の PR が Closes した Issue の番号がある、または元の PR と同じ Issue を Closes する）で結び付ける（`fixLinksFor`）。
  * 比べる相手は Claude ではなく結果。基準の意味は docs/security.md の「Jev」。
  * Jev の数と切り替えの基準は、今の問いの版（`JEV_QUESTION_SET`）の記録だけで数える（Q88）。
  */
@@ -33,10 +35,12 @@ export interface ReportRow {
   /** App の修正要求レビューの数（修正の往復） */
   fixRequests: number;
   reverted: boolean;
-  /** 同じファイルを直した fix の PR 番号 */
+  /** 元の PR を直した fix の PR 番号（`fixLinksFor` で結び付いたもの） */
   fixedBy: number[];
   /** テストの改ざんの Jev の確率と人の判断（tamperDecision。集計しないときは null か省略） */
   tamper?: { probability: number; human: 'pass' | 'fix' } | null;
+  /** 結び付いた fix の PR ごとの根拠（表の「fix PR」列に出す。無ければ番号だけ出す） */
+  fixLinks?: FixLink[];
 }
 
 /**
@@ -56,12 +60,28 @@ export function tamperDecision(records: TamperJevRecord[], exempts: ExemptRecord
   return null;
 }
 
-/** fix の PR を探すときの PR の形（変更ファイルは呼び出し元が集めて渡す） */
+/** fix の PR を探すときの PR の形（変更ファイルなどは呼び出し元が集めて渡す） */
 export interface MergedPr {
   number: number;
   title: string;
   headRef: string;
   mergedAt: string | null;
+  files: string[];
+  /** PR の本文 */
+  body?: string | null;
+  /** ファイル → GitHub の patch（`/pulls/{n}/files` の `patch`）。無いファイルは行で比べない */
+  patches?: Record<string, string | undefined>;
+  /** この PR が Closes する Issue の番号 */
+  closes?: number[];
+}
+
+/** 結び付けの根拠：lines＝行の内容が重なる、ref＝fix の PR から元の PR（かその Issue）への参照 */
+export type FixBasis = 'lines' | 'ref';
+
+/** 結び付いた fix の PR と根拠。files は根拠になったファイル（lines なら行が重なったファイル、ref だけなら重なるファイル全部） */
+export interface FixLink {
+  pr: number;
+  basis: FixBasis[];
   files: string[];
 }
 
@@ -70,20 +90,81 @@ export function isFixPr(pr: { title: string; headRef: string }): boolean {
   return /^(fix|hotfix)|修正/i.test(pr.title) || /(^|\/)fix/i.test(pr.headRef);
 }
 
-/** pr の Merge 後 7 日以内に Merge された fix の PR のうち、変更ファイルが重なるものの番号 */
-export function fixPrsFor(pr: MergedPr, mergedPrs: MergedPr[]): number[] {
+/** 比べる行か（前後の空白を除いて4文字以上で、文字か数字を含む。空行・記号だけの行は偶然一致するので比べない） */
+const comparableLine = (line: string) => line.length >= 4 && /[\p{L}\p{N}]/u.test(line);
+
+/** patch の足した行・消した行の内容（前後の空白を除く。hunk ヘッダ・文脈行・比べない行は除く） */
+export function patchLines(patch: string): { added: string[]; removed: string[] } {
+  const added: string[] = [];
+  const removed: string[] = [];
+  for (const raw of patch.split(/\r?\n/)) {
+    const sign = raw[0];
+    if (sign !== '+' && sign !== '-') continue;
+    const line = raw.slice(1).trim();
+    if (!comparableLine(line)) continue;
+    (sign === '+' ? added : removed).push(line);
+  }
+  return { added, removed };
+}
+
+/** text が番号 n を参照するか（#n・/pull/n・/issues/n。後ろに数字が続くもの、# の直前に英数字があるものは数えない） */
+export function references(text: string, n: number): boolean {
+  return new RegExp(`(?:(?<![\\p{L}\\p{N}_])#|/pull/|/issues/)${n}(?!\\d)`, 'u').test(text);
+}
+
+/** 元の patch の足した行を fix の patch が消したか、元の消した行を fix が足し戻したか */
+function linesOverlap(original: string, fix: string): boolean {
+  const a = patchLines(original);
+  const b = patchLines(fix);
+  const added = new Set(a.added);
+  const removed = new Set(a.removed);
+  return b.removed.some((l) => added.has(l)) || b.added.some((l) => removed.has(l));
+}
+
+/**
+ * pr の Merge 後 7 日以内に Merge された fix の PR のうち、変更ファイルが重なり、
+ * 行（重なるファイルで、fix の PR が pr の足した行を消した・消した行を足し戻した）か
+ * 参照（fix の PR の題名・本文に、pr か pr が Closes した Issue の番号がある、または fix の PR が pr と同じ Issue を Closes する）で結び付くもの。
+ * Closes する Issue の本文は見ない（背景で過去の PR を名指しする Issue を Closes する PR を結び付けないため）。
+ * Jev の low の外れ・Claude の「可」の外れ・合体版の比較の fix-pr の裏付けは、どれもこの結果を使う。
+ */
+export function fixLinksFor(pr: MergedPr, mergedPrs: MergedPr[]): FixLink[] {
   if (!pr.mergedAt) return [];
   const mergedAt = new Date(pr.mergedAt).getTime();
-  const mine = new Set(pr.files);
-  const out: number[] = [];
+  const targets = [pr.number, ...(pr.closes ?? [])];
+  const mine = new Set(pr.closes ?? []);
+  const out: FixLink[] = [];
   for (const other of mergedPrs) {
     if (other.number === pr.number || !other.mergedAt) continue;
     const t = new Date(other.mergedAt).getTime();
     if (t <= mergedAt || t - mergedAt > WEEK) continue;
     if (!isFixPr(other)) continue;
-    if (other.files.some((f) => mine.has(f))) out.push(other.number);
+    const theirs = new Set(other.files);
+    const shared = [...new Set(pr.files)].filter((f) => theirs.has(f));
+    if (shared.length === 0) continue;
+    const lineFiles = shared.filter((f) => {
+      const a = pr.patches?.[f];
+      const b = other.patches?.[f];
+      return a !== undefined && b !== undefined && linesOverlap(a, b);
+    });
+    const text = [other.title, other.body ?? ''].join('\n');
+    const ref = targets.some((n) => references(text, n)) || (other.closes ?? []).some((n) => mine.has(n));
+    const basis: FixBasis[] = [];
+    if (lineFiles.length > 0) basis.push('lines');
+    if (ref) basis.push('ref');
+    if (basis.length > 0) out.push({ pr: other.number, basis, files: lineFiles.length > 0 ? lineFiles : shared });
   }
   return out;
+}
+
+/** 結び付いた fix の PR の番号（`fixLinksFor` の番号だけ） */
+export function fixPrsFor(pr: MergedPr, mergedPrs: MergedPr[]): number[] {
+  return fixLinksFor(pr, mergedPrs).map((l) => l.pr);
+}
+
+/** 合体版の比較（`PanelCompareInput.fixPrFiles`）に渡す fix の PR のファイル（根拠になったファイルだけ） */
+export function fixPrFilesOf(links: FixLink[]): Record<number, string[]> {
+  return Object.fromEntries(links.map((l) => [l.pr, l.files]));
 }
 
 /** Jev が応答し、P(low) が閾値以上だったか */
@@ -278,6 +359,8 @@ const num = (v: number | null) => (v === null ? '-' : `${Math.round(v * 10) / 10
 const prob = (v: number | null) => (v === null ? '-' : `${Math.round(v * 100) / 100}`);
 const yn = (v: boolean | null | undefined) => (v === null || v === undefined ? '-' : v ? '可' : '不可');
 
+const FIX_BASIS_LABELS: Record<FixBasis, string> = { lines: '行', ref: '参照' };
+
 export function renderReport(summary: ReportSummary, rows: ReportRow[], days: number): string {
   const s = summary;
   const c = JEV_ENFORCE_CRITERIA;
@@ -293,6 +376,10 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
     const end = r.mergedAt ?? r.closedAt;
     return end ? num((new Date(end).getTime() - new Date(r.createdAt).getTime()) / HOUR) : '-';
   };
+  const fixCell = (r: ReportRow) =>
+    r.fixLinks
+      ? r.fixLinks.map((l) => `#${l.pr}（${l.basis.map((b) => FIX_BASIS_LABELS[b]).join('・')}）`).join(' ')
+      : r.fixedBy.map((n) => `#${n}`).join(' ');
   const { lowProbability, noulSafe } = s.jevQuestions;
   const questionSections = s.jevQuestions.sets.flatMap((set) => [
     '',
@@ -333,11 +420,13 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
     '',
     `切り替えの基準（docs/security.md）：否定側 ${c.minNegatives} 件以上、Jev の low の外れ ${c.maxJevLowMisses} 件、Jev だけが「可」${c.maxJevOnly} 件 → ${criteria}`,
     '',
+    'fix PR の根拠：行＝元の PR が足した行を消した・消した行を足し戻した、参照＝題名・本文に元の PR（かその Issue）の番号がある、または同じ Issue を Closes する。',
+    '',
     '| PR | Merge | Claude | Jev | revert | fix PR | 修正の往復 | 停滞（時間） | 却下 |',
     '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...rows.map(
       (r) =>
-        `| #${r.pr} | ${r.mergedAt?.slice(0, 10) ?? '-'} | ${yn(r.acceptance?.autoEligible)} | ${jevCell(r)} | ${r.reverted ? '○' : ''} | ${r.fixedBy.map((n) => `#${n}`).join(' ')} | ${r.fixRequests || ''} | ${stall(r)} | ${r.rejected || ''} |`,
+        `| #${r.pr} | ${r.mergedAt?.slice(0, 10) ?? '-'} | ${yn(r.acceptance?.autoEligible)} | ${jevCell(r)} | ${r.reverted ? '○' : ''} | ${fixCell(r)} | ${r.fixRequests || ''} | ${stall(r)} | ${r.rejected || ''} |`,
     ),
     '',
     '## 問いごとの確率（Jev）',
@@ -490,7 +579,7 @@ export interface PanelCompareInput {
   acceptances: { comment: IssueComment; value: Acceptance }[];
   fixRequestReviews: FixRequestReview[];
   reviewComments: PrReviewComment[];
-  /** fix の PR の変更ファイル */
+  /** fix の PR のファイル（結び付けの根拠になったファイル。`fixPrFilesOf`） */
   fixPrFiles: Record<number, string[]>;
 }
 
