@@ -1,0 +1,8 @@
+# テキストファイルを LF で取り出す（Issue #208）。eol の属性は各パソコンの core.autocrlf より優先されるので、
+# Windows・WSL・macOS のどの git で取り出しても作業ツリーは LF になり、別の git で見ても「変更あり」にならない。
+# 既存の checkout をそろえる手順は docs/setup.md の「10. 改行コード（.gitattributes）」。
+* text=auto eol=lf
+
+# CRLF が要る Windows のスクリプトは CRLF のまま取り出す（今は無い。足したときのため）
+*.bat text eol=crlf
+*.cmd text eol=crlf

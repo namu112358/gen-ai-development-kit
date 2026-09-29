@@ -13,6 +13,7 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 | 初回だけ雛形から作る（`projectOwned`） | `harness.config.json`（← `harness/templates/harness.config.json`）、`CLAUDE.md`（← `harness/templates/CLAUDE.template.md`） | 写した後は導入先が持つ。CLAUDE.md の `@harness/CLAUDE.harness.md` の行は消さない（ハーネスの規則を読み込む） |
 | 両方が混ざる | `.claude/settings.json` | ハーネスのキー（`settingsKeys`：`permissions.deny`・`hooks`）だけを導入先の設定に入れる |
 | 持ち込まない | `harness/test/`・`package.json`・`tsconfig.json`・`.node-version`・`overview.html`・このリポジトリの docs | ゲートは依存なしで Node 24 だけで動く（`gate.yml` は `node-version: 24` を直接指定する）。ハーネスの検査（`npm run check`）はこのリポジトリの CI で行う |
+| 持ち込まない（導入先が持つ） | `.gitattributes` | 導入先が自分のバイナリや CRLF の要るファイルの例外を書くため、配らない（sync で上書きすると例外を書けない）。同じ `* text=auto eol=lf` の行を導入先にも置くとよい（[10. 改行コード](#10-改行コードgitattributes)） |
 
 導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。
 
@@ -132,3 +133,19 @@ git config --global user.email "<メール>"
 メールは GitHub の noreply のメール（`<ID>+<ユーザー名>@users.noreply.github.com`。GitHub の Settings → Emails に出る）でよい。未設定だと、commit（main を PR のブランチに取り込む sync を含む）が `fatal: empty ident name` などで止まる。
 
 **確かめ方**：`git var GIT_AUTHOR_IDENT`。名前とメールが出れば設定済み（リポジトリ単位の設定も含めて見る）。未設定なら commit と同じエラーで止まる。`user.email` だけ未設定だとエラーにならず、ホスト名から作ったメールが出ることがあるので、出た名前とメールが GitHub のユーザー名と noreply のメールと同じかを見る。
+
+## 10. 改行コード（.gitattributes）
+
+このリポジトリはテキストファイルを LF で取り出す（root の `.gitattributes` の `* text=auto eol=lf`）。`eol` の属性は各パソコンの `core.autocrlf` より優先されるので、各パソコンの git の設定は変えなくてよい。Windows の git（`core.autocrlf=true`）で取り出した checkout を WSL の git で見ても、改行コードの違いで「変更あり」にならない。CRLF が要る Windows のスクリプト（`*.bat`・`*.cmd`）は CRLF のまま取り出す。
+
+`.gitattributes` が入る前に Windows の git で取り出した checkout は、作業ツリーが CRLF のままになっている。次の手順で LF にそろえる。
+
+1. `git status` で未 commit の変更が無いことを確かめる。あれば commit か stash する（手順4の `git reset --hard` で消えるため）。未追跡のファイルは `git reset --hard` では消えない。
+2. main を取り込む（`.gitattributes` を含む版にする）。
+3. `git add --renormalize .` で index を属性に合わせる。このリポジトリの index はもう LF なので、ふつうは差分が出ない。`git status` に差分が出たら commit しない。手順4の `git reset --hard` でその差分は消えるので、Issue にするなら先に `git diff --cached --stat` などで内容を控えてから進める。
+4. `git rm -r --cached -q .` と `git reset --hard` で作業ツリーを取り出し直す（CRLF のファイルが LF になる）。
+5. 確かめる：`git ls-files --eol` で `w/crlf` が無いこと。WSL など別の git で `git status` が変更0件であること。
+
+worktree は作業ツリーがそれぞれ別なので、worktree でも同じ手順を行う（または作り直す）。
+
+導入先でも同じ `* text=auto eol=lf` の行を `.gitattributes` に置くとよい。導入先のバイナリや CRLF の要るファイルの例外は、導入先が書く（`.gitattributes` は配らない。[1. ファイルを持ち込む](#1-ファイルを持ち込む)）。
