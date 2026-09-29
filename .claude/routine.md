@@ -63,12 +63,17 @@
 
 Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同じ手順で判定する。人の PR は修正しない（ブロッキング指摘は App が変更要求レビューとして返す）。
 
-1. MCP で PR の head SHA を読み、queue の `headSha` と同じか確かめる（違えば飛ばす）。
-2. **reviewer** サブエージェントに判定させる。サブエージェントは GitHub を読めないので、本体が MCP で読んだ次の内容を指示に含めて渡す：PR 番号・Issue 番号・head SHA、Issue 本文（Goal・Requirements・Non-goals・AC）、Issue にある App の plan-gate 記録の計画（`plan.files` を含む）、PR の head の `agent/scope` の結果。前回の判定がある PR（修正後の再レビュー）では、前回の判定の `headSha` とその `review.blocking` も渡す（reviewer は前回の head からの差分と前回の指摘だけをブロッキングの対象にする）。
-3. **risk-agent** サブエージェントに PR 番号と head SHA **だけ**を渡す（Issue や PR の説明を渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
+1. MCP で PR の head SHA を読み、queue の `headSha` と同じか確かめる（違えば飛ばす）。同じなら、一時ディレクトリ（`mktemp -d` で作る。リポジトリの外）に出力のパス `reviewer-<PR番号>-<head7>.json`・`risk-<PR番号>-<head7>.json`（head7 は head SHA の先頭7文字）を決め、担当を呼ぶ前の `git status --porcelain --untracked-files=all` の結果をその一時ディレクトリに書き出して控える。
+2. **reviewer** サブエージェントに判定させる。サブエージェントは GitHub を読めないので、本体が MCP で読んだ次の内容を指示に含めて渡す：PR 番号・Issue 番号・head SHA、Issue 本文（Goal・Requirements・Non-goals・AC）、Issue にある App の plan-gate 記録の計画（`plan.files` を含む）、PR の head の `agent/scope` の結果。前回の判定がある PR（修正後の再レビュー）では、前回の判定の `headSha` とその `review.blocking` も渡す（reviewer は前回の head からの差分と前回の指摘だけをブロッキングの対象にする）。出力のパス `reviewer-<PR番号>-<head7>.json` も渡す。
+3. **risk-agent** サブエージェントに PR 番号と head SHA と、出力のパス `risk-<PR番号>-<head7>.json` **だけ**を渡す（Issue や PR の説明を渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
 
-どちらのサブエージェントにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押す。
-4. 2つの結果を合わせて判定コメントを一時ファイルに書く（reviewer の `humanNotes` はそのまま `review.humanNotes` に入れる）（書式は [docs/formats.md](../docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
+どちらのサブエージェントにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押し、「返す JSON と同じものを出力のパスに Write で書く。ほかのパスは書かない」と伝える。
+
+2つが返った後、手順4の前に次を確かめる。本体は担当の出力のファイルを書かない、直さない（担当の代わりに書かない）。
+- 担当が書いたファイルが出力のパスにあり、JSON として読めること（`node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読むだけ）。
+- ファイルが無いときは、同じパスを渡してその担当を1回だけ呼び直す。2回目も無い、またはファイルがあって JSON として読めないときは、判定せずに終える。
+- 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、判定せずに終える（担当が出力のパスの外を書いた恐れがある）。
+4. 担当が書いた2つのファイルの JSON から判定コメントを組み立て、一時ファイルに書く（reviewer の `humanNotes` はそのまま `review.humanNotes` に入れる）（書式は [docs/formats.md](../docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
 5. `node harness/scripts/agent.ts render-verdict <PR番号> <headSha> <ファイル>` で検査し、出力を PR にコメントする。
 6. `render-metrics judge ...` の出力を PR にコメントする。
 7. Merge・Ready 化・auto-merge は App が行う。何もしない。
