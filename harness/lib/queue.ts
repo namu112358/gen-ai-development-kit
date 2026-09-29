@@ -102,7 +102,7 @@ export interface IssueFacts {
   /** agent:plan-ok を最後に付けたのが App か */
   planOkByApp: boolean;
   openPr: number | null;
-  /** 計画の触るファイルが入る領域のうち、開いた PR の数が上限に達しているもの（説明文。無ければ null） */
+  /** 計画の触るファイルが入る領域のうち、判定前の Agent PR（Draft）の数が上限に達しているもの（説明文。無ければ null） */
   areaFull?: string | null;
 }
 
