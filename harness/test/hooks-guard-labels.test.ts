@@ -1,26 +1,27 @@
-// 見張りの hook（guard.ts）が保護ラベル・例外ラベルの付け外しを意味で止め、gh api --input - の本文も見て、読むだけのコマンドは通すことを確かめる（Issue #218）
+// 見張りの hook（guard.ts）が保護ラベル・例外ラベルの付け外しを意味で止め、gh api --input - の本文も見て、読むだけのコマンドは通すことを確かめる（Issue #218・#241）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { decide, decideRaw, type GuardContext, type HookInput } from '../../.claude/hooks/guard.ts';
-import { delegateMergeConfig, LABELS, loadConfig } from '../lib/config.ts';
+import { delegateConfig, LABELS, loadConfig } from '../lib/config.ts';
 
 /** guard.ts の main が設定から作るのと同じ形の ctx */
 function ctxFromConfig(): GuardContext {
   const config = loadConfig();
   return {
     defaultBranch: config.defaultBranch,
-    protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateMergeConfig(config).label],
+    protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateConfig(config).planLabel, delegateConfig(config).mergeLabel],
     currentBranch: 'claude/issue-218-x',
   };
 }
 
 const bash = (command: string): HookInput => ({ tool_name: 'Bash', tool_input: { command } });
 
-/** 保護ラベルの4つと、例外ラベルの3つと、今後増える例外ラベルの例 */
+/** 保護ラベルの5つと、例外ラベルの3つと、今後増える例外ラベルの例 */
 const LABEL_NAMES = [
   'agent:plan-ok',
   'agent:hold',
   'agent:auto-merge-stopped',
+  'agent:delegate-plan',
   'agent:delegate-merge',
   'plan:exempt',
   'review:exempt',
@@ -180,6 +181,7 @@ test('ラベルの名前を含む読むだけのコマンドは通す', () => {
     'rg -n review:exempt harness/lib',
     'git log --grep agent:plan-ok',
     'git log --oneline -S agent:delegate-merge',
+    'git log --oneline -S agent:delegate-plan',
     'gh issue view 218 --comments',
     'gh issue list --label agent:hold',
     'gh pr list --label test:exempt --state open',
@@ -196,6 +198,7 @@ test('本文でラベルに触れるだけのコメントは通す', () => {
     'gh pr comment 1 --body "review:exempt を付けてください"',
     'gh issue comment 1 --body-file - <<EOF\nagent:plan-ok を付けてください\nEOF',
     'echo "agent:delegate-merge を付けてください" | gh issue comment 1 --body-file -',
+    'gh issue comment 1 --body "agent:delegate-plan を付けてください"',
   ];
   for (const cmd of cmds) assertAllowAll(bash(cmd), cmd);
   assertAllowAll(

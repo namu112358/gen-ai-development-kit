@@ -6,7 +6,7 @@
 
 | 決めること | 判断者 | 不可のとき |
 | --- | --- | --- |
-| 社内のコード（diff）を外部 API の Jev に送ってよいか | 情報セキュリティ担当 | `JEV_API_KEY` を置かず `jev.mode` を `off` |
+| 社内のコード（diff）を外部 API の Jev に送ってよいか | 情報セキュリティ担当 | `JEV_API_KEY` を置かず `jev.mode` と `jev.testTamper` を `off`（`jev.testTamper` は `jev.mode` と独立で、鍵を残すとテストの行が送られる） |
 | Routine の毎時実行が Claude の規約上の「通常利用」に収まるか | Claude の契約管理者（不明なら Anthropic） | Routine を使わず付き添いのセッションだけで運用 |
 | 社内ルール（社内コードを Claude に扱わせる、社員名義で Agent が書き込む） | 情報システム部門・所属長 | 移行しない |
 | 費用（Jev の従量課金、Actions の無料枠超過） | 予算の承認者 | Actions は使用上限を設定 |

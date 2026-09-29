@@ -16,7 +16,7 @@
 | Dependencies | | 補足のみ。順序は Issue Dependencies（blocked by）で設定する |
 | Validation Requirements | | 検証方法 |
 
-`agent:ready` を付けたときに App が Jev に種類・領域・優先度・AC の書き方を問うかは、`harness.config.json` の `classification.issueTriage` で決める。`off` は問わない。`shadow` は提案をコメントするだけでラベルは付けない。`label` は提案のコメントを続け、そのうえで足りない `priority:*` と（計画が無ければ）`area:*` を Jev の答えから付ける（下記「足りないラベルを付ける」）。Risk と Priority は本文に書かない。優先度は `priority:*` の5段階（highest・high・medium・low・lowest）で、急ぐものには `priority:high` か `priority:highest` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。付いていなければ medium、複数付いていれば最も高いものとして扱う。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
+`agent:ready` を付けたときに App が Jev に種類・領域・優先度・AC の書き方を問うかは、`harness.config.json` の `classification.issueTriage` で決める。`off` は問わない。`shadow` は提案をコメントするだけでラベルは付けない。`label` は提案のコメントを続け、そのうえで足りない `priority:*` と（計画が無ければ）`area:*` を Jev の答えから付ける（下記「足りないラベルを付ける」）。`label` では Issue を作ったとき（`opened`）にも、`agent:ready` を待たずに足りないものを Jev に問うて付ける。同じ Issue には一度だけ問うので、作成で問い済みなら `agent:ready` を付けても提案のコメントは出ない。Risk と Priority は本文に書かない。優先度は `priority:*` の5段階（highest・high・medium・low・lowest）で、急ぐものには `priority:high` か `priority:highest` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。付いていなければ medium、複数付いていれば最も高いものとして扱う。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
 
 ## 付き添いのセッションで進める
 
@@ -47,6 +47,8 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
 
+Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときだけ動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。
+
 いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../harness/scripts/dashboard/README.md)）で見られる。`node harness/scripts/dashboard.ts` を実行して表示された URL を開くと、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。読み取りだけで、GitHub には書かない。
 
 毎時の Routine（[.claude/routine.md](../.claude/routine.md)）が queue に従って同じ段階を進めるのは将来の構想。この文書の「Routine」は、付き添いのセッションで同じ段階を行うときはそのセッションに読み替える。
@@ -69,15 +71,16 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `review:exempt` | 人 | 判定を待たずに `agent/review` を通す（人の PR の急ぎ、fork からの PR）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する |
 | `plan:exempt` | 人 | 計画のある Issue に紐付かない PR を例外として通す（付け外しを App が記録する） |
 | `test:exempt` | 人 | テストを弱める変更を例外として `agent/tests` を通す（Issue 本文にテストを変える理由があるとき）。付けた時点の差分にだけ効く（下記「例外ラベルの効く範囲」）。付け外しを App が記録する。自動 Merge の対象の PR で使う（Human Merge の PR では要らない。下記「テストの改ざん検査」） |
-| `area:*` | App | PR の変更ファイルの領域、Issue の計画（計画ゲートを通ったもの）の files の領域（`harness.config.json` の `classification.areas`）。計画の無い Issue には Jev が付ける。足すだけで外さない |
-| `agent:delegate-merge` | 人のみ | ダッシュボード専用。期限つきで Merge の判断を App に委ねる「委任 Merge」のスイッチ（`harness.config.json` の `delegateMerge`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けると、`delegateMerge.hours` の間、条件を満たす Agent PR にガードレール・Risk の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#委任-merge)）。外すと、委任で付けた auto-merge を外して人にレビューを依頼する。期限が切れると定期実行が同じように外し、ラベルも外してダッシュボードに書く |
+| `area:*` | App | PR の変更ファイルの領域、Issue の計画（計画ゲートを通ったもの。止まった計画でも、`split` でなく files がすべて1つの領域に収まればその領域）の files の領域（`harness.config.json` の `classification.areas`）。計画の無い Issue には Jev が付ける。足すだけで外さない |
+| `agent:delegate-plan` | 人のみ | ダッシュボード専用。計画ゲートの承認だけを App に委ねる「委任承認（計画）」のスイッチ（`harness.config.json` の `delegate.planLabel`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けている間、ガードレール・想定 Risk だけで止まる計画に App が `agent:plan-ok` を付け、付けたときと定期実行で、その理由だけで止まっている Issue を判定し直す（[risk-policy.md](risk-policy.md#委任承認)）。期限は無い。外すと計画の委任が終わるだけで、委任で付けた `agent:plan-ok` は外さない |
+| `agent:delegate-merge` | 人のみ | ダッシュボード専用。計画ゲートの承認と Merge の判断を App に委ねる「委任承認（計画＋Merge）」のスイッチ（`harness.config.json` の `delegate.mergeLabel`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けている間、`agent:delegate-plan` と同じく計画を通し、条件を満たす Agent PR にガードレール・Risk の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#委任承認)）。期限は無い。外すと、委任で付けた auto-merge を外して人にレビューを依頼する（委任で付けた `agent:plan-ok` は外さない） |
 | `agent:bypass-merge` | 人のみ | ダッシュボード専用。ブロッキング指摘の無い Agent PR の Merge を App に任せる「bypass モード」のスイッチ（`harness.config.json` の `bypassMerge`）。セッションは付け外ししない（hook と deny で止める）。付けている間（期限なし）、ブロッキング指摘が無く範囲照合と `agent/tests` を通る Agent PR に、Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#bypass-モード)）。外す・停止スイッチで、bypass で付けた auto-merge を外して人にレビューを依頼する |
 
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
 
 止めた理由は、`agent:blocked` / `agent:plan-review` を付けるコメントに理由コード（`<!-- agent-harness:reason code=… -->`）で残す。ダッシュボードの「人の対応待ち」は理由別に並び、理由が無いものは「要確認」になる。
 
-計画ゲートで止まった Issue に計画を出し直すとき、App は自分の計画ゲートの記録で前の印の出どころを見る。ゲートの停止（critical・ガードレールなど）で、最後に印を付けたのが App なら、新しい計画だけで判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。`acChangeProposed` や人が付けた印、出どころの無い古い記録は、人が外すまで止める。Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが人の答えを決定の記録（```` ```agent-decision ````、`agent.ts post-decision`）で残すと、App が Jev に答え済みかを問い、`plan-decision` の記録を付ける。`jev.decisionRelease` が `shadow`（既定）なら記録だけ、`enforce` でしきい値（`jev.thresholds.decisionProbability`）以上なら答え済みとして判定し直す（通れば App が印を外し、ガードレール・critical などに当たれば `gate` の停止として残る）。人が付けた印は、ラベルの時刻（計画コメントの投稿の 60 秒前から、その計画ゲートの記録まで）の外で付いたものとして見分ける。そのため Planner の申告の印を外さないまま申告付きの計画を出し直すと、2回目以降は印が窓より前から付いているので対象外になる（人が外す今までの運用に戻るだけ）。ゲートの停止の印は出し直しで外れうるので、計画を出し直しても止めておきたいときは `agent:hold` を付ける。書式は [formats.md](formats.md#計画)。
+計画ゲートで止まった Issue に計画を出し直すとき、App は自分の計画ゲートの記録で前の印の出どころを見る。ゲートの停止（critical・ガードレールなど）で、最後に印を付けたのが App なら、新しい計画だけで判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。`acChangeProposed` や人が付けた印は、人が外すまで止める。出どころの無い古い記録は、記録の計画に Planner の申告・`acChangeProposed` が無く、前の印で止めた停止でもなければゲートの停止とみなし、そう読めないものは人が外すまで止める（[formats.md](formats.md#計画)）。Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが人の答えを決定の記録（```` ```agent-decision ````、`agent.ts post-decision`）で残すと、App が Jev に答え済みかを問い、`plan-decision` の記録を付ける。`jev.decisionRelease` が `shadow`（既定）なら記録だけ、`enforce` でしきい値（`jev.thresholds.decisionProbability`）以上なら答え済みとして判定し直す（通れば App が印を外し、ガードレール・critical などに当たれば `gate` の停止として残る）。人が付けた印は、ラベルの時刻（計画コメントの投稿の 60 秒前から、その計画ゲートの記録まで）の外で付いたものとして見分ける。そのため Planner の申告の印を外さないまま申告付きの計画を出し直すと、2回目以降は印が窓より前から付いているので対象外になる（人が外す今までの運用に戻るだけ）。ゲートの停止の印は出し直しで外れうるので、計画を出し直しても止めておきたいときは `agent:hold` を付ける。書式は [formats.md](formats.md#計画)。
 
 | 理由コード | 意味 |
 | --- | --- |
@@ -107,9 +110,9 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 `harness/gates/label-apply.ts` が、Issue・PR の作成とタイトルの編集（イベント）と、定期実行で付ける。定期実行は、開いた Issue（ダッシュボードを除く。`agent:ready` の有無は問わない）と Agent PR を見て、ダッシュボードを書き直す前に付ける（「ラベルが足りない Issue・PR」は付けた後の状態を映す）。
 
-- App（決定的に決まるもの）：タイトルの type から `type:*`。子（Sub-issues）を持つ Issue に `epic`。計画ゲートを通った Issue に、計画の files から `area:*`（計画ゲートの通過時にも付ける）。タイトルの形式が違う Issue・PR には `type:*` を付けない（ダッシュボードに出る）。
+- App（決定的に決まるもの）：タイトルの type から `type:*`。子（Sub-issues）を持つ Issue に `epic`。計画ゲートを通った Issue に、計画の files から `area:*`（計画ゲートの通過時にも付ける）。計画ゲートで止まった（`agent:plan-review`）計画でも、`split` でなく、files がすべて1つの領域に収まり、Issue に `area:*` が無ければ、その `area:*` を付ける（停止のコメントの後に付け、コメントに一文書く。定期実行でも同じ）。Jev より機械的な判別を優先する。1つの領域に収まらない計画の Issue には、計画の記録があるので Jev も `area:*` を問わない（ダッシュボードの「ラベルが足りない Issue・PR」に出る）。タイトルの形式が違う Issue・PR には `type:*` を付けない（ダッシュボードに出る）。
 - `type:*` の付け替え：タイトルと食い違う `type:*` と、Epic の `type:*` は、App が付けたもの（Issue・PR の events API で、そのラベルを最後に付けた actor が App）だけを外して付け直す。人が付けたもの（見分けられないものを含む）は外さず、`label-mismatch` のコメントで知らせる。
-- Jev（決まらないもの）：`classification.issueTriage` が `label` のとき、優先度の無い Issue に `priority:*`、計画が無く `area:*` の無い Issue に `area:*` を、Jev の答えの確率がそのラベルの下限以上のときだけ付ける。下限未満のもの、下限が未設定のとき（提案のみ）は付けずに `label-triage` のコメントで知らせる。本文が Issue Form として読めない Issue には問わない。同じ Issue には一度だけ問う（`issue-triage` か `label-triage` の記録があれば問い済み）。`agent:ready` が付いたときは提案のコメントを出したうえで足りないものを付ける。1回の定期実行で問う Issue は 5 件まで（残りは次の実行）。
+- Jev（決まらないもの）：`classification.issueTriage` が `label` のとき、優先度の無い Issue に `priority:*`、計画が無く `area:*` の無い Issue に `area:*` を、Jev の答えの確率がそのラベルの下限以上のときだけ付ける。下限未満のもの、下限が未設定のとき（提案のみ）は付けずに `label-triage` のコメントで知らせる。本文が Issue Form として読めない Issue には問わない。同じ Issue には一度だけ問う（`issue-triage` か `label-triage` の記録があれば問い済み）。問うのは、Issue の作成（`opened`。タイトルの編集では問わない）、`agent:ready` が付いたとき、定期実行。作成では、問う直前に Issue を読み直し、開いていてタイトルの形式が正しく、足りないものがあるときだけ問う。App が作った Issue（Epic の子課題。親の `priority:*` を App が後で引き継がせる）には作成時に問わない。`agent:ready` が付いたときは提案のコメントを出したうえで足りないものを付ける。例外として、作成の直後に定期実行か `agent:ready` の問いが重なると、互いの `label-triage` をまだ見られず二重に問うことがある（付くのは同じ答えのラベルで、足すだけなので仕組みは足していない）。1回の定期実行で問う Issue は 5 件まで（残りは次の実行）。
   - 下限はラベルごとに `jev.thresholds.labelProbabilityByLabel`（ラベル → 0〜1）で決め、当たらないラベルは `jev.thresholds.labelProbability` を使う。既定では `priority:medium` が 0.5、ほかの `priority:*`・`area:*` は 0.8。`labelProbability` が未設定なら、`labelProbabilityByLabel` があっても付けない（提案のみ）。
   - 値の理由（[plan.md](plan.md) の Q94）：ラベルの無い Issue は queue で medium として並ぶので、`priority:medium` を誤って付けても並び順は変わらず、害は付けないときと同じ程度で小さい。0.5 以上なら medium がほかの選択肢を全部足したより確からしい（過半）。`priority:high`・`low` などは並び順を変え、`area:*` は同時 PR の上限（`areaConcurrency`）の数え方に効くので、0.8 のまま。
   - 付け直し：下限を見直した後の定期実行で、最新の `label-triage` の記録（App の名義）の `notApplied` のうち、今も足りず、記録の確率が今の下限以上のラベルを付け、`label-reapply` の記録を残す。Jev には問い直さない（費用がかからず、1回に問う 5 件の上限にも数えない）。`jevApiKey` が無くても動く。`label-reapply` の記録がある Issue には二度としない（付けた後に人が外しても付け直さない）。付けるものが無ければコメント（記録）を書かないので、下限をまた見直せば、その Issue もまた付け直しの対象になる。
@@ -158,6 +161,21 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 - neutral の要約には「人の確認が要る変更あり」と Human Merge とみなした理由、平易な説明（何を見張っているか、なぜ止めていないか、人が確かめること）、検出の一覧を載せる。Human Merge の依頼のコメント（`kind=human-review`）にも、懸念点より前に見つけた行を目立つ形で載せる。
 - 次のときは緩めず、今までどおり failure（`test:exempt` が要る）：`agent:hold` や自動 Merge モードの停止だけが理由のとき（外すと判定のやり直し無しに自動 Merge に戻るため）、人の PR・fork の PR、PR に auto-merge が付いているとき、Reviewer が不合格の判定だけのとき。
 - 誤検出や、Issue 本文にテストを変える理由がある変更は、人が PR に `test:exempt` を付けて通す（付け外しを App が記録し、外すと検査し直す）。自動 Merge の対象の PR で使う（Human Merge の PR では要らない）。例外は付けた時点の差分にだけ効く（次節）。
+- 結論の優先順は「検出0件 → success」「`test:exempt` が効く → success（Jev に問わない）」「Human Merge → neutral」「`jev.testTamper` が `enforce` で Jev が通す → success」「それ以外 → failure」（`harness/gates/tests-check.ts` の `testsOutcome`）。
+
+### Jev の判定（`jev.testTamper`）
+
+検出があると、App はアサーションの書き換えが「テストを弱めていないか」を Jev に問い、確率を記録する（docs/plan.md の Q95。`harness/lib/test-tamper-jev.ts`・`harness/gates/tests-jev.ts`）。
+
+- 問うのは、すべての検出が変更後の行と対になったアサーションの書き換えのときだけ（対ごとに1問。変更前の行が確かめていたことを変更後の行がすべて確かめているか）。削除系（テストファイルの削除・リネーム、テスト定義の削除、skip / only / todo の追加）と、対にならないアサーションの削除が1件でもあるとき、対が 20 を超えるときは問わない（Jev では通らない）。
+- 材料は App が diff から検出した行（ファイル名・変更前・変更後。各行 500 文字まで）だけ。PR 本文・コメント・判定などセッションが書いたものは渡さない。fork の PR と、`JEV_API_KEY` が無いときは問わない。
+- 1つの差分（patch-id）に1回だけ問う。同じ patch-id の記録（`kind=test-tamper-jev`）があれば問い直さず、記録の確率と**今の設定**で通すかを決め直す。Jev がエラーを返したときは記録せず、次のイベントで問い直す。
+- `jev.testTamper`（`jev.mode` とは独立。無ければ `shadow`）：
+  - `shadow`：確率を要約と記録に残すだけで、`agent/tests` の結果は変えない（要約に「記録だけで、この結果は変えません」と出る）。
+  - `enforce`：対ごとの確率の最小値が `jev.thresholds.testTamperProbability` 以上なら success にする（下限が無ければ通さない）。auto-merge が付いていて Human Merge として緩めない PR でも、Jev が通せば success。委任 Merge・bypass モードで自動経路に乗る PR も、Jev が通せば止めずに進む。
+  - `off`：問わない（今までどおり）。
+- Human Merge の PR にも問って記録する（一致率の材料を増やすため。結論は neutral のまま）。経路の判断（Human Merge か、委任・bypass か）は変えない。
+- enforce への切り替えは、`node harness/scripts/report.ts` の「テストの改ざん：Jev と人の判断」の行（一致率と、Jev は通す・人は直させた件数）を見て人が決める（[security.md](security.md#テストの改ざん)）。
 
 ### 分かっている限界
 
@@ -213,18 +231,18 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を、依頼のコメントにテストの変更（`agent/tests` が neutral のとき）があれば、その行も確かめて確認して Merge する |
 | 人の PR（`claude/` 以外のブランチから人が自分で書いた PR） | 計画のある Issue に紐付いていれば judge の skill で判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
 | `agent:blocked` | 理由のコメントを読み、直してからラベルを外す |
-| 委任 Merge を始める | 見ていられる時間だけ、ダッシュボードに `agent:delegate-merge` を付ける（`delegateMerge.hours` で期限が切れる）。条件を満たす Agent PR は、ガードレール・Risk が理由でも自動 Merge される（[risk-policy.md](risk-policy.md#委任-merge)） |
+| 委任承認を始める | 見ていられる間だけ、ダッシュボードに付ける。計画の承認だけを委ねるなら `agent:delegate-plan`、Merge の判断も委ねるなら `agent:delegate-merge`。期限は無いので、終えるときは外す。ガードレール・想定 Risk だけで止まる計画は App が通し（止まっている Issue も判定し直す）、`agent:delegate-merge` なら条件を満たす Agent PR は、ガードレール・Risk が理由でも自動 Merge される（[risk-policy.md](risk-policy.md#委任承認)） |
+| 委任承認を見返す | ダッシュボードの委任承認の状態の行（計画のみ・計画＋Merge・無効と、付けた人）、「委任承認で Merge された PR」（直近 `staleHours` 時間）、PR の App の記録（`kind=delegated-merge`）、Issue の計画ゲートの記録（`kind=plan-gate` の `delegated`）を見る |
 | bypass モードを始める | ダッシュボードに `agent:bypass-merge` を付ける（外すまで続く）。ブロッキング指摘の無い Agent PR は、ハーネス自身の変更も含めて自動 Merge される（[risk-policy.md](risk-policy.md#bypass-モード)） |
 | bypass モードを見返す | ダッシュボードの「bypass で Merge された PR」（直近 `staleHours` 時間）と、PR の App の記録（`kind=bypass-merge`）を見る |
-| 委任 Merge を見返す | ダッシュボードの「委任 Merge で Merge された PR」（直近 `staleHours` 時間）と、PR の App の記録（`kind=delegated-merge`）を見る |
 
 ## 止める仕組み
 
 | 仕組み | 操作 | 効き方 |
 | --- | --- | --- |
 | 停止スイッチ | 「Agent ダッシュボード」Issue に `agent:auto-merge-stopped` を付ける | App が全 PR の auto-merge を外し、merge-route が自動経路を failure にする。Human Merge は通る |
-| 委任 Merge を終える | ダッシュボードの `agent:delegate-merge` を外す（期限が切れると定期実行が外す）。停止スイッチでも止まる | App が委任で付けた auto-merge を外し（記録 `delegated-merge-end`）、人にレビューを依頼する。自動 Merge の対象の PR（low など）はそのまま |
-| bypass モードを終える | ダッシュボードの `agent:bypass-merge` を外す。停止スイッチでも止まる | App が bypass で付けた auto-merge を外し（記録 `bypass-merge-end`）、人にレビューを依頼する。委任 Merge で乗る PR は委任に引き継ぐ。自動 Merge の対象の PR（low など）はそのまま |
+| 委任承認を終える | ダッシュボードの `agent:delegate-plan`・`agent:delegate-merge` を外す（期限は無いので、外すまで続く）。停止スイッチでも止まる（停止スイッチの間は計画の委任も無効） | `agent:delegate-merge` を外すと、App が委任で付けた auto-merge を外し（記録 `delegated-merge-end`）、人にレビューを依頼する。自動 Merge の対象の PR（low など）はそのまま。`agent:delegate-plan` を外すと計画の委任が終わるだけ。どちらも委任で付けた `agent:plan-ok` は外さない |
+| bypass モードを終える | ダッシュボードの `agent:bypass-merge` を外す。停止スイッチでも止まる | App が bypass で付けた auto-merge を外し（記録 `bypass-merge-end`）、人にレビューを依頼する。委任承認（計画＋Merge）で乗る PR は委任に引き継ぐ。自動 Merge の対象の PR（low など）はそのまま |
 | 最終手段 | Settings → General → Allow auto-merge を切る | auto-merge が一斉に効かなくなる |
 | 個別停止 | Issue / PR に `agent:hold` を付ける | PR は merge-route が failure、Issue は Routine が処理しない。外されると App が記録する |
 | revert で自動停止 | 自動 Merge された PR を revert する | App が停止スイッチを入れる。人が確認して外すまで再開しない |

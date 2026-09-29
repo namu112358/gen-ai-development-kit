@@ -12,9 +12,11 @@ import { onSchedule } from './stale.ts';
 
 /**
  * 足りないラベルを付ける（docs/operations.md の「必須ラベルの規則」）。
- * - App（決定的に決まるもの）：タイトルから type:*、子を持つ Issue に epic、計画ゲートを通った計画の files から area:*
+ * - App（決定的に決まるもの）：タイトルから type:*、子を持つ Issue に epic、計画ゲートを通った計画の files から area:*、
+ *   計画ゲートで止まった計画（split でないもの）でも files がすべて1つの領域に収まればその area:*（singleAreaLabel）
  * - Jev（決まらないもの）：priority:* と、計画の無い Issue の area:*。classification.issueTriage が label で、確率が
  *   そのラベルの下限（jev.thresholds.labelProbabilityByLabel、無ければ labelProbability）以上のときだけ付ける。
+ *   問うのは Issue の作成（on-issue.ts。App が作った Issue は除く）・agent:ready・定期実行。
  *   同じ Issue には一度だけ問う（App の記録 issue-triage / label-triage で判断）
  * - 付け直し：下限を見直した後、label-triage の記録で下限に届かなかったものを、記録の確率で1回だけ付ける
  *   （Jev に問い直さない。App の記録 label-reapply がある Issue にはしない。Q94）
@@ -34,7 +36,7 @@ export interface LabelTarget {
   labels: string[];
   /** 子（Sub-issues）の数。Issue のみ */
   subIssues?: number;
-  /** 計画ゲートを通った計画の files（Issue のみ。無ければ null / undefined） */
+  /** area:* を決める計画の files（Issue のみ。通過した計画か、1つの領域に収まる止まった計画。無ければ null / undefined） */
   plannedFiles?: string[] | null;
 }
 
@@ -92,6 +94,20 @@ export function planLabelChanges(config: HarnessConfig, target: LabelTarget, app
 /** 計画の files から決まる area:* のうち、まだ付いていないもの（計画ゲートを通ったときに付ける。足すだけ） */
 export function planAreaLabels(config: HarnessConfig, files: string[], labels: string[]): string[] {
   return areaLabels(config, files).filter((l) => !labels.includes(l));
+}
+
+/**
+ * 計画の files がすべて同じ1つの領域だけに当たるとき、その area:*（計画ゲートで止まった計画から付ける）。
+ * files が空、どれかのファイルがどの領域にも当たらない・2つ以上の領域に当たる、ファイルごとに領域が違うなら null
+ */
+export function singleAreaLabel(config: HarnessConfig, files: string[]): string | null {
+  let area: string | null = null;
+  for (const file of files) {
+    const hits = areaLabels(config, [file]);
+    if (hits.length !== 1 || (area !== null && hits[0] !== area)) return null;
+    area = hits[0]!;
+  }
+  return area;
 }
 
 /** PR の risk:* を、受け付けた判定の段階1つにそろえる */
@@ -206,9 +222,13 @@ async function notifyMismatch(ctx: GateContext, number: number, title: string, c
 const hasPlanRecord = (ctx: GateContext, comments: IssueComment[]): boolean =>
   Boolean((latestPlanGate(ctx.config, comments)?.value as (PlanGateRecord & { plan?: unknown }) | undefined)?.plan);
 
-const passedPlanFiles = (ctx: GateContext, comments: IssueComment[]): string[] | null => {
-  const gate = latestPlanGate(ctx.config, comments)?.value as (PlanGateRecord & { plan?: { files?: string[] } }) | undefined;
-  return gate?.pass && gate.plan?.files ? gate.plan.files : null;
+/** area:* を決める計画の files：通過した計画なら files、止まった計画（split でない）は1つの領域に収まるときだけ files */
+const plannedAreaFiles = (ctx: GateContext, comments: IssueComment[]): string[] | null => {
+  const gate = latestPlanGate(ctx.config, comments)?.value as (PlanGateRecord & { plan?: { files?: string[]; split?: unknown } }) | undefined;
+  const files = gate?.plan?.files;
+  if (!files) return null;
+  if (gate.pass) return files;
+  return !gate.plan?.split && singleAreaLabel(ctx.config, files) !== null ? files : null;
 };
 
 /**
@@ -334,7 +354,7 @@ export async function labelApply(ctx: GateContext): Promise<void> {
       const labels = i.labels.map((l) => l.name);
       const subIssues = i.sub_issues_summary?.total ?? 0;
       const audit = auditLabels(ctx.config, { kind: 'issue', title: i.title, labels, subIssues });
-      const plannedFiles = audit.missing.includes('area:*') ? passedPlanFiles(ctx, await getComments()) : null;
+      const plannedFiles = audit.missing.includes('area:*') ? plannedAreaFiles(ctx, await getComments()) : null;
       const change = await applyAppLabels(ctx, i.number, { kind: 'issue', title: i.title, labels, subIssues, plannedFiles }, getComments);
       let after = applyChanges(labels, change);
       const missing = jevNeeds(ctx.config, after, false);

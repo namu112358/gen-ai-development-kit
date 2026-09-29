@@ -8,7 +8,7 @@ import type { GateContext } from './context.ts';
 /**
  * bypass モードの今の状態と、PR を bypass で自動経路に乗せるかの判断（読むだけ・判断だけ）。docs/risk-policy.md の「bypass モード」。
  * ブロッキング指摘が無く範囲照合を通れば、Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev を理由とする Human Merge を飛ばす。
- * 判断を harness/gates/ に置くのは、委任 Merge の除外（delegateMergeExclude の harness/gates/**）に入れ、委任で緩められないようにするため。
+ * 判断を harness/gates/ に置くのは、委任承認の除外（delegateMergeExclude の harness/gates/**）に入れ、委任で緩められないようにするため。
  * apply.ts・tests-check.ts・bypass-merge.ts・delegate-merge.ts から使う。apply.ts を import しない（循環させない）。
  */
 

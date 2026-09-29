@@ -6,13 +6,14 @@
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
 | `api-count.ts` | GitHub API の呼び出しの回数を、メソッドとパスの形（番号などを伏せたもの）ごとに数える（#247）。 | ○ |
+| `arch-review.ts` | arch-review（Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す skill）の決まる部分。 | ○ |
 | `blocks.ts` | コメントに埋め込む構造化データと目印。 | ○ |
 | `claim.ts` | 着手宣言の投稿と読み直し（Issue #171）。 | ○ |
 | `classify.ts` | PR の分類ラベル（表示用）。 | 対象外 |
 | `concurrency.ts` | 領域（area）ごとの、同時に開いてよい PR の上限。 | 対象外 |
 | `config.ts` | `harness.config.json` の読み込みと、ラベル・理由コード・必須チェックの名前などの定義。 | ○ |
 | `decision.ts` | 決定の記録（````agent-decision````）：Planner の申告（needsHuman・openQuestions）への人の答えを、付き添いのセッションが記録する。 | ○ |
-| `delegate.ts` | 委任 Merge：人が期限つきで Merge の判断を App に委ねる（docs/risk-policy.md）。 | ○ |
+| `delegate.ts` | 委任承認：人がダッシュボードのラベルで、計画ゲートの承認（agent:delegate-plan）か、計画ゲートの承認と Merge の判断（agent:delegate-merge）をApp に委ねる（docs/risk-policy.md）。 | ○ |
 | `epic.ts` | Epic：計画の `split` で大きな課題を子課題に分ける。 | ○ |
 | `exempt.ts` | 人が付ける例外ラベル（review:exempt・test:exempt）は、付けた時点の PR の差分にだけ効く。 | ○ |
 | `facts.ts` | queue の材料（事実）を GitHub から集める。 | ○ |
@@ -37,6 +38,7 @@
 | `session.ts` | 今のセッションの ID を環境の値から決める（lib は process.env を直接読まず、呼び出し元が渡す）。 | ○ |
 | `stack.ts` | PR の base の見分け（既定ブランチ宛て・Stacked PR の層・スタックでないのに base が既定ブランチ以外）。 | ○ |
 | `state.ts` | GitHub 上の状態の読み取り。 | ○ |
+| `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えを Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
 | `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |
 | `usage.ts` | Claude Code のセッション記録（jsonl）からトークン数を集計し、API で動かした場合の料金を見積もる。 | 対象外 |

@@ -40,4 +40,4 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 - 計画の `files` の外を変える必要がある、または計画どおりでは AC を満たせない
 - `npm run check` が、この変更と関係ない理由で落ちる
 - push や PR の作成が拒否された（別の方法で試さない）
-- やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し
+- やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し

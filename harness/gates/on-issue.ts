@@ -1,4 +1,5 @@
-import { appLogin, bypassMergeConfig, delegateMergeConfig, LABELS, PRIORITY_LABELS, priorityRank, reasonMark } from '../lib/config.ts';
+import { appLogin, bypassMergeConfig, delegateConfig, LABELS, PRIORITY_LABELS, priorityRank, reasonMark } from '../lib/config.ts';
+import type { IssueComment } from '../lib/github.ts';
 import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
 import { parseTitle } from '../lib/title.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage } from '../lib/issue-triage.ts';
@@ -9,7 +10,7 @@ import { applyAcceptance, refreshMergeRoute, writeDelegationEnd } from './apply.
 import { bypassArm, bypassFor, bypassRoute } from './bypass.ts';
 import { endBypassMerge, onBypassSwitch } from './bypass-merge.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
-import { onDelegateSwitch, sweepExpiredDelegation } from './delegate-merge.ts';
+import { onDelegateSwitch } from './delegate-merge.ts';
 import { delegatedArm, delegatedRoute, delegationFor } from './delegation.ts';
 import { applyAppLabels, triageLabels } from './label-apply.ts';
 
@@ -22,31 +23,31 @@ const PRIORITY_VALUES: string[] = Object.values(PRIORITY_LABELS);
 /**
  * issues：
  * - 作成とタイトルの編集で、足りない type:*（と子を持つ Issue の epic）を付ける。App が前に付けた type:* だけ付け替える（label-apply.ts）
+ * - 作成では続けて、足りない priority:*・area:* を Jev に問うて付ける（triageOnOpen。App が作った Issue は除く。タイトルの編集では問わない）
  * - agent:ready が付いたら Issue 本文を読み、読めなければ agent:blocked（静かに止めない）
  * - agent:plan-ok を App 以外が付けたら外す
  * - agent:hold が外されたら記録
  * - Close されたら依存解消（agent:waiting を外す）と親 Issue の Close
- * - ダッシュボードの停止スイッチ・委任のラベルの付け外し（delegate-merge.ts）・bypass のラベルの付け外し（bypass-merge.ts）
- * 処理に入る出来事では、その前に委任 Merge の期限切れを掃除する（API を呼ばない出来事では掃除しない）
+ * - ダッシュボードの停止スイッチ・委任承認のラベル（agent:delegate-plan・agent:delegate-merge）の付け外し（delegate-merge.ts）・bypass のラベルの付け外し（bypass-merge.ts）
  */
 export async function onIssue(ctx: GateContext): Promise<void> {
   const action = ctx.event.action as string;
   const issue = ctx.event.issue as { number: number; body: string | null; labels: { name: string }[]; state: string };
   const sender = ctx.event.sender?.login as string | undefined;
   const label = ctx.event.label?.name as string | undefined;
-  const sweep = () => sweepExpiredDelegation(ctx, new Date());
 
   if (action === 'opened' || (action === 'edited' && ctx.event.changes?.title)) {
     const { title, sub_issues_summary } = ctx.event.issue as { title: string; sub_issues_summary?: { total?: number } | null };
     if (title === ctx.config.dashboardIssueTitle || issue.state !== 'open') return;
-    await sweep();
     const target = { kind: 'issue' as const, title, labels: issue.labels.map((l) => l.name), subIssues: sub_issues_summary?.total ?? 0 };
-    await applyAppLabels(ctx, issue.number, target, () => ctx.gh.listComments(issue.number));
+    let comments: Promise<IssueComment[]> | undefined;
+    const getComments = () => (comments ??= ctx.gh.listComments(issue.number));
+    await applyAppLabels(ctx, issue.number, target, getComments);
+    if (action === 'opened') await triageOnOpen(ctx, issue.number, sender, getComments);
     return;
   }
 
   if (action === 'labeled' && label === LABELS.ready) {
-    await sweep();
     const title = (ctx.event.issue as { title: string }).title;
     const body = parseIssueBody(issue.body);
     const titleCheck = parseTitle(title);
@@ -59,40 +60,34 @@ export async function onIssue(ctx: GateContext): Promise<void> {
     return;
   }
   if (action === 'labeled' && label === LABELS.planOk && sender !== appLogin(ctx.config)) {
-    await sweep();
     await ctx.gh.removeLabel(issue.number, LABELS.planOk);
     await appComment(ctx, issue.number, 'plan-ok-removed', `\`agent:plan-ok\` は App だけが付けられます。@${sender} が付けたため外しました。`);
     return;
   }
   if (action === 'unlabeled' && label === LABELS.hold) {
-    await sweep();
     await appComment(ctx, issue.number, 'hold-removed', `\`agent:hold\` が @${sender} により外されました（記録）。`);
     return;
   }
   const priorities = issue.labels.map((l) => l.name).filter((n) => PRIORITY_VALUES.includes(n));
   if (action === 'labeled' && label?.startsWith('priority:') && priorities.length >= 2) {
-    await sweep();
     const top = PRIORITY_VALUES[priorityRank(priorities)]!;
     await appComment(ctx, issue.number, 'priority-conflict', `${priorities.map((p) => `\`${p}\``).join('・')} が付いています。queue は最も高い \`${top}\` として扱います。1つにしてください。`);
     return;
   }
   if ((action === 'labeled' || action === 'unlabeled') && label === ctx.config.autoMergeStopLabel) {
-    await sweep();
     await onAutoMergeSwitch(ctx, issue.number, action === 'labeled', sender);
     return;
   }
-  if ((action === 'labeled' || action === 'unlabeled') && label === delegateMergeConfig(ctx.config).label) {
-    await sweep();
-    await onDelegateSwitch(ctx, issue.number, action === 'labeled', sender);
+  const { planLabel, mergeLabel } = delegateConfig(ctx.config);
+  if ((action === 'labeled' || action === 'unlabeled') && label !== undefined && (label === planLabel || label === mergeLabel)) {
+    await onDelegateSwitch(ctx, issue.number, action === 'labeled', sender, new Date(), label);
     return;
   }
   if ((action === 'labeled' || action === 'unlabeled') && label === bypassMergeConfig(ctx.config).label) {
-    await sweep();
     await onBypassSwitch(ctx, issue.number, action === 'labeled', sender);
     return;
   }
   if (action === 'closed') {
-    await sweep();
     await clearStateLabels(ctx, issue);
     await resolveDependents(ctx, issue.number);
     await closeParentIfDone(ctx, issue.number);
@@ -135,7 +130,7 @@ async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: bool
     if (!isAgentPr(ctx.config, pr, ctx.repository)) continue;
     const diff = await prDiff(ctx.gh, pr);
     const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patchId(diff));
-    const delegated = delegation !== null && delegatedRoute(delegation, acceptance, ctx.config, now).ok;
+    const delegated = delegation !== null && delegatedRoute(delegation, acceptance).ok;
     const bypassed = bypass !== null && bypassRoute(bypass, acceptance).ok;
     if (acceptance && (acceptance.autoEligible || delegated || bypassed)) {
       await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff, ...(delegation ? { delegation } : {}), ...(bypass ? { bypass } : {}) });
@@ -180,6 +175,24 @@ async function closeParentIfDone(ctx: GateContext, number: number): Promise<void
   if (!parent.subIssues.nodes.every((s) => s.state === 'CLOSED')) return;
   await appComment(ctx, parent.number, 'parent-closed', 'Sub-issues がすべて閉じたため、この Issue を閉じます。');
   await ctx.gh.request('PATCH', `/issues/${parent.number}`, { body: { state: 'closed', state_reason: 'completed' } });
+}
+
+/**
+ * Issue の作成で、足りない priority:*・area:* を Jev に問うて付ける（agent:ready を待たない。失敗してもゲートは止めない）。
+ * classification.issueTriage が label で Jev の鍵があるときだけ（無ければ API を呼ばない）。App が作った Issue（Epic の子課題。
+ * 親の priority:* を後で引き継ぐ）には問わない。イベントの中身は古いことがあるので、今のタイトル・本文・ラベル・状態を読み直し、
+ * 開いていてタイトルの形式が正しいときだけ問う。Issue Form として読めるか・問い済みか・足りないものがあるかは triageLabels が見る
+ */
+async function triageOnOpen(ctx: GateContext, number: number, sender: string | undefined, getComments: () => Promise<IssueComment[]>): Promise<void> {
+  if (ctx.config.classification.issueTriage !== 'label' || !ctx.secrets.jevApiKey) return;
+  if (sender === appLogin(ctx.config)) return;
+  try {
+    const now = await ctx.gh.get<{ title: string; body: string | null; state: string; labels: { name: string }[] }>(`/issues/${number}`);
+    if (now.state !== 'open' || now.title === ctx.config.dashboardIssueTitle || !parseTitle(now.title).ok) return;
+    await triageLabels(ctx, { number, title: now.title, body: now.body, labels: now.labels.map((l) => l.name) }, await getComments(), { proposal: false });
+  } catch (e) {
+    ctx.log(`#${number} の作成時の分類に失敗しました: ${(e as Error).message}`);
+  }
 }
 
 /**

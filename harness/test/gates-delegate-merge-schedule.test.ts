@@ -1,23 +1,19 @@
-// 委任 Merge の期限切れの掃除（定期実行・PR のイベント）と、ダッシュボードの委任 Merge の状態と一覧を確かめる（Issue #212）
+// 委任承認に期限が無いこと（定期実行・PR のイベントでラベルも auto-merge も外さない）と、ダッシュボードの委任承認の状態と一覧を確かめる（Issue #212・#241）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appMark } from '../lib/blocks.ts';
-import { delegateMergeConfig } from '../lib/config.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { onIssue } from '../gates/on-issue.ts';
 import { onPullRequest } from '../gates/on-pr.ts';
 import { onSchedule } from '../gates/stale.ts';
-import { APP, DIFF, config, ctxFor, delegateWorldFake, pr, type DelegateWorld, type FakeGitHub } from './support/gate-fixtures.ts';
-import { acceptanceComment, appRecordComment, countCalls, postedRecord } from './support/stack-fixtures.ts';
+import { DELEGATE, DIFF, config, ctxFor, delegateLabeled, delegateStatusLine, delegateUnlabeled, delegateWorldFake, pr, type DelegateWorld, type FakeGitHub } from './support/gate-fixtures.ts';
+import { acceptanceComment, appRecordComment, countCalls } from './support/stack-fixtures.ts';
 
-const D = delegateMergeConfig(config);
-const LABEL = D.label;
+const MERGE = DELEGATE.mergeLabel;
+const PLAN = DELEGATE.planLabel;
 const GUARDED = 'harness/lib/plan.ts';
 
 const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
 const hoursAgo = (h: number): string => minutesAgo(h * 60);
-const untilOf = (since: string): string => new Date(Date.parse(since) + D.hours * 3600_000).toISOString();
-const labeledBy = (at: string, login = 'me') => ({ event: 'labeled', created_at: at, actor: { login }, label: { name: LABEL } });
+const labeledBy = (at: string, login = 'me', label = MERGE) => delegateLabeled(label, at, login);
 
 const DELEGATE_OK = { eligible: true, reasons: [], skipped: [`ガードレールに触れます: ${GUARDED}`, 'Risk が critical です'], scopeOk: true, outside: [], exclude: [] };
 
@@ -25,16 +21,13 @@ const DELEGATE_OK = { eligible: true, reasons: [], skipped: [`ガードレール
 const delegatedAcceptance = (id: number) =>
   acceptanceComment(id, { riskLevel: 'critical', riskOk: false, autoEligible: false, reasons: [`ガードレールに触れます（人が Merge する）: ${GUARDED}`], delegate: DELEGATE_OK });
 
-/** 自動 Merge の条件を満たす受け付け（low） */
-const autoAcceptance = (id: number) => acceptanceComment(id, { autoEligible: true, reasons: [], delegate: DELEGATE_OK });
-
-/** 委任で auto-merge を付けた App の記録（kind=delegated-merge） */
+/** 委任で auto-merge を付けた App の記録（kind=delegated-merge。期限は無いので until は null） */
 const armedRecord = (id: number, headSha: string, since: string) =>
-  appRecordComment(id, 'delegated-merge', '委任 Merge で自動経路に乗せました。', { version: 1, headSha, patchId: patchId(DIFF), since, until: untilOf(since), by: 'me', skipped: DELEGATE_OK.skipped });
+  appRecordComment(id, 'delegated-merge', '委任承認で自動経路に乗せました。', { version: 1, headSha, patchId: patchId(DIFF), since, until: null, by: 'me', skipped: DELEGATE_OK.skipped });
 
 /** 委任が終わった App の記録（kind=delegated-merge-end） */
 const endRecord = (id: number, headSha: string, reason: string) =>
-  appRecordComment(id, 'delegated-merge-end', '委任 Merge が終わりました。', { version: 1, headSha, reason });
+  appRecordComment(id, 'delegated-merge-end', '委任承認が終わりました。', { version: 1, headSha, reason });
 
 const agentPr = (n: number, patch: Record<string, unknown> = {}) =>
   pr({ number: n, node_id: `PR_${n}`, draft: false, head: { ref: `claude/issue-${n}`, sha: String(n).repeat(40), repo: { full_name: 'o/r' } }, ...patch });
@@ -57,82 +50,63 @@ function dashboardBody(fake: FakeGitHub): string {
   return String(patch.body.body);
 }
 
-// ---- AC4：期限切れ ----
+/** ダッシュボードの委任のラベルを App が外した呼び出し */
+const labelRemovals = (fake: FakeGitHub): string[] =>
+  fake.calls.filter((c) => c.method === 'DELETE' && /\/issues\/1\/labels\//.test(c.path)).map((c) => decodeURIComponent(c.path.split('/labels/')[1]!));
 
-test('定期実行：期限を過ぎた委任は、先に委任で付けた auto-merge を外して終わりの記録を書き、その後でラベルを外してダッシュボードに書く', async () => {
-  const since = hoursAgo(D.hours + 0.5);
-  const sha5 = '5'.repeat(40);
+// ---- 期限は無い ----
+
+test('定期実行：1000 時間前に付けた agent:delegate-merge でも、ラベルを外さず、委任で付けた auto-merge も外さない', async () => {
+  const since = hoursAgo(1000);
   const w: DelegateWorld = {
-    prs: [agentPr(5, ARMED), agentPr(6, ARMED)],
-    comments: { 5: [delegatedAcceptance(91), armedRecord(92, sha5, since)], 6: [autoAcceptance(93)] },
-    dashboardLabels: [LABEL],
+    prs: [agentPr(5, ARMED)],
+    comments: { 5: [delegatedAcceptance(91), armedRecord(92, '5'.repeat(40), since)] },
+    dashboardLabels: [MERGE],
     dashboardEvents: [labeledBy(since)],
   };
   const fake = delegateWorldFake(w);
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
-
-  assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge'), ['PR_5'], 'autoEligible の PR #6 は外さない。#5 は1回だけ');
-  const k5 = kindsOn(fake, 5);
-  assert.ok(k5.includes('delegated-merge-end'), k5.join(','));
-  assert.ok(k5.includes('human-review'), k5.join(','));
-  assert.ok(!k5.includes('auto-merge-removed'), '期限切れの掃除の後に定期照合で二重に外さない');
-  const end = postedRecord(fake, 'delegated-merge-end');
-  assert.equal(end.reason, 'expired');
-  assert.equal(end.headSha, sha5);
-  assert.ok(!w.dashboardLabels.includes(LABEL), 'ラベルを外す');
-
-  const at = (pred: (c: FakeGitHub['calls'][number]) => boolean) => fake.calls.findIndex(pred);
-  const disableAt = at((c) => c.path === '/graphql' && String(c.body?.query).includes('{disablePullRequestAutoMerge('));
-  const endAt = at((c) => c.method === 'POST' && c.path.endsWith('/issues/5/comments') && String(c.body.body).includes(appMark('delegated-merge-end')));
-  const removeAt = at((c) => c.method === 'DELETE' && decodeURIComponent(c.path).endsWith(`/issues/1/labels/${LABEL}`));
-  const noteAt = at((c) => c.method === 'POST' && c.path.endsWith('/issues/1/comments'));
-  assert.ok(disableAt >= 0 && endAt > disableAt, 'auto-merge を外してから終わりの記録を書く');
-  assert.ok(removeAt > endAt, '掃除の後でラベルを外す');
-  assert.ok(noteAt > removeAt, 'ラベルを外せた後でダッシュボードに書く');
-  assert.match(String(fake.calls[noteAt]!.body.body), /期限/);
-
-  // 続けて、App が外したことによる unlabeled でゲートがもう一度起動しても、掃除済みの PR には何もしない
-  const before = fake.calls.length;
-  await onIssue(ctxFor(fake, 'issues', {
-    action: 'unlabeled',
-    issue: { number: 1, title: config.dashboardIssueTitle, body: '', labels: [], state: 'open' },
-    label: { name: LABEL },
-    sender: { login: APP },
-  }));
-  const again = fake.calls.slice(before);
-  assert.deepEqual(kindsOn(fake, 5, again), [], '終わりの記録（removed）も human-review も二度出さない');
-  assert.deepEqual(kindsOn(fake, 1, again), [], 'App が外したときはダッシュボードにコメントしない');
-  assert.ok(!again.some((c) => c.path === '/graphql' && String(c.body?.query).includes('{disablePullRequestAutoMerge(')));
+  assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge'), []);
+  assert.deepEqual(kindsOn(fake, 5), [], '終わりの記録も human-review も auto-merge-removed も出さない');
+  assert.deepEqual(labelRemovals(fake), [], 'App はダッシュボードのラベルを外さない');
+  assert.ok(w.dashboardLabels.includes(MERGE));
+  assert.deepEqual(kindsOn(fake, 1), [], 'ダッシュボードにコメントしない（期限切れの知らせは無い）');
 });
 
-test('定期実行：委任が有効で delegate.eligible の PR の auto-merge は、定期照合でも外さない', async () => {
+test('定期実行：1000 時間前に付けた agent:delegate-plan も外さない', async () => {
+  const since = hoursAgo(1000);
+  const w: DelegateWorld = { prs: [], dashboardLabels: [PLAN], dashboardEvents: [labeledBy(since, 'me', PLAN)] };
+  const fake = delegateWorldFake(w);
+  await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
+  assert.deepEqual(labelRemovals(fake), []);
+  assert.ok(w.dashboardLabels.includes(PLAN));
+});
+
+test('定期実行：委任（計画＋Merge）が有効で delegate.eligible の PR の auto-merge は、定期照合でも外さない', async () => {
   const since = minutesAgo(30);
   const w: DelegateWorld = {
     prs: [agentPr(5, ARMED)],
     comments: { 5: [delegatedAcceptance(91), armedRecord(92, '5'.repeat(40), since)] },
-    dashboardLabels: [LABEL],
+    dashboardLabels: [MERGE],
     dashboardEvents: [labeledBy(since)],
   };
   const fake = delegateWorldFake(w);
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
   assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge'), []);
   assert.deepEqual(kindsOn(fake, 5), []);
-  assert.ok(w.dashboardLabels.includes(LABEL), '期限内のラベルは外さない');
 });
 
-test('定期実行：委任で付けた後に今の差分が自動 Merge の対象（autoEligible）になった PR は、期限切れでも auto-merge を残す', async () => {
-  const since = hoursAgo(D.hours + 0.5);
+test('定期実行：agent:delegate-plan だけなら委任 Merge は無効で、委任で付けた auto-merge は定期照合で外す', async () => {
+  const since = minutesAgo(30);
   const w: DelegateWorld = {
     prs: [agentPr(5, ARMED)],
-    comments: { 5: [armedRecord(92, '5'.repeat(40), since), autoAcceptance(93)] },
-    dashboardLabels: [LABEL],
-    dashboardEvents: [labeledBy(since)],
+    comments: { 5: [delegatedAcceptance(91), armedRecord(92, '5'.repeat(40), since)] },
+    dashboardLabels: [PLAN],
+    dashboardEvents: [labeledBy(since, 'me', PLAN)],
   };
   const fake = delegateWorldFake(w);
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
-  assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge'), [], '委任に頼っていない auto-merge は外さない');
-  assert.deepEqual(kindsOn(fake, 5), [], '終わりの記録も human-review も出さない');
-  assert.ok(!w.dashboardLabels.includes(LABEL), '期限切れのラベルは外す');
+  assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge'), ['PR_5']);
 });
 
 test('定期実行：委任のラベルが無ければ、委任で付けた auto-merge も今までどおり外す', async () => {
@@ -141,28 +115,28 @@ test('定期実行：委任のラベルが無ければ、委任で付けた auto
     prs: [agentPr(5, ARMED)],
     comments: { 5: [delegatedAcceptance(91), armedRecord(92, '5'.repeat(40), since)] },
     dashboardLabels: [],
-    dashboardEvents: [labeledBy(since), { event: 'unlabeled', created_at: minutesAgo(5), actor: { login: 'me' }, label: { name: LABEL } }],
+    dashboardEvents: [labeledBy(since), delegateUnlabeled(MERGE, minutesAgo(5))],
   };
   const fake = delegateWorldFake(w);
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
   assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge'), ['PR_5']);
 });
 
-// ---- PR のイベントでの掃除 ----
+// ---- PR のイベント ----
 
-test('PR のイベント：synchronize の auto-merge の解除の直後に、記録の期限を過ぎたほかの PR の auto-merge を外す', async () => {
-  const since = hoursAgo(D.hours + 0.2);
+test('PR のイベント：synchronize は自分の auto-merge だけを外し、1000 時間前の委任で付けたほかの PR の auto-merge は外さない', async () => {
+  const since = hoursAgo(1000);
   const w: DelegateWorld = {
     prs: [agentPr(5, ARMED), agentPr(6, ARMED)],
     comments: { 6: [delegatedAcceptance(93), armedRecord(94, '6'.repeat(40), since)] },
-    dashboardLabels: [LABEL],
+    dashboardLabels: [MERGE],
     dashboardEvents: [labeledBy(since)],
   };
   const fake = delegateWorldFake(w);
   await onPullRequest(ctxFor(fake, 'pull_request_target', { action: 'synchronize', pull_request: { number: 5 } }));
-  assert.deepEqual(mutationIds(fake, 'disablePullRequestAutoMerge').slice(0, 2), ['PR_5', 'PR_6'], 'synchronize の PR を先に、その後で期限切れの PR');
-  assert.ok(kindsOn(fake, 6).includes('delegated-merge-end'), kindsOn(fake, 6).join(','));
-  assert.equal(postedRecord(fake, 'delegated-merge-end').reason, 'expired');
+  assert.ok(!mutationIds(fake, 'disablePullRequestAutoMerge').includes('PR_6'), mutationIds(fake, 'disablePullRequestAutoMerge').join(','));
+  assert.ok(!kindsOn(fake, 6).includes('delegated-merge-end'), kindsOn(fake, 6).join(','));
+  assert.deepEqual(labelRemovals(fake), []);
 });
 
 test('PR のイベント：ダッシュボードに委任のラベルが無ければ、timeline も開いた PR の一覧も読まない', async () => {
@@ -173,9 +147,9 @@ test('PR のイベント：ダッシュボードに委任のラベルが無け�
   assert.equal(countCalls(fake, 'GET', '/repos/o/r/pulls'), 0);
 });
 
-// ---- AC6：ダッシュボード ----
+// ---- ダッシュボード ----
 
-const MERGED_SECTION = '委任 Merge で Merge された PR';
+const MERGED_SECTION = '委任承認で Merge された PR';
 
 function closedPr(n: number, mergedAt: string | null) {
   return pr({ number: n, node_id: `PR_${n}`, state: 'closed', title: `feat: closed ${n}`, html_url: `https://x/${n}`, merged_at: mergedAt, head: { ref: `claude/issue-${n}`, sha: String(n % 10).repeat(40), repo: { full_name: 'o/r' } } });
@@ -212,29 +186,55 @@ function mergedSection(body: string): string {
   return body.slice(start, next >= 0 ? next : undefined);
 }
 
-test('ダッシュボード：委任 Merge の状態（期限・付けた人）と、委任で Merge された PR（staleHours 以内）を出す', async () => {
-  const since = minutesAgo(30);
-  const fake = delegateWorldFake(closedWorld([LABEL], [labeledBy(since)]));
+async function statusFor(labels: string[], events: unknown[]): Promise<string> {
+  const fake = delegateWorldFake({ prs: [], dashboardLabels: labels, dashboardEvents: events });
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
   const body = dashboardBody(fake);
-  const status = body.split('\n').find((l) => l.includes('委任 Merge') && !l.includes(MERGED_SECTION));
-  assert.ok(status, `委任 Merge の状態の行がありません\n${body}`);
-  assert.match(status, /有効/);
-  assert.ok(status.includes(untilOf(since)), `期限（${untilOf(since)}）が状態の行にありません: ${status}`);
-  assert.ok(status.includes('@me'), status);
-  const section = mergedSection(body);
+  const line = delegateStatusLine(body);
+  assert.ok(line, `委任承認の状態の行がありません\n${body}`);
+  return line;
+}
+
+test('ダッシュボード：agent:delegate-merge が有効なら状態の行は「**委任承認: 計画＋Merge**」（付けた人を書き、期限は書かない）', async () => {
+  const line = await statusFor([MERGE], [labeledBy(hoursAgo(1000))]);
+  assert.ok(line.includes('**委任承認: 計画＋Merge**'), line);
+  assert.ok(line.includes('@me'), line);
+  assert.ok(!line.includes('期限'), line);
+});
+
+test('ダッシュボード：agent:delegate-plan だけが有効なら状態の行は「**委任承認: 計画のみ**」', async () => {
+  const line = await statusFor([PLAN], [labeledBy(minutesAgo(30), 'me', PLAN)]);
+  assert.ok(line.includes('**委任承認: 計画のみ**'), line);
+  assert.ok(line.includes('@me'), line);
+});
+
+test('ダッシュボード：どちらも有効でなければ状態の行は「**委任承認: 無効**」（ラベルなし・停止スイッチ・Bot が付けた）', async () => {
+  const cases: [string, string[], unknown[]][] = [
+    ['ラベルなし', [], []],
+    ['停止スイッチ', [MERGE, config.autoMergeStopLabel], [labeledBy(minutesAgo(30))]],
+    ['停止スイッチ（計画のみ）', [PLAN, config.autoMergeStopLabel], [labeledBy(minutesAgo(30), 'me', PLAN)]],
+    ['Bot が付けた', [MERGE], [labeledBy(minutesAgo(30), 'someone[bot]')]],
+  ];
+  for (const [name, labels, events] of cases) {
+    const line = await statusFor(labels, events);
+    assert.ok(line.includes('**委任承認: 無効**'), `${name}: ${line}`);
+  }
+});
+
+test('ダッシュボード：委任承認で Merge された PR（staleHours 以内）を出す', async () => {
+  const fake = delegateWorldFake(closedWorld([MERGE], [labeledBy(minutesAgo(30))]));
+  await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
+  const section = mergedSection(dashboardBody(fake));
   assert.match(section, /#8\b/);
   for (const n of [9, 10, 11, 12]) assert.doesNotMatch(section, new RegExp(`#${n}\\b`), `#${n} は出さない`);
 });
 
 test('ダッシュボード：ラベルを外した後でも、staleHours 以内に委任で Merge された PR は一覧に出る（状態は無効）', async () => {
   const since = hoursAgo(1.5);
-  const fake = delegateWorldFake(closedWorld([], [labeledBy(since), { event: 'unlabeled', created_at: hoursAgo(0.5), actor: { login: 'me' }, label: { name: LABEL } }]));
+  const fake = delegateWorldFake(closedWorld([], [labeledBy(since), delegateUnlabeled(MERGE, hoursAgo(0.5))]));
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date());
   const body = dashboardBody(fake);
-  const status = body.split('\n').find((l) => l.includes('委任 Merge') && !l.includes(MERGED_SECTION));
-  assert.ok(status, body);
-  assert.match(status, /無効/);
+  assert.ok(delegateStatusLine(body)?.includes('**委任承認: 無効**'), body);
   assert.match(mergedSection(body), /#8\b/);
 });
 

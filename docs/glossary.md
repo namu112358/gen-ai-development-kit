@@ -102,7 +102,7 @@ App が書く必須チェック。計画のある Issue を `Closes` しない P
 
 ### `agent/tests`
 
-App が書く必須チェック。PR の差分からテストの削除、skip・only・todo の追加、アサーションの削除・書き換えを検出して止める。例外は人が付ける `test:exempt`。人が Merge する PR（Human Merge）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の確認に回す。詳細：[operations.md](operations.md#テストの改ざん検査)
+App が書く必須チェック。PR の差分からテストの削除、skip・only・todo の追加、アサーションの削除・書き換えを検出して止める。例外は人が付ける `test:exempt`。人が Merge する PR（Human Merge）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の確認に回す。`jev.testTamper` が enforce なら、アサーションの書き換えだけの差分は Jev が弱めていないと判定すれば通る（既定は shadow で記録だけ）。詳細：[operations.md](operations.md#テストの改ざん検査)
 
 ### Human Merge / 自動 Merge
 
@@ -118,9 +118,9 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ダッシュボード Issue に付ける `agent:auto-merge-stopped` ラベル。付いている間は自動 Merge がすべて止まり、自動 Merge された PR が revert されると App が自動で付ける。詳細：[operations.md](operations.md#止める仕組み)
 
-### 委任 Merge
+### 委任承認
 
-人が期限つきで Merge の判断を App に委ねること。ダッシュボード Issue に `agent:delegate-merge` を人だけが付け、`delegateMerge.hours` の間は、ガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する（`delegateMergeExclude` に当たるものは除く）。停止スイッチが優先する。期限が切れると定期実行がラベルを外し、委任で付けた auto-merge を外して Human Merge に戻す。詳細：[operations.md](operations.md#ラベル)
+人が計画ゲートの承認と Merge の判断を App に委ねること。期限は無く、ダッシュボード Issue に人だけが付けるラベルが付いている間ずっと有効で、停止スイッチが優先する。`agent:delegate-plan` は委任承認（計画）で、ガードレールや想定 Risk だけで計画ゲートに止まる計画に App が `agent:plan-ok` を付ける。`agent:delegate-merge` は委任承認（計画＋Merge）で、それに加えてガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する。どちらも `delegateMergeExclude` に当たるものは委ねない。旧称は委任 Merge（今の委任承認（計画＋Merge））。詳細：[risk-policy.md](risk-policy.md#委任承認)
 
 ### bypass モード
 

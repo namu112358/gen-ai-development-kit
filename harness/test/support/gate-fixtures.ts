@@ -1,5 +1,5 @@
 import { appMark, claudeMark, renderBlock } from '../../lib/blocks.ts';
-import { appLogin, loadConfig } from '../../lib/config.ts';
+import { appLogin, delegateConfig, loadConfig } from '../../lib/config.ts';
 import { GitHub, type RequestOptions, type Transport } from '../../lib/github.ts';
 import type { Claim, ClaimStage } from '../../lib/queue.ts';
 import { RISK_QUESTIONS, type Verdict } from '../../lib/verdict.ts';
@@ -74,9 +74,9 @@ export function verdict(patch: Partial<Verdict> = {}): Verdict {
 
 /**
  * 判定の受け付けに必要な応答を揃えた偽の GitHub。
- * dashboardEvents はダッシュボード（#1）の timeline の応答（委任 Merge のラベルを付けた記録）、
+ * dashboardEvents はダッシュボード（#1）の timeline の応答（委任承認のラベルを付けた記録）、
  * issueComments は Issue #3 のコメント（既定は planGateComment だけ。計画ゲートのテストは critiqueClaim を足す）、
- * closedPrs は閉じた PR の一覧（GET /pulls?state=closed。定期実行のダッシュボードの「委任 Merge で Merge された PR」）の応答。
+ * closedPrs は閉じた PR の一覧（GET /pulls?state=closed。定期実行のダッシュボードの「委任承認で Merge された PR」）の応答。
  */
 export function acceptanceFake(state: { pr: ReturnType<typeof pr>; issueComments?: unknown[]; dashboardLabels?: string[]; prComments?: unknown[]; allowAutoMerge?: boolean; behindBy?: number; dashboardEvents?: unknown[]; closedPrs?: unknown[] }): FakeGitHub {
   let autoMerge: unknown = state.pr.auto_merge;
@@ -157,7 +157,19 @@ export function verdictComment(patch: Partial<Verdict> = {}, association = 'OWNE
 /** 今から hours 時間前の ISO 時刻 */
 export const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3600_000).toISOString();
 
-/** 委任 Merge のテスト用の世界（delegateWorldFake が書き込みを反映する） */
+/** 委任承認のラベル（計画のみ：planLabel、計画＋Merge：mergeLabel） */
+export const DELEGATE = delegateConfig(config);
+
+/** ダッシュボードの timeline の、委任承認のラベルを付けた・外した記録 */
+export const delegateLabeled = (label: string, at: string, login = 'me') => ({ event: 'labeled', created_at: at, actor: { login }, label: { name: label } });
+export const delegateUnlabeled = (label: string, at: string, login = 'me') => ({ event: 'unlabeled', created_at: at, actor: { login }, label: { name: label } });
+
+/** ダッシュボードの本文のうち、委任承認の状態の行（「**委任承認: 計画＋Merge**」「**委任承認: 計画のみ**」「**委任承認: 無効**」のどれかで始まる） */
+export function delegateStatusLine(body: string): string | undefined {
+  return body.split('\n').find((l) => l.includes('**委任承認: '));
+}
+
+/** 委任承認のテスト用の世界（delegateWorldFake が書き込みを反映する） */
 export interface DelegateWorld {
   /** 開いた PR（auto_merge は GraphQL の付け外しで書き換わる） */
   prs: Record<string, any>[];
@@ -173,19 +185,47 @@ export interface DelegateWorld {
   dashboardLabels: string[];
   /** ダッシュボードの timeline（ラベルの付け外しが足される） */
   dashboardEvents?: unknown[];
+  /**
+   * ダッシュボード以外の開いた Issue（番号 → ラベル。App のラベルの付け外しが反映される）。
+   * Issue の一覧（GET /issues?...、labels= で絞れる）と GET /issues/{n} で返す
+   */
+  issues?: Record<number, string[]>;
+  /** Issue ごとの events（GET /issues/{n}/events・/timeline。App のラベルの付け外しが足される） */
+  issueEvents?: Record<number, unknown[]>;
 }
 
 /**
- * 委任 Merge のテスト用。複数の PR・ダッシュボードのラベルと timeline・閉じた PR の一覧を持つ偽の GitHub。
- * App のコメント・ダッシュボードのラベルの付け外し・auto-merge の付け外しを w に反映する（続けて別のイベントを渡すと、その後の状態を読む）。
+ * 委任承認のテスト用。複数の PR・Issue・ダッシュボードのラベルと timeline・閉じた PR の一覧を持つ偽の GitHub。
+ * App のコメント・ラベルの付け外し・auto-merge の付け外しを w に反映する（続けて別のイベントを渡すと、その後の状態を読む）。
  */
 export function delegateWorldFake(w: DelegateWorld): FakeGitHub {
   const comments = (w.comments ??= {});
   const events = (w.dashboardEvents ??= []);
+  const issues = (w.issues ??= {});
+  const issueEvents = (w.issueEvents ??= {});
   const all = (): Record<string, any>[] => [...w.prs, ...(w.closedPrs ?? [])];
-  const dashboard = () => ({ number: 1, title: config.dashboardIssueTitle, html_url: 'd', updated_at: '2026-09-27T00:00:00Z', user: { login: APP }, labels: w.dashboardLabels.map((name) => ({ name })) });
+  const dashboard = () => ({ number: 1, title: config.dashboardIssueTitle, html_url: 'd', updated_at: '2026-09-27T00:00:00Z', state: 'open', user: { login: APP }, labels: w.dashboardLabels.map((name) => ({ name })) });
+  const issueItem = (n: number) => ({ number: n, title: `feat: Issue ${n}`, html_url: `i${n}`, updated_at: new Date().toISOString(), state: 'open', user: { login: 'me' }, labels: issues[n]!.map((name) => ({ name })) });
+  /** Issue の一覧。creator= はダッシュボードだけ、labels= はすべてのラベルが付いたものだけ */
+  const listIssues = (query: string) => {
+    const q = new URLSearchParams(query);
+    if (q.get('creator')) return [dashboard()];
+    const want = (q.get('labels') ?? '').split(',').filter(Boolean);
+    return [dashboard(), ...Object.keys(issues).map((n) => issueItem(Number(n)))].filter((i) => want.every((l) => i.labels.some((x) => x.name === l)));
+  };
   let nextId = 1000;
   return new FakeGitHub()
+    .on('GET', /\/issues\?(.*)$/, (m) => listIssues(m[1]!))
+    .on('GET', /\/issues\/(\d+)$/, (m) => {
+      if (!issues[Number(m[1])]) throw new Error(`404 issues/${m[1]}`);
+      return { ...issueItem(Number(m[1])), body: '' };
+    })
+    .on('GET', /\/issues\/comments\/(\d+)$/, (m) => {
+      const found = Object.values(comments).flat().find((c) => (c as { id: number }).id === Number(m[1]));
+      if (!found) throw new Error(`404 issues/comments/${m[1]}`);
+      return found;
+    })
+    .on('GET', /\/issues\/(\d+)\/(events|timeline)/, (m) => issueEvents[Number(m[1])] ?? [])
     .on('GET', /\/repos\/o\/r$/, () => ({ allow_auto_merge: true }))
     .on('GET', /\/pulls\/(\d+)$/, (m) => {
       const found = all().find((p) => p.number === Number(m[1]));
@@ -196,12 +236,9 @@ export function delegateWorldFake(w: DelegateWorld): FakeGitHub {
     .on('GET', /\/pulls\/(\d+)\/files/, (m) => (w.files?.[Number(m[1])] ?? ['docs/a.md']).map((filename) => ({ filename, additions: 1, deletions: 1 })))
     .on('GET', /\/pulls\/\d+\/reviews/, () => [])
     .on('GET', /\/issues\/(\d+)\/comments/, (m) => comments[Number(m[1])] ?? (Number(m[1]) === 3 ? [planGateComment] : []))
-    .on('GET', /\/issues\/\d+\/events/, () => [])
     .on('GET', /\/issues\/1\/timeline/, () => events)
     .on('GET', /\/pulls\?state=open/, () => w.prs.map((p) => ({ ...p })))
     .on('GET', /\/pulls\?state=closed/, () => w.closedPrs ?? [])
-    .on('GET', /\/issues\?state=open&creator=/, () => [dashboard()])
-    .on('GET', /\/issues\?state=open&per_page/, () => [dashboard()])
     .on('GET', /\/issues\/1$/, () => ({ ...dashboard(), body: '' }))
     .on('PATCH', /\/issues\/1$/, () => ({}))
     .on('POST', /\/graphql/, (_m, body) => {
@@ -224,19 +261,29 @@ export function delegateWorldFake(w: DelegateWorld): FakeGitHub {
     .on('POST', /\/pulls\/\d+\/reviews/, () => ({}))
     .on('PUT', /\/pulls\/\d+\/(update-branch|merge)/, () => ({}))
     .on('POST', /\/issues\/(\d+)\/labels$/, (m, body) => {
-      if (Number(m[1]) === 1) {
-        for (const name of body.labels as string[]) {
+      const n = Number(m[1]);
+      for (const name of body.labels as string[]) {
+        const labeled = { event: 'labeled', created_at: new Date().toISOString(), label: { name }, actor: { login: APP } };
+        if (n === 1) {
           w.dashboardLabels.push(name);
-          events.push({ event: 'labeled', created_at: new Date().toISOString(), label: { name }, actor: { login: APP } });
+          events.push(labeled);
+        } else if (issues[n]) {
+          if (!issues[n].includes(name)) issues[n].push(name);
+          (issueEvents[n] ??= []).push(labeled);
         }
       }
       return [];
     })
     .on('DELETE', /\/issues\/(\d+)\/labels\/(.+)$/, (m) => {
       const name = decodeURIComponent(m[2]!);
-      if (Number(m[1]) === 1) {
+      const n = Number(m[1]);
+      const unlabeled = { event: 'unlabeled', created_at: new Date().toISOString(), label: { name }, actor: { login: APP } };
+      if (n === 1) {
         w.dashboardLabels = w.dashboardLabels.filter((l) => l !== name);
-        events.push({ event: 'unlabeled', created_at: new Date().toISOString(), label: { name }, actor: { login: APP } });
+        events.push(unlabeled);
+      } else if (issues[n]?.includes(name)) {
+        issues[n] = issues[n].filter((l) => l !== name);
+        (issueEvents[n] ??= []).push(unlabeled);
       }
       return null;
     });

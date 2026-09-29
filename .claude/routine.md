@@ -11,7 +11,7 @@
 - **ラベルの変更は、ゲートを起動するコメント（計画・判定）を投稿する前に済ませる。** MCP のラベル更新はラベルの一覧を丸ごと置き換えるので、投稿の後に更新すると、その間に App が付けたラベル（`agent:plan-ok` など）を消してしまう。更新するときは直前に現在のラベルを読み、変えたいものだけを足し引きした一覧を渡す。
 - **承認を求める状況を作らない。** Routine には確認する人がいない。操作が拒否されたら、同じ目的を別のコマンドや別の経路で試さず、そのアクションを飛ばして（`render-claim --release`）、何が足りないかを最後の要約に書く。環境変数・資格情報・トークンは調べない。
 - **作業は常に worktree で行う。** `node harness/scripts/agent.ts worktree <ブランチ> --routine` で作り（出力がパス）、そのディレクトリで作業する（`--routine` は着手宣言の確かめを飛ばす印。Routine の環境には `gh` が無く、確かめは GitHub の API を呼ぶため）。判定のテスト実行は `worktree <headSha> --detach`。終わったら `worktree-remove <ブランチ|SHA>` で消す。clone した作業ツリーでは直接作業しない。
-- **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge`・`agent:bypass-merge` の付け外し、main への push、force push、Issue 本文の書き換え。これらは App と人の役割。決定の記録（```` ```agent-decision ````）の投稿もしない（人の答えを記録するもので、人のいない Routine は書かない）。
+- **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` の付け外し、main への push、force push、Issue 本文の書き換え。これらは App と人の役割。決定の記録（```` ```agent-decision ````）の投稿もしない（人の答えを記録するもので、人のいない Routine は書かない）。
 
 ## 手順
 
