@@ -4,6 +4,8 @@
  * 付いている PR は現在の差分に対して有効な判定が自動 Merge 条件を満たすときだけ通す。
  * 委任 Merge が有効（delegateMode）なら、自動 Merge 条件を満たさなくても、受け付けの記録の delegate.eligible が真なら判定由来の理由では止めない
  * （ガードレール・Risk だけを飛ばす。harness/lib/delegate.ts）。
+ * bypass モードが有効（bypassMode）なら、自動 Merge の対象でも委任でも通らない受け付けのうち、bypass.eligible が真のものを判定由来の理由では止めない
+ * （Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev を飛ばす。harness/gates/bypass.ts）。
  */
 
 /** 受け付け時にまとめる、委任 Merge なら自動経路に乗せてよいか（harness/lib/delegate.ts の delegateEligibility） */
@@ -18,6 +20,15 @@ export interface DelegateRecord {
   outside: string[];
   /** delegateMergeExclude に当たったファイル */
   exclude: string[];
+}
+
+/** 受け付け時にまとめる、bypass モードなら自動経路に乗せてよいか（harness/gates/bypass.ts の bypassEligibility） */
+export interface BypassRecord {
+  eligible: boolean;
+  /** bypass でも自動経路に乗せない理由 */
+  reasons: string[];
+  /** bypass なら飛ばす理由（Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev） */
+  skipped: string[];
 }
 
 export interface Acceptance {
@@ -43,6 +54,8 @@ export interface Acceptance {
   riskRationale?: string;
   /** 委任 Merge なら自動経路に乗せてよいか（無い古い記録は委任の対象外） */
   delegate?: DelegateRecord;
+  /** bypass モードなら自動経路に乗せてよいか（無い古い記録は bypass の対象外） */
+  bypass?: BypassRecord;
 }
 
 export interface JevRecord {
@@ -72,6 +85,8 @@ export interface MergeRouteInput {
   stacked?: boolean;
   /** 委任 Merge が今有効か（harness/lib/delegate.ts の delegateState。省略時は偽） */
   delegateMode?: boolean;
+  /** bypass モードが今有効か（harness/gates/bypass.ts の bypassState。省略時は偽） */
+  bypassMode?: boolean;
 }
 
 export interface CheckOutcome {
@@ -90,17 +105,26 @@ export function evaluateMergeRoute(input: MergeRouteInput): CheckOutcome {
   if (!input.autoMergeMode) reasons.push('自動 Merge モードが無効です');
   if (input.stacked) reasons.push('base が既定ブランチではありません（Stacked PR は Human Merge）');
   const delegated = input.delegateMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.delegate?.eligible === true;
+  const bypassed = !delegated && input.bypassMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.bypass?.eligible === true;
   if (!input.acceptance) {
     reasons.push('現在の差分に対して有効な判定がありません');
-  } else if (!input.acceptance.autoEligible && !delegated) {
+  } else if (!input.acceptance.autoEligible && !delegated && !bypassed) {
     reasons.push(...input.acceptance.reasons);
     if (input.delegateMode && input.acceptance.delegate) reasons.push(...input.acceptance.delegate.reasons.map((r) => `委任 Merge でも不可: ${r}`));
+    if (input.bypassMode && input.acceptance.bypass) reasons.push(...input.acceptance.bypass.reasons.map((r) => `bypass でも不可: ${r}`));
   }
   if (reasons.length === 0 && delegated) {
     return {
       conclusion: 'success',
       title: '委任 Merge の条件を満たしています',
       summary: ['委任 Merge が有効なため、次の理由を飛ばして自動経路に乗せます。', '', ...input.acceptance!.delegate!.skipped.map((r) => `- ${r}`)].join('\n'),
+    };
+  }
+  if (reasons.length === 0 && bypassed) {
+    return {
+      conclusion: 'success',
+      title: 'bypass モードの条件を満たしています',
+      summary: ['bypass モードが有効なため、次の理由を飛ばして自動経路に乗せます。', '', ...input.acceptance!.bypass!.skipped.map((r) => `- ${r}`)].join('\n'),
     };
   }
   if (reasons.length === 0) {
