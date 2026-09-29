@@ -10,7 +10,7 @@ import {
   PANEL_MODES, PANEL_OUTPUT_NAMES, type CheckResult, type PanelMode, type PanelRecord,
 } from '../lib/review-panel.ts';
 import { checkJudgeInput, judgedHeadOf, judgedPrOf, splitArgs } from '../lib/session-inputs.ts';
-import { sessionFromEnv } from '../lib/session.ts';
+import { sessionFromEnv, transcriptSessionId } from '../lib/session.ts';
 import type { PullRequest } from '../lib/state.ts';
 import { findSessionTranscripts } from '../lib/usage.ts';
 import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
@@ -127,7 +127,7 @@ function findings(dir: string): string {
 
 /** サブエージェントの jsonl と、同じ名前の meta.json */
 function subagentEntries(session?: string): { meta: { agentType?: string; description?: string }; lines: string[] }[] {
-  const [, ...subagents] = findSessionTranscripts(process.cwd(), session);
+  const [, ...subagents] = findSessionTranscripts(process.cwd(), session, transcriptSessionId(process.env));
   return subagents.flatMap((f) => {
     const metaPath = join(dirname(f), `${basename(f, '.jsonl')}.meta.json`);
     try {
