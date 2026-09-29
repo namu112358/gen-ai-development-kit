@@ -17,6 +17,7 @@ import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, type LabelAuditRow } from '../lib/label-rules.ts';
 import { expectedPlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
 import { collectQaRetro, parseQaRetroArgs } from '../lib/qa-retro.ts';
+import { localChangedFiles, scopeCheck } from '../lib/scope-check.ts';
 import { CLAIM_STAGES, claimValueAfterPlan, SESSION_ID_MISSING, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
 import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
@@ -66,6 +67,12 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts ensure-claim <番号>        このセッションの着手宣言（持ち主）があるかを確かめるだけ（PR を作る前に使う）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント（このセッションの ID が得られなければ止まる）
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
+ *   node harness/scripts/agent.ts scope-check <issue> [--base <ref>]
+ *                                                           PR を出す前に、今のディレクトリ（worktree）の変更が計画の files に収まるかを、App の範囲照合と同じ関数で確かめる（読むだけ。#290）。
+ *                                                           先に git fetch origin <既定ブランチ> をし、base（既定は origin/<既定ブランチ>）との merge-base から作業ツリーまでの変更
+ *                                                           （リネームは旧・新の両方）と未追跡のファイル（untracked に分けて示す）を照らす。出力は JSON：scope（agent/scope と同じ、ゲートを通った計画）、
+ *                                                           delegate（委任・bypass の範囲照合に使える計画か。使えなければ reason と、最新の計画と照らした latestPlanOutside）。
+ *                                                           使える計画があって範囲の外が無ければ終了コード 0、そうでなければ 1
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）。
  *                                                           見込みは批評の関所を含む（critique が無い、またはこの Issue に段階 plan-critique の宣言が無ければ止まる見込み）
  *   node harness/scripts/agent.ts post-decision <issue> <file>  決定の記録（agent-decision）を検査して投稿（App の最新の計画ゲートの記録の計画コメントと、答えの無い項目が無いことを確かめる。ラベルは変えない）
@@ -355,6 +362,27 @@ async function showPlan(gh: GitHub, n: number): Promise<void> {
     planCommentBody: intact ? planComment!.body : null,
     note: intact ? undefined : '計画コメントはゲート通過後に編集されたか見つかりません。gate.plan（App の写し）だけに従ってください',
   }, null, 2));
+}
+
+/** scope-check：ローカルの変更を計画の files と照らし、JSON を出して終了コードで終わる（読むだけ） */
+async function scopeCheckCommand(gh: GitHub, n: number, args: string[]): Promise<void> {
+  if (!Number.isInteger(n) || n <= 0) fail(['scope-check <issue> [--base <ref>]']);
+  const i = args.indexOf('--base');
+  const base = i >= 0 ? args[i + 1] : `origin/${config.defaultBranch}`;
+  if (!base) fail(['--base の後に ref がありません']);
+  const cwd = process.cwd();
+  // base が古いと main 側の変更が混ざるので、既定の base のときは先に取り込む
+  const fetched = i >= 0 ? null : spawnSync('git', ['fetch', '-q', 'origin', config.defaultBranch], { cwd, encoding: 'utf8' });
+  const note = fetched && fetched.status !== 0 ? `git fetch origin ${config.defaultBranch} に失敗しました（base が古いおそれ）: ${(fetched.stderr ?? '').trim()}` : undefined;
+  let files;
+  try {
+    files = localChangedFiles(cwd, base);
+  } catch (e) {
+    fail([(e as Error).message]);
+  }
+  const report = await scopeCheck(gh, config, n, files);
+  console.log(JSON.stringify({ base, ...report, note }, null, 2));
+  process.exitCode = report.exitCode;
 }
 
 /** 一時ディレクトリにファイルを書き、パスを返す */
@@ -783,6 +811,7 @@ async function main(): Promise<void> {
     case 'ensure-claim': return ensureOwnClaim(gh, n);
     case 'release': return release(gh, n);
     case 'show-plan': return showPlan(gh, n);
+    case 'scope-check': return scopeCheckCommand(gh, n, args);
     case 'post-plan': return postPlan(gh, n, args[1]!);
     case 'post-decision': return postDecision(gh, n, args[1]!);
     case 'post-verdict': return postVerdict(gh, n, args[1]!);
