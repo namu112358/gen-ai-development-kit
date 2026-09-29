@@ -44,6 +44,17 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
    - 宣言で負けて進めなかった Issue：「#番号 は session … が着手中」（引き継ぐなら人が決めて `--takeover`）
 
+## サブエージェントの ship として動くとき
+
+fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md) の「入れ子の方式」）で、fleet からサブエージェントとして呼ばれたときは、手順1〜9を次のとおり変えて進める。人とは話さず、fleet に返す。
+
+- 最初に、自分が Agent ツールを使えるかを確かめる。使えなければ何もせず（着手宣言もしない）「入れ子不可」と返す。
+- 各 skill が AskUserQuestion で人に聞くところ（plan-critic の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、引き継ぎ（`--takeover`）、計画の `files` の外の変更など）では聞かずに止まり、Issue 番号・段階・聞きたいこと・選択肢（おすすめを先頭）を返す。宣言の扱いは、人の判断待ちで止めるときと同じ（必要なら `release <番号>`）。fleet から答えを渡されて呼び直されたら、その答えを人の答えとして続きから進める。
+- implement の前と sync の前に、fleet から渡された Issue 番号の集合と `--max` で `node harness/scripts/agent.ts fleet-status [--max <n>] <番号>...` を読み、自分の行が「待つ」なら進めずに、その理由を返す（自分の番号だけで読むと、ほかの Issue との重なり・PR 同士の衝突・本数が数えられない）。
+- `claim <番号> --manual --stage implement` が領域の上限（`areaConcurrency`）で止まったら、`--force` を付けずに「待つ（領域の上限）」として返す（`--force` を付けるかは fleet が決める）。
+- 手順9の一覧は人に出さず、その項目（Merge・例外ラベル・setup の要否・Merge 後の確かめ）を返す。fleet がまとめて人に出す。
+- 返すもの：Issue 番号、PR 番号（あれば）、終わった状態（人の Merge 待ち・人の判断待ち・待つ・入れ子不可・人に返す条件に当たった）、人に聞くこと、人がすることの項目、待つ理由。
+
 ## 終わりの状態
 
 - 次のどちらか。
