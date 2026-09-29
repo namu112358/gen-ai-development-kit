@@ -7,14 +7,14 @@ import { loadConfig } from '../lib/config.ts';
 import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import {
-  composePanel, parseChangedLines, parsePanelOutputs, parsePanelRecord, pastPrMaterial, previousFromJudgeInput, renderPanelRecord, subagentCost,
+  composePanel, npmCiFailureMessage, parseChangedLines, parsePanelOutputs, parsePanelRecord, pastPrMaterial, previousFromJudgeInput, renderPanelRecord, subagentCost,
   PANEL_MODES, PANEL_OUTPUT_NAMES, type CheckResult, type PanelMode, type PanelRecord,
 } from '../lib/review-panel.ts';
 import { checkJudgeInput, judgedHeadOf, judgedPrOf, splitArgs } from '../lib/session-inputs.ts';
 import { sessionFromEnv, transcriptSessionId } from '../lib/session.ts';
 import type { PullRequest } from '../lib/state.ts';
 import { findSessionTranscripts } from '../lib/usage.ts';
-import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
+import { addWorktree, mainRepoRoot, npmCommand, removeWorktree } from '../lib/worktree.ts';
 
 /**
  * 合体版のレビュー（.claude/skills/review-panel/SKILL.md）の CLI。判断は harness/lib/review-panel.ts の純粋関数で行い、ここは git・npm・API を呼ぶだけ。
@@ -103,9 +103,13 @@ function check(inputFile: string): string {
   const opts = { root: mainRepoRoot(), defaultBranch: config.defaultBranch };
   const path = addWorktree(head, true, opts);
   try {
-    const ci = spawnSync('npm', ['ci'], { cwd: path, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    if (ci.status !== 0) throw new Error(`npm ci が失敗しました（⑧の指摘にはしません。やり直すか人に返す）:\n${`${ci.stdout ?? ''}${ci.stderr ?? ''}`.trim().split('\n').slice(-20).join('\n')}`);
-    const r = spawnSync('npm', ['run', 'check'], { cwd: path, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    const npm = (script: 'ci' | 'check') => {
+      const { command, args, shell } = npmCommand(process.platform, script);
+      return spawnSync(command, args, { cwd: path, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell });
+    };
+    const ci = npm('ci');
+    if (ci.error || ci.status !== 0) throw new Error(npmCiFailureMessage(ci));
+    const r = npm('check');
     if (r.error) throw r.error;
     const output = `${r.stdout ?? ''}${r.stderr ?? ''}`.trimEnd().split('\n').slice(-TAIL_LINES).join('\n');
     const result: CheckResult = { headSha: head, exitCode: r.status ?? 1, outputTail: output };
