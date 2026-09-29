@@ -41,14 +41,14 @@ const trimmedLines = (text: string): Set<string> => new Set(text.split('\n').map
 
 // ---- 担当の定義 ----
 
-test('担当の定義：name がファイル名、description がある、model が決まったもの、tools はちょうど Read, Grep, Glob, Bash', () => {
+test('担当の定義：name がファイル名、description がある、model が決まったもの、tools はちょうど Read, Grep, Glob, Bash, Write', () => {
   for (const [name, model] of Object.entries(AGENTS)) {
     assert.ok(existsSync(join(root, agentPath(name))), `${name}.md がありません`);
     const fm = frontmatter(read(agentPath(name)));
     assert.equal(fm.name, name, `${name}: name`);
     assert.ok(fm.description, `${name}: description がありません`);
     assert.equal(fm.model, model, `${name}: model`);
-    assert.equal(fm.tools, 'Read, Grep, Glob, Bash', `${name}: tools`);
+    assert.equal(fm.tools, 'Read, Grep, Glob, Bash, Write', `${name}: tools`);
     assert.ok(!/WebFetch|WebSearch|mcp/i.test(fm.tools ?? ''), `${name}: 外に出るツールが無い`);
   }
 });
