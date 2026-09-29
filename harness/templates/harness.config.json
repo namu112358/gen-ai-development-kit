@@ -1,0 +1,149 @@
+{
+  "$comment": "導入先の harness.config.json の雛形（harness/managed.json の projectOwned。初回だけ写し、以後は導入先が持つ）。書き換える場所：appSlug（setup.ts app-convert が書く）、projectChecks（導入先の CI のチェック名）、guardrailPaths（ハーネスが配るものに加え、導入先で Agent を縛る仕組みがあれば足す）、classification.areas（導入先の領域）、humanMergePaths（認証・マイグレーション・課金など、必ず人が Merge するパス）。それ以外は既定値のままでよい",
+  "appSlug": "",
+  "defaultBranch": "main",
+  "agentBranchPrefix": "claude/",
+  "mergeMethod": "SQUASH",
+  "projectChecks": [
+    {
+      "context": "ci"
+    }
+  ],
+  "routine": {
+    "maxItemsPerRun": 5,
+    "humanClaimStaleHours": 6,
+    "routineClaimTakeoverMinutes": 90
+  },
+  "testPatterns": [
+    "**/*.test.*",
+    "**/*.spec.*",
+    "**/test/**",
+    "**/tests/**",
+    "**/__tests__/**"
+  ],
+  "guardrailPaths": [
+    "harness/lib/**",
+    "harness/gates/**",
+    "harness/scripts/**",
+    "harness/templates/**",
+    "harness/CLAUDE.harness.md",
+    ".claude/skills/**",
+    ".claude/agents/**",
+    ".claude/hooks/**",
+    ".claude/routine.md",
+    ".github/workflows/gate.yml",
+    ".github/ISSUE_TEMPLATE/agent-task.yml",
+    "harness.config.json",
+    "CLAUDE.md",
+    ".claude/settings.json"
+  ],
+  "guardrailExclude": [
+    "harness/lib/usage.ts",
+    "harness/lib/classify.ts",
+    "harness/lib/worktree.ts",
+    "harness/lib/issue-triage.ts",
+    "harness/lib/queue.ts",
+    "harness/lib/concurrency.ts"
+  ],
+  "areaConcurrency": {
+    "harness": 3
+  },
+  "fixLoop": {
+    "normalLimit": 2,
+    "criticalLimit": 3
+  },
+  "staleHours": 24,
+  "dashboardIssueTitle": "Agent ダッシュボード",
+  "reviewPanel": {
+    "mode": "shadow"
+  },
+  "jev": {
+    "mode": "shadow",
+    "model": "jev-1.13.0",
+    "maxDiffChars": 80000,
+    "thresholds": {
+      "lowProbability": 0.9,
+      "noulSafe": 0.9,
+      "labelProbability": 0.8
+    }
+  },
+  "autoMergeStopLabel": "agent:auto-merge-stopped",
+  "humanMergePaths": [],
+  "classification": {
+    "sizes": [
+      [
+        "XS",
+        10
+      ],
+      [
+        "S",
+        30
+      ],
+      [
+        "M",
+        100
+      ],
+      [
+        "L",
+        500
+      ],
+      [
+        "XL",
+        1000
+      ]
+    ],
+    "sizeExclude": [
+      "package-lock.json",
+      "**/*.lock",
+      "**/*.snap"
+    ],
+    "areas": {
+      "harness": [
+        "harness/**",
+        ".github/**",
+        ".claude/**",
+        "CLAUDE.md",
+        "harness.config.json"
+      ]
+    },
+    "issueTriage": "label"
+  },
+  "pricing": {
+    "$comment": "推定料金用の単価（100 万トークンあたり USD）。2026-09 時点の推定値なので、改定されたら更新する。キーはモデル ID（完全一致、無ければ前方一致）。",
+    "claude-sonnet-5": {
+      "input": 2,
+      "output": 10,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4,
+      "cacheRead": 0.2
+    },
+    "claude-opus-5-5": {
+      "input": 4,
+      "output": 20,
+      "cacheWrite5m": 5,
+      "cacheWrite1h": 8,
+      "cacheRead": 0.2
+    },
+    "claude-opus-5": {
+      "input": 5,
+      "output": 25,
+      "cacheWrite5m": 6.25,
+      "cacheWrite1h": 10,
+      "cacheRead": 0.5
+    },
+    "claude-fable-5-1": {
+      "input": 10,
+      "output": 50,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 20,
+      "cacheRead": 0.25
+    },
+    "claude-haiku-4-5": {
+      "input": 1,
+      "output": 5,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 2,
+      "cacheRead": 0.1
+    }
+  }
+}

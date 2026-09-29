@@ -35,7 +35,7 @@ test('plan-critic の定義と、plan 段階の手順がある', () => {
   for (const v of ['go', 'revise', 'split', 'drop']) assert.match(agent, new RegExp(`\`${v}\``));
   const routine = readFileSync(new URL('../../.claude/routine.md', import.meta.url), 'utf8');
   assert.match(routine, /plan-critic/);
-  assert.match(readFileSync(new URL('../../CLAUDE.md', import.meta.url), 'utf8'), /plan-critic/);
+  assert.match(readFileSync(new URL('../../harness/CLAUDE.harness.md', import.meta.url), 'utf8'), /plan-critic/);
 });
 
 test('critique の mustRemaining は任意。あれば 0 以上の整数', () => {
@@ -73,7 +73,8 @@ test('plan 段階の止める条件は堂々巡りと3回目の上限で、有�
   assert.match(routine, /前回と同じ必須の指摘が直っていない/);
   assert.match(routine, /3回目でも必須が残る/);
   assert.doesNotMatch(routine, /2回続けて `revise`/);
-  const claude = readFileSync(new URL('../../CLAUDE.md', import.meta.url), 'utf8');
+  // ハーネスの規則は CLAUDE.md が読み込む harness/CLAUDE.harness.md にある（Issue #155）
+  const claude = readFileSync(new URL('../../harness/CLAUDE.harness.md', import.meta.url), 'utf8');
   assert.match(claude, /前回と同じ必須の指摘が直っていない/);
   assert.match(claude, /3回目でも必須が残る/);
   assert.match(claude, /「進める／直す／やめる」を聞く/);
