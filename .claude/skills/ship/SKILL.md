@@ -21,6 +21,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - 着手宣言：Issue に手を付ける最初に、その段階の skill の手順どおり `claim <番号> --manual --stage <段階>` で宣言する（計画・批評の前も）。宣言にはこのセッションの ID が入り、ほかのセッションとダッシュボードに段階が見える。ほかのセッションの宣言があれば `claim` は止まるので、引き継ぐかを AskUserQuestion で人に聞く（引き継ぐのは人が決めたときだけ `--takeover`）。
    - 最初の宣言が持ち主。`claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue は進めず、作業を始めずに、手順9の一覧に「#番号 は session …（エラーに出た短い ID）が着手中」と書いて終える。引き継ぐかは人が決める（この場では聞かない）。
    - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`post-plan` はゲートを通らない見込みなら自分で解除する。`/clear` などでセッション ID が変わったら、自分の古い宣言は人に確かめて `claim --takeover` で出し直す。
+   - `claim` が Assignee で止まった（`harness.config.json` の `requireAssignee` が有効で、誰もアサインされていない・ほかの人・2人以上）：自分をアサインせずに進めず、人に返す（質問にはせず、止まった理由を手順9の一覧に書いて終える。アサインするかは人が決める。[docs/operations.md](../../../docs/operations.md) の担当）。途中の段階の確かめ（`critic-input`・`post-plan`・`worktree`・`ensure-claim`）で止まったときも同じ。
    - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
 2. 計画が無ければ plan の skill で計画を書いて投稿する。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を AskUserQuestion で聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
@@ -43,6 +44,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - `node harness/scripts/setup.ts` の実行が要る変更か（ラベル・Ruleset・Environment・App の設定を変えた）
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
    - 宣言で負けて進めなかった Issue：「#番号 は session … が着手中」（引き継ぐなら人が決めて `--takeover`）
+   - Assignee で止まった Issue：「#番号 は Assignee が自分1人ではない（理由）」（アサインは人が決める）
 
 ## サブエージェントの ship として動くとき
 
@@ -65,6 +67,7 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 ## 人に返す条件
 
 - Issue に `agent:hold`・`agent:blocked`・`agent:waiting` が付いている
+- `requireAssignee` が有効で、Issue（PR の段階なら PR が Close する Issue）の Assignee が自分1人でない（自分をアサインしない）
 - 計画の批評が止める条件に当たった、または `drop`（「進める／直す／やめる」を AskUserQuestion で聞く）
 - 計画ゲートで止まり（`agent:plan-review`）、人が進めてよいと言わない
 - 判定の不合格が修正の上限を超えた（`fix-limit`）

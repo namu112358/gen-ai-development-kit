@@ -202,7 +202,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
   <ol class="flow">
     <li class="step">
       <div class="step-head"><span class="num">1</span><h3>Issue</h3><span class="who human">人</span></div>
-      <p>「Agent タスク」の Issue Form で、目的（Goal）・要件・受け入れ条件（AC）を書き、<code>agent:ready</code> を付けます。App が本文の書式を確かめます。</p>
+      <p>「Agent タスク」の Issue Form で、目的（Goal）・要件・受け入れ条件（AC）を書き、<code>agent:ready</code> を付けます。App が本文の書式を確かめます。複数人で開発するときは、<code>harness.config.json</code> の <code>requireAssignee</code> を有効にし、人が Issue に担当を1人だけアサインします。セッションは Assignee が自分1人の Issue（と、それを Close する PR）にだけ着手し、自分からはアサインしません。</p>
     </li>
     <li class="step">
       <div class="step-head"><span class="num">2</span><h3>計画</h3><span class="who claude">Claude</span><span class="who app">App</span></div>
