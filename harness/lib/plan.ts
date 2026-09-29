@@ -175,14 +175,47 @@ export function planReviewOrigin(plan: Plan, labelBefore: boolean): PlanReviewOr
 }
 
 /**
+ * 前の印（agent:plan-review）を解かずに止めたときの理由の書き出し。on-comment.ts が書く理由の文はこれで始まる。
+ * 版によって続きが違う：planReviewOrigin が入った 64f6e68（#122）より前は「（Planner が人の判断を求めています）」、
+ * それ以降は「（Planner の申告か人が付けた印です。人が外すまで止めます）」。recordedOrigin は書き出しだけで見分ける（Issue #274）
+ */
+export const PRIOR_PLAN_REVIEW_REASON_PREFIX = '`agent:plan-review` が付いています';
+
+/** 計画ゲートの記録のうち、出どころを決めるのに読むところ */
+export interface PlanGateOriginFacts {
+  pass: boolean;
+  planReviewOrigin?: PlanReviewOrigin;
+  reasons?: unknown;
+  plan?: unknown;
+}
+
+/**
+ * 停止の記録の出どころ。欄があればその値。欄の無い古い記録（64f6e68 より前）は、次がすべてそろうときだけ gate と推し量り、ほかは planner（緩めない側）：
+ * 止まった記録（pass: false）、記録の plan（on-comment.ts が写す元の計画。決定の記録で判定し直したときも答え済みにする前の計画）に
+ * needsHuman・acChangeProposed・openQuestions がそろっていて Planner の申告が無い、理由に前の印で止めたもの（PRIOR_PLAN_REVIEW_REASON_PREFIX で始まる）が無い。
+ * 最後に印を付けたのが App か（人の印でないか）は、呼び出し元が priorPlanReviewReleased で見る
+ */
+export function recordedOrigin(previous: PlanGateOriginFacts): PlanReviewOrigin {
+  if (previous.planReviewOrigin === 'gate' || previous.planReviewOrigin === 'planner') return previous.planReviewOrigin;
+  if (previous.pass !== false) return 'planner';
+  const plan = previous.plan as { needsHuman?: unknown; acChangeProposed?: unknown; openQuestions?: unknown } | null | undefined;
+  if (!plan || typeof plan !== 'object') return 'planner';
+  if (typeof plan.needsHuman !== 'boolean' || typeof plan.acChangeProposed !== 'boolean' || !Array.isArray(plan.openQuestions)) return 'planner';
+  if (plan.needsHuman || plan.acChangeProposed || plan.openQuestions.length > 0) return 'planner';
+  const reasons = Array.isArray(previous.reasons) ? previous.reasons : [];
+  if (reasons.some((r) => typeof r === 'string' && r.startsWith(PRIOR_PLAN_REVIEW_REASON_PREFIX))) return 'planner';
+  return 'gate';
+}
+
+/**
  * 計画の出し直しで、前の agent:plan-review を理由に止めないか。
- * Issue に印があり、App の最新の計画ゲートの記録がゲートの停止（planReviewOrigin: gate）で、
- * 最後に印を付けたのが App のときだけ true。出どころの無い古い記録は人が外すまで止める。
+ * Issue に印があり、App の最新の計画ゲートの記録がゲートの停止（recordedOrigin が gate。出どころの無い古い記録は推し量れたときだけ）で、
+ * 最後に印を付けたのが App のときだけ true。推し量れない古い記録は人が外すまで止める。
  */
 export function priorPlanReviewReleased(
   hasLabel: boolean,
-  previous: { pass: boolean; planReviewOrigin?: PlanReviewOrigin } | null | undefined,
+  previous: PlanGateOriginFacts | null | undefined,
   lastLabeledByApp: boolean,
 ): boolean {
-  return hasLabel && previous?.pass === false && previous.planReviewOrigin === 'gate' && lastLabeledByApp;
+  return hasLabel && previous?.pass === false && recordedOrigin(previous) === 'gate' && lastLabeledByApp;
 }
