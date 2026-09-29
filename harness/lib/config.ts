@@ -38,16 +38,21 @@ export interface HarnessConfig {
    */
   humanMergePaths?: string[];
   /**
-   * 委任 Merge（人が期限つきで Merge の判断を App に委ねる）。ダッシュボードの label が付いてから hours の間だけ有効。
-   * 期限までの残りが minRemainingMinutes より短いときは、委任で auto-merge を付けない。無ければ既定値（delegateMergeConfig）
+   * 委任承認（人が計画ゲートの承認と Merge の判断を App に委ねる。docs/risk-policy.md）。ダッシュボードの planLabel は計画ゲートの承認だけを、
+   * mergeLabel は計画ゲートの承認と Merge の判断を委ねる。期限は無く、ラベルが付いている間ずっと有効。無ければ既定値（delegateConfig）
    */
-  delegateMerge?: { label: string; hours: number; minRemainingMinutes: number };
+  delegate?: { planLabel?: string; mergeLabel?: string };
+  /** 古いキー。label だけを mergeLabel として読む（hours・minRemainingMinutes は読まない）。delegate.mergeLabel があればそちらが優先 */
+  delegateMerge?: { label?: string; hours?: number; minRemainingMinutes?: number };
   /**
    * bypass モード（ブロッキング指摘が無ければ、Human Merge の理由を飛ばして自動 Merge する）。ダッシュボードに人が label を付けている間だけ有効（期限なし）。
    * 無ければ既定値（bypassMergeConfig）
    */
   bypassMerge?: { label: string };
-  /** 委任 Merge 中でも人が Merge するパス（自動 Merge の仕組みそのもの。harness.config.json は一覧に無くても当たる）。範囲パターンの書式 */
+  /**
+   * 委任承認の間でも人が承認・Merge するパス（自動 Merge の仕組みそのもの。harness.config.json は一覧に無くても当たる）。範囲パターンの書式。
+   * 触れる PR は委任で自動経路に乗せず、重なりうる files の計画は委任で計画ゲートを通さない
+   */
   delegateMergeExclude?: string[];
   /**
    * Ruleset の必須チェックのうち、導入先の CI が出すもの（harness/lib/ruleset.ts）。integrationId を省くと GitHub Actions。
@@ -79,12 +84,15 @@ export function loadConfig(path: string = CONFIG_PATH): HarnessConfig {
   return JSON.parse(readFileSync(path, 'utf8')) as HarnessConfig;
 }
 
-/** 委任 Merge の既定値 */
-export const DELEGATE_MERGE_DEFAULTS = { label: 'agent:delegate-merge', hours: 2, minRemainingMinutes: 30 } as const;
+/** 委任承認のラベルの既定値 */
+export const DELEGATE_DEFAULTS = { planLabel: 'agent:delegate-plan', mergeLabel: 'agent:delegate-merge' } as const;
 
-/** 委任 Merge の設定（無い項目は既定値） */
-export function delegateMergeConfig(config: Pick<HarnessConfig, 'delegateMerge'>): { label: string; hours: number; minRemainingMinutes: number } {
-  return { ...DELEGATE_MERGE_DEFAULTS, ...config.delegateMerge };
+/** 委任承認のラベル（無い項目は既定値。古い delegateMerge.label も mergeLabel として読み、delegate.mergeLabel が優先） */
+export function delegateConfig(config: Pick<HarnessConfig, 'delegate' | 'delegateMerge'>): { planLabel: string; mergeLabel: string } {
+  return {
+    planLabel: config.delegate?.planLabel ?? DELEGATE_DEFAULTS.planLabel,
+    mergeLabel: config.delegate?.mergeLabel ?? config.delegateMerge?.label ?? DELEGATE_DEFAULTS.mergeLabel,
+  };
 }
 
 /** bypass モードの既定値 */
@@ -236,7 +244,8 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: 'plan:exempt', color: 'fef2c0', description: '人: 計画のある Issue に紐付かない PR を例外として通す' },
   { name: TEST_EXEMPT_LABEL, color: 'fef2c0', description: '人: テストを弱める変更を例外として agent/tests を通す' },
   { name: 'agent:auto-merge-stopped', color: '000000', description: 'ダッシュボード専用: 自動 Merge モードの停止スイッチ' },
-  { name: DELEGATE_MERGE_DEFAULTS.label, color: '5319e7', description: 'ダッシュボード専用・人だけが付ける: 期限つきで Merge を App に委ねる（委任 Merge）' },
+  { name: DELEGATE_DEFAULTS.planLabel, color: '8a63d2', description: 'ダッシュボード専用・人だけが付ける: 計画ゲートの承認を App に委ねる（委任承認・計画）' },
+  { name: DELEGATE_DEFAULTS.mergeLabel, color: '5319e7', description: 'ダッシュボード専用・人だけが付ける: 計画ゲートの承認と Merge を App に委ねる（委任承認・計画＋Merge）' },
   { name: BYPASS_MERGE_DEFAULTS.label, color: 'b60205', description: 'ダッシュボード専用・人だけが付ける: ブロッキング指摘が無ければ Human Merge の理由を飛ばして自動 Merge する（bypass モード）' },
   { name: riskLabel('low'), color: 'c2e0c6', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
   { name: riskLabel('medium'), color: 'fef2c0', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },

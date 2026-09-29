@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { decide, decideRaw, type GuardContext, type HookInput } from '../../.claude/hooks/guard.ts';
-import { allLabelDefs, bypassMergeConfig, BYPASS_MERGE_DEFAULTS, delegateMergeConfig, LABEL_DEFS, LABELS, loadConfig, type HarnessConfig } from '../lib/config.ts';
+import { allLabelDefs, bypassMergeConfig, BYPASS_MERGE_DEFAULTS, delegateConfig, LABEL_DEFS, LABELS, loadConfig, type HarnessConfig } from '../lib/config.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const BYPASS = 'agent:bypass-merge';
@@ -14,7 +14,7 @@ function ctxFromConfig(): GuardContext {
   const config = loadConfig();
   return {
     defaultBranch: config.defaultBranch,
-    protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateMergeConfig(config).label, bypassMergeConfig(config).label],
+    protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateConfig(config).planLabel, delegateConfig(config).mergeLabel, bypassMergeConfig(config).label],
     currentBranch: 'claude/issue-245-x',
   };
 }

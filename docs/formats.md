@@ -10,6 +10,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-claim ```` | Claude | Issue / PR コメント | `harness/lib/queue.ts` |
 | ```` ```agent-decision ```` | 付き添いのセッション（Routine は書かない） | Issue コメント | `harness/lib/decision.ts` |
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
+| ```` ```arch-review ```` | 付き添いのセッション（arch-review の skill） | ダッシュボード Issue のコメント | `harness/lib/arch-review.ts` |
 
 共通ルール：
 
@@ -53,6 +54,8 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | `critique` | オブジェクト（任意） | 投稿前の批評の結果。`verdict`（`go` / `revise` / `split` / `drop`）と、批評させた回数 `rounds`（1以上の整数）と、任意で最後の回の必須の指摘の件数 `mustRemaining`（0以上の整数）。無い計画は計画ゲートで止まる（`verdict` の値そのものでは止めない） |
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている、`critique` が無い、計画コメントより前に同じ Issue への段階 `plan-critique` の着手宣言（コラボレーターの、Claude の目印付きの `agent-claim`。解除は数えない。`manual`・`routine` のどちらでもよい）が無い（批評の関所。`split` の計画も同じ。「前」はコメントの ID の大小で決める）。批評の関所だけで止めたときの理由コードは `no-critique`（ほかの理由と重なるときは今までのコード）。`critique` が `revise` で `mustRemaining` が1以上の計画は、人が必須の指摘を残して進めると決めた計画として止めず、ゲートの記録の `critiqueProceeded` に残す。
+
+委任承認（ダッシュボードの `agent:delegate-plan` か `agent:delegate-merge`。[risk-policy.md](risk-policy.md#委任承認)）が有効な間は、止まる理由が `risk` の high 以上とガードレールだけなら、App は止めずに `agent:plan-ok` を付け、記録 `plan-gate` に `delegated` を書く。Planner の申告、`issue` 不一致、`files` の欠落・書式の誤り、`split` の不正、人が付けた `agent:plan-review`、批評の関所（`critique` が無い・`plan-critique` の着手宣言が無い）、`delegateMergeExclude` か `harness.config.json` に重なりうる `files`（`harness/**` のような広いパターンも重なりうれば当たる。`delegateMergeExclude` が無い設定ではすべて当たる）は、委任の間も止まる。委任が有効になったときと定期実行で、App のゲートの停止（ガードレール・Risk だけ、印は App が付けた）で止まっている Issue を判定し直し、通れば `agent:plan-ok` にする（Planner の申告・人の印・exclude に当たるもの・批評の関所に当たるもの・計画コメントの本文が変わったものは止まったまま）。ラベルの名前は `harness.config.json` の `"delegate": { "planLabel": "agent:delegate-plan", "mergeLabel": "agent:delegate-merge" }`。古い `delegateMerge.label` だけの設定は `mergeLabel` として読み（`delegate` が優先）、古い `hours`・`minRemainingMinutes` は読まない。
 
 Issue に `agent:plan-review` が付いているときの出し直しは、App の最新の計画ゲートの記録（`agent-app` ブロックの `planReviewOrigin`）で扱いを決める。`planReviewOrigin` は停止の記録に書く出どころで、`gate` は App のゲートの停止（critical・ガードレール・`files` の欠落・`split-invalid`・`resplit` など。止めた計画に Planner の申告が無く、止める前に印が付いていなかった）、`planner` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）か、App が止める前から付いていた印（Planner か人が付けた）。記録が `gate` の停止で、最後に `agent:plan-review` を付けたのが App なら、前の印を理由に止めず新しい計画だけで判定する（通れば App が `agent:plan-review` を外して `agent:plan-ok` を付け、当たればまた `gate` で止まる）。記録が無い・`planner`・`planReviewOrigin` の無い古い記録なら、人が外すまで止める。`post-plan` / `render-plan` が先に付ける `agent:plan-review` は、Planner の申告があるときだけ。Planner の申告（`needsHuman`・`openQuestions`）で止まった計画は、付き添いのセッションが人の答えを[決定の記録](#決定の記録agent-decision)で残すと、App が Jev に確かめさせ、`jev.decisionRelease` が `enforce` でしきい値以上なら答え済みとして判定し直す（通れば App が印を外す。ほかの理由で当たれば `gate` の停止として残る）。
 
@@ -185,21 +188,60 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - App が外すのは、最新の計画ゲートの記録が Planner の申告（`planReviewOrigin: planner`）の停止で、印がその計画の投稿（`post-plan`）か App の停止で付いたものだけ（`harness/lib/decision.ts` の `decisionEligibility`）。App のゲートの停止・人が付けた印・`acChangeProposed` は、この経路で外れない。
 - App が Jev に渡すのは、App の記録にある計画の写しの `needsHumanReasons`・`openQuestions` と、答えの `to`・`choice`・`quote` だけ（本文の要約と `at` は渡さない）。
 
+## arch-review の記録
+
+arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）が、見た範囲と要約を残す（`node harness/scripts/agent.ts arch-review-record <ファイル>`。`--dry-run` は本文を出すだけ）。置き場所は App が作ったダッシュボード Issue（`dashboardIssueTitle`）へのコメント。ダッシュボードの本文は App が書き換えるので本文には書かない。
+
+````markdown
+<!-- agent-harness:claude session=<id> -->
+arch-review の記録です（…）。次の arch-review はここから読みます。
+
+見つけたずれ：
+- 着手宣言の読み取りが2か所にある
+
+作った Issue：
+- #201 refactor(harness): 着手宣言の読み取りを1か所にする
+
+```arch-review
+{
+  "version": 1,
+  "baseSha": "前回の headSha（無ければ null）",
+  "headSha": "今回見た main の SHA（40桁）",
+  "prs": [157, 158],
+  "summary": ["着手宣言の読み取りが2か所にある"],
+  "drafts": [{ "title": "refactor(harness): 着手宣言の読み取りを1か所にする", "created": 201 }]
+}
+```
+````
+
+| フィールド | 内容 |
+| --- | --- |
+| `version` | 書式の版（`1`） |
+| `baseSha` | 見た範囲の始まり（前回の記録の `headSha` か `--since`。直近 N 本を見たときは `null`） |
+| `headSha` | 見た既定ブランチの SHA（40桁）。次の実行はここから読む |
+| `prs` | 見た Merge 済みの PR の番号 |
+| `summary` | 見つけたずれの要約（1件1行） |
+| `drafts` | 人に示した下書き。`created` は人が選んで作った Issue の番号（作らなかったものは `null`） |
+
+- フェンスの名前は `agent-` で始まらない。App の記録（`agent-*`）と混同せず、`gate.yml` の `if:` にも当たらないので、ゲートは起動しない。App の記録ではなく、PR ごとの判定の材料にもしない。
+- 次の実行（`arch-review-range`）は、ダッシュボード Issue のコメントのうち、コラボレーター（OWNER・MEMBER・COLLABORATOR。App を除く）が書いた Claude の目印付きで、```` ```arch-review ```` が1つだけあり JSON が正しいものの最新を前回とする（`harness/lib/arch-review.ts` の `latestArchReviewRecord`）。ダッシュボードが無ければ前回なしとして扱う。
+- 下書きは `node harness/scripts/agent.ts arch-review-drafts <ファイル>` で検査する（`[{ title, body, duplicateOf? }]`。タイトルは Conventional Commits、本文は Issue Form の必須の見出し、`labels` に `agent:ready` があれば誤り）。
+
 ## App の記録（agent-app）
 
 App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付け、機械可読の記録を ```` ```agent-app ```` に入れる。
 
 | kind | 置き場所 | 内容 |
 | --- | --- | --- |
-| `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan, decisionCommentId?, critiqueProceeded? }`。`plan` はゲート時点の計画の写し。`decisionCommentId` は決定の記録で判定し直したときのコメント。`critiqueProceeded`（`{ verdict: 'revise', mustRemaining }`）は、批評で必須の指摘が残ったまま人が進めると決めて通った計画（古い記録には無い） |
+| `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan, decisionCommentId?, critiqueProceeded?, delegated? }`。`plan` はゲート時点の計画の写し。`decisionCommentId` は決定の記録で判定し直したときのコメント。`critiqueProceeded`（`{ verdict: 'revise', mustRemaining }`）は、批評で必須の指摘が残ったまま人が進めると決めて通った計画（古い記録には無い）。`delegated`（`{ skipped, label, mode, by, since }`）は委任承認で通したときだけ：`skipped` は委任で飛ばした理由（ガードレール・Risk）、`label` は有効だったラベル、`mode` は `plan`（`agent:delegate-plan`）か `plan+merge`（`agent:delegate-merge`）、`by`・`since` はラベルを付けた人と時刻 |
 | `plan-decision` | Issue | 決定の記録を App が確かめた結果。`{ version, decisionCommentId, planCommentId, mode, questionSet, threshold, status, model, answers, pass, missing, regate }`。`status` は `ok` / `invalid`（書式・答えの無い項目）/ `ineligible`（対象外）/ `skipped`（鍵が無い・大きすぎる）/ `error`。`mode` が `shadow` なら記録だけでラベルは変えない。`regate` は `enforce` で判定し直したか。同じ `decisionCommentId` には二度問わない |
 | `epic-split` | Issue（Epic の親） | `{ planCommentId, children }`。作った（または使い回した）子 Issue の番号を `split` の順に |
 | `queue` | ダッシュボードの本文 | `{ computedAt, actions, skipped }`。Routine が次にやること |
-| `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev, delegate, bypass }`。`delegate`（`eligible`・`reasons`・`skipped`・`scopeOk`・`outside`・`exclude`）は委任 Merge なら自動経路に乗せてよいか：`skipped` は委任で飛ばす理由（ガードレール・Risk）、`reasons` は委任でも乗せない理由、`scopeOk`・`outside` はゲートを通った計画かゲートの停止（`planReviewOrigin: gate`）で止まった計画との範囲照合、`exclude` は `delegateMergeExclude` に当たったファイル（harness/lib/delegate.ts）。`delegate` の無い古い記録は委任の対象外。`bypass`（`eligible`・`reasons`・`skipped`）は bypass モードなら自動経路に乗せてよいか：`skipped` は bypass で飛ばす理由（Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev）、`reasons` は bypass でも乗せない理由（Agent の PR でない・base・ブロッキング指摘・`delegate` と同じ計画との範囲照合）（harness/gates/bypass.ts）。`bypass` の無い古い記録は bypass の対象外。`jev` の `questionSet` は Jev への問いの版（無い古い記録は版 1）。`jev.size`（`chars`・`jaRatio`・`inputTokens`・`diffChars`、Jev が応答したときだけ）は送った材料の大きさ：state と問いを JSON にした文字数、そのうち日本語の文字の割合、応答の `usage.input_tokens`（報告されなければ `null`）、diff の文字数 |
-| `delegated-merge` | PR | 委任 Merge で auto-merge を付けたときの記録。`{ headSha, patchId, since, until, by, skipped }`。`since`・`until`・`by` は委任（ダッシュボードのラベル）を付けた時刻・期限・人、`skipped` は受け付けの `delegate.skipped`（委任で飛ばした理由）。同じ `patchId` と `until` の記録が最新なら書き直さない。期限切れの掃除とダッシュボードの「委任 Merge で Merge された PR」はこの記録で見る（harness/gates/delegation.ts） |
+| `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev, delegate, bypass }`。`delegate`（`eligible`・`reasons`・`skipped`・`scopeOk`・`outside`・`exclude`）は委任承認（計画＋Merge）なら自動経路に乗せてよいか：`skipped` は委任で飛ばす理由（ガードレール・Risk）、`reasons` は委任でも乗せない理由、`scopeOk`・`outside` はゲートを通った計画かゲートの停止（`planReviewOrigin: gate`）で止まった計画との範囲照合、`exclude` は `delegateMergeExclude` に当たったファイル（harness/lib/delegate.ts）。`delegate` の無い古い記録は委任の対象外。`bypass`（`eligible`・`reasons`・`skipped`）は bypass モードなら自動経路に乗せてよいか：`skipped` は bypass で飛ばす理由（Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev）、`reasons` は bypass でも乗せない理由（Agent の PR でない・base・ブロッキング指摘・`delegate` と同じ計画との範囲照合）（harness/gates/bypass.ts）。`bypass` の無い古い記録は bypass の対象外。`jev` の `questionSet` は Jev への問いの版（無い古い記録は版 1）。`jev.size`（`chars`・`jaRatio`・`inputTokens`・`diffChars`、Jev が応答したときだけ）は送った材料の大きさ：state と問いを JSON にした文字数、そのうち日本語の文字の割合、応答の `usage.input_tokens`（報告されなければ `null`）、diff の文字数 |
+| `delegated-merge` | PR | 委任承認（計画＋Merge）で auto-merge を付けたときの記録。`{ headSha, patchId, since, until, by, skipped }`。`since`・`by` は委任（ダッシュボードのラベル）を付けた時刻・人、`until` は新しい記録では `null`（期限のあった古い記録のために残す）、`skipped` は受け付けの `delegate.skipped`（委任で飛ばした理由）。同じ `patchId` の記録が最新なら書き直さない。ダッシュボードの「委任承認で Merge された PR」はこの記録で見る（harness/gates/delegation.ts） |
 | `bypass-merge` | PR | bypass モードで auto-merge を付けたときの記録。`{ headSha, patchId, since, by, skipped }`。`since`・`by` は bypass（ダッシュボードのラベル）を付けた時刻・人、`skipped` は受け付けの `bypass.skipped`。同じ `patchId` と `since` の記録が最新なら書き直さない。ダッシュボードの「bypass で Merge された PR」はこの記録で見る（harness/gates/bypass.ts） |
 | `bypass-merge-end` | PR | bypass で付けた auto-merge を外した記録。`{ headSha, reason }`。`reason` は `removed`（ラベルを外した）/ `stopped`（停止スイッチ）/ `ineligible`（bypass の条件を満たさなくなった。委任に引き継いだときも）。最新が `bypass-merge` の PR にだけ書く |
-| `delegated-merge-end` | PR | 委任で付けた auto-merge を外して Human Merge に戻した記録。`{ headSha, reason }`。`reason` は `removed`（ラベルを外した）/ `expired`（期限切れ）/ `stopped`（停止スイッチ）/ `short`（期限までの残りが `minRemainingMinutes` 未満）/ `ineligible`（委任の条件を満たさなくなった）。最新が `delegated-merge` の PR にだけ書く |
+| `delegated-merge-end` | PR | 委任で付けた auto-merge を外して Human Merge に戻した記録。`{ headSha, reason }`。`reason` は `removed`（`agent:delegate-merge` を外した）/ `stopped`（停止スイッチ）/ `ineligible`（委任の条件を満たさなくなった）。bypass モードに引き継いだとき（auto-merge は外さない）も書く。古い記録には `expired`・`short` もある。最新が `delegated-merge` の PR にだけ書く |
 | `verdict-rejected` | PR | 判定を受け付けなかった理由 |
 | `test-exempt` / `review-exempt` | PR | 例外ラベルの付け外し。`{ label, action, by, patchId, headSha }`。`action` は `labeled` / `unlabeled`、`patchId` と `headSha` は人が付け外しした時点の差分と head。最新が `labeled` で `patchId` が現在の差分と同じときだけ例外が効く |
 | `exempt-stale` | PR | 例外ラベルが付いているが効いていないことの通知。`{ label, headSha, patchId, reason }`。`reason` は `stale`（付けた後に差分が変わった）/ `unrecorded`（付けた記録が無い）。同じ `label` と `headSha` には1回だけ書く |

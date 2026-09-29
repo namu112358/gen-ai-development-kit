@@ -4,12 +4,13 @@
  * - Claude（Routine・人のセッション）が書くコメントは先頭に CLAUDE_MARK を付け、人のコメントと区別する
  * - 構造化データは ```agent-plan / ```agent-verdict / ```agent-decision のフェンスに JSON で書く
  * - App が書くコメントは APP_MARK(kind) を付け、JSON を ```agent-app に書く（App の名義と組で信頼する）
+ * - ```arch-review は arch-review の skill が書く Claude の記録で、agent- で始まらない（gate.yml の if: に当たらず、App の記録と混同しない）
  */
 
 export const CLAUDE_MARK = '<!-- agent-harness:claude -->';
 export const appMark = (kind: string): string => `<!-- agent-harness:app kind=${kind} -->`;
 
-export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel' | 'agent-decision';
+export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel' | 'agent-decision' | 'arch-review';
 
 /**
  * 書いたセッションの ID を入れた目印（ID が無ければ CLAUDE_MARK）。

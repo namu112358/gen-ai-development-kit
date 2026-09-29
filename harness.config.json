@@ -86,10 +86,9 @@
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
   "humanMergePaths": [],
-  "delegateMerge": {
-    "label": "agent:delegate-merge",
-    "hours": 2,
-    "minRemainingMinutes": 30
+  "delegate": {
+    "planLabel": "agent:delegate-plan",
+    "mergeLabel": "agent:delegate-merge"
   },
   "delegateMergeExclude": [
     "harness/lib/merge-route.ts",
