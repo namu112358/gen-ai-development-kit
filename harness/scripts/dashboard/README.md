@@ -13,6 +13,8 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 5]
 ## 見えるもの
 
 - **段階の層（列）**：計画なし → plan → plan-critique → 計画ゲート待ち → 人の判断待ち → 実装待ち → implement → judge → fix → sync → Merge 待ち。脇に「依存待ち」「止まる印」。有効な着手宣言（`claim --stage`）があればその段階、無ければ `fleet-status` と同じ判断（`harness/lib/fleet.ts` の `fleetStatus`）で決める。
+- **列の強制のされ方**：列の上端の線と見出しの印で、その段階がどう強制されているかを示す。コードで必須（太い実線。Ruleset の必須チェックか App のゲートが止める）・条件つき（実線。指摘や衝突があるときだけ）・手順だけ（点線。skill の文章だけで、飛ばしても止まらない）・人（二重線）。見出しの「終了条件」を開くと、終了条件と、飛ばしたときに何が止めるかが読める。
+- **注意**：コードで強制されていない手順を飛ばしたカードに出す。計画ゲートの記録の計画に `critique` が無い（「批評なし」）、`revise` で必須の指摘を残して進めた（件数つき）、`critique` の形が崩れている（「批評の記録が読めない」）。
 - **状態（カードの左の色）**：着手中・停滞（手動の着手宣言が `humanClaimStaleHours` を超えた）・人待ち・止まっている（hold・blocked・waiting・依存）・衝突（main と衝突）・待機。
 - **カード**：Issue と、それに紐付く PR（`Closes #`・Stacked PR の層の `Refs #`）は1枚のカードにまとめ、PR はカードの中の行（番号・状態・着手宣言の段階）で出す。PR に着手宣言の段階があればカードはその段階の列に、状態は Issue と PR の強いほう。Issue の無い PR だけ単独のカード。
 - **タスクの層（辺）**：依存（Issue Dependencies）、Epic → 子 Issue、Stacked PR（base が別の開いた PR の head。PR が入ったカードどうしをつなぐ）、タスク → セッション（着手宣言の `session`、または手元のセッションのブランチ）。凡例のチェックで辺の種類ごとに隠せる。

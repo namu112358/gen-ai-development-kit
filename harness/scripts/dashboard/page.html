@@ -11,6 +11,7 @@
     --active: #2563eb; --stale: #d97706; --waiting: #7c3aed; --blocked: #dc2626; --conflict: #db2777; --idle: #98a2b3;
     --e-depends: #dc2626; --e-epic: #7c3aed; --e-stacked: #d97706; --e-session: #2563eb;
     --run: #16a34a;
+    --enf-code: #1f5fa8; --enf-cond: #a3620a; --enf-ai: #b3264e; --enf-human: #6a3fb0; --warn-bg: #fdecef;
   }
   @media (prefers-color-scheme: dark) {
     :root {
@@ -18,6 +19,7 @@
       --active: #60a5fa; --stale: #fbbf24; --waiting: #a78bfa; --blocked: #f87171; --conflict: #f472b6; --idle: #667085;
       --e-depends: #f87171; --e-epic: #a78bfa; --e-stacked: #fbbf24; --e-session: #60a5fa;
       --run: #4ade80;
+      --enf-code: #6aa6ec; --enf-cond: #e0a84e; --enf-ai: #f07a9a; --enf-human: #b596ec; --warn-bg: #3a1a24;
     }
   }
   * { box-sizing: border-box; }
@@ -34,7 +36,22 @@
   #wrap { position: relative; padding: 12px 16px 32px; overflow-x: auto; }
   #board { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 176px; gap: 10px; align-items: start; min-height: calc(100vh - 90px); }
   .col { background: var(--col); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-height: 120px; }
-  .col.side { border-style: dashed; }
+  .col.side { background: transparent; }
+  /* 列の上端の線で段階の強制のされ方を示す（色と線の形の両方） */
+  .col.enf-code { border-top: 4px solid var(--enf-code); }
+  .col.enf-cond { border-top: 3px solid var(--enf-cond); }
+  .col.enf-ai { border-top: 3px dashed var(--enf-ai); }
+  .col.enf-human { border-top: 5px double var(--enf-human); }
+  .enf { font-size: 10px; font-weight: 700; padding: 0 5px; border-radius: 999px; margin-left: 4px; white-space: nowrap; }
+  .enf.code { color: var(--enf-code); border: 1px solid var(--enf-code); }
+  .enf.cond { color: var(--enf-cond); border: 1px solid var(--enf-cond); }
+  .enf.ai { color: var(--enf-ai); border: 1px dashed var(--enf-ai); }
+  .enf.human { color: var(--enf-human); border: 1px solid var(--enf-human); }
+  details.exit { font-size: 11px; color: var(--muted); margin: -4px 0 8px; }
+  details.exit > summary { cursor: pointer; }
+  details.exit p { margin: 4px 0 0; }
+  details.exit b { color: var(--ink); font-weight: 600; }
+  .warn { font-size: 11px; font-weight: 600; color: var(--enf-ai); background: var(--warn-bg); border-radius: 4px; padding: 1px 6px; margin-top: 4px; }
   .col h2 { font-size: 12px; margin: 0 0 8px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
   .col.claimstage h2::before { content: "●"; color: var(--active); margin-right: 4px; font-size: 9px; }
   .card { position: relative; z-index: 1; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--idle); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
@@ -75,6 +92,7 @@
   <h1>Agent グラフ</h1>
   <span class="conn" id="conn"><i></i><span id="connText">接続中…</span></span>
   <span class="legend" id="statusLegend"></span>
+  <span class="legend" id="enfLegend"></span>
   <span class="legend" id="edgeLegend"></span>
 </header>
 <div id="wrap">
@@ -94,6 +112,7 @@ const EDGES = {
   stacked: { label: 'Stacked PR', dash: '2 3' },
   session: { label: 'セッション', dash: '1 4' },
 };
+const ENFORCEMENT = { code: 'コードで必須', cond: '条件つき', ai: '手順だけ', human: '人' };
 const CLAIM_COLS = new Set(['plan', 'plan-critique', 'plan-gate', 'implement', 'judge', 'fix', 'sync']);
 const SIDE_COLS = new Set(['dependency', 'stopped']);
 
@@ -124,6 +143,7 @@ function buildCards(tasks, edges) {
       column: claimed ? claimed.column : t.column, status, note: t.note, claim: t.claim,
       prs: prs.map((p) => ({ id: p.id, number: p.number, url: p.url, status: p.status, column: p.column, claim: p.claim, note: p.note })),
       sessions: sessionIds,
+      warnings: t.warnings || [],
     });
   }
   const cardOf = (id) => owner.get(id) || id;
@@ -147,6 +167,8 @@ let sessions = [];
 const hidden = new Set();
 /** 開いたセッションの折りたたみ（カードの id）。描き直しても開いたままにする */
 const openSessions = new Set();
+/** 開いた列の「終了条件」（列の id） */
+const openExits = new Set();
 let view = { cards: [], edges: [] };
 
 function el(tag, cls, text) {
@@ -177,6 +199,13 @@ function buildLegends() {
     sw.style.background = 'var(' + STATUS_VAR[k] + ')';
     l.append(sw, el('span', null, v));
     sl.append(l);
+  }
+  const en = document.getElementById('enfLegend');
+  for (const [k, v] of Object.entries(ENFORCEMENT)) {
+    const l = el('label');
+    l.append(el('span', 'enf ' + k, v));
+    l.title = { code: 'Ruleset の必須チェックか App のゲートが止める。飛ばせない', cond: 'ある状態のときだけ必須', ai: 'skill の文章だけ。飛ばしても止まらない', human: '人が決める' }[k];
+    en.append(l);
   }
   const defs = document.getElementById('defs');
   const el2 = document.getElementById('edgeLegend');
@@ -259,6 +288,7 @@ function taskCard(t) {
     c.append(m);
   }
   if (t.note) c.append(el('div', 'meta', t.note));
+  for (const w of t.warnings) c.append(el('div', 'warn', '⚠ ' + w));
   for (const p of t.prs) {
     const row = el('div', 'prrow');
     const link = el('a', null, 'PR #' + p.number);
@@ -297,13 +327,25 @@ function render() {
   const byCol = new Map(columns.map((c) => [c.id, []]));
   for (const card of view.cards) (byCol.get(card.column) || []).push(card);
   for (const col of columns) {
-    const box = el('section', 'col' + (SIDE_COLS.has(col.id) ? ' side' : '') + (CLAIM_COLS.has(col.id) ? ' claimstage' : ''));
+    const box = el('section', 'col enf-' + col.enforcement + (SIDE_COLS.has(col.id) ? ' side' : '') + (CLAIM_COLS.has(col.id) ? ' claimstage' : ''));
     const items = (byCol.get(col.id) || []).sort((a, b) => a.number - b.number);
     const h = el('h2');
-    h.append(el('span', null, col.label), el('span', null, items.length || ''));
+    const name = el('span', null, col.label);
+    name.append(el('span', 'enf ' + col.enforcement, ENFORCEMENT[col.enforcement]));
+    h.append(name, el('span', null, items.length || ''));
     box.append(h);
+    const ex = document.createElement('details');
+    ex.className = 'exit';
+    ex.open = openExits.has(col.id);
+    ex.addEventListener('toggle', () => { ex.open ? openExits.add(col.id) : openExits.delete(col.id); drawEdges(); });
+    const sum = document.createElement('summary');
+    sum.textContent = '終了条件';
+    const p1 = el('p'); p1.append(el('b', null, '終了条件：'), document.createTextNode(col.exit));
+    const p2 = el('p'); p2.append(el('b', null, '止めるもの：'), document.createTextNode(col.stopper));
+    ex.append(sum, p1, p2);
+    box.append(ex);
     for (const card of items) box.append(taskCard(card));
-    if (box.children.length === 1) box.append(el('div', 'empty', '—'));
+    if (!items.length) box.append(el('div', 'empty', '—'));
     board.append(box);
   }
   const sbox = el('section', 'col side');

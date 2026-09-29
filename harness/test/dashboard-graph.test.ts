@@ -29,7 +29,7 @@ const openPr = (n: number, patch: Partial<FleetPr> = {}, facts: Partial<PrFacts>
 const pass = { acceptance: { reviewPass: true, at: 'x' } };
 
 const dIssue = (facts: IssueFacts, prs: FleetPr[] = [], body: string | null = null): DashIssue => ({
-  fleet: { facts, closed: false, planFiles: null, prs }, body, url: `https://github.com/o/r/issues/${facts.number}`,
+  fleet: { facts, closed: false, planFiles: null, prs }, body, url: `https://github.com/o/r/issues/${facts.number}`, plan: null,
 });
 const dPr = (fp: FleetPr, issue: number | null, headRef = `claude/issue-${issue ?? 0}-pr${fp.number}`, baseRef = 'main'): DashPr => ({
   number: fp.number, title: `pr${fp.number}`, url: `https://github.com/o/r/pull/${fp.number}`, headRef, baseRef, issue, fleet: fp,
