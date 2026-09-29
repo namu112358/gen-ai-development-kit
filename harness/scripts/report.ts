@@ -5,7 +5,8 @@ import type { Acceptance } from '../lib/merge-route.ts';
 import {
   decisionAgreement,
   decisionRows,
-  fixPrsFor,
+  fixLinksFor,
+  fixPrFilesOf,
   isFixPr,
   panelComparison,
   panelPairs,
@@ -20,7 +21,7 @@ import {
   type PanelPairRow,
   type ReportRow,
 } from '../lib/report.ts';
-import { appRecords, changedFiles, fixRequestCount, isAgentPr, type PullRequest, type Review } from '../lib/state.ts';
+import { appRecords, closingIssues, fixRequestCount, isAgentPr, type PullRequest, type Review } from '../lib/state.ts';
 import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
 
 /**
@@ -60,14 +61,41 @@ for (const c of commits) {
   }
 }
 
-const filesOf = new Map<number, string[]>();
-const files = async (n: number) => filesOf.get(n) ?? filesOf.set(n, await changedFiles(gh, n)).get(n)!;
+// 変更ファイルと patch（/pulls/{n}/files を PR ごとに1回だけ読む。リネームは旧パスにも同じ patch を割り当てる）
+const filesOf = new Map<number, { files: string[]; patches: Record<string, string | undefined> }>();
+async function prFiles(n: number) {
+  const cached = filesOf.get(n);
+  if (cached) return cached;
+  const list = await gh.paginate<{ filename: string; previous_filename?: string; patch?: string }>(`/pulls/${n}/files`, 30);
+  const patches: Record<string, string | undefined> = {};
+  for (const f of list) {
+    patches[f.filename] = f.patch;
+    if (f.previous_filename) patches[f.previous_filename] = f.patch;
+  }
+  const value = { files: list.flatMap((f) => (f.previous_filename ? [f.filename, f.previous_filename] : [f.filename])), patches };
+  filesOf.set(n, value);
+  return value;
+}
 
-// fix の PR の候補（タイトルかブランチで fix と分かる Merge 済みの PR）だけ変更ファイルを取る
+// Closes する Issue と、その本文（番号でキャッシュする）
+const closesOf = new Map<number, number[]>();
+const closes = async (n: number) => closesOf.get(n) ?? closesOf.set(n, await closingIssues(gh, n).catch(() => [])).get(n)!;
+const issueBodyOf = new Map<number, string>();
+async function issueBody(n: number) {
+  const cached = issueBodyOf.get(n);
+  if (cached !== undefined) return cached;
+  const body = (await gh.get<{ body: string | null }>(`/issues/${n}`).catch(() => ({ body: null }))).body ?? '';
+  issueBodyOf.set(n, body);
+  return body;
+}
+
+// fix の PR の候補（タイトルかブランチで fix と分かる Merge 済みの PR）だけ、変更ファイル・patch・本文・Closes する Issue の本文を取る
 const fixCandidates: MergedPr[] = [];
 for (const p of merged) {
   if (!isFixPr({ title: p.title, headRef: p.head.ref })) continue;
-  fixCandidates.push({ number: p.number, title: p.title, headRef: p.head.ref, mergedAt: p.merged_at ?? null, files: await files(p.number) });
+  const closed = await closes(p.number);
+  const closingText = (await Promise.all(closed.map(issueBody))).join('\n');
+  fixCandidates.push({ number: p.number, title: p.title, headRef: p.head.ref, mergedAt: p.merged_at ?? null, body: p.body, ...(await prFiles(p.number)), closes: closed, closingText });
 }
 
 const rows: ReportRow[] = [];
@@ -75,9 +103,13 @@ const panelRows: PanelPairRow[] = [];
 const panelExcluded: Record<string, number> = {};
 for (const pr of agentPrs) {
   const comments = await gh.listComments(pr.number);
-  const fixedBy = pr.merged_at
-    ? fixPrsFor({ number: pr.number, title: pr.title, headRef: pr.head.ref, mergedAt: pr.merged_at, files: await files(pr.number) }, fixCandidates)
+  const fixLinks = pr.merged_at
+    ? fixLinksFor(
+        { number: pr.number, title: pr.title, headRef: pr.head.ref, mergedAt: pr.merged_at, body: pr.body, ...(await prFiles(pr.number)), closes: await closes(pr.number) },
+        fixCandidates,
+      )
     : [];
+  const fixedBy = fixLinks.map((l) => l.pr);
   rows.push({
     pr: pr.number,
     createdAt: pr.created_at,
@@ -88,6 +120,7 @@ for (const pr of agentPrs) {
     fixRequests: await fixRequestCount(gh, config, pr.number),
     reverted: revertedPrs.has(pr.number),
     fixedBy,
+    fixLinks,
   });
 
   // 合体版のレビューの記録と今の判定の組（App の fix-request と、レビューコメント）
@@ -96,8 +129,8 @@ for (const pr of agentPrs) {
   const reviewComments = await gh.paginate<{ path: string; created_at: string; author_association: string; user: { login: string } | null; body: string }>(
     `/pulls/${pr.number}/comments`,
   );
-  const fixPrFiles: Record<number, string[]> = {};
-  for (const n of fixedBy) fixPrFiles[n] = await files(n);
+  // fix-pr の裏付けは、Jev・Claude の外れと同じ結び付けの、根拠になったファイルだけで見る
+  const fixPrFiles = fixPrFilesOf(fixLinks);
   const panel = panelPairs(config, {
     pr: pr.number,
     mergedAt: row.mergedAt,
