@@ -1,7 +1,11 @@
-import type { HarnessConfig } from './config.ts';
+import { appMarkKind, extractBlock, hasClaudeMark } from './blocks.ts';
+import { appLogin, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
+import type { IssueComment } from './github.ts';
 import { JEV_QUESTION_SET, jevFailures } from './jev.ts';
 import type { Acceptance, JevRecord } from './merge-route.ts';
-import { RISK_QUESTIONS } from './verdict.ts';
+import { parsePanelRecord, type PanelRecord } from './review-panel.ts';
+import { isTrustedComment } from './state.ts';
+import { BLOCKING_KINDS, parseVerdict, RISK_QUESTIONS, type BlockingFinding, type BlockingKind } from './verdict.ts';
 
 /**
  * 判定の集計（Jev の切り替え判断用）の純粋関数。GitHub は呼ばない（集めるのは harness/scripts/report.ts）。
@@ -368,5 +372,407 @@ export function renderTokenRatios(r: TokenRatios): string {
     ...r.buckets.map((b) => `| ${b.label} | ${b.count} | ${b.chars} | ${b.tokens} | ${b.ratio === null ? '-' : Math.round(b.ratio * 100) / 100} |`),
     '',
     `数えなかった記録（Jev が応答しなかった、大きさの無い古い記録、トークン数が報告されなかった）：${r.skipped} 件`,
+  ].join('\n');
+}
+
+// ---- 合体版のレビューの記録と今の判定の比較（記録だけの期間。Q91） ----
+
+/**
+ * 合体版のレビュー（`reviewPanel.mode` を `enforce`）に切り替える基準（Q91）。
+ * 満たしても、人が「合体版だけ」の指摘と誤検知の疑いの全件を diff と照らして確かめてから決める。
+ */
+export const REVIEW_PANEL_SWITCH_CRITERIA = {
+  minPairedPrs: 20,
+  maxBackedReviewerOnly: 0,
+  maxSuspectedFalsePositiveRatio: 0.5,
+  maxProvisionalFixRatio: 1.5,
+  maxCostMedianRatio: 3,
+} as const;
+
+export type PanelSwitchCriterion = keyof typeof REVIEW_PANEL_SWITCH_CRITERIA;
+
+/** 記録を外す理由（1つの記録は最初に当たった理由で数える。reviewer-unknown は組を外した数） */
+export const PANEL_EXCLUDE_REASONS = [
+  'not-collaborator',
+  'no-mark',
+  'unreadable',
+  'edited',
+  'other-pr',
+  'enforce',
+  'head-mismatch',
+  'after-verdict',
+  'duplicate',
+  'reviewer-unknown',
+] as const;
+export type PanelExcludeReason = (typeof PANEL_EXCLUDE_REASONS)[number];
+
+const PANEL_EXCLUDE_LABELS: Record<PanelExcludeReason, string> = {
+  'not-collaborator': 'コラボレーターでない',
+  'no-mark': 'Claude の目印が無い',
+  unreadable: 'ブロックが無い・読めない',
+  edited: '編集された',
+  'other-pr': '別の PR の記録',
+  enforce: 'mode が enforce（今の reviewer と比べられない）',
+  'head-mismatch': 'head が受け付けの verdictHeadSha と違う',
+  'after-verdict': '判定コメントより後',
+  duplicate: '同じ head の2つ目以降（判定コメントの直前の1つだけを使う）',
+  'reviewer-unknown': '今の reviewer の指摘が読めない（組を外した）',
+};
+
+/** App の fix-request のレビュー（harness/scripts/report.ts が App のものだけに絞って渡す） */
+export interface FixRequestReview {
+  commitId: string;
+  submittedAt: string;
+  body: string;
+}
+
+/** PR のレビューコメント（/pulls/{n}/comments） */
+export interface PrReviewComment {
+  path: string;
+  createdAt: string;
+  authorAssociation: string;
+  login: string;
+  body: string;
+}
+
+/** PR ごとの材料（harness/scripts/report.ts が GitHub から集めたもの） */
+export interface PanelCompareInput {
+  pr: number;
+  mergedAt: string | null;
+  reverted: boolean;
+  /** Merge 後 7 日以内の fix の PR（既存の行と同じ値） */
+  fixedBy: number[];
+  /** App の修正要求の数（既存の行と同じ値） */
+  fixRequests: number;
+  /** PR のコメント（記録・判定コメント・受け付けを含む） */
+  comments: IssueComment[];
+  /** 受け付けの記録（古い順） */
+  acceptances: { comment: IssueComment; value: Acceptance }[];
+  fixRequestReviews: FixRequestReview[];
+  reviewComments: PrReviewComment[];
+  /** fix の PR の変更ファイル */
+  fixPrFiles: Record<number, string[]>;
+}
+
+export type PanelEvidence = 'fix-request' | 'human-review' | 'fix-pr' | 'revert';
+/** backed：裏付けあり、unconfirmed：未確認、suspected：誤検知の疑い（合体版だけ・Merge 済み・裏付け無し） */
+export type PanelBacking = 'backed' | 'unconfirmed' | 'suspected';
+
+export interface PanelOnlyFinding extends BlockingFinding {
+  backing: PanelBacking;
+  evidence: PanelEvidence[];
+}
+
+/** 組の行（受け付け1つと、その判定コメントより前の記録1つ） */
+export interface PanelPairRow {
+  pr: number;
+  headSha: string;
+  verdictCommentId: number;
+  // App・GitHub の事実
+  reviewerPass: boolean;
+  reviewerBlocking: BlockingFinding[];
+  fixRequests: number;
+  mergedAt: string | null;
+  reverted: boolean;
+  fixedBy: number[];
+  /** 判定コメントより後の、人（コラボレーター・目印なし）のレビューコメントの数 */
+  humanComments: number;
+  // セッションの申告
+  panelPass: boolean;
+  panelBlocking: BlockingFinding[];
+  panelUsd: number | null;
+  reviewerUsd: number | null;
+  // 組み合わせ
+  matched: number;
+  reviewerOnly: PanelOnlyFinding[];
+  panelOnly: PanelOnlyFinding[];
+}
+
+/** 作成の前後（同じ時刻なら comment id） */
+const isAfter = (a: { created_at: string; id: number }, b: { created_at: string; id: number }): boolean => {
+  const ta = Date.parse(a.created_at);
+  const tb = Date.parse(b.created_at);
+  return ta !== tb ? ta > tb : a.id > b.id;
+};
+
+const FIX_REQUEST_LINE = /^- \*\*([\w-]+)\*\*(?: `([^`]+)`)?: (.*)$/;
+
+/** fix-request の本文の行（harness/gates/on-comment.ts の renderBlockingReview の形）からブロッキング指摘を読む */
+function fixRequestFindings(body: string): BlockingFinding[] {
+  const out: BlockingFinding[] = [];
+  for (const line of body.replace(/\r\n/g, '\n').split('\n')) {
+    const m = line.match(FIX_REQUEST_LINE);
+    if (!m || !(BLOCKING_KINDS as readonly string[]).includes(m[1]!)) continue;
+    out.push({ kind: m[1] as BlockingKind, ...(m[2] ? { file: m[2] } : {}), detail: m[3]! });
+  }
+  return out;
+}
+
+const isFixRequest = (r: FixRequestReview) => appMarkKind(r.body) === 'fix-request';
+
+/** 同じファイル（両方にファイルがあるとき）か、両方ファイルが無いときは同じ種類 */
+const sameFinding = (a: BlockingFinding, b: BlockingFinding) => (a.file && b.file ? a.file === b.file : !a.file && !b.file && a.kind === b.kind);
+
+/**
+ * 記録を選んで組の行と、外した記録の理由ごとの件数を返す。
+ * 数えるのは、コラボレーターが書き、Claude の目印があり、読め、未編集で、同じ PR・shadow・受け付けの head と同じで、
+ * その head の最初の受け付けの判定コメントより前に作られた記録（同じ head に複数あれば判定コメントの直前の1つ）。
+ */
+export function panelPairs(config: HarnessConfig, input: PanelCompareInput): { rows: PanelPairRow[]; excluded: Record<PanelExcludeReason, number> } {
+  const excluded = Object.fromEntries(PANEL_EXCLUDE_REASONS.map((r) => [r, 0])) as Record<PanelExcludeReason, number>;
+  const app = appLogin(config);
+  const byId = new Map(input.comments.map((c) => [c.id, c]));
+
+  // head ごとの最初の受け付け
+  const firstByHead = new Map<string, { comment: IssueComment; value: Acceptance }>();
+  for (const a of input.acceptances) if (!firstByHead.has(a.value.verdictHeadSha)) firstByHead.set(a.value.verdictHeadSha, a);
+
+  // 記録の候補を絞る
+  const counted = new Map<string, { comment: IssueComment; record: PanelRecord }[]>();
+  for (const c of input.comments) {
+    if (c.user?.login === app || !(c.body ?? '').includes('agent-review-panel')) continue;
+    if (!isTrustedComment(c)) { excluded['not-collaborator']++; continue; }
+    if (!hasClaudeMark(c.body)) { excluded['no-mark']++; continue; }
+    const parsed = parsePanelRecord(c.body);
+    if (!parsed.ok) { excluded.unreadable++; continue; }
+    if (c.updated_at !== c.created_at) { excluded.edited++; continue; }
+    const record = parsed.value;
+    if (record.pr !== input.pr) { excluded['other-pr']++; continue; }
+    if (record.mode === 'enforce') { excluded.enforce++; continue; }
+    const acceptance = firstByHead.get(record.headSha);
+    if (!acceptance) { excluded['head-mismatch']++; continue; }
+    // 判定コメントが無ければ受け付けの記録（判定コメントより後）で前後を見る。組は reviewer-unknown で外す
+    const cutoff = byId.get(acceptance.value.verdictCommentId) ?? acceptance.comment;
+    if (!isAfter(cutoff, c)) { excluded['after-verdict']++; continue; }
+    counted.set(record.headSha, [...(counted.get(record.headSha) ?? []), { comment: c, record }]);
+  }
+
+  const rows: PanelPairRow[] = [];
+  for (const [head, acceptance] of firstByHead) {
+    const records = counted.get(head);
+    if (!records || records.length === 0) continue;
+    // 判定コメントの直前の1つ
+    const sorted = [...records].sort((a, b) => (isAfter(a.comment, b.comment) ? 1 : -1));
+    excluded.duplicate += sorted.length - 1;
+    const { record } = sorted.at(-1)!;
+
+    const verdictComment = byId.get(acceptance.value.verdictCommentId);
+    if (!verdictComment) { excluded['reviewer-unknown']++; continue; }
+    let reviewerBlocking: BlockingFinding[] = [];
+    if (!acceptance.value.reviewPass) {
+      const own = input.fixRequestReviews.find((r) => isFixRequest(r) && r.commitId === head);
+      if (own) reviewerBlocking = fixRequestFindings(own.body);
+      else {
+        const block = verdictComment.updated_at === verdictComment.created_at ? extractBlock(verdictComment.body, 'agent-verdict') : null;
+        const parsed = block?.found && block.ok ? parseVerdict(block.value) : null;
+        if (!parsed?.ok) { excluded['reviewer-unknown']++; continue; }
+        reviewerBlocking = parsed.value.review.blocking;
+      }
+    }
+
+    const verdictAt = Date.parse(verdictComment.created_at);
+    const laterFixFiles = new Set(
+      input.fixRequestReviews
+        .filter((r) => isFixRequest(r) && r.commitId !== head && Date.parse(r.submittedAt) > verdictAt)
+        .flatMap((r) => fixRequestFindings(r.body).flatMap((b) => (b.file ? [b.file] : []))),
+    );
+    const humanComments = input.reviewComments.filter(
+      (rc) => Date.parse(rc.createdAt) > verdictAt && rc.login !== app && TRUSTED_ASSOCIATIONS.has(rc.authorAssociation) && !hasClaudeMark(rc.body),
+    );
+    const humanFiles = new Set(humanComments.map((rc) => rc.path));
+    const fixPrFiles = new Set(input.fixedBy.flatMap((n) => input.fixPrFiles[n] ?? []));
+    const back = (b: BlockingFinding, panelOnly: boolean): PanelOnlyFinding => {
+      const evidence: PanelEvidence[] = [];
+      if (b.file && laterFixFiles.has(b.file)) evidence.push('fix-request');
+      if (b.file && humanFiles.has(b.file)) evidence.push('human-review');
+      if (b.file && fixPrFiles.has(b.file)) evidence.push('fix-pr');
+      if (input.reverted) evidence.push('revert');
+      const backing: PanelBacking = evidence.length > 0 ? 'backed' : panelOnly && input.mergedAt ? 'suspected' : 'unconfirmed';
+      return { ...b, backing, evidence };
+    };
+
+    // 前から順に1対1で対応させる
+    const used = new Set<number>();
+    const reviewerOnly: PanelOnlyFinding[] = [];
+    let matched = 0;
+    for (const r of reviewerBlocking) {
+      const i = record.review.blocking.findIndex((p, j) => !used.has(j) && sameFinding(r, p));
+      if (i === -1) reviewerOnly.push(back(r, false));
+      else { used.add(i); matched++; }
+    }
+    const panelOnly = record.review.blocking.flatMap((p, j) => (used.has(j) ? [] : [back(p, true)]));
+
+    rows.push({
+      pr: input.pr,
+      headSha: head,
+      verdictCommentId: acceptance.value.verdictCommentId,
+      reviewerPass: acceptance.value.reviewPass,
+      reviewerBlocking,
+      fixRequests: input.fixRequests,
+      mergedAt: input.mergedAt,
+      reverted: input.reverted,
+      fixedBy: input.fixedBy,
+      humanComments: humanComments.length,
+      panelPass: record.review.pass,
+      panelBlocking: record.review.blocking,
+      panelUsd: record.cost.panel?.totalUsd ?? null,
+      reviewerUsd: record.cost.reviewer?.totalUsd ?? null,
+      matched,
+      reviewerOnly,
+      panelOnly,
+    });
+  }
+  return { rows, excluded };
+}
+
+export interface PanelComparison {
+  /** 組になった PR の数 */
+  pairedPrs: number;
+  /** 組（head）の数 */
+  pairs: number;
+  passMatrix: { reviewerPass: { panelPass: number; panelFail: number }; reviewerFail: { panelPass: number; panelFail: number } };
+  matched: number;
+  reviewerOnly: number;
+  reviewerOnlyBacked: number;
+  panelOnly: number;
+  panelOnlyBacked: number;
+  suspectedFalsePositives: number;
+  /** actual：組になった PR の fixRequests の合計、provisional：合体版が不合格の組の数、reviewerFailPairs：今の reviewer が不合格の組の数（参考） */
+  fixRounds: { actual: number; provisional: number; reviewerFailPairs: number };
+  costMedianUsd: { panel: number | null; reviewer: number | null };
+  /** 料金の値が無い組の数 */
+  costMissing: { panel: number; reviewer: number };
+  criteria: { met: boolean; failed: PanelSwitchCriterion[] };
+}
+
+/** 浮動小数の誤差で境目がずれないように */
+const EPS = 1e-9;
+
+export function panelComparison(rows: PanelPairRow[]): PanelComparison {
+  const c = REVIEW_PANEL_SWITCH_CRITERIA;
+  const prs = new Map<number, PanelPairRow>();
+  for (const r of rows) if (!prs.has(r.pr)) prs.set(r.pr, r);
+  const count = (reviewerPass: boolean, panelPass: boolean) => rows.filter((r) => r.reviewerPass === reviewerPass && r.panelPass === panelPass).length;
+  const reviewerOnly = rows.flatMap((r) => r.reviewerOnly);
+  const panelOnly = rows.flatMap((r) => r.panelOnly);
+  const reviewerOnlyBacked = reviewerOnly.filter((x) => x.backing === 'backed').length;
+  const suspectedFalsePositives = panelOnly.filter((x) => x.backing === 'suspected').length;
+  const actual = [...prs.values()].reduce((a, r) => a + r.fixRequests, 0);
+  const provisional = rows.filter((r) => !r.panelPass).length;
+  const panelCosts = rows.flatMap((r) => (r.panelUsd === null ? [] : [r.panelUsd]));
+  const reviewerCosts = rows.flatMap((r) => (r.reviewerUsd === null ? [] : [r.reviewerUsd]));
+  const costMedianUsd = { panel: median(panelCosts), reviewer: median(reviewerCosts) };
+
+  const failed: PanelSwitchCriterion[] = [];
+  if (prs.size < c.minPairedPrs) failed.push('minPairedPrs');
+  if (reviewerOnlyBacked > c.maxBackedReviewerOnly) failed.push('maxBackedReviewerOnly');
+  if (suspectedFalsePositives > panelOnly.length * c.maxSuspectedFalsePositiveRatio + EPS) failed.push('maxSuspectedFalsePositiveRatio');
+  if (provisional > actual * c.maxProvisionalFixRatio + EPS) failed.push('maxProvisionalFixRatio');
+  if (costMedianUsd.panel === null || costMedianUsd.reviewer === null || costMedianUsd.panel > costMedianUsd.reviewer * c.maxCostMedianRatio + EPS) {
+    failed.push('maxCostMedianRatio');
+  }
+
+  return {
+    pairedPrs: prs.size,
+    pairs: rows.length,
+    passMatrix: {
+      reviewerPass: { panelPass: count(true, true), panelFail: count(true, false) },
+      reviewerFail: { panelPass: count(false, true), panelFail: count(false, false) },
+    },
+    matched: rows.reduce((a, r) => a + r.matched, 0),
+    reviewerOnly: reviewerOnly.length,
+    reviewerOnlyBacked,
+    panelOnly: panelOnly.length,
+    panelOnlyBacked: panelOnly.filter((x) => x.backing === 'backed').length,
+    suspectedFalsePositives,
+    fixRounds: { actual, provisional, reviewerFailPairs: rows.filter((r) => !r.reviewerPass).length },
+    costMedianUsd,
+    costMissing: { panel: rows.length - panelCosts.length, reviewer: rows.length - reviewerCosts.length },
+    criteria: { met: failed.length === 0, failed },
+  };
+}
+
+const PANEL_CRITERIA_LABELS: Record<PanelSwitchCriterion, string> = {
+  minPairedPrs: `組になった PR ${REVIEW_PANEL_SWITCH_CRITERIA.minPairedPrs} 件以上`,
+  maxBackedReviewerOnly: `今の reviewer だけが出して裏付けのあるブロッキング ${REVIEW_PANEL_SWITCH_CRITERIA.maxBackedReviewerOnly} 件`,
+  maxSuspectedFalsePositiveRatio: `合体版だけのブロッキングのうち誤検知の疑いが ${REVIEW_PANEL_SWITCH_CRITERIA.maxSuspectedFalsePositiveRatio * 100}% 以下`,
+  maxProvisionalFixRatio: `合体版の仮の往復が実際の ${REVIEW_PANEL_SWITCH_CRITERIA.maxProvisionalFixRatio} 倍以下`,
+  maxCostMedianRatio: `1判定あたりの推定料金の中央値が今の reviewer の ${REVIEW_PANEL_SWITCH_CRITERIA.maxCostMedianRatio} 倍以下`,
+};
+
+const EVIDENCE_LABELS: Record<PanelEvidence, string> = {
+  'fix-request': '後の head の変更要求',
+  'human-review': '人のレビューコメント',
+  'fix-pr': 'fix の PR',
+  revert: 'revert',
+};
+
+/** 表のセルに入れる文字列（| と改行を逃がし、max 字で切る） */
+const cell = (text: string, max = Infinity): string => {
+  const chars = [...text.replace(/\r?\n/g, ' ')];
+  return (chars.length > max ? chars.slice(0, max).join('') + '…' : chars.join('')).replace(/\|/g, '\\|');
+};
+const passCell = (pass: boolean) => (pass ? '合格' : '不合格');
+const usdCell = (v: number | null) => (v === null ? '-' : `$${Math.round(v * 1000) / 1000}`);
+
+export function renderPanelComparison(summary: PanelComparison, rows: PanelPairRow[], excluded: Record<string, number>): string {
+  const s = summary;
+  const c = REVIEW_PANEL_SWITCH_CRITERIA;
+  const failed = s.criteria.failed.map((k) => PANEL_CRITERIA_LABELS[k]);
+  const criteria = s.criteria.met ? '**満たす**（切り替えは人が全件を確かめてから決める）' : `満たさない（満たさない項目：${failed.join('、')}）`;
+  const reasons = [...PANEL_EXCLUDE_REASONS, ...Object.keys(excluded).filter((k) => !(PANEL_EXCLUDE_REASONS as readonly string[]).includes(k))];
+  const backingCell = (x: PanelOnlyFinding) =>
+    x.backing === 'backed' ? `あり：${x.evidence.map((e) => EVIDENCE_LABELS[e]).join('・')}` : x.backing === 'suspected' ? '誤検知の疑い' : '未確認';
+  const findingRows = (side: string, pick: (r: PanelPairRow) => PanelOnlyFinding[]) =>
+    rows.flatMap((r) => pick(r).map((x) => `| ${side} | #${r.pr} | ${r.headSha.slice(0, 7)} | ${x.kind} | ${x.file ? `\`${cell(x.file)}\`` : '-'} | ${backingCell(x)} | ${cell(x.detail, 120)} |`));
+  const list = [...findingRows('今の reviewer だけ', (r) => r.reviewerOnly), ...findingRows('合体版だけ', (r) => r.panelOnly)];
+  return [
+    '## 合体版のレビュー（記録だけの期間の比較）',
+    '',
+    `組になった PR ${s.pairedPrs} / ${c.minPairedPrs}（組になった head ${s.pairs}）`,
+    '',
+    '数える記録：コラボレーターが書き、Claude の目印があり、ブロックが読め、未編集で、head が App の受け付けの verdictHeadSha と同じで、判定コメントより前に作られた shadow の記録。',
+    '合体版の指摘・合否・料金はセッションの申告（偽れる）。本物・誤検知は App・GitHub の事実の裏付け（後の head の変更要求・人のレビューコメント・Merge 後 7 日以内の fix の PR・revert）だけで数える。',
+    '',
+    '| 指標 | 値 |',
+    '| --- | --- |',
+    `| 指摘の一致（同じファイル、ファイルが無ければ同じ種類） | ${s.matched} |`,
+    `| 今の reviewer だけ（うち裏付けあり） | ${s.reviewerOnly}（${s.reviewerOnlyBacked}） |`,
+    `| 合体版だけ（うち裏付けあり・誤検知の疑い） | ${s.panelOnly}（${s.panelOnlyBacked}・${s.suspectedFalsePositives}） |`,
+    `| 修正の往復：実際（組になった PR の変更要求の合計） | ${s.fixRounds.actual} |`,
+    `| 修正の往復：合体版の仮（合体版が不合格の組） | ${s.fixRounds.provisional} |`,
+    `| 参考：今の reviewer が不合格の組 | ${s.fixRounds.reviewerFailPairs} |`,
+    `| 1判定あたりの推定料金の中央値：合体版（値の無い組） | ${usdCell(s.costMedianUsd.panel)}（${s.costMissing.panel}） |`,
+    `| 1判定あたりの推定料金の中央値：今の reviewer（値の無い組） | ${usdCell(s.costMedianUsd.reviewer)}（${s.costMissing.reviewer}） |`,
+    '',
+    '実際の往復は PR の全部の head、仮は組になった head だけを数えるので範囲がずれる。仮は参考の「今の reviewer が不合格の組」と並べて見る（記録の抜けた head があると仮が少なく出る）。',
+    '',
+    '| 今の reviewer（App の事実） ＼ 合体版（申告） | 合格 | 不合格 |',
+    '| --- | --- | --- |',
+    `| 合格 | ${s.passMatrix.reviewerPass.panelPass} | ${s.passMatrix.reviewerPass.panelFail} |`,
+    `| 不合格 | ${s.passMatrix.reviewerFail.panelPass} | ${s.passMatrix.reviewerFail.panelFail} |`,
+    '',
+    '外した記録：',
+    '',
+    '| 理由 | 内容 | 件数 |',
+    '| --- | --- | --- |',
+    ...reasons.map((k) => `| ${k} | ${PANEL_EXCLUDE_LABELS[k as PanelExcludeReason] ?? '-'} | ${excluded[k] ?? 0} |`),
+    '',
+    `切り替えの基準（docs/plan.md の Q91）：${Object.values(PANEL_CRITERIA_LABELS).join('、')} → ${criteria}`,
+    '',
+    '組ごとの表：「PR」〜「人のコメント」の列は App・GitHub の事実、「合体版」〜「料金」の列はセッションの申告。',
+    '',
+    '| PR | head | 今の reviewer | 指摘 | 変更要求 | Merge | revert | fix PR | 人のコメント | 合体版 | ブロッキング | 一致 | 合体版だけ | 料金（合体版 / 今の reviewer） |',
+    '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+    ...rows.map(
+      (r) =>
+        `| #${r.pr} | ${r.headSha.slice(0, 7)} | ${passCell(r.reviewerPass)} | ${r.reviewerBlocking.length} | ${r.fixRequests} | ${r.mergedAt?.slice(0, 10) ?? '-'} | ${r.reverted ? '○' : ''} | ${r.fixedBy.map((n) => `#${n}`).join(' ')} | ${r.humanComments || ''} | ${passCell(r.panelPass)} | ${r.panelBlocking.length} | ${r.matched} | ${r.panelOnly.length} | ${usdCell(r.panelUsd)} / ${usdCell(r.reviewerUsd)} |`,
+    ),
+    '',
+    '### 片方だけのブロッキング指摘',
+    '',
+    ...(list.length === 0
+      ? ['ありません。']
+      : ['| 側 | PR | head | 種類 | ファイル | 裏付け | 指摘（120 字まで） |', '| --- | --- | --- | --- | --- | --- | --- |', ...list]),
   ].join('\n');
 }
