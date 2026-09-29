@@ -112,6 +112,28 @@ test('gh api --input - に、ヒアドキュメント・ヒアストリング・
   for (const label of LABEL_NAMES) for (const cmd of stdinBodyCmds(label)) assertDenyAll(bash(cmd), cmd);
 });
 
+/** 本文が変数の展開で、ラベルの名前は同じコマンドの代入の側にだけ出る形（合体版のレビューの指摘） */
+function stdinVariableCmds(label: string): string[] {
+  return [
+    `L='${label}'; gh api repos/o/r/issues/1/labels --input - <<< "{\\"labels\\":[\\"$L\\"]}"`,
+    `L=${label} && gh api repos/o/r/issues/1/labels --input - <<< "$L"`,
+    `export L=${label}; gh api repos/o/r/issues/1/labels --input - <<EOF\n{"labels":["$L"]}\nEOF`,
+    `L=${label}; gh api repos/o/r/issues/1/labels --input - <<EOF\n{"labels":["\${L}"]}\nEOF`,
+  ];
+}
+
+test('gh api --input - の本文が変数の展開で、ラベルの名前が同じコマンドの代入にあれば止める', () => {
+  for (const label of LABEL_NAMES) for (const cmd of stdinVariableCmds(label)) assertDenyAll(bash(cmd), cmd);
+});
+
+test('gh api --input - の本文が変数の展開でも、コマンドのどこにもラベルの名前が無ければ通す', () => {
+  const cmds = [
+    `B=hello; gh api repos/o/r/issues/1/comments --input - <<< "{\\"body\\":\\"$B\\"}"`,
+    'B=hello; gh api repos/o/r/issues/1/comments --input - <<EOF\n{"body":"$B"}\nEOF',
+  ];
+  for (const cmd of cmds) assertAllowAll(bash(cmd), cmd);
+});
+
 test('gh api --input - の本文にラベルの名前が無ければ通す（push・merge の語でも止めない）', () => {
   const cmds = [
     'gh api repos/o/r/issues/1/comments --input - <<EOF\n{"body":"hello"}\nEOF',

@@ -829,8 +829,10 @@ function checkGhApi(args: Word[], ctx: GuardContext, stdin: StdinSource): string
     if (hit) return role(`保護ラベル ${hit} を含む gh api`);
   }
   if (fromStdin) {
-    // 本文は標準入力：ヒアドキュメント・ヒアストリングがあればその中身、無ければ（パイプなどで分からないので）コマンド全体を見る
-    const sources = stdin.bodies.length > 0 ? stdin.bodies : [stdin.script];
+    // 本文は標準入力：ヒアドキュメント・ヒアストリングがあればその中身、無ければ（パイプなどで分からないので）コマンド全体を見る。
+    // 中身に変数の展開（$・`）があれば、ラベルの名前は変数の側（同じコマンドの代入など）にあるかもしれないので、コマンド全体も見る
+    const dynamicBody = stdin.bodies.some((b) => /[$`]/.test(b));
+    const sources = stdin.bodies.length > 0 ? (dynamicBody ? [...stdin.bodies, stdin.script] : stdin.bodies) : [stdin.script];
     for (const s of sources) {
       const hit = labelNameIn(safeDecode(s), ctx.protectedLabels);
       if (hit) return role(`保護ラベル ${hit} を含む本文を標準入力から渡す gh api（--input -）`);
