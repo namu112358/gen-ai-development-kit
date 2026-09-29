@@ -1,6 +1,6 @@
 ---
 name: ship
-description: 人が付き添うセッションで、Issue 番号を受け取り、plan → implement → judge → fix（必要なら sync）の skill をつないで、人の Merge 待ちか人の判断待ちまで進める。最後に人がすることを一覧にする。「#番号 を進めて」「#番号 を ship して」と頼まれたときに使う。
+description: 人が付き添うセッションで、Issue 番号を受け取り、plan → implement → judge → fix（必要なら sync）の skill をつないで、人の Merge 待ちか人の判断待ちまで進める。最後に人がすることを一覧にする。「#番号 を進めて」「#番号 を ship して」「〜を Issue にして進めて」と頼まれたときに使う。
 ---
 
 # ship（Issue を一続きに進める）
@@ -10,6 +10,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 ## 入力
 
 - Issue 番号
+- Issue がまだ無い依頼（「〜を Issue にして進めて」）なら、Issue Form（`.github/ISSUE_TEMPLATE/agent-task.yml`）の見出しと、タイトルの書式（`harness/lib/title.ts` の `parseTitle`、Conventional Commits）に合わせて `gh issue create` で作り、その番号で手順1から進める。人が「作るだけ」と言わない限り、作った Issue は同じセッションで plan まで進める
 - Issue の状態：ラベル（`agent:plan-ok`・`agent:plan-review`・`epic`・`agent:waiting`・`agent:blocked`・`agent:hold`）と、`gh issue view <番号> --comments` の本文・コメント
 - 計画ゲートの記録：`node harness/scripts/agent.ts show-plan <番号>`
 - Issue を Closes する開いた PR：`gh issue view <番号> --json closedByPullRequestsReferences`
