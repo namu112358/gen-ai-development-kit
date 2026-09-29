@@ -9,9 +9,9 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 
 | 区分 | パス | 扱い |
 | --- | --- | --- |
-| kit が持つ（`managed`） | `harness/lib/**`・`harness/gates/**`・`harness/scripts/**`・`harness/templates/**`・`harness/CLAUDE.harness.md`・`.claude/skills/**`・`.claude/agents/**`・`.claude/hooks/**`・`.claude/routine.md`・`.github/workflows/gate.yml`・`.github/ISSUE_TEMPLATE/agent-task.yml` | そのまま写す。導入先では書き換えない |
+| kit が持つ（`managed`） | `harness/lib/**`・`harness/gates/**`・`harness/scripts/**`・`harness/templates/**`・`harness/CLAUDE.harness.md`・`.claude/skills/**`・`.claude/agents/**`・`.claude/hooks/**`・`.claude/routine.md`・`.github/workflows/gate.yml`・`.github/ISSUE_TEMPLATE/agent-task.yml` | そのまま写す。導入先では書き換えない。`.claude/skills/**` は Orca のスキルの入口（`orca-cli`・`orchestration`、[11. Orca](#11-orca標準の実行環境)）も含む |
 | 初回だけ雛形から作る（`projectOwned`） | `harness.config.json`（← `harness/templates/harness.config.json`）、`CLAUDE.md`（← `harness/templates/CLAUDE.template.md`） | 写した後は導入先が持つ。CLAUDE.md の `@harness/CLAUDE.harness.md` の行は消さない（ハーネスの規則を読み込む） |
-| 両方が混ざる | `.claude/settings.json` | ハーネスのキー（`settingsKeys`：`permissions.deny`・`hooks`）だけを導入先の設定に入れる |
+| 両方が混ざる | `.claude/settings.json` | ハーネスのキー（`settingsKeys`：`permissions.deny`・`permissions.disableBypassPermissionsMode`・`hooks`）だけを導入先の設定に入れる |
 | 持ち込まない | `harness/test/`・`package.json`・`tsconfig.json`・`.node-version`・`overview.html`・このリポジトリの docs | ゲートは依存なしで Node 24 だけで動く（`gate.yml` は `node-version: 24` を直接指定する）。ハーネスの検査（`npm run check`）はこのリポジトリの CI で行う |
 | 持ち込まない（導入先が持つ） | `.gitattributes` | 導入先が自分のバイナリや CRLF の要るファイルの例外を書くため、配らない（sync で上書きすると例外を書けない）。同じ `* text=auto eol=lf` の行を導入先にも置くとよい（[10. 改行コード](#10-改行コードgitattributes)） |
 
@@ -151,3 +151,27 @@ git config --global user.email "<メール>"
 worktree は作業ツリーがそれぞれ別なので、worktree でも同じ手順を行う（または作り直す）。
 
 導入先でも同じ `* text=auto eol=lf` の行を `.gitattributes` に置くとよい。導入先のバイナリや CRLF の要るファイルの例外は、導入先が書く（`.gitattributes` は配らない。[1. ファイルを持ち込む](#1-ファイルを持ち込む)）。
+
+## 11. Orca（標準の実行環境）
+
+付き添いのセッションは [Orca](https://github.com/stablyai/orca)（stablyai/orca、MIT）の上で動かすことを標準にする。Orca は**必須**とする（worktree ごとのセッションを並べ、fleet の入れ子の方式で ship を並行に動かすため）。
+
+**入れ方**：各自のパソコンに Orca 本体を入れる。Orca のスキルの入口（`orca-cli`・`orchestration`）はリポジトリの `.claude/skills/` にあるので、`orca skills install` は要らない（入口は書き換えずに写したもので、中身の案内は手元の Orca の `skills get` から読む）。WSL の中から Windows の Orca を使う場合も同じ（WSL では環境変数 `ORCA_CLI_COMMAND` に CLI の名前が入る）。
+
+**確かめ方**：Linux・WSL では素の `orca` を使わない（GNOME の読み上げソフトと同じ名前で、別のものが起動しうる）。`orca-ide --version`・`orca-ide status --json`・`orca-ide skills list` で確かめる（`ORCA_CLI_COMMAND` があればその名前で）。新しいセッションで `orca-cli`・`orchestration` の skill が一覧に出ることも確かめる。
+
+**権限モード**：ハーネスは auto モード（`--permission-mode auto`）を前提にする。次の2つは各自が**手で**直す。ハーネス（hook・スクリプト）はこれらの設定ファイルを書き換えない（Orca が動いている間に上書き・破損するおそれがあるため）。
+
+1. 各自の `~/.claude/settings.json` に次を書く。プロジェクトの `.claude/settings.json` に `defaultMode` を書いても効かない（auto を既定にできるのはユーザーの設定と managed settings だけ）。Claude Code v2.1.283 以降は対話の端末の組み込みの既定も auto だが、古い版と明示のために書く。
+
+   ```json
+   { "permissions": { "defaultMode": "auto" } }
+   ```
+
+2. Orca の Settings → Agents →「Agent Permissions」を Manual にし、Claude の既定の起動引数（Orca の `orca-data.json` の `settings.agentDefaultArgs` の `claude`。`claude-agent-teams` も同じ）を `--permission-mode auto` にする（`--dangerously-skip-permissions` を外す）。Orca の既定は `--dangerously-skip-permissions`（すべての確認を飛ばす bypass permissions）になっている。
+
+リポジトリの `.claude/settings.json` の `permissions.disableBypassPermissionsMode: "disable"`（`harness/managed.json` の `settingsKeys` で導入先にも入る）で、bypass permissions は使えない。公式ドキュメントでは、この設定の下で Claude Code は `--dangerously-skip-permissions` のフラグを拒む（rejects）。Orca が既定の起動引数のままだとフラグが拒まれるので、上の手順2で起動引数を `--permission-mode auto` に直しておく。`permissions.deny` と PreToolUse の hook はどのモードでも効く。
+
+**Orca が無いとき（退行手段）**：今の手順（ship、1セッションで段階を交互に進める fleet（`fleet.nesting` の `flat`。入れ子にできなければ fleet が自分で戻る）、`node harness/scripts/agent.ts worktree`）で進める。SessionStart の hook（`.claude/hooks/session-env.ts`）は、startup のときに `ORCA_CLI_COMMAND` も PATH の `orca-ide` も無ければ、この節を案内する一言を出すだけで、セッションを止めない（CLI は実行しない。Routine では知らせない）。bypass permissions で始まったことは hook では知らせない（SessionStart の入力に `permission_mode` が渡る保証が無く、bypass は上の `disableBypassPermissionsMode` で拒むため）。
+
+**取り込んだ版と更新**：入口は Orca 1.4.215（タグ `v1.4.215`、コミット `083f583a53e4c74a65acf420eee4ca2e0efa9df1`）の `skills/orca-cli/SKILL.md`・`skills/orchestration/SKILL.md` の写し。出どころと更新の手順は [docs/upstream/README.md](upstream/README.md#stablyaiorca)。
