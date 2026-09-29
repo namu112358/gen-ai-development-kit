@@ -56,7 +56,7 @@ export const NO_COMMENT_ALLOWLIST: string[] = [
 /** 先頭にコメントを書けない6件の、README にそのまま残す説明（手書き。生成しない） */
 const NO_COMMENT_TEXT: Record<string, string> = {
   '.claude/settings.json':
-    'Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録、チームで使うプラグインの登録（版を固定）と外部のページの許可。',
+    'Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録、bypass permissions を使えなくする設定（`permissions.disableBypassPermissionsMode`）、チームで使うプラグインの登録（版を固定）と外部のページの許可。',
   'harness/templates/claude-settings.deny.json':
     'Claude Code にさせない操作（Merge、main への push、保護ラベルの付け外し、Secret・資格情報の読み出しなど）の一覧。`.claude/settings.json` の `permissions.deny` と同じ内容で、変えるときは両方を直す',
   'harness/managed.json':
@@ -196,14 +196,28 @@ function stripMdInline(line: string): string {
   return line.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/\*\*/g, '');
 }
 
-function parseFrontmatterDescription(content: string): string | undefined {
+/**
+ * frontmatter の description。1行の形（引用符あり・なし）と、折り返しの形（`>`・`>-`・`|`・`|-`）を読む。
+ * 折り返しは、続く字下げの行（次のキーか frontmatter の終わりまで）を trim して空白1つでつなぐ。行末の \r\n も読む
+ */
+export function parseFrontmatterDescription(content: string): string | undefined {
   if (!content.startsWith('---\n') && !content.startsWith('---\r\n')) return undefined;
-  const end = content.indexOf('\n---', 4);
+  const lines = content.split(/\r?\n/);
+  const end = lines.indexOf('---', 1);
   if (end === -1) return undefined;
-  const body = content.slice(4, end);
-  const m = body.match(/^description:\s*(.*)$/m);
-  if (!m) return undefined;
-  let value = m[1]!.trim();
+  const body = lines.slice(1, end);
+  const i = body.findIndex((l) => /^description:/.test(l));
+  if (i === -1) return undefined;
+  let value = body[i]!.replace(/^description:/, '').trim();
+  if (/^[>|][-+]?$/.test(value)) {
+    const folded: string[] = [];
+    for (const line of body.slice(i + 1)) {
+      if (line.trim() === '') continue;
+      if (!/^\s/.test(line)) break;
+      folded.push(line.trim());
+    }
+    return folded.join(' ');
+  }
   if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
     value = value.slice(1, -1);
   }
