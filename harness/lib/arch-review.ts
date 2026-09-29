@@ -207,3 +207,13 @@ export function checkIssueDrafts(value: unknown): IssueDraftsResult {
     .join('\n');
   return { ok: true, drafts, markdown };
 }
+
+/** arch-review-range の引数の誤り（--since・--until は40桁の SHA、--last は1以上の整数）。誤りが無ければ空 */
+export function archReviewRangeArgErrors(opts: { since?: string; until?: string; last?: string }): string[] {
+  const sha = /^[0-9a-f]{40}$/;
+  return [
+    ...(opts.since !== undefined && !sha.test(opts.since) ? ['--since は40桁の SHA'] : []),
+    ...(opts.until !== undefined && !sha.test(opts.until) ? ['--until は40桁の SHA'] : []),
+    ...(opts.last !== undefined && !/^[1-9]\d*$/.test(opts.last) ? ['--last は1以上の整数'] : []),
+  ];
+}

@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { archReviewRange, checkIssueDrafts, latestArchReviewRecord, parseArchReviewRecord, renderArchReviewRecord } from '../lib/arch-review.ts';
+import { archReviewRange, archReviewRangeArgErrors, checkIssueDrafts, latestArchReviewRecord, parseArchReviewRecord, renderArchReviewRecord } from '../lib/arch-review.ts';
 import { claudeMark } from '../lib/blocks.ts';
 import { LABELS } from '../lib/config.ts';
 import { GitHub } from '../lib/github.ts';
@@ -374,4 +374,13 @@ test('agent.ts arch-review-drafts：正しい下書きは一覧を出して終�
 test('agent.ts arch-review-drafts：agent:ready を含む下書きは終了コード 2', () => {
   const r = runDrafts([draft({ labels: [LABELS.ready] })]);
   assert.equal(r.status, 2, r.stdout);
+});
+
+test('archReviewRangeArgErrors：--last は2桁以上の整数も受け付け、0・負・小数・文字は誤り。--since・--until は40桁の SHA', () => {
+  assert.deepEqual(archReviewRangeArgErrors({}), []);
+  for (const last of ['1', '9', '10', '25', '100']) assert.deepEqual(archReviewRangeArgErrors({ last }), [], last);
+  for (const last of ['0', '-1', '1.5', 'd', 'dd', '1d', '']) assert.deepEqual(archReviewRangeArgErrors({ last }), ['--last は1以上の整数'], last);
+  const sha = 'a'.repeat(40);
+  assert.deepEqual(archReviewRangeArgErrors({ since: sha, until: sha }), []);
+  assert.deepEqual(archReviewRangeArgErrors({ since: 'abc', until: sha.toUpperCase() }), ['--since は40桁の SHA', '--until は40桁の SHA']);
 });

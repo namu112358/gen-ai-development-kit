@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { archReviewRange, checkArchReviewRecord, checkIssueDrafts, renderArchReviewRecord } from '../lib/arch-review.ts';
+import { archReviewRange, archReviewRangeArgErrors, checkArchReviewRecord, checkIssueDrafts, renderArchReviewRecord } from '../lib/arch-review.ts';
 import { appMarkKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../lib/blocks.ts';
 import { areaLimitLabels, countsTowardAreaLimit, describeFullAreas, fullAreas } from '../lib/concurrency.ts';
 import { decisionTargets, parseDecision, uncoveredTargets, type Decision } from '../lib/decision.ts';
@@ -613,8 +613,6 @@ function renderMetrics(stage: string, model: string, minutes: string, tokensArg?
   ].join('\n');
 }
 
-const SHA_ARG = /^[0-9a-f]{40}$/;
-
 /** arch-review-range：前回の記録か --since からの範囲（読むだけ） */
 async function archReviewRangeText(gh: GitHub, args: string[]): Promise<string> {
   const usage = 'arch-review-range [--since <sha>] [--until <sha>] [--last <n>]';
@@ -623,9 +621,7 @@ async function archReviewRangeText(gh: GitHub, args: string[]): Promise<string> 
   const { '--since': since, '--until': until, '--last': last } = a.value.options;
   const errors = [
     ...(a.value.positional.length > 0 ? [`余分な引数：${a.value.positional.join(' ')}`] : []),
-    ...(since !== undefined && !SHA_ARG.test(since) ? ['--since は40桁の SHA'] : []),
-    ...(until !== undefined && !SHA_ARG.test(until) ? ['--until は40桁の SHA'] : []),
-    ...(last !== undefined && !/^[1-9]d*$/.test(last) ? ['--last は1以上の整数'] : []),
+    ...archReviewRangeArgErrors({ since, until, last }),
   ];
   if (errors.length > 0) fail([...errors, usage]);
   const range = await archReviewRange(gh, config, { since, until, last: last === undefined ? undefined : Number(last) });
