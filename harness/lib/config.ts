@@ -38,6 +38,13 @@ export interface HarnessConfig {
    */
   humanMergePaths?: string[];
   /**
+   * 委任 Merge（人が期限つきで Merge の判断を App に委ねる）。ダッシュボードの label が付いてから hours の間だけ有効。
+   * 期限までの残りが minRemainingMinutes より短いときは、委任で auto-merge を付けない。無ければ既定値（delegateMergeConfig）
+   */
+  delegateMerge?: { label: string; hours: number; minRemainingMinutes: number };
+  /** 委任 Merge 中でも人が Merge するパス（自動 Merge の仕組みそのもの。harness.config.json は一覧に無くても当たる）。範囲パターンの書式 */
+  delegateMergeExclude?: string[];
+  /**
    * Ruleset の必須チェックのうち、導入先の CI が出すもの（harness/lib/ruleset.ts）。integrationId を省くと GitHub Actions。
    * 無ければ `[{ "context": "ci" }]`、空の配列ならプロジェクトの CI を必須にしない。ハーネスのチェックはここに書かない（コードに固定）
    */
@@ -55,6 +62,14 @@ const CONFIG_PATH = fileURLToPath(new URL('../../harness.config.json', import.me
 
 export function loadConfig(path: string = CONFIG_PATH): HarnessConfig {
   return JSON.parse(readFileSync(path, 'utf8')) as HarnessConfig;
+}
+
+/** 委任 Merge の既定値 */
+export const DELEGATE_MERGE_DEFAULTS = { label: 'agent:delegate-merge', hours: 2, minRemainingMinutes: 30 } as const;
+
+/** 委任 Merge の設定（無い項目は既定値） */
+export function delegateMergeConfig(config: Pick<HarnessConfig, 'delegateMerge'>): { label: string; hours: number; minRemainingMinutes: number } {
+  return { ...DELEGATE_MERGE_DEFAULTS, ...config.delegateMerge };
 }
 
 /** App が操作したことを示す GitHub 上のログイン名 */
@@ -186,6 +201,7 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: 'plan:exempt', color: 'fef2c0', description: '人: 計画のある Issue に紐付かない PR を例外として通す' },
   { name: TEST_EXEMPT_LABEL, color: 'fef2c0', description: '人: テストを弱める変更を例外として agent/tests を通す' },
   { name: 'agent:auto-merge-stopped', color: '000000', description: 'ダッシュボード専用: 自動 Merge モードの停止スイッチ' },
+  { name: DELEGATE_MERGE_DEFAULTS.label, color: '5319e7', description: 'ダッシュボード専用・人だけが付ける: 期限つきで Merge を App に委ねる（委任 Merge）' },
   { name: riskLabel('low'), color: 'c2e0c6', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
   { name: riskLabel('medium'), color: 'fef2c0', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
   { name: riskLabel('high'), color: 'f9d0c4', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },

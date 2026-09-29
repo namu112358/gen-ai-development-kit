@@ -76,6 +76,26 @@
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
   "humanMergePaths": [],
+  "delegateMerge": {
+    "label": "agent:delegate-merge",
+    "hours": 2,
+    "minRemainingMinutes": 30
+  },
+  "delegateMergeExclude": [
+    "harness/lib/merge-route.ts",
+    "harness/lib/verdict.ts",
+    "harness/lib/config.ts",
+    "harness/lib/delegate.ts",
+    "harness/gates/**",
+    ".github/**",
+    "harness.config.json",
+    ".claude/settings.json",
+    ".claude/hooks/**",
+    ".claude/agents/reviewer.md",
+    ".claude/agents/risk-agent.md",
+    ".claude/skills/judge/SKILL.md",
+    "docs/risk-policy.md"
+  ],
   "classification": {
     "sizes": [
       [
