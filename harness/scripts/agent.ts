@@ -15,9 +15,10 @@ import { CLAIM_STAGES, claimBlocker, requireOwnClaim, worktreeClaimIssue, type C
 import { parseChildMarker } from '../lib/epic.ts';
 import {
   checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, selectPastPrs, splitArgs,
-  PAST_PR_FILE_LIMIT, type CheckRun, type JudgeFacts, type ParentEpic, type PastPrReview, type PastPrReviewComment, type PastPrs, type PrCommit,
+  lowerLayers, PAST_PR_FILE_LIMIT, type CheckRun, type JudgeFacts, type ParentEpic, type PastPrReview, type PastPrReviewComment, type PastPrs, type PrCommit, type StackFacts,
 } from '../lib/session-inputs.ts';
-import { closingIssues, isAppComment, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
+import { classifyBase, stackOf } from '../lib/stack.ts';
+import { changedFiles, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
 import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
 import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
@@ -148,8 +149,8 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
     const repository = `${gh.owner}/${gh.repo}`;
     const labels: string[][] = [];
     for (const p of await gh.paginate<PullRequest>('/pulls?state=open')) {
-      // この Issue を閉じる PR（続きの作業）は数えない
-      if (!isSameRepoPr(p, repository) || (await closingIssues(gh, p.number)).includes(n)) continue;
+      // この Issue に紐付く PR（続きの作業。スタックの層は本文の Refs／Closes）は数えない
+      if (!isSameRepoPr(p, repository) || (await linkedIssues(gh, config, await withStack(gh, config, p))).includes(n)) continue;
       labels.push(p.labels.map((l) => l.name));
     }
     const full = fullAreas(config, gate?.value.plan?.files ?? [], labels);
@@ -302,22 +303,35 @@ async function pastPrsFor(gh: GitHub, n: number): Promise<PastPrs> {
   return { changedFiles: changed.length, filesConsidered: considered.length, prs };
 }
 
+/** Stacked PR の層なら、base・位置と、下の層（PR 番号・base・変更ファイル）。層でなければ null */
+async function stackFactsFor(gh: GitHub, pr: PullRequest): Promise<StackFacts | null> {
+  const stack = stackOf(pr);
+  if (classifyBase(pr, config.defaultBranch) !== 'stacked' || stack === null || stack === 'malformed') return null;
+  const open = await gh.paginate<PullRequest>('/pulls?state=open');
+  const lower: StackFacts['lower'] = [];
+  for (const l of lowerLayers(open, pr, config.defaultBranch, `${gh.owner}/${gh.repo}`, stack.size)) {
+    lower.push({ ...l, files: await changedFiles(gh, l.number) });
+  }
+  return { base: pr.base.ref, number: stack.number, position: stack.position, size: stack.size, lower };
+}
+
 async function judgeInput(gh: GitHub, n: number): Promise<string> {
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
   const issues: JudgeFacts['issues'] = [];
-  for (const i of await closingIssues(gh, n)) {
+  for (const i of await linkedIssues(gh, config, pr)) {
     const issue = await gh.get<IssueItem>(`/issues/${i}`);
     const epic = await parentEpic(gh, issue.body);
     issues.push({ number: i, title: issue.title, body: issue.body, comments: await gh.listComments(i), ...(epic ? { epic } : {}) });
   }
   const text = renderJudgeInput(config, {
-    pr: { number: n, headSha: pr.head.sha, body: pr.body },
+    pr: { number: n, headSha: pr.head.sha, body: pr.body, baseRef: pr.base.ref },
     issues,
     prComments: await gh.listComments(n),
     checkRuns: await gh.paginate<CheckRun>(`/commits/${pr.head.sha}/check-runs`),
     commits: await gh.paginate<PrCommit>(`/pulls/${n}/commits`),
     prState: { state: pr.state, draft: pr.draft, merged: pr.merged },
     pastPrs: await pastPrsFor(gh, n),
+    stack: await stackFactsFor(gh, pr),
   });
   return writeTemp(`judge-input-${n}.txt`, text);
 }

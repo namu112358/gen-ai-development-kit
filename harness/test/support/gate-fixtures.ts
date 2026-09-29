@@ -82,6 +82,8 @@ export function acceptanceFake(state: { pr: ReturnType<typeof pr>; dashboardLabe
     .on('GET', /\/pulls\/5\/reviews/, () => [])
     .on('GET', /\/issues\/3\/comments/, () => [planGateComment])
     .on('GET', /\/issues\/5\/comments/, () => state.prComments ?? [])
+    // 開いた PR の一覧（計画の投稿で plan-link を書き直す相手を、スタックの層の Refs からも探すため）。テストごとの .on が優先する
+    .on('GET', /\/pulls\?state=open/, () => [])
     .on('GET', /\/issues\?state=open&creator=/, () => (state.dashboardLabels ? [{ number: 1, title: config.dashboardIssueTitle, user: { login: APP }, labels: state.dashboardLabels.map((name) => ({ name })) }] : []))
     .on('POST', /\/graphql/, (_m, body) => {
       if (String(body.query).includes('closingIssuesReferences')) return { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [{ number: 3, repository: { nameWithOwner: 'o/r' } }] } } } } };
