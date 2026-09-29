@@ -40,7 +40,7 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を、1つのセッシ
    - `--max` の本数で待つ Issue は、ほかが Merge されるまで進めない。
 4. Merge 済みの Issue が出たら、次にやることが sync になった残りの PR に sync の skill をする（判定が引き継がれたかを確かめ、変わっていれば判定し直す）。
 5. 「選ぶ」の Issue が全部、人の Merge 待ち（Ready・人の Merge 待ち、自動 Merge 待ち）か人の判断待ち（plan-review、止まる印あり、各 skill の人に返す条件）になるまで、手順2〜4を繰り返す。
-6. ラベル（`priority:*`・`area:*`）は Jev に任せる（ship の手順8と同じ）。不足や違反を確かめず、手順8の一覧にも書かない。人にも聞かない。
+6. ラベル（`priority:*`・`area:*`）は、ship の手順8と同じく、まず Jev に任せ、App の名義の `kind=label-triage` の記録の `notApplied` がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順8の一覧に書かず、人にも聞かない。
 7. `node harness/scripts/agent.ts usage` で、このセッションのトークン数と推定料金を読む。
 8. 人に**人がすること**の一覧を1つにまとめて出す（Issue・PR ごとに ship の手順9と同じ項目）。
    - Merge：Human Merge の PR（Merge の順番に意味があれば順番も）。自動 Merge なら何もしない（止めたければ `agent:hold`）
