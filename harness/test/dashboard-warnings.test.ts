@@ -105,9 +105,8 @@ test('COLUMNS：すべての列に強制のされ方（4種のどれか）と、
 test('COLUMNS：強制のされ方の割り当て', () => {
   const byId = Object.fromEntries(COLUMNS.map((c) => [c.id, c.enforcement]));
   assert.deepEqual(byId, {
-    'no-plan': 'code', plan: 'code', 'plan-gate': 'code', 'plan-ok': 'code', judge: 'code',
+    'no-plan': 'code', plan: 'code', 'plan-critique': 'code', 'plan-gate': 'code', 'plan-ok': 'code', judge: 'code',
     implement: 'cond', fix: 'cond', sync: 'cond', dependency: 'cond',
-    'plan-critique': 'ai',
     'plan-review': 'human', merge: 'human', stopped: 'human',
   });
 });

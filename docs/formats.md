@@ -50,9 +50,9 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | `openQuestions` | 文字列の配列 | 人に確認したいこと |
 | `files` | 文字列の配列 | **触るファイル一覧（必須）**。`*` と `**` が使える（`?` は文字どおり）。最初の階層にワイルドカードがあるものは不可 |
 | `split` | 配列（任意） | Epic として子課題に分けるとき（2件以上）。下記 |
-| `critique` | オブジェクト（任意） | 投稿前の批評の結果。`verdict`（`go` / `revise` / `split` / `drop`）と、批評させた回数 `rounds`（1以上の整数）と、任意で最後の回の必須の指摘の件数 `mustRemaining`（0以上の整数）。記録用で、ゲートの判断には使わない |
+| `critique` | オブジェクト（任意） | 投稿前の批評の結果。`verdict`（`go` / `revise` / `split` / `drop`）と、批評させた回数 `rounds`（1以上の整数）と、任意で最後の回の必須の指摘の件数 `mustRemaining`（0以上の整数）。無い計画は計画ゲートで止まる（`verdict` の値そのものでは止めない） |
 
-ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている。
+ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている、`critique` が無い、計画コメントより前に同じ Issue への段階 `plan-critique` の着手宣言（コラボレーターの、Claude の目印付きの `agent-claim`。解除は数えない。`manual`・`routine` のどちらでもよい）が無い（批評の関所。`split` の計画も同じ。「前」はコメントの ID の大小で決める）。批評の関所だけで止めたときの理由コードは `no-critique`（ほかの理由と重なるときは今までのコード）。`critique` が `revise` で `mustRemaining` が1以上の計画は、人が必須の指摘を残して進めると決めた計画として止めず、ゲートの記録の `critiqueProceeded` に残す。
 
 Issue に `agent:plan-review` が付いているときの出し直しは、App の最新の計画ゲートの記録（`agent-app` ブロックの `planReviewOrigin`）で扱いを決める。`planReviewOrigin` は停止の記録に書く出どころで、`gate` は App のゲートの停止（critical・ガードレール・`files` の欠落・`split-invalid`・`resplit` など。止めた計画に Planner の申告が無く、止める前に印が付いていなかった）、`planner` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）か、App が止める前から付いていた印（Planner か人が付けた）。記録が `gate` の停止で、最後に `agent:plan-review` を付けたのが App なら、前の印を理由に止めず新しい計画だけで判定する（通れば App が `agent:plan-review` を外して `agent:plan-ok` を付け、当たればまた `gate` で止まる）。記録が無い・`planner`・`planReviewOrigin` の無い古い記録なら、人が外すまで止める。`post-plan` / `render-plan` が先に付ける `agent:plan-review` は、Planner の申告があるときだけ。Planner の申告（`needsHuman`・`openQuestions`）で止まった計画は、付き添いのセッションが人の答えを[決定の記録](#決定の記録agent-decision)で残すと、App が Jev に確かめさせ、`jev.decisionRelease` が `enforce` でしきい値以上なら答え済みとして判定し直す（通れば App が印を外す。ほかの理由で当たれば `gate` の停止として残る）。
 
@@ -142,17 +142,19 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 { "by": "routine", "session": "https://claude.ai/code/session_...", "at": "2026-09-26T12:00:00.000Z" }
 ```
 
-付き添いのセッションの宣言（`claim <番号> --manual [--stage <段階>]`）には、任意で `session`（セッションの ID）と `stage`（`plan`・`plan-critique`・`plan-gate`・`implement`・`judge`・`fix`・`sync`）が入る。古い宣言（どちらも無い）も読む。
+付き添いのセッションの宣言（`claim <番号> --manual [--stage <段階>]`）には、任意で `session`（セッションの ID）と `stage`（`plan`・`plan-critique`・`plan-gate`・`implement`・`judge`・`fix`・`sync`）が入る。古い宣言（どちらも無い）も読む。`--takeover` で出した宣言には `"takeover": true` が入る（ほかのセッションの持ち主から引き継いだ印。`--takeover` でない宣言には書かない）。
 
 ```agent-claim
 { "by": "manual", "session": "3f2a9c1e-…", "stage": "plan-critique", "at": "2026-09-27T12:00:00.000Z" }
 ```
 
 - 宣言の `session` が今のセッションの ID と同じ（どちらも空でない）なら自分の宣言として扱い、`fleet-status`・`queue` は「ほかのセッションが着手中」にしない。段階とセッションの短い形は、`fleet-status` の表とダッシュボードの理由に出る。
-- `claim --manual` は、ほかのセッションの有効な手動の宣言があれば止まる（期限を過ぎていても）。同じセッションなら段階の更新として通る。引き継ぐのは人が決めたときだけ `--takeover`（`--force` は領域の上限だけを飛ばす）。
-- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）は、このセッションの宣言が無いと止まる（Routine では確かめない）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除のコメントを出す（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除のコメントを出すのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
+- 持ち主の決め方（`harness/lib/facts.ts` の `claimOf`）：**最初の宣言が持ち主**。コメントを古い順に見て、持ち主がいなければ解除でない宣言のセッションが持ち主になる。持ち主と同じセッション（`by` と `session` が同じ。`session` の無い古い宣言同士も含む）の宣言は段階の更新で、解除なら持ち主がなくなる。ほかのセッションの宣言は、`takeover: true` か、持ち主が `routine` の宣言のときだけ持ち主を移し、それ以外（ほかのセッションの解除も）は無視する。計画・判定コメントで持ち主がなくなる。有効な着手宣言は持ち主の最新の段階の宣言。
+- `claim --manual` は、ほかのセッションの有効な手動の宣言があれば止まる（期限を過ぎていても）。同じセッションなら段階の更新として通る。引き継ぐのは人が決めたときだけ `--takeover`（`--force` は領域の上限だけを飛ばす）。このセッションの ID が得られなければ投稿せずに止まる（`release` も同じ）。
+- 読み直し（`harness/lib/claim.ts` の `postClaim`）：`claim` は投稿の後に少し（5秒）待って読み直し、持ち主が自分でなければ（ほぼ同時にほかのセッションが先に宣言した）、自分の宣言を取り下げる解除のコメント（`released: true`）を書き、先に宣言したセッションを示して 0 以外で終わる。ほかのセッションの解除は持ち主を消さないので、取り下げで先の側の宣言は消えない。
+- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）・`ensure-claim <番号>`（PR を作る前に使う）は、このセッションの宣言（持ち主）が無いと止まる。読み直しで気づかなくても、ここで同じ決め方で止まる。定期 Routine は `worktree … --routine` で確かめを飛ばす（Routine の環境には `gh` が無い）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除のコメントを出す（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除のコメントを出すのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
 
-`"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
+持ち主の `"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
 ## 決定の記録（agent-decision）
 
@@ -189,7 +191,7 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 
 | kind | 置き場所 | 内容 |
 | --- | --- | --- |
-| `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan, decisionCommentId? }`。`plan` はゲート時点の計画の写し。`decisionCommentId` は決定の記録で判定し直したときのコメント |
+| `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan, decisionCommentId?, critiqueProceeded? }`。`plan` はゲート時点の計画の写し。`decisionCommentId` は決定の記録で判定し直したときのコメント。`critiqueProceeded`（`{ verdict: 'revise', mustRemaining }`）は、批評で必須の指摘が残ったまま人が進めると決めて通った計画（古い記録には無い） |
 | `plan-decision` | Issue | 決定の記録を App が確かめた結果。`{ version, decisionCommentId, planCommentId, mode, questionSet, threshold, status, model, answers, pass, missing, regate }`。`status` は `ok` / `invalid`（書式・答えの無い項目）/ `ineligible`（対象外）/ `skipped`（鍵が無い・大きすぎる）/ `error`。`mode` が `shadow` なら記録だけでラベルは変えない。`regate` は `enforce` で判定し直したか。同じ `decisionCommentId` には二度問わない |
 | `epic-split` | Issue（Epic の親） | `{ planCommentId, children }`。作った（または使い回した）子 Issue の番号を `split` の順に |
 | `queue` | ダッシュボードの本文 | `{ computedAt, actions, skipped }`。Routine が次にやること |

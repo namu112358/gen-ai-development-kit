@@ -95,6 +95,8 @@ export interface PlanGateRecord {
   planReviewOrigin?: 'gate' | 'planner';
   /** 決定の記録（agent-decision）で判定し直したときのコメント */
   decisionCommentId?: number;
+  /** 批評で必須の指摘が残ったまま、人が進めると決めて通った計画（critique が revise で mustRemaining が1以上）。古い記録には無い */
+  critiqueProceeded?: { verdict: 'revise'; mustRemaining: number };
 }
 
 export function latestPlanGate(config: HarnessConfig, comments: IssueComment[]): { comment: IssueComment; value: PlanGateRecord } | null {
