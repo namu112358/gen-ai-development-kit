@@ -3,7 +3,7 @@
  * グラフの材料（facts）の取り直し。facts は harness/lib の issueFacts / prFacts / claimOf をそのまま使う。
  */
 import { appMarkKind } from '../../lib/blocks.ts';
-import { isAppComment, closingIssues, isAgentPr, isSameRepoPr, type PullRequest } from '../../lib/state.ts';
+import { isAgentPr, isAppComment, isSameRepoPr, linkedIssues, withStack, type PullRequest } from '../../lib/state.ts';
 import type { HarnessConfig } from '../../lib/config.ts';
 import { issueFacts, prFacts } from '../../lib/facts.ts';
 import type { FleetPr } from '../../lib/fleet.ts';
@@ -32,13 +32,17 @@ export type PollResult = { kind: 'unchanged' } | { kind: 'full' } | { kind: 'cha
 
 const PAGE = 50;
 
-/** 条件付きリクエストで Issue / PR の更新を見張る。304 は API の上限に数えられない */
+/**
+ * 条件付きリクエストで Issue / PR の更新を見張る。304 は API の上限に数えられない。
+ * poll の結果を取り込み終えたら commit を呼ぶ。取り込みに失敗して commit しなければ、次の poll が同じ変化をもう一度返す。
+ */
 export class UpdateWatcher {
   private readonly fetch: FetchLike;
   private readonly token: string;
   private readonly url: string;
   private etag: string | null = null;
   private seen: Map<number, string> | null = null;
+  private pending: { etag: string | null; seen: Map<number, string> } | null = null;
 
   constructor(opts: { fetch: FetchLike; token: string; repository: string; apiUrl?: string }) {
     this.fetch = opts.fetch;
@@ -55,17 +59,25 @@ export class UpdateWatcher {
     };
     if (this.etag) headers['if-none-match'] = this.etag;
     const res = await this.fetch(this.url, { method: 'GET', headers });
+    this.pending = null;
     if (res.status === 304) return { kind: 'unchanged' };
     if (res.status !== 200) throw new Error(`GET ${this.url} -> ${res.status}`);
-    this.etag = res.headers.get('etag');
     const items = (await res.json()) as { number: number; updated_at: string }[];
     const next = new Map(items.map((i) => [i.number, i.updated_at]));
     const prev = this.seen;
-    this.seen = next;
+    this.pending = { etag: res.headers.get('etag'), seen: next };
     if (prev === null) return { kind: 'full' };
     const numbers = items.filter((i) => prev.get(i.number) !== i.updated_at).map((i) => i.number);
     if (items.length >= PAGE && numbers.length >= items.length) return { kind: 'full' };
     return numbers.length > 0 ? { kind: 'changed', numbers } : { kind: 'unchanged' };
+  }
+
+  /** 直前の poll の結果を取り込み終えた。ETag と既読の updated_at を進める */
+  commit(): void {
+    if (!this.pending) return;
+    this.etag = this.pending.etag;
+    this.seen = this.pending.seen;
+    this.pending = null;
   }
 }
 
@@ -89,6 +101,8 @@ export class DashboardData {
   private readonly issueMap = new Map<number, DashIssue>();
   private readonly prMap = new Map<number, DashPr>();
   private openPrs: PullRequest[] = [];
+  /** 開いた PR が紐付く Issue（harness/lib/state.ts の linkedIssues。Stacked PR の層は本文の Refs #N）。PR の updated_at ごとに覚える */
+  private links = new Map<number, { updatedAt: string; issues: number[] }>();
 
   constructor(gh: GitHub, config: HarnessConfig) {
     this.gh = gh;
@@ -109,6 +123,19 @@ export class DashboardData {
 
   private async loadOpenPrs(): Promise<void> {
     this.openPrs = (await this.gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isSameRepoPr(p, this.repository));
+    const links = new Map<number, { updatedAt: string; issues: number[] }>();
+    await pool(this.openPrs, 4, async (p) => {
+      const cached = this.links.get(p.number);
+      links.set(p.number, cached && cached.updatedAt === p.updated_at
+        ? cached
+        : { updatedAt: p.updated_at, issues: await linkedIssues(this.gh, this.config, await withStack(this.gh, this.config, p)) });
+    });
+    this.links = links;
+  }
+
+  /** Issue に紐付く開いた PR */
+  private openPrsOf(issue: number): PullRequest[] {
+    return this.openPrs.filter((p) => this.links.get(p.number)?.issues.includes(issue));
   }
 
   /** すべて読み直す */
@@ -131,7 +158,7 @@ export class DashboardData {
       const pr = this.openPrs.find((p) => p.number === n);
       const known = this.prMap.get(n);
       if (pr || known) {
-        const linked = pr ? await closingIssues(this.gh, n) : known!.issue !== null ? [known!.issue] : [];
+        const linked = [...new Set([...(this.links.get(n)?.issues ?? []), ...(known?.issue != null ? [known.issue] : [])])];
         if (linked.length > 0) linked.forEach((i) => issues.add(i));
         else prs.add(n);
         if (!pr) this.prMap.delete(n);
@@ -152,30 +179,25 @@ export class DashboardData {
     }
   }
 
-  private async closingPrs(issue: number): Promise<{ number: number; state: string }[]> {
+  /** Merge 済みの PR（fleetStatus の merged と、main への追従の判断に使う） */
+  private async mergedPrs(issue: number): Promise<number[]> {
     const data = await this.gh.graphql<{ repository: { issue: { closedByPullRequestsReferences: { nodes: { number: number; state: string; repository: { nameWithOwner: string } }[] } } } }>(
       `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){closedByPullRequestsReferences(first:20,includeClosedPrs:true){nodes{number state repository{nameWithOwner}}}}}}`,
       { owner: this.gh.owner, repo: this.gh.repo, n: issue },
     );
     return data.repository.issue.closedByPullRequestsReferences.nodes
-      .filter((p) => p.repository.nameWithOwner === this.repository && (p.state === 'OPEN' || p.state === 'MERGED'))
-      .map((p) => ({ number: p.number, state: p.state }));
+      .filter((p) => p.repository.nameWithOwner === this.repository && p.state === 'MERGED')
+      .map((p) => p.number);
   }
 
   private async loadIssue(item: IssueItem): Promise<void> {
-    const refs = await this.closingPrs(item.number);
-    const open = refs.filter((r) => r.state === 'OPEN');
+    const open = this.openPrsOf(item.number);
     const prByIssue = new Map<number, number>(open.length > 0 ? [[item.number, open[0]!.number]] : []);
     const facts = await issueFacts(this.gh, this.config, item, prByIssue, this.openPrs.map((p) => p.labels.map((l) => l.name)));
     const target = facts.labels.some((l) => l.startsWith('agent:')) || facts.claim !== null || open.length > 0;
     if (!target) return;
-    const fleetPrs: FleetPr[] = [];
-    for (const ref of refs) {
-      if (ref.state === 'MERGED') {
-        fleetPrs.push({ number: ref.number, merged: true, draft: false, autoMerge: false, humanReview: false, behindMain: false, facts: null });
-        continue;
-      }
-      const pr = this.openPrs.find((p) => p.number === ref.number) ?? await this.gh.get<PullRequest>(`/pulls/${ref.number}`);
+    const fleetPrs: FleetPr[] = (await this.mergedPrs(item.number)).map((number) => ({ number, merged: true, draft: false, autoMerge: false, humanReview: false, behindMain: false, facts: null }));
+    for (const pr of open) {
       fleetPrs.push((await this.loadPr(pr, item.number, new Map([[item.number, facts.readyAt]]), new Map([[item.number, facts.labels]]))).fleet);
     }
     this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url });

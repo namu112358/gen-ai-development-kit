@@ -139,6 +139,7 @@ async function main(args: string[]): Promise<void> {
       if (r.kind === 'full') await data.loadAll();
       else if (r.kind === 'changed') await data.refresh(r.numbers);
       if (r.kind !== 'unchanged') rebuild();
+      watcher.commit();
     } catch (e) {
       console.error(`更新に失敗しました（次の問い合わせで続けます）: ${(e as Error).message}`);
     } finally {
