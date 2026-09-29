@@ -24,9 +24,20 @@ export interface ScopeCheckReport {
   scope: { ok: boolean; outside: string[] } | { missing: string };
   /** 委任承認・bypass の範囲照合。使える計画が無ければ理由と、参考として最新の計画ゲートの記録の計画と照らした範囲の外 */
   delegate: { usable: true; ok: boolean; outside: string[] } | { usable: false; reason: string; latestPlanOutside: string[] | null };
+  /** どちらの照合（scope＝agent/scope、delegate＝委任・bypass）で何が起きたか。並びは scope → delegate、各照合の中は no-plan → outside */
+  problems: ScopeProblem[];
+  /** 終了コードが 0 のときだけ true */
   ok: boolean;
-  exitCode: 0 | 1;
+  /**
+   * 0：両方の照合に使える計画があり、範囲の外が無い。1：どちらかで範囲の外がある（使える計画が無いときの参考の latestPlanOutside も含む）。
+   * 3：範囲の外は無いが、どちらかの照合に使える計画が無い。2 は使わない（agent.ts の fail() が引数・git のエラーで 2 を返すため）
+   */
+  exitCode: 0 | 1 | 3;
 }
+
+export type ScopeProblem =
+  | { check: 'scope' | 'delegate'; kind: 'outside'; files: string[] }
+  | { check: 'scope' | 'delegate'; kind: 'no-plan'; reason: string };
 
 function git(cwd: string, args: string[]): string {
   const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -39,8 +50,12 @@ function nulSplit(out: string): string[] {
   return out.split('\0').filter((s) => s !== '');
 }
 
-/** base との merge-base から作業ツリーまでの変更（App の changedFiles と同じく、リネームは旧・新の両方）と未追跡のファイル */
-export function localChangedFiles(cwd: string, base: string): LocalChanges {
+/**
+ * base との merge-base から作業ツリーまでの変更（App の changedFiles と同じく、リネームは旧・新の両方）と未追跡のファイル。
+ * git はリポジトリ（worktree）のルートで走らせ、どのサブディレクトリから呼んでもルートからのパスで返す（ls-files --others は cwd の下だけを cwd からのパスで返すため）
+ */
+export function localChangedFiles(dir: string, base: string): LocalChanges {
+  const cwd = git(dir, ['rev-parse', '--show-toplevel']).trim();
   const mergeBase = git(cwd, ['merge-base', base, 'HEAD']).trim();
   const fields = nulSplit(git(cwd, ['diff', '--name-status', '-M', '-z', mergeBase]));
   const changed = new Set<string>();
@@ -69,6 +84,13 @@ export async function scopeCheck(gh: GitHub, config: HarnessConfig, issue: numbe
     const latest = gate?.value.plan?.files;
     delegate = { usable: false, reason: delegatePlanned.missing, latestPlanOutside: latest ? checkScope(latest, all).outside : null };
   }
-  const ok = delegate.usable && delegate.ok;
-  return { issue, changed: all, untracked: [...files.untracked].sort(), scope, delegate, ok, exitCode: ok ? 0 : 1 };
+  const problems: ScopeProblem[] = [];
+  if ('missing' in scope) problems.push({ check: 'scope', kind: 'no-plan', reason: scope.missing });
+  else if (!scope.ok) problems.push({ check: 'scope', kind: 'outside', files: scope.outside });
+  if (!delegate.usable) {
+    problems.push({ check: 'delegate', kind: 'no-plan', reason: delegate.reason });
+    if (delegate.latestPlanOutside?.length) problems.push({ check: 'delegate', kind: 'outside', files: delegate.latestPlanOutside });
+  } else if (!delegate.ok) problems.push({ check: 'delegate', kind: 'outside', files: delegate.outside });
+  const exitCode = problems.some((p) => p.kind === 'outside') ? 1 : problems.length > 0 ? 3 : 0;
+  return { issue, changed: all, untracked: [...files.untracked].sort(), scope, delegate, problems, ok: exitCode === 0, exitCode };
 }
