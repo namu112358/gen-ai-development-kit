@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { NO_OVERWRITE_RULE, WRITE_RULES } from './support/output-file-rules.ts';
 
 // 判定の担当が自分の出力を渡されたパスに書き、呼び出し元は写さない（Issue #175）
 
@@ -15,13 +16,6 @@ const ROUTINE = '.claude/routine.md';
 /** 判定の担当7つ */
 const AGENTS = ['reviewer', 'risk-agent', 'review-intake', 'review-lens', 'review-ac-scope', 'review-safety', 'review-scorer'];
 const agentPath = (name: string): string => `.claude/agents/${name}.md`;
-
-/** 7つの定義に同じ文で置く、出力のパスに書くことの文 */
-const WRITE_RULES = [
-  '返す JSON と同じものを、渡された出力のパスに Write で書く。',
-  '書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。',
-  'パスが渡されなければ書かずに JSON を返すだけにする',
-];
 
 /** 先頭の `---` で囲まれた frontmatter を key: value で読む */
 function frontmatter(text: string): Record<string, string> {
@@ -88,7 +82,7 @@ test('担当の定義：7つの「## 入力」に出力のパスがある', () =
 test('担当の定義：7つに、渡されたパスにファイルが既にあれば上書きしない文がある', () => {
   for (const name of AGENTS) {
     const text = read(agentPath(name));
-    assert.ok(text.includes('渡されたパスにファイルが既にあれば、書かずに（上書きしない）'), `${name}: 既にあるファイルを上書きしない文がありません`);
+    assert.ok(text.includes(NO_OVERWRITE_RULE), `${name}: 既にあるファイルを上書きしない文がありません`);
   }
 });
 

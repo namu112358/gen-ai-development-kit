@@ -13,13 +13,15 @@ import { issueRow, labelAuditRows, prRow, renderAuditLines, type AuditIssue, typ
 import { evaluatePlanGate, parsePlan, plannerRequestsHuman, type Plan } from '../lib/plan.ts';
 import { CLAIM_STAGES, claimBlocker, claimValueAfterPlan, requireOwnClaim, worktreeClaimIssue, type Claim, type ClaimStage } from '../lib/queue.ts';
 import { parseChildMarker } from '../lib/epic.ts';
+import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
 import {
   checkJudgeInput, composeVerdict, epicChildrenFromRecords, parseComposeArgs, parsePreviousCritique, renderCriticInput, renderJudgeInput, selectPastPrs, splitArgs,
   lowerLayers, PAST_PR_FILE_LIMIT, type CheckRun, type JudgeFacts, type ParentEpic, type PastPrReview, type PastPrReviewComment, type PastPrs, type PrCommit, type StackFacts,
 } from '../lib/session-inputs.ts';
+import { transcriptSessionId } from '../lib/session.ts';
 import { classifyBase, stackOf } from '../lib/stack.ts';
 import { changedFiles, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PlanGateRecord, type PullRequest } from '../lib/state.ts';
-import { estimateCost, findSessionTranscripts, summarizeUsage, totalTokens } from '../lib/usage.ts';
+import { estimateCost, findSessionTranscriptsWithNote, summarizeUsage, totalTokens } from '../lib/usage.ts';
 import { parseVerdict } from '../lib/verdict.ts';
 import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
 
@@ -31,8 +33,9 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts render-block <reason-code> <text>       人に返すとき（agent:blocked）のコメント本文。理由コードは必須
  *   node harness/scripts/agent.ts render-plan <issue> <file>              計画コメントを検査し {body, addLabels, removeLabels}
  *   node harness/scripts/agent.ts render-verdict <pr> <headSha> <file>    判定コメントを検査し本文を出力
- *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金はセッション記録から自動で記入。読めなければ tokens か unknown）
- *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）
+ *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金は usage と同じ記録から自動で記入。読めなければ tokens か unknown）
+ *   node harness/scripts/agent.ts usage [transcriptPath]                  このセッション（サブエージェントを含む）のモデル別トークン数と推定料金（JSON）。
+ *                                                           パスが無ければ AGENT_HARNESS_SESSION の <ID>.jsonl を選び、無ければ最も新しい記録（そのことを note に書く）
  *   node harness/scripts/agent.ts check <file>                            plan / verdict ブロックの書式検査のみ
  *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach]           作業用の worktree を作り、パスを出力（既にあればそのパス）。
  *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
@@ -50,7 +53,8 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント
  *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）
- *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿
+ *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿。headSha が現在の head と違っても PR 自身の差分（patch-id）が同じなら
+ *                                                           判定した head のまま投稿する。違えば止まる
  *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの agent-plan ブロックは省く〕、
  *                                                           Epic の子課題なら親 Epic〔子課題の一覧と Validation Requirements〕、計画ゲートの記録の計画、PR 本文、
  *                                                           PR のコラボレーターのコメント〔判定コメントを除く〕、agent/scope の結果、前回の判定の head とブロッキング指摘、
@@ -60,7 +64,8 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>]
  *                                                           サブエージェントの出力から判定コメントを作って検査し、ファイルのパスを出力（投稿は post-verdict）。
  *                                                           オプションの位置は問わない。judge-input のファイルの PR 番号が <pr> と違えば止まる。
- *                                                           判定した head は judge-input のファイルの headSha。現在の head と違えば止まる。
+ *                                                           判定した head は judge-input のファイルの headSha。現在の head と違っても PR 自身の差分（patch-id）が
+ *                                                           同じなら判定した head のまま。違えば止まる。
  *                                                           metrics.judgedBy はセッション URL（無ければ「付き添いのセッション」）
  *   node harness/scripts/agent.ts critic-input <issue> <plan-file> [--previous <critique.json>]  （このセッションの着手宣言が要る）
  *                                                           plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画。
@@ -189,14 +194,29 @@ function renderPlan(n: number, file: string): { body: string; addLabels: string[
   };
 }
 
-/** 判定コメントを検査し、投稿する本文を返す。headSha は投稿直前に確かめた PR の head */
-function renderVerdict(n: number, headSha: string, file: string): string {
+/**
+ * 判定コメントを検査し、投稿する本文を返す。headSha は投稿直前に確かめた PR の head。
+ * samePatch を渡すと、head が違っても samePatch(判定した head) が true（PR 自身の差分の patch-id が同じ）なら通す。
+ * 渡さなければ完全一致を求める（render-verdict）
+ */
+function renderVerdict(n: number, headSha: string, file: string, samePatch?: (judgedHead: string) => boolean): string {
   const checked = checkFile(file);
   if (checked.kind !== 'verdict' || checked.errors.length > 0) fail(checked.errors);
   const v = checked.value as { pr: number; headSha: string };
   if (v.pr !== n) fail([`verdict.pr（${v.pr}）が #${n} と一致しません`]);
-  if (v.headSha !== headSha) fail([`verdict.headSha が現在の head（${headSha}）と一致しません。判定し直してください`]);
+  if (samePatch === undefined) {
+    if (v.headSha !== headSha) fail([`verdict.headSha が現在の head（${headSha}）と一致しません。判定し直してください`]);
+  } else {
+    const error = judgedHeadError(v.headSha, headSha, () => samePatch(v.headSha));
+    if (error !== null) fail([error]);
+  }
   return readBlockFile(file);
+}
+
+/** 判定した head と今の head で PR 自身の差分（origin/<base>...<head>）の patch-id が同じか。git fetch の後に比べる */
+function samePatchAsCurrent(pr: PullRequest, judgedHead: string): boolean {
+  spawnSync('git', ['fetch', '-q', 'origin'], { encoding: 'utf8' });
+  return samePrPatch(`origin/${pr.base.ref}`, judgedHead, pr.head.sha);
 }
 
 function readBlockFile(file: string): string {
@@ -231,7 +251,7 @@ async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
 
 async function postVerdict(gh: GitHub, n: number, file: string): Promise<void> {
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
-  const posted = await gh.comment(n, renderVerdict(n, pr.head.sha, file));
+  const posted = await gh.comment(n, renderVerdict(n, pr.head.sha, file, (judged) => samePatchAsCurrent(pr, judged)));
   console.log(JSON.stringify({ posted: posted.html_url }, null, 2));
 }
 
@@ -496,10 +516,13 @@ async function composeVerdictFile(gh: GitHub, args: string[]): Promise<string> {
   const judged = checkJudgeInput(readFileSync(inputFile, 'utf8'), n);
   if (!judged.ok) fail(judged.errors.map((e) => `${inputFile}: ${e}`));
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
+  // head が違うときだけ、PR 自身の差分（patch-id）を比べる（main の取り込みだけなら判定した head のまま組み立てる）
+  const samePatch = judged.value === pr.head.sha ? undefined : samePatchAsCurrent(pr, judged.value);
   const r = composeVerdict({
     pr: n,
     judgedHead: judged.value,
     currentHead: pr.head.sha,
+    ...(samePatch === undefined ? {} : { samePatch }),
     reviewer: readJson(reviewerFile),
     risk: readJson(riskFile),
     meta: { model, judgedBy: sessionUrl() ?? '付き添いのセッション' },
@@ -521,7 +544,7 @@ export function appendFooter(body: string, row: { stage: string; model: string; 
 
 /** セッション記録の集計。記録が無ければ null（処理は止めない） */
 function usageReport(explicit?: string) {
-  const files = findSessionTranscripts(process.cwd(), explicit);
+  const { files, bySession } = findSessionTranscriptsWithNote(process.cwd(), explicit, transcriptSessionId(process.env));
   const lines: string[] = [];
   for (const f of files) {
     try {
@@ -538,7 +561,10 @@ function usageReport(explicit?: string) {
     perModel: Object.fromEntries(Object.entries(summary).map(([m, tokens]) => [m, { tokens, estimatedUsd: cost.perModel[m] ?? null }])),
     total: totalTokens(summary),
     estimatedUsd: cost.totalUsd,
-    note: 'API で動かした場合の推定料金（USD）。サブスク利用ではトークン単位の請求はない',
+    note: [
+      'API で動かした場合の推定料金（USD）。サブスク利用ではトークン単位の請求はない',
+      ...(bySession ? [] : ['今のセッションの記録が見つからないため、最も新しい記録を集計した（ほかのセッションのものかもしれない）']),
+    ].join('。'),
   };
 }
 

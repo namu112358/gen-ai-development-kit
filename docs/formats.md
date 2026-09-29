@@ -79,7 +79,7 @@ Issue に `agent:plan-review` が付いているときの出し直しは、App �
 
 ## 判定（agent-verdict）
 
-Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定した時点の PR の head。
+Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定した時点の PR の head。判定の後に main の取り込みなどで今の head と違っても、PR 自身の差分（`<base>...<head>` の patch-id）が同じなら判定した head のまま組み立て・投稿する（App は patch-id の一致で受け付ける）。差分が違えば判定し直す。
 
 ````markdown
 <!-- agent-harness:claude -->
@@ -163,6 +163,8 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | `epic-split` | Issue（Epic の親） | `{ planCommentId, children }`。作った（または使い回した）子 Issue の番号を `split` の順に |
 | `queue` | ダッシュボードの本文 | `{ computedAt, actions, skipped }`。Routine が次にやること |
 | `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev, delegate }`。`delegate`（`eligible`・`reasons`・`skipped`・`scopeOk`・`outside`・`exclude`）は委任 Merge なら自動経路に乗せてよいか：`skipped` は委任で飛ばす理由（ガードレール・Risk）、`reasons` は委任でも乗せない理由、`scopeOk`・`outside` はゲートを通った計画かゲートの停止（`planReviewOrigin: gate`）で止まった計画との範囲照合、`exclude` は `delegateMergeExclude` に当たったファイル（harness/lib/delegate.ts）。`delegate` の無い古い記録は委任の対象外。`jev` の `questionSet` は Jev への問いの版（無い古い記録は版 1）。`jev.size`（`chars`・`jaRatio`・`inputTokens`・`diffChars`、Jev が応答したときだけ）は送った材料の大きさ：state と問いを JSON にした文字数、そのうち日本語の文字の割合、応答の `usage.input_tokens`（報告されなければ `null`）、diff の文字数 |
+| `delegated-merge` | PR | 委任 Merge で auto-merge を付けたときの記録。`{ headSha, patchId, since, until, by, skipped }`。`since`・`until`・`by` は委任（ダッシュボードのラベル）を付けた時刻・期限・人、`skipped` は受け付けの `delegate.skipped`（委任で飛ばした理由）。同じ `patchId` と `until` の記録が最新なら書き直さない。期限切れの掃除とダッシュボードの「委任 Merge で Merge された PR」はこの記録で見る（harness/gates/delegation.ts） |
+| `delegated-merge-end` | PR | 委任で付けた auto-merge を外して Human Merge に戻した記録。`{ headSha, reason }`。`reason` は `removed`（ラベルを外した）/ `expired`（期限切れ）/ `stopped`（停止スイッチ）/ `short`（期限までの残りが `minRemainingMinutes` 未満）/ `ineligible`（委任の条件を満たさなくなった）。最新が `delegated-merge` の PR にだけ書く |
 | `verdict-rejected` | PR | 判定を受け付けなかった理由 |
 | `test-exempt` / `review-exempt` | PR | 例外ラベルの付け外し。`{ label, action, by, patchId, headSha }`。`action` は `labeled` / `unlabeled`、`patchId` と `headSha` は人が付け外しした時点の差分と head。最新が `labeled` で `patchId` が現在の差分と同じときだけ例外が効く |
 | `exempt-stale` | PR | 例外ラベルが付いているが効いていないことの通知。`{ label, headSha, patchId, reason }`。`reason` は `stale`（付けた後に差分が変わった）/ `unrecorded`（付けた記録が無い）。同じ `label` と `headSha` には1回だけ書く |
@@ -170,4 +172,4 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | `issue-triage` | Issue | Jev による分類の提案と、その確率 |
 | `label-triage` | Issue | `classification.issueTriage` が `label` のときに Jev に問った結果と付けたラベル。`{ model, answers, threshold, added, notApplied, size }`。`size`（`chars`・`jaRatio`・`inputTokens`）は `acceptance` の `jev.size` と同じ意味。`notApplied` は付けなかったもの（確率が下限未満、下限が未設定、当たるラベルが無い）と理由。`issue-triage` か `label-triage` がある Issue には二度と問わない |
 | `label-mismatch` | Issue / PR | 人が付けた（App が付けたと確かめられない）`type:*` がタイトルと食い違う、または Epic に付いていることの通知。`{ title, labels }`。同じタイトルと同じラベルには1回だけ書く |
-| `human-review` / `priority-conflict` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `epic-inherit` / `epic-split-failed` / `auto-merge-stopped` / `dashboard` | 各所 | 通知・記録 |
+| `human-review` / `priority-conflict` / `hold-removed` / `plan-ok-removed` / `form-error` / `unblocked` / `parent-closed` / `epic-inherit` / `epic-split-failed` / `auto-merge-stopped` / `delegate-merge-switch` / `dashboard` | 各所 | 通知・記録 |

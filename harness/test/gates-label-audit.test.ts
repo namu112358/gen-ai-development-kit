@@ -59,6 +59,7 @@ function scheduleFake(existingBody: string): FakeGitHub {
     .on('GET', /\/issues\?state=open&creator=/, () => [ISSUES.at(-1)])
     .on('GET', /\/issues\?state=open&per_page/, () => ISSUES)
     .on('GET', /\/pulls\?state=open/, () => PRS)
+    .on('GET', /\/pulls\?state=closed/, () => [])
     .on('GET', /\/pulls\/(\d+)$/, (m) => ({ ...PRS.find((p) => p.number === Number(m[1]))!, mergeable_state: 'clean' }))
     // 定期の追従（遅れている Agent PR を main に追従させる）の確認。遅れていないので追従しない
     .on('GET', /\/compare\//, () => ({ behind_by: 0 }))
@@ -89,6 +90,7 @@ test('問題が無ければ節は「なし」', async () => {
     .on('GET', /\/issues\?state=open&creator=/, () => [ISSUES.at(-1)])
     .on('GET', /\/issues\?state=open&per_page/, () => [ISSUES[1], ISSUES.at(-1)])
     .on('GET', /\/pulls\?state=open/, () => [])
+    .on('GET', /\/pulls\?state=closed/, () => [])
     .on('GET', /\/issues\/1$/, () => ({ body: '' }))
     .on('PATCH', /\/issues\/1$/, () => ({}));
   await onSchedule(ctxFor(fake, 'schedule', {}), new Date('2026-09-27T01:00:00Z'));

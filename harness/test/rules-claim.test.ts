@@ -1,6 +1,6 @@
 // Issue #164：着手宣言の段階（--stage）・引き継ぎ（--takeover）・宣言の確かめ・セッション間の分担を、
 // ハーネスの規則（harness/CLAUDE.harness.md）と docs/operations.md・docs/glossary.md に書いたかを検査する。
-// あわせて、Issue を作ったときの label-audit の規則と、.claude/hooks/README.md の表の説明が括弧の途中で切れていないことを確かめる
+// あわせて、priority:*・area:* を Jev に任せ、ラベルの不足を人に聞かない規則（Issue #209）と、.claude/hooks/README.md の表の説明が括弧の途中で切れていないことを確かめる
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -107,15 +107,16 @@ test('規則（進め方）：段階を始める前に着手宣言を確かめ�
   assert.match(line, /SendMessage/, 'セッション間のやり取りの手段 `SendMessage` が書かれていない');
 });
 
-// ---- 追加の要件：Issue を作ったら label-audit ----
+// ---- 追加の要件（Issue #209）：priority:*・area:* は Jev に任せ、ラベルの不足を人に聞かない ----
 
-test('規則（進め方）：Issue を作ったら label-audit で確かめ、priority は推測で付けずに人に伝える', () => {
-  const line = nonEmptyLines(rules()).find((l) => l.includes('label-audit'));
-  assert.ok(line, '`label-audit` が規則に無い');
-  assert.match(line, /node harness\/scripts\/agent\.ts label-audit <番号>/, '`label-audit <番号>` のコマンドの形が無い');
-  assert.match(line, /Issue を作ったら/, 'Issue を作ったときに確かめることが書かれていない');
-  assert.match(line, /priority:\*/, '`priority:*` が書かれていない');
-  assert.match(line, /推測で付けず/, '推測で付けないことが書かれていない');
+test('規則（進め方）：priority:*・area:* は Jev に任せ、ラベルの不足を人に聞かず・伝えず・推測で付けない', () => {
+  const line = nonEmptyLines(rules()).find((l) => l.includes('Jev') && l.includes('priority:*'));
+  assert.ok(line, '`Jev` と `priority:*` を同じ箇条に書いた行が規則に無い');
+  assert.match(line, /area:\*/, '`area:*` も Jev に任せることが書かれていない');
+  assert.match(line, /聞か(ない|ず)/, 'ラベルの不足を人に聞かないことが書かれていない');
+  assert.match(line, /伝え(ない|ず)/, 'ラベルの不足を人に伝えないことが書かれていない');
+  assert.match(line, /推測で付け(ない|ず)/, '推測で付けないことが書かれていない');
+  assert.doesNotMatch(rules(), /人に伝える/, '規則に古い「人に伝える」が残っている');
 });
 
 // ---- AC3：docs/operations.md に --stage・--takeover・宣言の確かめ ----
