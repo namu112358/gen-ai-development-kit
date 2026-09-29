@@ -3,6 +3,7 @@ import { delegateState, type DelegateState } from '../lib/delegate.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, findDashboard, hasLabel, isAgentPr, isSameRepoPr, prDiff, timeline, type DashboardIssue, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute, renderHumanReview, rewriteTestsCheck, writeDelegationEnd } from './apply.ts';
+import { bypassFor, bypassRoute } from './bypass.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
 import { DELEGATE_SWITCH_KIND, DELEGATED_MERGE_END_TEXT, delegatedArm, delegationFor } from './delegation.ts';
 
@@ -22,6 +23,7 @@ function ended(reason: string): DelegateState {
  * （検出があれば Human Merge として neutral）、delegated-merge-end と human-review を出す。
  * 委任で付けたまま終わっていない記録（delegatedArm）の無い PR・閉じた PR には何もしない（二重に出さない）。
  * 委任で付けた後に今の差分の判定が自動 Merge の対象（autoEligible）になった PR も、委任に頼っていないので何もしない（auto-merge を残す）。
+ * bypass モードが有効で bypass で乗る PR は、auto-merge を外さずに bypass に引き継ぐ（delegated-merge-end の後に bypass-merge。human-review は出さない）。
  */
 export async function endDelegatedMerge(ctx: GateContext, stale: PullRequest, reason: 'removed' | 'expired'): Promise<void> {
   const pr = await getPr(ctx, stale.number);
@@ -29,9 +31,18 @@ export async function endDelegatedMerge(ctx: GateContext, stale: PullRequest, re
   const comments = await ctx.gh.listComments(pr.number);
   if (!delegatedArm(ctx.config, comments)) return;
   const diff = isSameRepoPr(pr, ctx.repository) ? await prDiff(ctx.gh, pr) : null;
-  if (diff !== null && acceptanceForPatch(ctx.config, comments, patchId(diff))?.autoEligible) return;
+  const current = diff === null ? null : acceptanceForPatch(ctx.config, comments, patchId(diff));
+  if (current?.autoEligible) return;
   const text = DELEGATED_MERGE_END_TEXT[reason];
   const off = ended(text);
+  if (current?.bypass?.eligible && diff !== null) {
+    const bypass = await bypassFor(ctx);
+    if (bypassRoute(bypass, current).ok) {
+      await writeDelegationEnd(ctx, pr, reason, 'bypass モードで自動経路を続けます。');
+      await applyAcceptance(ctx, pr, current, { fresh: false, diff, delegation: off, bypass });
+      return;
+    }
+  }
   await disableAutoMerge(ctx, pr);
   const acceptance = await refreshMergeRoute(ctx, pr, diff === null ? undefined : { patch: patchId(diff) }, off);
   const tests = acceptance && diff !== null ? await rewriteTestsCheck(ctx, pr, acceptance, diff, off) : null;

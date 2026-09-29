@@ -31,6 +31,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 判定の対象 | 同じリポジトリの PR は、計画のある Issue に紐付いていればブランチに関係なく判定する。人の PR は判定が出るまで `agent/review` を通さない。例外は人が付ける `review:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。fork からの PR は判定せず、例外でのみ通る |
 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。自動 Merge の経路に乗るのはこれだけ |
 | 停止スイッチ | ダッシュボードの `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い |
+| bypass モードのスイッチ | ダッシュボードの `agent:bypass-merge` は人だけが付ける。`agent:delegate-merge` と同じく、hook（`.claude/hooks/guard.ts` の保護ラベル）と `.claude/settings.json` の deny、規則の「やってはいけないこと」で止める。App・Bot が付けたものは無効 |
 | 委任 Merge のスイッチ | ダッシュボードの `agent:delegate-merge` は人だけが付ける。セッションは本人の名義で動き GitHub では区別できないため、hook（`.claude/hooks/guard.ts` の保護ラベル）と `.claude/settings.json` の deny、規則の「やってはいけないこと」で止める。自動 Merge の仕組みそのもの（`delegateMergeExclude`、`harness.config.json` は常に）は委ねない |
 | 別リポジトリの参照 | `Closes`・親 Issue・依存の参照先が別リポジトリなら無視する |
 
@@ -44,6 +45,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | auto-merge 付与と CI 完了の競合 | 本人名義で medium の PR に auto-merge を付け、ゲートが merge-route を書き換える前に CI が終わると Merge され得る（数秒） | deny |
 | `GITHUB_TOKEN` による auto-merge | PR 側の workflow が `GITHUB_TOKEN` で別の PR に auto-merge を付けるとゲートが起動しない | 定期照合（最大3時間） |
 | 委任 Merge の期限切れの後の窓 | 期限の前に委任で auto-merge を付けた PR は、CI が期限の後に終わると、次のゲートの起動（PR・Issue のイベントか、3時間ごとの定期実行）までの間に Merge されうる | 期限までの残りが `minRemainingMinutes`（既定30分）未満なら付けない、PR・Issue のイベントと定期実行のたびの掃除（記録の期限を過ぎた auto-merge を外す）、merge-route を書くたびに今の委任の状態で評価する |
+| bypass モードの間のハーネス自身の変更 | bypass モードの間は、ハーネス自身の守り（ゲート・ガードレールの一覧・hook・deny・workflow・`harness.config.json`）を変える Agent PR も、ブロッキング指摘が無く範囲照合と `agent/tests` を通れば、人を通らずに Merge される（持ち主の決定、#245） | 見ていないときはラベルを外す、停止スイッチ、`agent:hold`。ダッシュボードの「bypass で Merge された PR」と PR の記録（`bypass-merge`）で見返す |
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |
 | 合体版の記録の偽り | 合体版のレビューの記録（`agent-review-panel`）はセッションが書くので偽れる。判定コメントより前の記録だけを数えることで防げるのは、App の受け付け・変更要求を見てから記録を合わせることだけで、shadow ではセッションが今の reviewer の出力を見てから記録を合わせることは防げない | 判定コメントより前・未編集・head の一致・コラボレーターの記録だけ数える、集計の表で事実の列と申告の列を分ける、本物・誤検知は事実の裏付けで数える、切り替えの前に人が全件を確かめる（裏付けのうち人のレビューコメントは、セッションも本人の名義で書くので Claude の目印の有無でしか人のものと分けられず、目印の無いセッションのコメントは人のものとして数えてしまう）、担当の定義と組み立て（`.claude/agents/review-*.md`・review-panel の skill・`harness/scripts/review-panel.ts`・`harness/lib/**`）はガードレール（[plan.md](plan.md) の Q91） |
