@@ -25,6 +25,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 2. 計画が無ければ plan の skill で計画を書いて投稿する。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を AskUserQuestion で聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
    - `agent:plan-ok`：次へ。
    - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：宣言が残っていれば（`post-plan` の出力の `claim` が `plan-gate`）先に `release <番号>` で解除する。理由を示し、進めてよいかを AskUserQuestion で聞く（選択肢は、進める・止める、止めた理由が計画で直せる（ゲートの停止）なら計画を直して出し直す（plan の skill の出し直しの扱い）も）。人が進めてよいと答えれば次へ（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の規則どおり。implement の `claim --stage implement` で宣言し直す）。答えなければ人に返す。
+     - Planner の申告（理由コード `needs-decision`）なら、plan の skill の手順9どおり人の答えを `agent-decision` で記録し（`post-decision`）、App の `plan-decision` の結果を待つ。`enforce` で通れば次へ、`shadow` なら人が「進める」と言えば次へ（ラベルを外すよう人に頼まない）。答えで計画が変わるなら、App が判定し直した後（`agent:plan-ok` か `gate` の停止）に計画を出し直す。
    - `epic`：手順1の `epic` に戻る。
 3. implement の skill で実装し、Draft PR を出す。worktree は消さずに続ける。
 4. judge の skill で判定する。現在の head にコラボレーターのレビューがあれば、先に fix の skill をする。

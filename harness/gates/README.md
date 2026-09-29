@@ -15,6 +15,7 @@
 | `on-issue.ts` | Issue の出来事ごとの処理。 | ○ |
 | `on-main-push.ts` | main に push されたときの処理。 | ○ |
 | `on-pr.ts` | PR の出来事（作成・push・編集・ラベル）ごとの処理。 | ○ |
+| `plan-decision.ts` | 決定の記録（````agent-decision````）の受け付け。 | ○ |
 | `plan-link.ts` | 必須チェック agent/plan-link：PR が計画のある Issue に紐付いているか（本文の `Closes #N`、Stacked PR の層は `Refs #N` も）。 | ○ |
 | `publish-queue.ts` | 次にやること（queue）を App が計算し、ダッシュボード Issue の本文に公開する。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションが Agent PR に push したことを、PR に App のコメント（kind=unclaimed-push）で知らせる（止めない）。 | ○ |

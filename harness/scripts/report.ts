@@ -3,15 +3,19 @@ import { appLogin, loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
 import {
+  decisionAgreement,
+  decisionRows,
   fixPrsFor,
   isFixPr,
   panelComparison,
   panelPairs,
+  renderDecisionAgreement,
   renderPanelComparison,
   renderReport,
   renderTokenRatios,
   summarize,
   tokenRatios,
+  type DecisionRow,
   type MergedPr,
   type PanelPairRow,
   type ReportRow,
@@ -26,7 +30,7 @@ import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
  *
  * ここでは GitHub から事実を集めて行にするだけ。集計と基準の判定は harness/lib/report.ts、基準の意味は docs/security.md の「Jev」。
  * 受け付けられなかった判定コメントも件数に出す。
- * 最後に合体版のレビューの記録と今の判定を比べる節を出す（基準は docs/plan.md の Q91）。
+ * 最後に合体版のレビューの記録と今の判定を比べる節（基準は docs/plan.md の Q91）と、人の決定の記録の Jev の判定と人の判断の一致率の節（Q93）を出す。
  */
 
 const config = loadConfig();
@@ -114,3 +118,20 @@ for (const pr of agentPrs) {
 
 console.log(`${renderReport(summarize(config, rows), rows, days)}\n\n${renderTokenRatios(tokenRatios(rows))}`);
 console.log(`\n${renderPanelComparison(panelComparison(panelRows), panelRows, panelExcluded)}`);
+
+// 人の決定の記録（shadow の plan-decision）と人の判断の一致率。plan-decision の記録がある Issue だけ events と Closes する PR を読む
+const issues = (await gh.paginate<{ number: number; comments: number; pull_request?: unknown }>(`/issues?state=all&since=${new Date(since).toISOString()}`, 10)).filter(
+  (i) => !i.pull_request && i.comments > 0,
+);
+const decisionRowsAll: DecisionRow[] = [];
+for (const i of issues) {
+  const comments = await gh.listComments(i.number);
+  if (appRecords(config, comments, 'plan-decision').length === 0) continue;
+  const events = await gh.paginate<{ event: string; created_at?: string; actor?: { login: string } | null; label?: { name: string } }>(`/issues/${i.number}/events`);
+  const data = await gh.graphql<{ repository: { issue: { closedByPullRequestsReferences: { nodes: { number: number; createdAt: string }[] } } } }>(
+    `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){closedByPullRequestsReferences(first:50,includeClosedPrs:true){nodes{number createdAt}}}}}`,
+    { owner: gh.owner, repo: gh.repo, n: i.number },
+  );
+  decisionRowsAll.push(...decisionRows(config, i.number, comments, events, data.repository.issue.closedByPullRequestsReferences.nodes));
+}
+console.log(`\n${renderDecisionAgreement(decisionAgreement(decisionRowsAll), decisionRowsAll)}`);

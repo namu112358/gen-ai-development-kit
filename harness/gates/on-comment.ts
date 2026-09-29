@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { extractBlock } from '../lib/blocks.ts';
+import { answeredPlan } from '../lib/decision.ts';
 import { appLogin, LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
 import { delegateEligibility, delegateExcludeFiles } from '../lib/delegate.ts';
 import type { IssueComment } from '../lib/github.ts';
@@ -31,6 +32,7 @@ import { appComment, convertToDraft, getPr, type GateContext } from './context.t
 import { inspectEpic, splitEpic, type EpicState } from './epic-split.ts';
 import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
+import { onDecision } from './plan-decision.ts';
 import { planAreaLabels, riskLabelChanges } from './label-apply.ts';
 
 /** issue_comment（created）：計画ゲートと判定の受け付け */
@@ -50,6 +52,15 @@ export async function onComment(ctx: GateContext): Promise<void> {
     if (block.found) {
       await onPlan(ctx, issue, comment, block);
       await refreshPlanLinks(ctx, issue.number);
+      return;
+    }
+    // 計画と同じコメントの決定の記録は見ない
+    const decision = extractBlock(comment.body, 'agent-decision');
+    if (!decision.found) return;
+    const regate = await onDecision(ctx, issue, comment, decision);
+    if (regate) {
+      await onPlan(ctx, issue, regate.planComment, regate.block, { commentId: comment.id, url: comment.html_url });
+      await refreshPlanLinks(ctx, issue.number);
     }
   }
 }
@@ -59,6 +70,8 @@ async function onPlan(
   issue: { number: number; labels: { name: string }[]; state: string },
   comment: IssueComment,
   block: ReturnType<typeof extractBlock>,
+  /** 決定の記録で判定し直すとき（harness/gates/plan-decision.ts）。Planner の申告を答え済みとして判定する */
+  decision?: { commentId: number; url: string },
 ): Promise<void> {
   if (issue.state !== 'open') return;
   const errors = !block.found ? [] : !block.ok ? [block.error] : [];
@@ -74,10 +87,13 @@ async function onPlan(
   }
 
   const plan = parsed.value;
-  const gate = evaluatePlanGate(plan, issue.number, ctx.config);
+  // 決定の記録で判定し直すときは、Planner の申告を答え済みにした計画で判定する（記録の plan は元の計画のまま）
+  const judged = decision ? answeredPlan(plan) : plan;
+  const gate = evaluatePlanGate(judged, issue.number, ctx.config);
   const labelled = hasLabel(issue, LABELS.planReview);
   // 前の印が App のゲートの停止なら、それを理由に止めず新しい計画だけで判定する（Planner の申告・人の印は人が外すまで残す）
-  const released = labelled && (await releasesPriorPlanReview(ctx, issue.number));
+  // 決定の記録で判定し直すときは、印は答えた Planner の申告のもの（plan-decision.ts が確かめた）なので理由にしない
+  const released = labelled && (decision ? true : await releasesPriorPlanReview(ctx, issue.number));
   if (labelled && !released && gate.pass) {
     gate.pass = false;
     gate.reasons.push('`agent:plan-review` が付いています（Planner の申告か人が付けた印です。人が外すまで止めます）');
@@ -89,10 +105,15 @@ async function onPlan(
     gate.reasons.push(epic.resplit);
   }
   const record = { version: 1, planCommentId: comment.id, planBodySha256: sha256(comment.body), pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan; planBodySha256: string };
-  if (!gate.pass) record.planReviewOrigin = planReviewOrigin(plan, labelled && !released);
+  if (decision) record.decisionCommentId = decision.commentId;
+  if (!gate.pass) record.planReviewOrigin = planReviewOrigin(judged, labelled && !released);
   // 通るときは、前のゲートの停止の印を外してから今までの処理をする
   if (gate.pass && released) await ctx.gh.removeLabel(issue.number, LABELS.planReview);
-  const releasedNote = gate.pass && released ? '前の計画ゲートの停止（`agent:plan-review`）を外しました。' : '';
+  const releasedNote = !(gate.pass && released)
+    ? ''
+    : decision
+      ? `人の決定の記録（[コメント](${decision.url})）を Jev が確かめ、Planner の申告による \`agent:plan-review\` を外しました。`
+      : '前の計画ゲートの停止（`agent:plan-review`）を外しました。';
   if (gate.pass && plan.split && epic) {
     await splitEpic(ctx, issue, comment, { ...plan, split: plan.split }, record, epic);
   } else if (gate.pass) {
@@ -108,7 +129,7 @@ async function onPlan(
       ctx,
       issue.number,
       'plan-gate',
-      [reasonMark(epic?.resplit ? 'resplit' : stopCode(plan, gate)), `計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`, '', ...gate.reasons.map((r) => `- ${r}`)].join('\n'),
+      [reasonMark(epic?.resplit ? 'resplit' : stopCode(judged, gate)), `計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`, '', ...gate.reasons.map((r) => `- ${r}`)].join('\n'),
       record,
     );
   }

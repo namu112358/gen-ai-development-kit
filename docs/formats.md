@@ -8,6 +8,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-plan ```` | Claude | Issue コメント | `harness/lib/plan.ts` |
 | ```` ```agent-verdict ```` | Claude | PR コメント | `harness/lib/verdict.ts` |
 | ```` ```agent-claim ```` | Claude | Issue / PR コメント | `harness/lib/queue.ts` |
+| ```` ```agent-decision ```` | 付き添いのセッション（Routine は書かない） | Issue コメント | `harness/lib/decision.ts` |
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
 
 共通ルール：
@@ -53,7 +54,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている。
 
-Issue に `agent:plan-review` が付いているときの出し直しは、App の最新の計画ゲートの記録（`agent-app` ブロックの `planReviewOrigin`）で扱いを決める。`planReviewOrigin` は停止の記録に書く出どころで、`gate` は App のゲートの停止（critical・ガードレール・`files` の欠落・`split-invalid`・`resplit` など。止めた計画に Planner の申告が無く、止める前に印が付いていなかった）、`planner` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）か、App が止める前から付いていた印（Planner か人が付けた）。記録が `gate` の停止で、最後に `agent:plan-review` を付けたのが App なら、前の印を理由に止めず新しい計画だけで判定する（通れば App が `agent:plan-review` を外して `agent:plan-ok` を付け、当たればまた `gate` で止まる）。記録が無い・`planner`・`planReviewOrigin` の無い古い記録なら、人が外すまで止める。`post-plan` / `render-plan` が先に付ける `agent:plan-review` は、Planner の申告があるときだけ。
+Issue に `agent:plan-review` が付いているときの出し直しは、App の最新の計画ゲートの記録（`agent-app` ブロックの `planReviewOrigin`）で扱いを決める。`planReviewOrigin` は停止の記録に書く出どころで、`gate` は App のゲートの停止（critical・ガードレール・`files` の欠落・`split-invalid`・`resplit` など。止めた計画に Planner の申告が無く、止める前に印が付いていなかった）、`planner` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）か、App が止める前から付いていた印（Planner か人が付けた）。記録が `gate` の停止で、最後に `agent:plan-review` を付けたのが App なら、前の印を理由に止めず新しい計画だけで判定する（通れば App が `agent:plan-review` を外して `agent:plan-ok` を付け、当たればまた `gate` で止まる）。記録が無い・`planner`・`planReviewOrigin` の無い古い記録なら、人が外すまで止める。`post-plan` / `render-plan` が先に付ける `agent:plan-review` は、Planner の申告があるときだけ。Planner の申告（`needsHuman`・`openQuestions`）で止まった計画は、付き添いのセッションが人の答えを[決定の記録](#決定の記録agent-decision)で残すと、App が Jev に確かめさせ、`jev.decisionRelease` が `enforce` でしきい値以上なら答え済みとして判定し直す（通れば App が印を外す。ほかの理由で当たれば `gate` の停止として残る）。
 
 ### 子課題に分ける（split）
 
@@ -153,13 +154,43 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 `"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
+## 決定の記録（agent-decision）
+
+Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付き添いのセッションが記録する（`node harness/scripts/agent.ts post-decision <番号> <ファイル>`）。人のいない Routine は書かない（[.claude/routine.md](../.claude/routine.md)）。
+
+````markdown
+<!-- agent-harness:claude -->
+## 人の決定
+
+（人が読める要約）
+
+```agent-decision
+{
+  "version": 1,
+  "issue": 151,
+  "planCommentId": 1234567890,
+  "answers": [
+    { "to": "question:0", "choice": "shadow から始める", "quote": "shadow で。一致率を見てから決める", "at": "2026-09-27T10:00:00+09:00" },
+    { "to": "reason:0", "quote": "Routine は禁止だけでよい", "at": "2026-09-27T10:02:00+09:00" }
+  ]
+}
+```
+````
+
+- `planCommentId` は答える計画コメント（App の最新の計画ゲートの記録の `planCommentId` と同じもの）。
+- `answers[].to` は `reason:<添字>`（計画の `needsHumanReasons`。`needsHuman` が true で理由が空なら `reason:0` の1件）か `question:<添字>`（`openQuestions`）。すべての項目に答えが要り、存在しない添字は拒否する。
+- `quote` は人の言葉そのまま（空は不可）。選択肢で答えたときは `choice` に選んだ項目を書き、`quote` に書き添えた文を書く。`at` は ISO 8601 の日時。
+- App が外すのは、最新の計画ゲートの記録が Planner の申告（`planReviewOrigin: planner`）の停止で、印がその計画の投稿（`post-plan`）か App の停止で付いたものだけ（`harness/lib/decision.ts` の `decisionEligibility`）。App のゲートの停止・人が付けた印・`acChangeProposed` は、この経路で外れない。
+- App が Jev に渡すのは、App の記録にある計画の写しの `needsHumanReasons`・`openQuestions` と、答えの `to`・`choice`・`quote` だけ（本文の要約と `at` は渡さない）。
+
 ## App の記録（agent-app）
 
 App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付け、機械可読の記録を ```` ```agent-app ```` に入れる。
 
 | kind | 置き場所 | 内容 |
 | --- | --- | --- |
-| `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan }`。`plan` はゲート時点の計画の写し |
+| `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan, decisionCommentId? }`。`plan` はゲート時点の計画の写し。`decisionCommentId` は決定の記録で判定し直したときのコメント |
+| `plan-decision` | Issue | 決定の記録を App が確かめた結果。`{ version, decisionCommentId, planCommentId, mode, questionSet, threshold, status, model, answers, pass, missing, regate }`。`status` は `ok` / `invalid`（書式・答えの無い項目）/ `ineligible`（対象外）/ `skipped`（鍵が無い・大きすぎる）/ `error`。`mode` が `shadow` なら記録だけでラベルは変えない。`regate` は `enforce` で判定し直したか。同じ `decisionCommentId` には二度問わない |
 | `epic-split` | Issue（Epic の親） | `{ planCommentId, children }`。作った（または使い回した）子 Issue の番号を `split` の順に |
 | `queue` | ダッシュボードの本文 | `{ computedAt, actions, skipped }`。Routine が次にやること |
 | `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev, delegate }`。`delegate`（`eligible`・`reasons`・`skipped`・`scopeOk`・`outside`・`exclude`）は委任 Merge なら自動経路に乗せてよいか：`skipped` は委任で飛ばす理由（ガードレール・Risk）、`reasons` は委任でも乗せない理由、`scopeOk`・`outside` はゲートを通った計画かゲートの停止（`planReviewOrigin: gate`）で止まった計画との範囲照合、`exclude` は `delegateMergeExclude` に当たったファイル（harness/lib/delegate.ts）。`delegate` の無い古い記録は委任の対象外。`jev` の `questionSet` は Jev への問いの版（無い古い記録は版 1）。`jev.size`（`chars`・`jaRatio`・`inputTokens`・`diffChars`、Jev が応答したときだけ）は送った材料の大きさ：state と問いを JSON にした文字数、そのうち日本語の文字の割合、応答の `usage.input_tokens`（報告されなければ `null`）、diff の文字数 |
