@@ -1,10 +1,12 @@
 /**
  * エージェントの状態をグラフで見る、手元の読み取り専用のダッシュボード（GitHub には書かない）。
  *
- *   node harness/scripts/dashboard.ts [--port 4177] [--interval 5]
+ *   node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining 0.3]
  *
  * 127.0.0.1 で待ち受け、表示した URL をブラウザで開く。GitHub は条件付きリクエストで --interval 秒ごとに確かめ、
  * 変わった Issue / PR だけ組み直して Server-Sent Events で差分を送る。手元のセッション記録（~/.claude/projects）も見張る。
+ * API の上限の残りが --min-remaining の割合を切ったらリセットまで読まず、失敗の後は backoff + jitter で遅らせ、
+ * ブラウザの接続が0の間は GitHub を読まない。
  * 詳しくは harness/scripts/dashboard/README.md。
  */
 import { spawnSync } from 'node:child_process';
@@ -14,9 +16,11 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.ts';
-import { FetchTransport, GitHub } from '../lib/github.ts';
+import { GitHub } from '../lib/github.ts';
 import { buildGraph, diffGraphs, type Graph, type GraphEvent } from './dashboard/graph.ts';
 import { DashboardData, ReadOnlyTransport, UpdateWatcher } from './dashboard/github.ts';
+import { limitFetch, RateLimitedTransport, RateLimitState } from './dashboard/rate-limit.ts';
+import { PollScheduler, type PollStatus } from './dashboard/scheduler.ts';
 import { readSessions, watchSessions } from './dashboard/sessions.ts';
 
 export const PAGE_PATH: string = fileURLToPath(new URL('./dashboard/page.html', import.meta.url));
@@ -25,6 +29,10 @@ export interface DashboardServer {
   url: string;
   port: number;
   publish(events: GraphEvent[]): void;
+  /** 任意の種類のイベントを全部の接続に送る */
+  send(type: string, data: unknown): void;
+  /** いまの /events の接続の数 */
+  clients(): number;
   close(): Promise<void>;
 }
 
@@ -35,8 +43,11 @@ export function isAllowedHost(host: string | undefined, port: number): boolean {
 
 const sse = (type: string, data: unknown) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
-/** 127.0.0.1 で待ち受ける。port 0 なら空いたポート。snapshot() は /events の接続時に送る全体 */
-export function startServer(opts: { port: number; html: string; snapshot: () => Graph }): Promise<DashboardServer> {
+/**
+ * 127.0.0.1 で待ち受ける。port 0 なら空いたポート。snapshot() は /events の接続時に送る全体、
+ * status() はその後に送る見張りの状態（event: status）。onConnect は接続のたびに呼ぶ
+ */
+export function startServer(opts: { port: number; html: string; snapshot: () => Graph; status?: () => unknown; onConnect?: () => void }): Promise<DashboardServer> {
   const clients = new Set<ServerResponse>();
   let port = opts.port;
   const server = createServer((req, res) => {
@@ -52,8 +63,10 @@ export function startServer(opts: { port: number; html: string; snapshot: () => 
     if (req.method === 'GET' && path === '/events') {
       res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(sse('snapshot', opts.snapshot()));
+      if (opts.status) res.write(sse('status', opts.status()));
       clients.add(res);
       req.on('close', () => clients.delete(res));
+      opts.onConnect?.();
       return;
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('not found');
@@ -71,6 +84,11 @@ export function startServer(opts: { port: number; html: string; snapshot: () => 
             for (const c of clients) c.write(chunk);
           }
         },
+        send(type, data) {
+          const chunk = sse(type, data);
+          for (const c of clients) c.write(chunk);
+        },
+        clients: () => clients.size,
         close() {
           for (const c of clients) c.end();
           clients.clear();
@@ -106,22 +124,36 @@ function option(args: string[], name: string, fallback: number): number {
   return v;
 }
 
+/** 起動の引数。--interval は既定 30 秒で 5 秒より短ければ 5 秒に丸める。--min-remaining は 0〜1 の割合（既定 0.3） */
+export function parseOptions(args: string[]): { port: number; intervalMs: number; minRemaining: number } {
+  const minRemaining = option(args, '--min-remaining', 0.3);
+  if (minRemaining > 1) throw new Error('--min-remaining は 0〜1 の割合で指定してください');
+  return { port: option(args, '--port', 4177), intervalMs: Math.max(5, option(args, '--interval', 30)) * 1000, minRemaining };
+}
+
 async function main(args: string[]): Promise<void> {
-  const port = option(args, '--port', 4177);
-  const intervalMs = Math.max(2, option(args, '--interval', 5)) * 1000;
+  const { port, intervalMs, minRemaining } = parseOptions(args);
   const config = loadConfig();
   const repo = repository();
   const repoRoot = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).stdout.trim().replace(/\/\.git$/, '');
   const projectsDir = join(homedir(), '.claude', 'projects');
   const tok = token();
-  const gh = new GitHub(new ReadOnlyTransport(new FetchTransport(tok)), repo);
+  const limits = new RateLimitState({ minRemaining });
+  const gh = new GitHub(new ReadOnlyTransport(new RateLimitedTransport({ fetch: (url, init) => fetch(url, init), token: tok, state: limits })), repo);
   const data = new DashboardData(gh, config);
-  const watcher = new UpdateWatcher({ fetch: (url, init) => fetch(url, init), token: tok, repository: repo });
+  const watcher = new UpdateWatcher({ fetch: limitFetch((url, init) => fetch(url, init), limits), token: tok, repository: repo });
 
   const build = (): Graph => buildGraph(data.issues(), data.prs(), readSessions({ projectsDir, repoRoot, now: new Date() }), { now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours });
   let graph = build();
-  const server = await startServer({ port, html: readFileSync(PAGE_PATH, 'utf8'), snapshot: () => graph });
-  console.log(`ダッシュボード: ${server.url}（${repo}、${intervalMs / 1000} 秒ごとに確かめます。止めるには Ctrl+C）`);
+  let scheduler: PollScheduler | null = null;
+  const server = await startServer({
+    port,
+    html: readFileSync(PAGE_PATH, 'utf8'),
+    snapshot: () => graph,
+    status: () => scheduler?.status() ?? { state: 'running' },
+    onConnect: () => void scheduler?.wake(),
+  });
+  console.log(`ダッシュボード: ${server.url}（${repo}、${intervalMs / 1000} 秒ごとに確かめます。ブラウザで開いている間だけ読みます。止めるには Ctrl+C）`);
 
   const rebuild = () => {
     const next = build();
@@ -131,8 +163,7 @@ async function main(args: string[]): Promise<void> {
   };
 
   let busy = false;
-  const tick = async () => {
-    if (busy) return;
+  const run = async () => {
     busy = true;
     try {
       const r = await watcher.poll();
@@ -140,18 +171,30 @@ async function main(args: string[]): Promise<void> {
       else if (r.kind === 'changed') await data.refresh(r.numbers);
       if (r.kind !== 'unchanged') rebuild();
       watcher.commit();
-    } catch (e) {
-      console.error(`更新に失敗しました（次の問い合わせで続けます）: ${(e as Error).message}`);
     } finally {
       busy = false;
     }
   };
-  await tick();
-  const timer = setInterval(tick, intervalMs);
+  const describe = (s: PollStatus) =>
+    s.state === 'paused' ? `上限（${s.resource}）の残りが少ないため ${new Date(s.until).toLocaleTimeString()} まで読みません`
+      : s.state === 'backoff' ? `${new Date(s.until).toLocaleTimeString()} に読み直します（${s.attempt} 回目の失敗）`
+      : '読み直しを再開しました';
+  scheduler = new PollScheduler({
+    intervalMs,
+    run,
+    state: limits,
+    connections: () => server.clients(),
+    onStatus: (s) => {
+      console.log(describe(s));
+      server.send('status', s);
+    },
+    onError: (e) => console.error(`更新に失敗しました: ${e.message}`),
+  });
+  void scheduler.wake();
   // GitHub の材料を読み直している間は途中の状態を出さない（読み終えた tick が組み直す）
   const stopWatch = watchSessions(projectsDir, () => { if (!busy) rebuild(); });
   const stop = async () => {
-    clearInterval(timer);
+    scheduler?.stop();
     stopWatch();
     await server.close();
     process.exit(0);
