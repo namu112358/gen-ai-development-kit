@@ -33,7 +33,7 @@ d. Agent #4: Read previous pull requests that touched these files, and check for
 
 e. Agent #5: Read code comments in the modified files, and make sure the changes in the pull request comply with any guidance in the comments.
 
-- ①（Agent #1）：指摘ごとに `rule` に CLAUDE.md の該当の文を引用し、そのパスを書く。
+- ①（Agent #1）：指摘ごとに `rule` に CLAUDE.md の該当の文を引用し、そのパスを書く。渡されたパスには CLAUDE.md が `@` で読み込むファイル（例：`harness/CLAUDE.harness.md`）も含まれ、その規則も CLAUDE.md の規則として根拠にできる。そのときは `rule` に読み込み先のファイルのパスを書く。
 - ④（Agent #4）：渡された節だけを材料にする。節が「(なし)」「(集めていません)」や「(コラボレーターのコメントなし)」だけなら、指摘は無しでよい。
 
 ## 誤検知の例（公式の文をそのまま引く。これに当たるものは指摘しない）

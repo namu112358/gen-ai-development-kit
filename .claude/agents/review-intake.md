@@ -25,7 +25,7 @@ model: haiku
    - 「=== PR の状態」が `state: closed`（Merge 済みを含む）
    - 「=== 前回の判定」の `headSha` が、判定する head と同じ（同じ head を二重に判定しない）
    「=== PR の状態」が「(集めていません)」なら、その理由では除外しない。
-2. 段階1（CLAUDE.md のパス）：リポジトリの root の `CLAUDE.md`（あれば）と、diff の変更ファイルのディレクトリとその上のディレクトリにある `CLAUDE.md` のパスを並べる（中身は返さない）。`git ls-files '*CLAUDE.md'` で探す。
+2. 段階1（CLAUDE.md のパス）：リポジトリの root の `CLAUDE.md`（あれば）と、diff の変更ファイルのディレクトリとその上のディレクトリにある `CLAUDE.md` のパスを並べる（中身は返さない）。`git ls-files '*CLAUDE.md'` で探す。あわせて、見つけた CLAUDE.md が `@<パス>` で読み込むファイルも `claudeMd` に並べる（見つけた CLAUDE.md の後に置く）。読み込み先として扱うのは、行の先頭が `@` で、コードブロックの外にある行だけ。たどるのは1段だけ（読み込み先がさらに読み込むファイルはたどらない）。パスはその CLAUDE.md のあるディレクトリから見た相対で、リポジトリに存在するものだけを並べる。
 3. 段階2（要約）：diff を読み、変更の要約を数文で書く。
 4. 次の JSON だけを出力する（前後に説明文を付けない）。
 
@@ -33,7 +33,7 @@ model: haiku
 {
   "eligible": true,
   "reason": "対象か・対象外かの理由（1文）",
-  "claudeMd": ["CLAUDE.md"],
+  "claudeMd": ["CLAUDE.md", "harness/CLAUDE.harness.md"],
   "summary": "変更の要約"
 }
 ```

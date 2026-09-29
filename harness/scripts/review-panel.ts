@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { CLAUDE_MARK } from '../lib/blocks.ts';
+import { hasClaudeMark, withClaudeMark } from '../lib/blocks.ts';
 import { loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import {
@@ -10,6 +10,7 @@ import {
   PANEL_MODES, PANEL_OUTPUT_NAMES, type CheckResult, type PanelMode, type PanelRecord,
 } from '../lib/review-panel.ts';
 import { checkJudgeInput, judgedHeadOf, judgedPrOf, splitArgs } from '../lib/session-inputs.ts';
+import { sessionFromEnv } from '../lib/session.ts';
 import type { PullRequest } from '../lib/state.ts';
 import { findSessionTranscripts } from '../lib/usage.ts';
 import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
@@ -31,7 +32,8 @@ import { addWorktree, mainRepoRoot, removeWorktree } from '../lib/worktree.ts';
  *       judge-input の PR 番号が <pr> と違う、今の PR の head や check.json の headSha が judge-input の headSha と違えば止まる。
  *       費用は --session（無ければこのセッション）のサブエージェントの記録から数える
  *   node harness/scripts/review-panel.ts post <pr> <記録のファイル>
- *       記録のコメントを検査し、PR 番号が合い、headSha が今の PR の head と同じときだけ投稿する
+ *       記録のコメントを検査し、PR 番号が合い、headSha が今の PR の head と同じときだけ投稿する。
+ *       目印にはセッション ID（agent.ts と同じく AGENT_HARNESS_SESSION、Routine はセッションの URL）を入れる
  *
  * リポジトリは GITHUB_REPOSITORY か git remote から決める。
  */
@@ -198,8 +200,9 @@ async function compose(gh: GitHub, args: string[]): Promise<string> {
 }
 
 async function post(gh: GitHub, pr: number, file: string): Promise<string> {
-  const body = readFileSync(file, 'utf8');
-  if (!body.includes(CLAUDE_MARK)) fail([`${file}: Claude の目印がありません`]);
+  // 目印にこのセッションの ID を入れる（ID が無ければ今の形のまま。既に ID 付きならそのまま）
+  const body = withClaudeMark(readFileSync(file, 'utf8'), sessionFromEnv(process.env));
+  if (!hasClaudeMark(body)) fail([`${file}: Claude の目印がありません`]);
   for (const fence of ['```agent-verdict', '```agent-plan', '```agent-claim']) if (body.includes(fence)) fail([`${file}: ${fence} を含む本文は投稿しません`]);
   const parsed = parsePanelRecord(body);
   if (!parsed.ok) fail(parsed.errors);
