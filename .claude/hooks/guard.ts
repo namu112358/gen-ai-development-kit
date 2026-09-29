@@ -4,6 +4,8 @@
  * permissions.deny の文字列の一致では防げない操作を、操作の意味を見て止める：
  * main への push（別名の refspec を含む）、force push、Merge、保護ラベルの付け外し（CLAUDE.md の「やってはいけないこと」）。
  * Bash のコマンドは字句に分けて展開し（`&&`・`;`・`|`・`bash -c`・`eval`・`$(...)` など）、MCP は GitHub のツールの入力を見る。
+ * `gh api --input -` は本文を標準入力から読むので、ヒアドキュメント・ヒアストリングの中身（無ければコマンド全体）の保護ラベルの名前も見る。
+ * permissions.deny のラベルの規則は `gh` のラベル操作の形だけに絞った二重の守りで、本当の守りはこの hook。
  *
  * 入出力（https://code.claude.com/docs/en/hooks.md）：stdin の JSON（tool_name・tool_input・cwd）を読み、
  * 止めるときは hookSpecificOutput.permissionDecision = "deny" と理由を stdout に出して exit 0。
@@ -20,6 +22,8 @@
  * - 前のコマンドで export した GIT_CONFIG_*（同じコマンドの前置きの代入は見る）
  * - Bash・MCP 以外のツール（Edit・Write で設定ファイルを書き換えるなど）
  * - git・gh 以外のクライアント（curl で API を呼ぶなど）
+ * - `gh api --input <ファイル>`・`-F key=@<ファイル>` のファイルの中身、GraphQL でラベルの ID を渡す付け外し
+ *   （ラベルの名前が出ない。最後の砦は GitHub 側で、`agent:plan-ok` は App 以外が付けるとゲートが扱う）
  */
 import { spawnSync } from 'node:child_process';
 import { isAbsolute, resolve } from 'node:path';
@@ -72,6 +76,8 @@ interface Segment {
   subs: string[];
   /** ヒアドキュメントの本文 */
   heredocs: string[];
+  /** ヒアストリング（`<<<` の次の語）。`gh api --input -` の本文の判定にだけ使う */
+  herestrings: string[];
 }
 
 interface PendingHeredoc {
@@ -220,9 +226,10 @@ function findSubs(body: string): string[] {
 export function parseScript(src: string): Segment[] {
   const segs: Segment[] = [];
   const n = src.length;
-  let cur: Segment = { words: [], subs: [], heredocs: [] };
+  let cur: Segment = { words: [], subs: [], heredocs: [], herestrings: [] };
   let word: Word | null = null;
   let skipNextWord = false;
+  let herestringNext = false;
   let pendingDelim: { strip: boolean } | null = null;
   let heredocs: { h: PendingHeredoc; expand: boolean; seg: Segment }[] = [];
 
@@ -232,6 +239,9 @@ export function parseScript(src: string): Segment[] {
     if (pendingDelim) {
       heredocs.push({ h: { delim: word.text, strip: pendingDelim.strip }, expand: !word.quoted, seg: cur });
       pendingDelim = null;
+    } else if (herestringNext) {
+      cur.herestrings.push(word.text);
+      herestringNext = false;
     } else if (skipNextWord) skipNextWord = false;
     else cur.words.push(word);
     word = null;
@@ -239,9 +249,10 @@ export function parseScript(src: string): Segment[] {
   const endSeg = (): void => {
     endWord();
     skipNextWord = false;
+    herestringNext = false;
     pendingDelim = null;
     if (cur.words.length > 0 || cur.subs.length > 0) segs.push(cur);
-    cur = { words: [], subs: [], heredocs: [] };
+    cur = { words: [], subs: [], heredocs: [], herestrings: [] };
   };
 
   /** `$` から始まる展開を読む。展開でなければ k をそのまま返す */
@@ -358,7 +369,7 @@ export function parseScript(src: string): Segment[] {
       else endWord();
       if (src.startsWith('<<<', i)) {
         i += 3;
-        skipNextWord = true;
+        herestringNext = true;
       } else if (src.startsWith('<<', i)) {
         i += 2;
         const strip = src[i] === '-';
@@ -755,11 +766,24 @@ function safeDecode(s: string): string {
   }
 }
 
-function checkGhApi(args: Word[], ctx: GuardContext): string | null {
+/** 文字列の中の保護ラベルの名前（`:exempt` で終わるものも）。無ければ undefined */
+function labelNameIn(text: string, labels: string[]): string | undefined {
+  const lower = text.toLowerCase();
+  return labels.find((l) => lower.includes(l.toLowerCase())) ?? lower.match(/[\w.-]+:exempt\b/)?.[0] ?? (lower.includes(':exempt') ? ':exempt' : undefined);
+}
+
+/** `gh api --input -` の本文の手がかり：区切りのヒアドキュメント・ヒアストリングと、コマンド全体 */
+interface StdinSource {
+  bodies: string[];
+  script: string;
+}
+
+function checkGhApi(args: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
   const main = ctx.defaultBranch;
   let method: string | undefined;
   let hasBody = false;
   let fromFile = false;
+  let fromStdin = false;
   let endpoint: Word | undefined;
   const fields = new Map<string, Word>();
   const addField = (w: Word, kv: string): void => {
@@ -786,6 +810,8 @@ function checkGhApi(args: Word[], ctx: GuardContext): string | null {
     } else if (t === '--input' || t.startsWith('--input=')) {
       hasBody = true;
       fromFile = true;
+      const src = t === '--input' ? args[k + 1] : { ...w, text: t.slice('--input='.length) };
+      if (src && !src.dynamic && src.text === '-') fromStdin = true;
       if (t === '--input') k++;
     } else if (['-H', '--header', '-q', '--jq', '-t', '--template', '--hostname', '--cache', '-p', '--preview'].includes(t)) {
       k++;
@@ -801,6 +827,14 @@ function checkGhApi(args: Word[], ctx: GuardContext): string | null {
     const lower = t.toLowerCase();
     const hit = ctx.protectedLabels.find((l) => lower.includes(l.toLowerCase())) ?? lower.match(/[\w.-]+:exempt\b/)?.[0];
     if (hit) return role(`保護ラベル ${hit} を含む gh api`);
+  }
+  if (fromStdin) {
+    // 本文は標準入力：ヒアドキュメント・ヒアストリングがあればその中身、無ければ（パイプなどで分からないので）コマンド全体を見る
+    const sources = stdin.bodies.length > 0 ? stdin.bodies : [stdin.script];
+    for (const s of sources) {
+      const hit = labelNameIn(safeDecode(s), ctx.protectedLabels);
+      if (hit) return role(`保護ラベル ${hit} を含む本文を標準入力から渡す gh api（--input -）`);
+    }
   }
   if (/(^|\/)pulls\/[^/\s]+\/merge(?![\w-])/i.test(all)) return role('PR の Merge（gh api …/pulls/<番号>/merge）');
   const mutation = all.match(/\b(mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|mergeBranch)\b/i);
@@ -822,7 +856,7 @@ function checkGhApi(args: Word[], ctx: GuardContext): string | null {
   return null;
 }
 
-function checkGh(args: Word[], ctx: GuardContext): string | null {
+function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
   const group = args[0];
   const sub = args[1];
   if (!group) return null;
@@ -839,7 +873,7 @@ function checkGh(args: Word[], ctx: GuardContext): string | null {
     const values = args.slice(2).map((a) => (a.text.includes('=') ? { ...a, text: a.text.slice(a.text.indexOf('=') + 1) } : a));
     return checkLabelWords(values.filter((a) => a.dynamic || !a.text.startsWith('-')), ctx.protectedLabels, `gh label ${s}`);
   }
-  if (g === 'api') return checkGhApi(args.slice(1), ctx);
+  if (g === 'api') return checkGhApi(args.slice(1), ctx, stdin);
   return null;
 }
 
@@ -900,7 +934,7 @@ function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: numb
   }
   if (name === 'eval') return analyze(args.map((a) => a.text).join(' '), { ...here }, ctx, depth + 1);
   if (name === 'git') return checkGit(args, here, ctx, assigns);
-  if (name === 'gh') return checkGh(args, ctx);
+  if (name === 'gh') return checkGh(args, ctx, { bodies: [...seg.heredocs, ...seg.herestrings], script });
   return null;
 }
 
