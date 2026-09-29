@@ -4,8 +4,9 @@ import { test } from 'node:test';
 import type { RequestOptions, Transport } from '../lib/github.ts';
 import { GitHub } from '../lib/github.ts';
 import { DashboardData, ReadOnlyTransport, UpdateWatcher, type FetchLike } from '../scripts/dashboard/github.ts';
-import { config, FakeGitHub, HEAD, pr } from './support/gate-fixtures.ts';
-import { stackedPr } from './support/stack-fixtures.ts';
+import { config, type FakeGitHub } from './support/gate-fixtures.ts';
+import { dashboardFake } from './support/dashboard-fixtures.ts';
+import { FEATURE_BASE, STACK } from './support/stack-fixtures.ts';
 
 interface Item { number: number; updated_at: string; pull_request?: object }
 interface Reply { status: number; etag?: string; body?: Item[] }
@@ -136,31 +137,15 @@ test('ReadOnlyTransport：書き込み（POST/PATCH/PUT/DELETE と mutation の 
   assert.deepEqual(inner.calls, []);
 });
 
-// DashboardData：紐付けは harness/lib/state.ts の linkedIssues（Stacked PR の層は本文の Refs #N）
+// DashboardData：紐付けは harness/lib/state.ts の linkedIssues（Stacked PR の層は本文の Refs #N）。材料はまとめた GraphQL の問い合わせで読む
 function dataFake(): FakeGitHub {
-  const issue = (number: number, labels: string[]) => ({ number, title: `t${number}`, state: 'open', body: null, html_url: `u${number}`, labels: labels.map((name) => ({ name })) });
-  const issues = [issue(3, ['agent:plan-ok']), issue(4, [])];
-  const prs = [
-    stackedPr({ number: 7, body: 'Refs #3', head: { ref: 'claude/issue-3-top', sha: HEAD, repo: { full_name: 'o/r' } } }),
-    pr({ number: 8, body: 'no link', head: { ref: 'claude/issue-9-x', sha: HEAD, repo: { full_name: 'o/r' } } }),
-  ];
-  return new FakeGitHub()
-    .on('GET', /^\/repos\/o\/r\/pulls\?state=open/, () => prs)
-    .on('GET', /^\/repos\/o\/r\/pulls\/(\d+)$/, (m) => prs.find((p) => p.number === Number(m[1])))
-    .on('GET', /^\/repos\/o\/r\/pulls\/\d+\/reviews/, () => [])
-    .on('GET', /^\/repos\/o\/r\/issues\?state=open/, () => issues)
-    .on('GET', /^\/repos\/o\/r\/issues\/(\d+)$/, (m) => issues.find((i) => i.number === Number(m[1])))
-    .on('GET', /^\/repos\/o\/r\/issues\/\d+\/(timeline|comments)/, () => [])
-    .on('GET', /^\/repos\/o\/r\/commits\/\w+$/, () => ({ commit: { committer: { date: '2026-09-26T00:00:00Z' } } }))
-    .on('GET', /^\/repos\/o\/r\/commits\/\w+\/check-runs/, () => ({ check_runs: [] }))
-    .on('GET', /^\/repos\/o\/r\/compare\//, (_m, _b, opts) => (opts.raw ? 'diff --git a/x b/x\n' : { ahead_by: 0 }))
-    .on('POST', /^\/graphql$/, (_m, body) => {
-      const q = String(body.query);
-      if (q.includes('blockedBy')) return { data: { repository: { issue: { blockedBy: { nodes: [] } } } } };
-      if (q.includes('closedByPullRequestsReferences')) return { data: { repository: { issue: { closedByPullRequestsReferences: { nodes: [] } } } } };
-      if (q.includes('closingIssuesReferences')) return { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [] } } } } };
-      throw new Error(`unexpected graphql: ${q}`);
-    });
+  return dashboardFake({
+    issues: [{ number: 3, labels: ['agent:plan-ok'] }, { number: 4 }],
+    prs: [
+      { number: 7, body: 'Refs #3', headRef: 'claude/issue-3-top', baseRef: FEATURE_BASE.ref, stack: STACK },
+      { number: 8, body: 'no link', headRef: 'claude/issue-9-x' },
+    ],
+  });
 }
 
 test('DashboardData：Refs #N だけで紐付く Stacked PR の層も Issue の PR になる。対象外の Issue は出さず、紐付けの無い Agent PR は単独で出す。書き込みはしない', async () => {
@@ -179,7 +164,7 @@ test('DashboardData.refresh：変わった PR は、紐付く Issue の組とし
   await data.loadAll();
   const before = fake.calls.length;
   await data.refresh([7]);
-  const paths = fake.calls.slice(before).map((c) => c.path);
-  assert.ok(paths.includes('/repos/o/r/issues/3'), 'PR #7 の Issue #3 を取り直す');
+  const batch = fake.calls.slice(before).find((c) => c.path === '/graphql' && String(c.body?.query).startsWith('query DashBatch('));
+  assert.match(String(batch?.body?.query), /\bn3:issueOrPullRequest\b/, 'PR #7 の Issue #3 を取り直す');
   assert.deepEqual(data.prs().map((p) => [p.number, p.issue]), [[7, 3], [8, null]]);
 });
