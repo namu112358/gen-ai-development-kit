@@ -36,7 +36,16 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 付き添いのセッションで人の判断が要るとき（計画の批評の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、要件・AC の変更、引き継ぎ、計画の外の変更など）は、セッションが AskUserQuestion で選択肢つきで聞く（おすすめが先頭、1回に4問まで）。拒んだり答えなかったりすると、セッションは同じ質問を繰り返さず、要点を文章で示して止まる。規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md) の進め方。
 
-複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（番号を渡さなければ、`agent:ready`・`agent:plan-ok`・`agent:plan-review` の Issue と、`agent:*` の無い、コラボレーターか App（Epic の子課題など）が立てた Issue（作ったまま計画に進んでいないもの。次にやることは plan）が対象。衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship の段階を Issue ごとに交互に進めて、人がすることを1つの一覧にする。
+複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（番号を渡さなければ、`agent:ready`・`agent:plan-ok`・`agent:plan-review` の Issue と、`agent:*` の無い、コラボレーターか App（Epic の子課題など）が立てた Issue（作ったまま計画に進んでいないもの。次にやることは plan）が対象。衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship を Issue ごとに進めて、人がすることを1つの一覧にする。
+
+進め方は `harness.config.json` の `fleet` で決まり、`fleet-status` の表の末尾の「進め方」の行に出る。
+
+| `fleet.nesting` | 進め方 |
+| --- | --- |
+| `orca`（既定） | サブエージェントの中でさらにサブエージェントを呼べる環境（Orca）向け。Issue ごとに ship をサブエージェントとして並行に動かす（fleet > ship > plan-critic・test-designer・reviewer・risk-agent）。同時に動かす ship の数は `--max`、無ければ `fleet.maxParallelShips`（既定 3）。ship は人に聞かずに止まって fleet に返し、fleet がまとめて聞く。ship が入れ子にできない（Agent ツールが無い）と返したら、そのセッションは `flat` の進め方に切り替える |
+| `flat` | 1つのセッションで、ship の段階を Issue ごとに交互に進める |
+
+キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
 
 Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときだけ動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。
 
