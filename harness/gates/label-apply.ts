@@ -238,7 +238,7 @@ const plannedAreaFiles = (ctx: GateContext, comments: IssueComment[]): string[] 
  */
 export async function triageLabels(
   ctx: GateContext,
-  issue: { number: number; title: string; body: string | null; labels: string[] },
+  issue: { number: number; title: string; body: string | null; labels: string[]; subIssues?: number },
   comments: IssueComment[],
   opts: { proposal: boolean },
 ): Promise<boolean> {
@@ -249,7 +249,7 @@ export async function triageLabels(
   if (!opts.proposal && !needs.priority && !needs.area) return false;
   const form = parseIssueBody(issue.body);
   if (!form.ok) return false;
-  const request = buildTriageRequest(ctx.config, issue.title, form.contract);
+  const request = buildTriageRequest(ctx.config, issue.title, form.contract, { labels: issue.labels, subIssues: issue.subIssues ?? 0 });
   const r = await (ctx.askJev ?? askJev)(apiKey, request);
   if (r.status !== 'ok') {
     ctx.log(`#${issue.number} の分類に失敗しました: ${r.detail}`);
@@ -364,7 +364,7 @@ export async function labelApply(ctx: GateContext): Promise<void> {
       const mayNeedJev = ctx.config.classification.issueTriage === 'label' && ctx.secrets.jevApiKey && asked < JEV_PER_RUN;
       const needs = jevNeeds(ctx.config, after, false);
       if (mayNeedJev && (needs.priority || needs.area)) {
-        if (await triageLabels(ctx, { number: i.number, title: i.title, body: i.body, labels: after }, await getComments(), { proposal: false })) asked++;
+        if (await triageLabels(ctx, { number: i.number, title: i.title, body: i.body, labels: after, subIssues }, await getComments(), { proposal: false })) asked++;
       }
     } catch (e) {
       failures.push(`#${i.number}: ${(e as Error).message}`);

@@ -149,7 +149,14 @@
         "README.md"
       ]
     },
-    "issueTriage": "label"
+    "issueTriage": "label",
+    "priorityCriteria": {
+      "highest": "Emergency: a security hole, data loss, a broken main branch, or the whole harness (gates, verdicts, merging) has stopped. Drop other work.",
+      "high": "The harness flow is blocked or wrong: a gate, plan gate, verdict, merge route, or claim stops work it should pass, passes work it should stop, or loses records; or other planned issues are waiting on this one.",
+      "medium": "Reduces rework, cost, or waiting in the regular flow (sessions, Jev, GitHub API usage, reviews) while nothing is broken now. Regular planned work.",
+      "low": "Improves display or explanation only (dashboard, overview, docs, messages, naming); nothing is blocked or wrong without it.",
+      "lowest": "Someday: an idea or experiment that no one needs now; only if nothing else is waiting."
+    }
   },
   "pricing": {
     "$comment": "推定料金用の単価（100 万トークンあたり USD）。2026-09 時点の推定値なので、改定されたら更新する。キーはモデル ID（完全一致、無ければ前方一致）。",
