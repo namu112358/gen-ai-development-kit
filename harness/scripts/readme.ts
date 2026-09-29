@@ -47,16 +47,22 @@ export const NO_GENERATE_DIRS: string[] = ['harness/test', 'harness/test/support
 export const NO_COMMENT_ALLOWLIST: string[] = [
   '.claude/settings.json',
   'harness/templates/claude-settings.deny.json',
+  'harness/managed.json',
+  'harness/templates/harness.config.json',
   '.github/ISSUE_TEMPLATE/',
   '.github/pull_request_template.md',
 ];
 
-/** 先頭にコメントを書けない4件の、README にそのまま残す説明（手書き。生成しない） */
+/** 先頭にコメントを書けない6件の、README にそのまま残す説明（手書き。生成しない） */
 const NO_COMMENT_TEXT: Record<string, string> = {
   '.claude/settings.json':
     'Claude Code の設定。させない操作の一覧（`permissions.deny`）と、見張りの hook の登録、チームで使うプラグインの登録（版を固定）と外部のページの許可。',
   'harness/templates/claude-settings.deny.json':
     'Claude Code にさせない操作（Merge、main への push、保護ラベルの付け外し、Secret・資格情報の読み出しなど）の一覧。`.claude/settings.json` の `permissions.deny` と同じ内容で、変えるときは両方を直す',
+  'harness/managed.json':
+    '導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー',
+  'harness/templates/harness.config.json':
+    '導入先の harness.config.json の雛形（初回だけ写す）。appSlug・projectChecks・guardrailPaths・classification.areas・humanMergePaths を導入先に合わせて書き換える',
   '.github/ISSUE_TEMPLATE/':
     'Issue の作り方の設定。`agent-task.yml` は「Agent タスク」の Issue Form（Goal・Requirements・Acceptance Criteria などの見出しをゲートが読む）、`config.yml` は Form を使わない Issue も作れるようにする設定。ここに .md を置くと Issue のテンプレートとして扱われるので、README は置かない',
   '.github/pull_request_template.md': 'PR 本文の見本（`Closes #番号`、変更の概要、AC ごとの対応、範囲外の変更、テスト）',

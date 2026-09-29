@@ -226,12 +226,12 @@ test('実リポジトリ：対象ディレクトリすべてで README の表が
   assert.deepEqual(result.mismatches, [], `生成結果と食い違う: ${result.mismatches.join(', ')}`);
 });
 
-test('実リポジトリ：先頭のコメントが無いファイルは手書きの一覧の4件だけで、一覧はすべて実在し、実際に先頭のコメントが無い', () => {
+test('実リポジトリ：先頭のコメントが無いファイルは手書きの一覧の6件だけで、一覧はすべて実在し、実際に先頭のコメントが無い', () => {
   const result = checkAll(root);
   assert.deepEqual(result.noCommentIssues, [], `手書きの一覧との食い違い: ${result.noCommentIssues.join(', ')}`);
   assert.deepEqual(
     [...NO_COMMENT_ALLOWLIST].sort(),
-    ['.claude/settings.json', 'harness/templates/claude-settings.deny.json', '.github/ISSUE_TEMPLATE/', '.github/pull_request_template.md'].sort(),
+    ['.claude/settings.json', 'harness/templates/claude-settings.deny.json', 'harness/managed.json', 'harness/templates/harness.config.json', '.github/ISSUE_TEMPLATE/', '.github/pull_request_template.md'].sort(),
   );
 });
 
