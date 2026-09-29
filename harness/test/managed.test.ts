@@ -37,7 +37,7 @@ test('managed.json：managed・projectOwned・settingsKeys の形で書かれて
     assert.equal(typeof o.path, 'string');
     assert.equal(typeof o.template, 'string');
   }
-  assert.deepEqual(m.settingsKeys, ['permissions.deny', 'hooks']);
+  assert.deepEqual(m.settingsKeys, ['permissions.deny', 'permissions.disableBypassPermissionsMode', 'hooks']);
 });
 
 test('managed.json：managed のパスがすべて存在する（/** はディレクトリが存在し中にファイルがある）', () => {
