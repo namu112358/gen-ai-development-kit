@@ -61,7 +61,7 @@ test('hold を外すと、条件を満たす判定があれば auto-merge を付
 });
 
 test('plan-link：計画のある Issue を Closes しない PR は failure、plan:exempt なら success', async () => {
-  const none = acceptanceFake({ pr: pr({ head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }) })
+  const none = acceptanceFake({ pr: pr({ body: '説明だけ', head: { ref: 'feature/x', sha: HEAD, repo: { full_name: 'o/r' } } }) })
     .on('POST', /\/graphql/, (_m, body) => (String(body.query).includes('closingIssuesReferences') ? { data: { repository: { pullRequest: { closingIssuesReferences: { nodes: [] } } } } } : { data: {} }));
   await onPullRequest(ctxFor(none, 'pull_request_target', { action: 'opened', pull_request: { number: 5 } }));
   assert.ok(none.writes().includes('check:agent/plan-link=failure'));
