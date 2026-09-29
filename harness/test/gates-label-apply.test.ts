@@ -123,6 +123,7 @@ function worldFake(w: World): FakeGitHub {
   return new FakeGitHub()
     .on('GET', /\/issues\?state=open&per_page/, () => w.issues ?? [])
     .on('GET', /\/pulls\?state=open/, () => w.prs ?? [])
+    .on('GET', /\/pulls\?state=closed/, () => [])
     .on('GET', /\/issues\/(\d+)\/events/, (m) => w.events?.[Number(m[1])] ?? [])
     .on('GET', /\/issues\/(\d+)\/comments/, (m) => w.comments?.[Number(m[1])] ?? [])
     .on('POST', /\/issues\/(\d+)\/labels$/, (m, body) => {

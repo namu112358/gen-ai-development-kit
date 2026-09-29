@@ -120,7 +120,7 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ### 委任 Merge
 
-人が期限つきで Merge の判断を App に委ねること。ダッシュボード Issue に `agent:delegate-merge` を人だけが付け、`delegateMerge.hours` の間は、ガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する（`delegateMergeExclude` に当たるものは除く）。停止スイッチが優先する。ラベルと保護は #210、動作は #211・#212 で入る。詳細：[operations.md](operations.md#ラベル)
+人が期限つきで Merge の判断を App に委ねること。ダッシュボード Issue に `agent:delegate-merge` を人だけが付け、`delegateMerge.hours` の間は、ガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する（`delegateMergeExclude` に当たるものは除く）。停止スイッチが優先する。期限が切れると定期実行がラベルを外し、委任で付けた auto-merge を外して Human Merge に戻す。詳細：[operations.md](operations.md#ラベル)
 
 ### `agent:hold`
 

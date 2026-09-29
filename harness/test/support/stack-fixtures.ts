@@ -67,6 +67,7 @@ export function stackFake(state: { pr: ReturnType<typeof pr>; prComments?: unkno
 /**
  * 定期実行（onSchedule）用。stackFake に、開いた PR の一覧・Issue の一覧・ダッシュボードの読み書きを足す。
  * list は GET /pulls?state=open の応答（既定では state.pr だけ）。
+ * 閉じた PR の一覧（GET /pulls?state=closed、委任 Merge で Merge された PR の節）は acceptanceFake の空の一覧を引き継ぐ。
  */
 export function scheduleStackFake(state: { pr: ReturnType<typeof pr>; list?: unknown[]; prComments?: unknown[]; events?: unknown[] }): FakeGitHub {
   const dashboard = { number: 1, title: config.dashboardIssueTitle, html_url: 'd', updated_at: '2026-09-27T00:00:00Z', user: { login: APP }, labels: [] };
