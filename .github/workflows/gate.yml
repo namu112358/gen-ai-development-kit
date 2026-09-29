@@ -52,6 +52,7 @@ jobs:
         github.event.label.name == 'agent:hold' ||
         github.event.label.name == 'agent:auto-merge-stopped' ||
         github.event.label.name == 'agent:delegate-merge' ||
+        github.event.label.name == 'agent:bypass-merge' ||
         startsWith(github.event.label.name, 'priority:')) &&
       (github.event_name != 'pull_request_target' ||
         (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&
