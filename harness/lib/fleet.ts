@@ -1,6 +1,6 @@
 import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import { patternsOverlap } from './epic.ts';
-import { describeClaim, isOwnClaim, type IssueFacts, type PrFacts } from './queue.ts';
+import { describeClaim, isOwnClaim, type Claim, type IssueFacts, type PrFacts } from './queue.ts';
 
 /**
  * fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。GitHub から集めた事実だけを入力にする純粋関数。
@@ -169,13 +169,18 @@ export interface FleetSelection {
   notes: Map<number, string>;
 }
 
+/** 行の PR（issueStage が選んだ開いた PR）の着手宣言。PR の事実が無ければ null */
+function openPrClaim(i: FleetIssue, r: FleetRow): Claim | null {
+  return i.prs.find((p) => p.number === r.pr && !p.merged)?.facts?.claim ?? null;
+}
+
 function filesOverlap(a: string[], b: string[]): boolean {
   return a.some((x) => b.some((y) => patternsOverlap(x, y)));
 }
 
 /**
  * 並行して進める Issue を選ぶ。PR のある Issue（既に進めているもの）を先に、残りを優先度 → agent:ready が付いた順（agent:ready の無い Issue はその後）に、
- * 止まる印・依存・ほかのセッションの着手宣言（currentSession と同じ session の手動の宣言は自分のもの）のあるものを除いて、衝突しない範囲で選ぶ。本数は max（--max）を渡したときだけ制限する。
+ * 止まる印・依存・ほかのセッションの着手宣言（PR の無い Issue は Issue の宣言、PR のある Issue はその行の PR の宣言。currentSession と同じ session の手動の宣言は自分のもの）のあるものを除いて、衝突しない範囲で選ぶ。本数は max（--max）を渡したときだけ制限する。
  * 領域の上限（areaConcurrency）は見ない（config は呼び出しの形を保つために受け取るだけ）。
  * 両方に PR がある組は、実際に試して衝突した組（prConflicts）だけ、既に選んだ PR と衝突する後の側が待つ。
  * PR がまだ無い Issue は、既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
@@ -209,8 +214,10 @@ export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: Fle
     const i = byNumber.get(r.issue)!;
     if (r.stage === 'merged') { excluded.set(r.issue, 'Merge 済み'); continue; }
     if (r.stage === 'stopped') { excluded.set(r.issue, r.note ?? '止まる印あり'); continue; }
-    if (!inFlight(r) && i.facts.claim !== null && !isOwnClaim(i.facts.claim, currentSession)) {
-      const detail = describeClaim(i.facts.claim);
+    // PR の無い段階は Issue の宣言、PR の段階はその行の PR の宣言（claim <PR番号> --stage judge|fix|sync）を見る
+    const claim = inFlight(r) ? openPrClaim(i, r) : i.facts.claim;
+    if (claim && !claim.released && !isOwnClaim(claim, currentSession)) {
+      const detail = describeClaim(claim);
       excluded.set(r.issue, `着手宣言あり（ほかのセッションが着手中${detail ? `・${detail}` : ''}）`);
       continue;
     }
@@ -247,6 +254,9 @@ export function selectFleet(_config: HarnessConfig, facts: FleetFacts, rows: Fle
     // 着手宣言の段階（自分の宣言も、ほかのセッションの宣言も）
     const claim = a.facts.claim;
     if (claim && !claim.released) noteParts.push(`着手宣言${isOwnClaim(claim, currentSession) ? '（このセッション）' : ''}${describeClaim(claim) ? `：${describeClaim(claim)}` : ''}`);
+    const ar = rowOf.get(a.facts.number);
+    const prClaim = ar !== undefined && inFlight(ar) ? openPrClaim(a, ar) : null;
+    if (prClaim && !prClaim.released) noteParts.push(`PR の着手宣言${isOwnClaim(prClaim, currentSession) ? '（このセッション）' : ''}${describeClaim(prClaim) ? `：${describeClaim(prClaim)}` : ''}`);
     if (noteParts.length > 0) notes.set(a.facts.number, noteParts.join('。'));
   }
 
