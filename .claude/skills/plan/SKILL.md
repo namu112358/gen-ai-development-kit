@@ -56,4 +56,4 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 - plan-critic を呼んだ後の `git status --porcelain --untracked-files=all` に、呼ぶ前と比べて増えた行・変わった行がある
 - 要件・AC を変えたほうがよい（Issue 本文は書き換えない。コメントで提案する）
 - `post-plan` が書式の誤りや権限で失敗した（拒否された操作は別の方法で試さない）
-- やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
+- やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
