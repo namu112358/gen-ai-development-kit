@@ -51,6 +51,15 @@
   details.exit > summary { cursor: pointer; }
   details.exit p { margin: 4px 0 0; }
   details.exit b { color: var(--ink); font-weight: 600; }
+  #todos { margin: 12px 16px 0; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--waiting); border-radius: 8px; padding: 8px 12px; }
+  #todos h2 { font-size: 13px; margin: 0 0 4px; }
+  #todos ul { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; }
+  #todos li a { color: var(--ink); font-weight: 600; text-decoration: none; }
+  #todos li a:hover { text-decoration: underline; }
+  #todos .reason { color: var(--muted); }
+  #todos .none { color: var(--muted); margin: 0; }
+  details.others { font-size: 12px; color: var(--muted); }
+  details.others > summary { cursor: pointer; margin-bottom: 6px; }
   .warn { font-size: 11px; font-weight: 600; color: var(--enf-ai); background: var(--warn-bg); border-radius: 4px; padding: 1px 6px; margin-top: 4px; }
   .col h2 { font-size: 12px; margin: 0 0 8px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
   .col.claimstage h2::before { content: "●"; color: var(--active); margin-right: 4px; font-size: 9px; }
@@ -95,6 +104,7 @@
   <span class="legend" id="enfLegend"></span>
   <span class="legend" id="edgeLegend"></span>
 </header>
+<section id="todos" aria-label="人がすること"><h2 id="todosTitle">人がすること</h2><div id="todosBody"></div></section>
 <div id="wrap">
   <div id="board"></div>
   <svg id="edges" aria-hidden="true"><defs id="defs"></defs></svg>
@@ -170,6 +180,15 @@ const openSessions = new Set();
 /** 開いた列の「終了条件」（列の id） */
 const openExits = new Set();
 let view = { cards: [], edges: [] };
+let todos = [];
+/** セッションの列の「ほか N 件」を開いているか */
+let othersOpen = false;
+
+/** セッションを、動いているもの（本体かサブエージェントが動いている）と、ほかに分ける（DOM に触れない） */
+function splitSessions(list) {
+  const isRunning = (s) => Boolean(s.running) || (s.subagents || []).some((a) => a.running);
+  return { running: list.filter(isRunning), others: list.filter((s) => !isRunning(s)) };
+}
 
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -320,7 +339,24 @@ function sessionCard(s) {
   return c;
 }
 
+function renderTodos() {
+  document.getElementById('todosTitle').textContent = '人がすること（' + todos.length + '）';
+  const body = document.getElementById('todosBody');
+  body.replaceChildren();
+  if (!todos.length) { body.append(el('p', 'none', 'いま人がすることはありません')); return; }
+  const ul = el('ul');
+  for (const t of todos) {
+    const li = el('li');
+    const a = el('a', null, (t.kind === 'pr' ? 'PR #' : '#') + t.number + ' ' + t.title);
+    a.href = t.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    li.append(a, el('span', 'reason', ' — ' + t.reason));
+    ul.append(li);
+  }
+  body.append(ul);
+}
+
 function render() {
+  renderTodos();
   const board = document.getElementById('board');
   board.replaceChildren();
   view = buildCards([...tasks.values()], [...edgesByFrom.values()].flat());
@@ -352,8 +388,20 @@ function render() {
   const h = el('h2');
   h.append(el('span', null, 'セッション'), el('span', null, sessions.length || ''));
   sbox.append(h);
-  for (const s of sessions) sbox.append(sessionCard(s));
-  if (!sessions.length) sbox.append(el('div', 'empty', '—'));
+  const split = splitSessions(sessions);
+  for (const s of split.running) sbox.append(sessionCard(s));
+  if (!split.running.length) sbox.append(el('div', 'empty', '動いているセッションはありません'));
+  if (split.others.length) {
+    const d = document.createElement('details');
+    d.className = 'others';
+    d.open = othersOpen;
+    d.addEventListener('toggle', () => { othersOpen = d.open; drawEdges(); });
+    const sum = document.createElement('summary');
+    sum.textContent = 'ほか ' + split.others.length + ' 件';
+    d.append(sum);
+    for (const s of split.others) d.append(sessionCard(s));
+    sbox.append(d);
+  }
   board.append(sbox);
   drawEdges();
 }
@@ -411,6 +459,7 @@ function applySnapshot(g) {
   for (const t of g.tasks) tasks.set(t.id, t);
   for (const e of g.edges) { if (!edgesByFrom.has(e.from)) edgesByFrom.set(e.from, []); edgesByFrom.get(e.from).push(e); }
   sessions = g.sessions;
+  todos = g.todos || [];
   schedule();
 }
 
@@ -433,6 +482,7 @@ function connect() {
     schedule();
   });
   es.addEventListener('sessions', (m) => { sessions = JSON.parse(m.data).sessions; schedule(); });
+  es.addEventListener('todos', (m) => { todos = JSON.parse(m.data).todos; schedule(); });
 }
 
 // テスト（node:vm で buildCards だけを読む）では DOM が無いので起動しない

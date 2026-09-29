@@ -4,9 +4,9 @@
  * タスクの層（辺）は、依存・Epic と子・Issue と PR・Stacked PR・担当のセッション。
  */
 import { shortSession } from '../../lib/blocks.ts';
-import { LABELS } from '../../lib/config.ts';
+import { LABELS, PRIORITY_LABELS } from '../../lib/config.ts';
 import { parseChildMarker } from '../../lib/epic.ts';
-import { fleetStatus, type FleetIssue, type FleetPr, type FleetStage } from '../../lib/fleet.ts';
+import { fleetStatus, type FleetIssue, type FleetPr, type FleetRow, type FleetStage } from '../../lib/fleet.ts';
 import type { Claim, IssueFacts } from '../../lib/queue.ts';
 import type { SessionInfo } from './sessions.ts';
 
@@ -90,14 +90,18 @@ export interface SessionNode {
   subagents: { type: string; description: string; lastAt: string | null; running: boolean }[];
 }
 
-export interface Graph { columns: typeof COLUMNS; tasks: Task[]; edges: Edge[]; sessions: SessionNode[] }
+/** 人がすることの1行（Merge・人の判断・止まる印・priority の不足） */
+export interface Todo { id: string; kind: 'issue' | 'pr'; number: number; url: string; title: string; reason: string }
+
+export interface Graph { columns: typeof COLUMNS; tasks: Task[]; edges: Edge[]; sessions: SessionNode[]; todos: Todo[] }
 
 export interface BuildOptions { now: Date; humanClaimStaleHours: number }
 
 export type GraphEvent =
   | { type: 'task'; task: Task; edges: Edge[] }
   | { type: 'remove'; id: string }
-  | { type: 'sessions'; sessions: SessionNode[] };
+  | { type: 'sessions'; sessions: SessionNode[] }
+  | { type: 'todos'; todos: Todo[] };
 
 const STOP_LABELS: string[] = [LABELS.hold, LABELS.blocked, LABELS.waiting];
 const PR_STOP_LABELS: string[] = [LABELS.hold, LABELS.blocked];
@@ -120,6 +124,35 @@ export function issueWarnings(plan: PlanCopy | null): string[] {
   if (typeof verdict !== 'string' || (mustRemaining !== undefined && typeof mustRemaining !== 'number')) return ['批評の記録が読めない'];
   if (verdict === 'revise' && typeof mustRemaining === 'number' && mustRemaining >= 1) return [`必須の指摘を残して進めた（${mustRemaining} 件）`];
   return [];
+}
+
+const PRIORITIES: string[] = Object.values(PRIORITY_LABELS);
+
+/**
+ * 人がすることの一覧。Human Merge の PR → 計画ゲートで止まった Issue → 止まる印の Issue → priority の無い Issue の順。
+ * priority を見るのは label-audit と同じ範囲（agent:* か epic の付いた Issue）。自動 Merge 待ちは人の操作が要らないので出さない
+ */
+export function buildTodos(issues: DashIssue[], prs: DashPr[], rows: FleetRow[]): Todo[] {
+  const byNumber = (a: Todo, b: Todo) => a.number - b.number;
+  const issueTodo = (i: DashIssue, key: string, reason: string): Todo =>
+    ({ id: `${key}-issue-${i.fleet.facts.number}`, kind: 'issue', number: i.fleet.facts.number, url: i.url, title: i.fleet.facts.title, reason });
+  const merge: Todo[] = [];
+  for (const r of rows) {
+    if (r.stage !== 'human-merge' || r.pr === null) continue;
+    const p = prs.find((x) => x.number === r.pr);
+    if (p) merge.push({ id: `merge-pr-${p.number}`, kind: 'pr', number: p.number, url: p.url, title: p.title, reason: 'PR を確かめて Merge する' });
+  }
+  const review = issues.filter((i) => rows.some((r) => r.issue === i.fleet.facts.number && r.stage === 'plan-review'))
+    .map((i) => issueTodo(i, 'review', '計画ゲートで止まった。進めるか決める'));
+  const stop = issues.flatMap((i) => {
+    const on = STOP_LABELS.filter((l) => i.fleet.facts.labels.includes(l));
+    return on.length > 0 ? [issueTodo(i, 'stop', `止まる印（${on.join('・')}）の対応`)] : [];
+  });
+  const priority = issues.filter((i) => {
+    const labels = i.fleet.facts.labels;
+    return labels.some((l) => l.startsWith('agent:') || l === LABELS.epic) && !labels.some((l) => PRIORITIES.includes(l));
+  }).map((i) => issueTodo(i, 'priority', 'priority のラベルが無い'));
+  return [merge, review, stop, priority].flatMap((g) => g.sort(byNumber));
 }
 
 const issueId = (n: number) => `issue-${n}`;
@@ -235,7 +268,7 @@ export function buildGraph(issues: DashIssue[], prs: DashPr[], sessions: Session
     t.sessions = [...linked];
   }
 
-  return { columns: COLUMNS, tasks, edges, sessions: [...nodes.values()] };
+  return { columns: COLUMNS, tasks, edges, sessions: [...nodes.values()], todos: buildTodos(issues, prs, rows) };
 }
 
 /** 前後のグラフの差分。変わったタスク（と、そのタスクが持つ辺）だけを送る */
@@ -251,5 +284,6 @@ export function diffGraphs(prev: Graph, next: Graph): GraphEvent[] {
   }
   for (const t of prev.tasks) if (!after.has(t.id)) out.push({ type: 'remove', id: t.id });
   if (JSON.stringify(prev.sessions) !== JSON.stringify(next.sessions)) out.push({ type: 'sessions', sessions: next.sessions });
+  if (JSON.stringify(prev.todos) !== JSON.stringify(next.todos)) out.push({ type: 'todos', todos: next.todos });
   return out;
 }

@@ -9,7 +9,7 @@ import { COLUMNS, type Graph, type Task } from '../scripts/dashboard/graph.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const HTML = '<!doctype html><title>dash</title><p>test-page</p>';
-const snapshot = (): Graph => ({ columns: COLUMNS, tasks: [], edges: [], sessions: [] });
+const snapshot = (): Graph => ({ columns: COLUMNS, tasks: [], edges: [], sessions: [], todos: [] });
 const sampleTask: Task = {
   id: 'issue-1', kind: 'issue', number: 1, title: 't1', url: 'https://github.com/o/r/issues/1', column: 'implement', status: 'active', note: null,
   claim: { by: 'manual', stage: 'implement', session: null, at: '2026-09-29T00:00:00Z' }, sessions: [], warnings: [],
