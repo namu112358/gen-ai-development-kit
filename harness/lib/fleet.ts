@@ -1,6 +1,7 @@
 import { assigneeExclusion, requireAssignee } from './assignee.ts';
 import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import { patternsOverlap } from './epic.ts';
+import { fleetStageOf, stepOf, type FlowFleetStage, type FlowNodeId, type FlowStep } from './flow.ts';
 import { globToRegExp } from './scope.ts';
 import { describeClaim, isOwnClaim, type Claim, type IssueFacts, type PrFacts } from './queue.ts';
 
@@ -96,10 +97,11 @@ export const FLEET_STAGES = {
   'auto-merge': '自動 Merge 待ち',
   merged: 'Merge 済み',
   stopped: '止まる印あり',
-} as const;
+} as const satisfies Record<FlowFleetStage, string>;
 
 export type FleetStage = keyof typeof FLEET_STAGES;
-export type FleetNext = 'plan' | 'implement' | 'judge' | 'fix' | 'sync' | 'none';
+/** 次にやること（段階のグラフ flow.ts の FlowStep） */
+export type FleetNext = FlowStep;
 
 export interface FleetRow {
   issue: number;
@@ -117,44 +119,52 @@ export const WAITING_FOR_HUMAN: FleetStage[] = ['plan-review', 'human-merge', 'a
 
 type Stage = Omit<FleetRow, 'issue' | 'title'>;
 
+/** fleet の表に段階として出るノード（作業中のノードと、next だけを上書きする sync は除く） */
+type StageNode = Exclude<FlowNodeId, 'plan' | 'plan-critique' | 'implement' | 'sync'>;
+
+/** 段階のグラフ（flow.ts）のノードから、fleet の段階と次にやることを引く */
+function at(node: StageNode, pr: number | null, note: string | null): Stage {
+  return { stage: fleetStageOf(node), next: stepOf(node), pr, note };
+}
+
 function prStage(p: FleetPr, anyMerged: boolean): Stage {
   const f = p.facts!;
   const stop = [LABELS.hold, LABELS.blocked].find((l) => f.labels.includes(l));
-  if (stop) return { stage: 'stopped', next: 'none', pr: p.number, note: `PR に \`${stop}\`` };
+  if (stop) return at('stopped', p.number, `PR に \`${stop}\``);
   const acc = f.acceptance;
   let s: Stage;
-  if (f.humanFeedbackSincePush > 0) s = { stage: 'fix', next: 'fix', pr: p.number, note: '人のレビューがある' };
-  else if (acc?.reviewPass && p.autoMerge) s = { stage: 'auto-merge', next: 'none', pr: p.number, note: null };
-  else if (acc?.reviewPass && p.humanReview && !p.draft) s = { stage: 'human-merge', next: 'none', pr: p.number, note: null };
-  else if (acc && !acc.reviewPass) s = { stage: 'fix', next: 'fix', pr: p.number, note: 'ブロッキング指摘' };
-  else if (acc) s = { stage: 'judge', next: 'none', pr: p.number, note: '合格。App の Merge 経路（auto-merge か kind=human-review）待ち' };
-  else if (f.verdictAwaitingGate) s = { stage: 'judge', next: 'none', pr: p.number, note: '判定の受け付け待ち' };
-  else s = { stage: 'judge', next: 'judge', pr: p.number, note: null };
-  // 衝突や main の追従は何より先にする（衝突していると CI も判定の反映も進まない）
-  if (f.conflicted) s = { ...s, next: 'sync', note: 'main と衝突' };
-  else if (anyMerged && p.behindMain) s = { ...s, next: 'sync', note: 'Merge 済みの PR があり、main に追従していない' };
+  if (f.humanFeedbackSincePush > 0) s = at('fix', p.number, '人のレビューがある');
+  else if (acc?.reviewPass && p.autoMerge) s = at('auto-merge', p.number, null);
+  else if (acc?.reviewPass && p.humanReview && !p.draft) s = at('human-merge', p.number, null);
+  else if (acc && !acc.reviewPass) s = at('fix', p.number, 'ブロッキング指摘');
+  else if (acc) s = at('merge-route-pending', p.number, '合格。App の Merge 経路（auto-merge か kind=human-review）待ち');
+  else if (f.verdictAwaitingGate) s = at('verdict-pending', p.number, '判定の受け付け待ち');
+  else s = at('judge', p.number, null);
+  // 衝突や main の追従は何より先にする（衝突していると CI も判定の反映も進まない）。段階は残し、次にやることだけ sync にする
+  if (f.conflicted) s = { ...s, next: stepOf('sync'), note: 'main と衝突' };
+  else if (anyMerged && p.behindMain) s = { ...s, next: stepOf('sync'), note: 'Merge 済みの PR があり、main に追従していない' };
   // 人の PR は修正・取り込みを人が行う
-  if (!f.agent && (s.next === 'fix' || s.next === 'sync')) s = { ...s, next: 'none', note: `人の PR（${s.next} は人が行う）` };
+  if (!f.agent && (s.next === stepOf('fix') || s.next === stepOf('sync'))) s = { ...s, next: 'none', note: `人の PR（${s.next} は人が行う）` };
   return s;
 }
 
 function issueStage(i: FleetIssue, anyMerged: boolean): Stage {
   const f = i.facts;
   const merged = i.prs.find((p) => p.merged);
-  if (merged || i.closed) return { stage: 'merged', next: 'none', pr: merged?.number ?? null, note: merged ? null : 'Issue は Close 済み' };
+  if (merged || i.closed) return at('merged', merged?.number ?? null, merged ? null : 'Issue は Close 済み');
   const open = i.prs.find((p) => !p.merged && p.facts !== null);
   const stop = STOP_LABELS.find((l) => f.labels.includes(l));
-  if (stop) return { stage: 'stopped', next: 'none', pr: open?.number ?? null, note: `\`${stop}\`` };
-  if (f.labels.includes(LABELS.epic)) return { stage: 'stopped', next: 'none', pr: null, note: 'Epic（子課題で進める）' };
+  if (stop) return at('stopped', open?.number ?? null, `\`${stop}\``);
+  if (f.labels.includes(LABELS.epic)) return at('stopped', null, 'Epic（子課題で進める）');
   if (open) return prStage(open, anyMerged);
-  if (f.openBlockers.length > 0) return { stage: 'stopped', next: 'none', pr: null, note: `依存 ${f.openBlockers.map((b) => `#${b}`).join(', ')} が未解決` };
-  if (f.labels.includes(LABELS.planReview)) return { stage: 'plan-review', next: 'none', pr: null, note: '人が進めると決めれば implement' };
+  if (f.openBlockers.length > 0) return at('stopped', null, `依存 ${f.openBlockers.map((b) => `#${b}`).join(', ')} が未解決`);
+  if (f.labels.includes(LABELS.planReview)) return at('plan-review', null, '人が進めると決めれば implement');
   const pending = f.latestPlanAt !== null && (f.gate === null || f.gate.at < f.latestPlanAt);
-  if (pending) return { stage: 'plan-gate', next: 'none', pr: null, note: null };
-  if (f.gate === null) return { stage: 'no-plan', next: 'plan', pr: null, note: null };
-  if (!f.gate.pass) return { stage: 'plan-review', next: 'none', pr: null, note: '計画ゲートで停止中' };
-  if (!f.labels.includes(LABELS.planOk) || !f.planOkByApp) return { stage: 'plan-gate', next: 'none', pr: null, note: '`agent:plan-ok` が App によって付けられていません' };
-  return { stage: 'plan-ok', next: 'implement', pr: null, note: null };
+  if (pending) return at('plan-gate', null, null);
+  if (f.gate === null) return at('issue', null, null);
+  if (!f.gate.pass) return at('plan-review', null, '計画ゲートで停止中');
+  if (!f.labels.includes(LABELS.planOk) || !f.planOkByApp) return at('plan-gate', null, '`agent:plan-ok` が App によって付けられていません');
+  return at('plan-ok', null, null);
 }
 
 /** Issue ごとの段階と次にやること。Merge 済みの Issue があれば、main に追従していない残りの PR の次にやることを sync にする */

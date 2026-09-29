@@ -1,9 +1,11 @@
 import { shortSession } from './blocks.ts';
 import { LABELS, priorityRank } from './config.ts';
+import { queueActionKindOf, stepOf } from './flow.ts';
 
 /**
  * Routine の次の行動を決める純粋関数。GitHub から集めた事実（Facts）だけを入力にする。
  * 段階は GitHub の状態から毎回再構成するので、途中で落ちた実行の続きから冪等に進められる。
+ * 返す行動の種類（kind）は、段階のグラフ（flow.ts）のノードの次にやること（step）から引く。
  */
 
 /**
@@ -186,11 +188,11 @@ export function decideIssue(f: IssueFacts, opts: QueueOptions): Action {
 
   const planPending = f.latestPlanAt !== null && (f.gate === null || f.gate.at < f.latestPlanAt);
   if (planPending) return { kind: 'skip', target, reason: '計画ゲートの結果待ち' };
-  if (f.gate === null) return { kind: 'plan', issue: f.number };
+  if (f.gate === null) return { kind: queueActionKindOf(stepOf('issue')), issue: f.number };
   if (!f.gate.pass) return { kind: 'skip', target, reason: '計画ゲートで停止中' };
   if (!has(f.labels, LABELS.planOk) || !f.planOkByApp) return { kind: 'skip', target, reason: '`agent:plan-ok` が App によって付けられていません' };
   if (f.areaFull) return { kind: 'skip', target, reason: `${f.areaFull}。どれかが Merge されるまで着手しない` };
-  return { kind: 'implement', issue: f.number, planCommentId: f.gate.planCommentId };
+  return { kind: queueActionKindOf(stepOf('plan-ok')), issue: f.number, planCommentId: f.gate.planCommentId };
 }
 
 export function decidePr(f: PrFacts, opts: QueueOptions): Action {
@@ -202,15 +204,15 @@ export function decidePr(f: PrFacts, opts: QueueOptions): Action {
   if (claimed) return { kind: 'skip', target, reason: claimed };
   if (!f.agent) {
     if (f.verdictAwaitingGate) return { kind: 'skip', target, reason: '判定の受け付け待ち' };
-    if (!f.acceptance) return { kind: 'judge', pr: f.number, issue: f.issue, headSha: f.headSha };
+    if (!f.acceptance) return { kind: queueActionKindOf(stepOf('judge')), pr: f.number, issue: f.issue, headSha: f.headSha };
     return { kind: 'skip', target, reason: f.acceptance.reviewPass ? '判定済み（人の Merge 待ち）' : '判定済み（人の修正待ち）' };
   }
   // 衝突していると CI も判定の反映も進まないので、何より先に解消する
-  if (f.conflicted) return { kind: 'resolve-conflict', pr: f.number, issue: f.issue };
-  if (f.humanFeedbackSincePush > 0) return { kind: 'fix', pr: f.number, issue: f.issue, reason: 'human' };
+  if (f.conflicted) return { kind: queueActionKindOf(stepOf('sync')), pr: f.number, issue: f.issue };
+  if (f.humanFeedbackSincePush > 0) return { kind: queueActionKindOf(stepOf('fix')), pr: f.number, issue: f.issue, reason: 'human' };
   if (f.verdictAwaitingGate) return { kind: 'skip', target, reason: '判定の受け付け待ち' };
-  if (!f.acceptance) return { kind: 'judge', pr: f.number, issue: f.issue, headSha: f.headSha };
-  if (!f.acceptance.reviewPass) return { kind: 'fix', pr: f.number, issue: f.issue, reason: 'review' };
+  if (!f.acceptance) return { kind: queueActionKindOf(stepOf('judge')), pr: f.number, issue: f.issue, headSha: f.headSha };
+  if (!f.acceptance.reviewPass) return { kind: queueActionKindOf(stepOf('fix')), pr: f.number, issue: f.issue, reason: 'review' };
   return { kind: 'skip', target, reason: '判定済み（Merge 待ち）' };
 }
 
