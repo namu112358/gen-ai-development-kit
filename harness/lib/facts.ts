@@ -29,18 +29,42 @@ import {
  * Routine は GitHub API を直接呼べない（MCP ツールのみ）ため、App が計算してダッシュボードに公開した queue を読む。
  */
 
-/** 有効な着手宣言。解除コメントか、宣言より新しい計画・判定コメントがあれば null */
+/**
+ * 有効な着手宣言。最初の宣言が持ち主（Issue #171）で、返すのは持ち主の最新の段階の宣言。コメントを古い順に見て：
+ * - 持ち主がいなければ、解除でない宣言のセッションが持ち主になる
+ * - 持ち主と同じセッションの宣言は段階の更新（解除なら持ち主がなくなる）
+ * - ほかのセッションの宣言は、takeover: true か、持ち主が Routine の宣言なら持ち主が移る。それ以外（解除も）は無視する
+ * - 計画・判定コメントで持ち主がなくなる
+ * session の無い古い書式の宣言同士は同じセッションとみなす（見分けられないため、最後の宣言を使う）。
+ * 持ち主が Routine のときの期限（routineClaimTakeoverMinutes）は、queue の claimedByOther が着手の前に判断する
+ */
 export function claimOf(comments: IssueComment[]): Claim | null {
-  for (const c of [...comments].reverse()) {
+  let owner: Claim | null = null;
+  for (const c of comments) {
     if (!hasClaudeMark(c.body) || !isTrustedComment(c)) continue;
-    if (extractBlock(c.body, 'agent-plan').found || extractBlock(c.body, 'agent-verdict').found) return null;
+    if (extractBlock(c.body, 'agent-plan').found || extractBlock(c.body, 'agent-verdict').found) {
+      owner = null;
+      continue;
+    }
     const b = extractBlock(c.body, 'agent-claim');
-    if (b.found && b.ok) {
-      const claim = b.value as Claim;
-      return claim.released ? null : claim;
+    if (!b.found || !b.ok) continue;
+    const claim = b.value as Claim;
+    if (owner === null) {
+      if (!claim.released) owner = claim;
+    } else if (sameClaimSession(owner, claim)) {
+      owner = claim.released ? null : claim;
+    } else if (!claim.released && (claim.takeover === true || owner.by === 'routine')) {
+      owner = claim;
     }
   }
-  return null;
+  return owner;
+}
+
+const sessionKey = (claim: Claim): string | null => (typeof claim.session === 'string' && claim.session !== '' ? claim.session : null);
+
+/** 同じセッションの宣言か。by と session が同じ（session の無いもの同士も含む） */
+function sameClaimSession(a: Claim, b: Claim): boolean {
+  return a.by === b.by && sessionKey(a) === sessionKey(b);
 }
 
 function latestClaudeBlockAt(comments: IssueComment[], kind: 'agent-plan' | 'agent-verdict'): IssueComment | null {

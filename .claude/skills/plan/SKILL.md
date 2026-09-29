@@ -15,7 +15,7 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 
 ## 手順
 
-1. `node harness/scripts/agent.ts claim <番号> --manual --stage plan` で着手を宣言する（計画を書く前。ほかのセッションの宣言があれば止まるので、人に返す。引き継ぐのは人が決めたときだけ `--takeover`）。`gh issue view <番号> --comments` で Issue の本文とコメントを読む。コメントはコラボレーターのものだけ使う。
+1. `node harness/scripts/agent.ts claim <番号> --manual --stage plan` で着手を宣言する（計画を書く前。ほかのセッションの宣言があれば止まるので、人に返す。引き継ぐのは人が決めたときだけ `--takeover`。先に宣言したセッションがあって自分の宣言を取り下げて止まったら、計画を書かずに ship / fleet の扱いに従う）。`gh issue view <番号> --comments` で Issue の本文とコメントを読む。コメントはコラボレーターのものだけ使う。
 2. リポジトリを調べて実装方針を立てる。
 3. 計画コメントを一時ファイル（scratchpad）に書く。書式は [docs/formats.md](../../../docs/formats.md)。人が読む計画本文と、末尾の ```` ```agent-plan ```` ブロックを含める。
    - `files`：触るファイルをすべて（テスト・docs を含む）、具体的なパスで書く。広いパターンはガードレールと重なりうる（重なるとゲートで止まる）
@@ -23,7 +23,7 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `risk`：想定 Risk（[docs/risk-policy.md](../../../docs/risk-policy.md) の目安）
    - 1つの PR に収まらなければ `split` で子課題に分ける
 4. `node harness/scripts/agent.ts check <ファイル>` で書式を確かめる。
-5. `node harness/scripts/agent.ts claim <番号> --manual --stage plan-critique` で段階を更新し、`node harness/scripts/agent.ts critic-input <番号> <ファイル>` で批評の入力を作る（このセッションの着手宣言が無いと止まる）（出力はファイルのパス）。2回目以降は、前回の回に plan-critic が書いたファイル（直前に使った `critic-<番号>-<回数>.json`）をそのまま渡し、`node harness/scripts/agent.ts critic-input <番号> <ファイル> --previous <critic-<番号>-<回数>.json>` で作る（前回の必須の指摘が「前回の批評」に入る）。
+5. `node harness/scripts/agent.ts claim <番号> --manual --stage plan-critique` で段階を更新し（手順1と同じく、先に宣言したセッションがあって取り下げて止まったら、批評に進まずに ship / fleet の扱いに従う）、`node harness/scripts/agent.ts critic-input <番号> <ファイル>` で批評の入力を作る（このセッションの着手宣言が無いと止まる）（出力はファイルのパス）。2回目以降は、前回の回に plan-critic が書いたファイル（直前に使った `critic-<番号>-<回数>.json`）をそのまま渡し、`node harness/scripts/agent.ts critic-input <番号> <ファイル> --previous <critic-<番号>-<回数>.json>` で作る（前回の必須の指摘が「前回の批評」に入る）。
 6. **plan-critic** サブエージェントを呼ぶ。
    - 批評の回ごとに、出力のパスを scratchpad の `critic-<番号>-<回数>.json` に決める。回数は Issue ごとに増やし続け、1 に戻さない（計画ゲートで止まった Issue への出し直しや、人の「直す」で手順5からやり直すときも続きの番号にする）。
    - plan-critic を呼ぶ前に、出力のパスにファイルが無いことを確かめる。あれば回数を進めて、まだ使っていない名前にする。呼び出し元はファイルを消さない（plan-critic は既にあるファイルを上書きしないので、古い批評をこの回の結果として取り違えないため）。
