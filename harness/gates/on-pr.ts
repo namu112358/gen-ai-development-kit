@@ -13,6 +13,7 @@ import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type G
 import { sweepExpiredDelegation } from './delegate-merge.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
 import { applyAppLabels } from './label-apply.ts';
+import { notifyUnclaimedPush } from './push-claim.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
 
 /**
@@ -21,6 +22,7 @@ import { testsHumanMerge, testsOutcome } from './tests-check.ts';
  * - push（synchronize）：まず auto-merge を解除し、差分が同じなら過去の判定を引き継ぐ
  * - 委任 Merge の期限切れの掃除（どの action でも、synchronize の auto-merge の解除の直後に1回。delegate-merge.ts）
  * - 作成とタイトルの編集で type:* を付ける（App が前に付けたものだけ付け替える。label-apply.ts）
+ * - push（synchronize）で、着手宣言の無いセッションの push を知らせる（止めない。push-claim.ts）
  * - 範囲照合（agent/scope、情報表示用）
  * - テストの改ざん検査（agent/tests、必須。fork の PR も）
  * - 例外ラベル（review:exempt・test:exempt）は付けた時点の差分（patch-id）にだけ効かせる
@@ -88,6 +90,7 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
   const getPatch = () => (currentPatch ??= getDiff().then(patchId));
   let prComments: Promise<IssueComment[]> | undefined;
   const getComments = () => (prComments ??= ctx.gh.listComments(number));
+  if (action === 'synchronize') await notifyUnclaimedPush(ctx, pr, getComments);
   const recorded = new Map<string, ExemptRecord>();
   if ((action === 'labeled' || action === 'unlabeled') && label !== undefined && Object.hasOwn(EXEMPT_KINDS, label)) {
     recorded.set(label, await recordExempt(ctx, pr, action, label, getDiff));

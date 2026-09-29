@@ -57,6 +57,10 @@
   "reviewPanel": {
     "mode": "shadow"
   },
+  "fleet": {
+    "nesting": "orca",
+    "maxParallelShips": 3
+  },
   "jev": {
     "mode": "shadow",
     "model": "jev-1.13.0",
