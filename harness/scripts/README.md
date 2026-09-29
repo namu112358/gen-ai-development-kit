@@ -6,6 +6,8 @@
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
 | `agent.ts` | Routine と人のセッションが使う CLI。 | ○ |
+| `dashboard.ts` | エージェントの状態をグラフで見る、手元の読み取り専用のダッシュボード（GitHub には書かない）。 |  |
+| `dashboard/` | エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。 |  |
 | `jev-language.ts` | 日本語の材料と英訳した材料を同じ問いで Jev（TypeSafe AI）に投げ比べる、手で実行する実験用スクリプト。 |  |
 | `mutate.ts` | テストが効いているかを確かめる（mutation）。 |  |
 | `readme.ts` | README の表（名前・内容・ガードレール）を、各ディレクトリの直下の名前と先頭のコメントから作る。 |  |

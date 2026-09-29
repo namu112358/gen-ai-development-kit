@@ -1,0 +1,335 @@
+<!doctype html>
+<!-- エージェントの状態のグラフ（harness/scripts/dashboard.ts が配る）。外部を読み込まない1ファイル。外から入る文字は textContent で描く。 -->
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent グラフ</title>
+<style>
+  :root {
+    --bg: #f6f7f9; --panel: #ffffff; --ink: #1d2330; --muted: #667085; --line: #d7dce3; --col: #eef1f5;
+    --active: #2563eb; --stale: #d97706; --waiting: #7c3aed; --blocked: #dc2626; --conflict: #db2777; --idle: #98a2b3;
+    --e-depends: #dc2626; --e-epic: #7c3aed; --e-closes: #667085; --e-stacked: #d97706; --e-session: #2563eb;
+    --run: #16a34a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1218; --panel: #181c24; --ink: #e6e9ef; --muted: #98a2b3; --line: #2c3340; --col: #141820;
+      --active: #60a5fa; --stale: #fbbf24; --waiting: #a78bfa; --blocked: #f87171; --conflict: #f472b6; --idle: #667085;
+      --e-depends: #f87171; --e-epic: #a78bfa; --e-closes: #98a2b3; --e-stacked: #fbbf24; --e-session: #60a5fa;
+      --run: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 13px/1.45 system-ui, -apple-system, "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif; }
+  header { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+  h1 { font-size: 15px; margin: 0; font-weight: 650; }
+  .conn { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); }
+  .conn i { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+  .conn.ok i { background: var(--run); }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--muted); }
+  .legend label { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
+  .legend svg { overflow: visible; }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  #wrap { position: relative; padding: 12px 16px 32px; overflow-x: auto; }
+  #board { position: relative; display: grid; grid-auto-flow: column; grid-auto-columns: 176px; gap: 10px; align-items: start; min-height: calc(100vh - 90px); }
+  .col { background: var(--col); border: 1px solid var(--line); border-radius: 8px; padding: 8px; min-height: 120px; }
+  .col.side { border-style: dashed; }
+  .col h2 { font-size: 12px; margin: 0 0 8px; color: var(--muted); font-weight: 600; display: flex; justify-content: space-between; }
+  .col.claimstage h2::before { content: "●"; color: var(--active); margin-right: 4px; font-size: 9px; }
+  .card { position: relative; z-index: 1; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--idle); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+  .card.pr { margin-left: 12px; }
+  .card[data-status="active"] { border-left-color: var(--active); }
+  .card[data-status="stale"] { border-left-color: var(--stale); }
+  .card[data-status="waiting-human"] { border-left-color: var(--waiting); }
+  .card[data-status="blocked"] { border-left-color: var(--blocked); }
+  .card[data-status="conflict"] { border-left-color: var(--conflict); }
+  .card .num { font-weight: 650; color: var(--ink); text-decoration: none; }
+  .card .num:hover { text-decoration: underline; }
+  .card .title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .card .meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .card .st { font-size: 11px; font-weight: 600; }
+  .card .sub { font-size: 11px; margin-top: 3px; display: flex; gap: 4px; align-items: center; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--idle); flex: none; }
+  .dot.run { background: var(--run); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .25; } }
+  @media (prefers-reduced-motion: reduce) { .dot.run { animation: none; } }
+  .session { border-left-color: var(--e-session); }
+  .session .title { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #edges { position: absolute; inset: 0; pointer-events: none; z-index: 0; overflow: visible; }
+  #edges path { fill: none; stroke-width: 1.6; opacity: .75; }
+  .empty { color: var(--muted); font-size: 12px; }
+  @media (max-width: 600px) { #board { grid-auto-columns: 150px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent グラフ</h1>
+  <span class="conn" id="conn"><i></i><span id="connText">接続中…</span></span>
+  <span class="legend" id="statusLegend"></span>
+  <span class="legend" id="edgeLegend"></span>
+</header>
+<div id="wrap">
+  <div id="board"></div>
+  <svg id="edges" aria-hidden="true"><defs id="defs"></defs></svg>
+</div>
+<script>
+'use strict';
+const SVG = 'http://www.w3.org/2000/svg';
+const STATUS = {
+  active: '着手中', stale: '停滞', 'waiting-human': '人待ち', blocked: '止まっている', conflict: '衝突', idle: '待機',
+};
+const STATUS_VAR = { active: '--active', stale: '--stale', 'waiting-human': '--waiting', blocked: '--blocked', conflict: '--conflict', idle: '--idle' };
+const EDGES = {
+  depends: { label: '依存', dash: '6 4' },
+  epic: { label: 'Epic → 子', dash: '' },
+  closes: { label: 'Issue → PR', dash: '' },
+  stacked: { label: 'Stacked PR', dash: '2 3' },
+  session: { label: 'セッション', dash: '1 4' },
+};
+const CLAIM_COLS = new Set(['plan', 'plan-critique', 'plan-gate', 'implement', 'judge', 'fix', 'sync']);
+const SIDE_COLS = new Set(['dependency', 'stopped']);
+
+let columns = [];
+const tasks = new Map();
+const edgesByFrom = new Map();
+let sessions = [];
+const hidden = new Set();
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined && text !== null) e.textContent = String(text);
+  return e;
+}
+function ago(iso) {
+  if (!iso) return '';
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  if (s < 60) return s + '秒前';
+  if (s < 3600) return Math.floor(s / 60) + '分前';
+  if (s < 86400) return Math.floor(s / 3600) + '時間前';
+  return Math.floor(s / 86400) + '日前';
+}
+function agoSpan(iso) {
+  const s = el('span', 'ago', ago(iso));
+  s.dataset.at = iso || '';
+  return s;
+}
+
+function buildLegends() {
+  const sl = document.getElementById('statusLegend');
+  for (const [k, v] of Object.entries(STATUS)) {
+    const l = el('label');
+    const sw = el('span', 'swatch');
+    sw.style.background = 'var(' + STATUS_VAR[k] + ')';
+    l.append(sw, el('span', null, v));
+    sl.append(l);
+  }
+  const defs = document.getElementById('defs');
+  const el2 = document.getElementById('edgeLegend');
+  for (const [k, v] of Object.entries(EDGES)) {
+    const m = document.createElementNS(SVG, 'marker');
+    m.setAttribute('id', 'arrow-' + k);
+    m.setAttribute('viewBox', '0 0 10 10');
+    m.setAttribute('refX', '9'); m.setAttribute('refY', '5');
+    m.setAttribute('markerWidth', '7'); m.setAttribute('markerHeight', '7');
+    m.setAttribute('orient', 'auto-start-reverse');
+    const p = document.createElementNS(SVG, 'path');
+    p.setAttribute('d', 'M0,0 L10,5 L0,10 z');
+    p.setAttribute('fill', 'var(--e-' + k + ')');
+    m.append(p);
+    defs.append(m);
+
+    const l = el('label');
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.checked = true;
+    cb.addEventListener('change', () => { cb.checked ? hidden.delete(k) : hidden.add(k); drawEdges(); });
+    const s = document.createElementNS(SVG, 'svg');
+    s.setAttribute('width', '22'); s.setAttribute('height', '8');
+    const ln = document.createElementNS(SVG, 'line');
+    ln.setAttribute('x1', '0'); ln.setAttribute('y1', '4'); ln.setAttribute('x2', '22'); ln.setAttribute('y2', '4');
+    ln.setAttribute('stroke', 'var(--e-' + k + ')'); ln.setAttribute('stroke-width', '2');
+    if (v.dash) ln.setAttribute('stroke-dasharray', v.dash);
+    s.append(ln);
+    l.append(cb, s, el('span', null, v.label));
+    el2.append(l);
+  }
+}
+
+function taskCard(t) {
+  const c = el('div', 'card' + (t.kind === 'pr' ? ' pr' : ''));
+  c.dataset.id = t.id;
+  c.dataset.status = t.status;
+  const head = el('div');
+  const a = el('a', 'num', (t.kind === 'pr' ? 'PR #' : '#') + t.number);
+  a.href = t.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+  const st = el('span', 'st', ' ' + STATUS[t.status]);
+  st.style.color = 'var(' + STATUS_VAR[t.status] + ')';
+  head.append(a, st);
+  c.append(head, el('div', 'title', t.title));
+  c.title = t.title + (t.note ? '\n' + t.note : '');
+  if (t.claim) {
+    const m = el('div', 'meta');
+    m.append(el('span', null, (t.claim.by === 'routine' ? 'Routine' : '手動') + (t.claim.stage ? '・' + t.claim.stage : '') + '・'), agoSpan(t.claim.at));
+    c.append(m);
+  }
+  if (t.note) c.append(el('div', 'meta', t.note));
+  for (const sid of t.sessions) {
+    const s = sessions.find((x) => x.session === sid);
+    if (!s) continue;
+    const running = s.subagents.filter((a) => a.running);
+    const row = el('div', 'sub');
+    row.append(el('span', 'dot' + (s.running ? ' run' : '')), el('span', null, s.short + (s.local ? '' : '（ほかの場所）')));
+    if (s.lastAt) row.append(agoSpan(s.lastAt));
+    c.append(row);
+    for (const a of (running.length ? running : s.subagents.slice(0, 1))) {
+      const r = el('div', 'sub');
+      r.append(el('span', 'dot' + (a.running ? ' run' : '')), el('span', null, a.type), agoSpan(a.lastAt));
+      r.title = a.description;
+      c.append(r);
+    }
+  }
+  return c;
+}
+
+function sessionCard(s) {
+  const c = el('div', 'card session');
+  c.dataset.id = s.id;
+  const head = el('div', 'sub');
+  head.append(el('span', 'dot' + (s.running ? ' run' : '')), el('span', 'title', s.short), agoSpan(s.lastAt));
+  c.append(head);
+  if (!s.local) c.append(el('div', 'meta', 'ほかの場所（claim のみ）'));
+  for (const a of s.subagents.slice(0, 6)) {
+    const r = el('div', 'sub');
+    r.append(el('span', 'dot' + (a.running ? ' run' : '')), el('span', null, a.type), agoSpan(a.lastAt));
+    r.title = a.description;
+    c.append(r);
+  }
+  return c;
+}
+
+function render() {
+  const board = document.getElementById('board');
+  board.replaceChildren();
+  const byCol = new Map(columns.map((c) => [c.id, []]));
+  const list = [...tasks.values()];
+  for (const t of list) if (t.kind === 'issue') (byCol.get(t.column) || []).push(t);
+  // PR は Closes する Issue の下に、Issue の無い PR は列の末尾に
+  const prOf = new Map();
+  for (const [from, es] of edgesByFrom) for (const e of es) if (e.kind === 'closes') prOf.set(e.to, from);
+  for (const t of list) if (t.kind === 'pr' && !prOf.has(t.id)) (byCol.get(t.column) || []).push(t);
+  for (const col of columns) {
+    const box = el('section', 'col' + (SIDE_COLS.has(col.id) ? ' side' : '') + (CLAIM_COLS.has(col.id) ? ' claimstage' : ''));
+    const items = (byCol.get(col.id) || []).sort((a, b) => a.number - b.number);
+    const h = el('h2');
+    h.append(el('span', null, col.label), el('span', null, items.length || ''));
+    box.append(h);
+    for (const t of items) {
+      box.append(taskCard(t));
+      if (t.kind === 'issue') for (const pr of list.filter((p) => prOf.get(p.id) === t.id)) {
+        if (pr.column === t.column) box.append(taskCard(pr));
+      }
+    }
+    // Issue と違う列にいる PR（PR に着手宣言があるとき）
+    for (const pr of list.filter((p) => p.kind === 'pr' && prOf.has(p.id) && p.column === col.id)) {
+      const parent = tasks.get(prOf.get(pr.id));
+      if (!parent || parent.column !== col.id) box.append(taskCard(pr));
+    }
+    if (box.children.length === 1) box.append(el('div', 'empty', '—'));
+    board.append(box);
+  }
+  const sbox = el('section', 'col side');
+  const h = el('h2');
+  h.append(el('span', null, 'セッション'), el('span', null, sessions.length || ''));
+  sbox.append(h);
+  for (const s of sessions) sbox.append(sessionCard(s));
+  if (!sessions.length) sbox.append(el('div', 'empty', '—'));
+  board.append(sbox);
+  drawEdges();
+}
+
+function drawEdges() {
+  const svg = document.getElementById('edges');
+  const wrap = document.getElementById('wrap');
+  for (const p of [...svg.querySelectorAll('path.edge')]) p.remove();
+  const base = wrap.getBoundingClientRect();
+  svg.setAttribute('width', String(wrap.scrollWidth));
+  svg.setAttribute('height', String(wrap.scrollHeight));
+  const box = (id) => {
+    const n = wrap.querySelector('[data-id="' + CSS.escape(id) + '"]');
+    if (!n) return null;
+    const r = n.getBoundingClientRect();
+    return { x: r.left - base.left + wrap.scrollLeft, y: r.top - base.top + wrap.scrollTop, w: r.width, h: r.height };
+  };
+  for (const es of edgesByFrom.values()) for (const e of es) {
+    if (hidden.has(e.kind)) continue;
+    const a = box(e.from), b = box(e.to);
+    if (!a || !b) continue;
+    let x1, y1, x2, y2, d;
+    if (Math.abs(a.x - b.x) < 4) {
+      // 同じ列：左側を回る
+      x1 = a.x; y1 = a.y + a.h / 2; x2 = b.x; y2 = b.y + b.h / 2;
+      const bend = Math.min(40, 10 + Math.abs(y2 - y1) / 6);
+      d = 'M' + x1 + ',' + y1 + ' C' + (x1 - bend) + ',' + y1 + ' ' + (x2 - bend) + ',' + y2 + ' ' + x2 + ',' + y2;
+    } else {
+      const right = b.x > a.x;
+      x1 = right ? a.x + a.w : a.x; y1 = a.y + a.h / 2;
+      x2 = right ? b.x : b.x + b.w; y2 = b.y + b.h / 2;
+      const dx = Math.max(30, Math.abs(x2 - x1) / 2) * (right ? 1 : -1);
+      d = 'M' + x1 + ',' + y1 + ' C' + (x1 + dx) + ',' + y1 + ' ' + (x2 - dx) + ',' + y2 + ' ' + x2 + ',' + y2;
+    }
+    const p = document.createElementNS(SVG, 'path');
+    p.setAttribute('class', 'edge');
+    p.setAttribute('d', d);
+    p.setAttribute('stroke', 'var(--e-' + e.kind + ')');
+    if (EDGES[e.kind].dash) p.setAttribute('stroke-dasharray', EDGES[e.kind].dash);
+    p.setAttribute('marker-end', 'url(#arrow-' + e.kind + ')');
+    svg.append(p);
+  }
+}
+
+let pending = false;
+function schedule() {
+  if (pending) return;
+  pending = true;
+  requestAnimationFrame(() => { pending = false; render(); });
+}
+
+function applySnapshot(g) {
+  columns = g.columns;
+  tasks.clear(); edgesByFrom.clear();
+  for (const t of g.tasks) tasks.set(t.id, t);
+  for (const e of g.edges) { if (!edgesByFrom.has(e.from)) edgesByFrom.set(e.from, []); edgesByFrom.get(e.from).push(e); }
+  sessions = g.sessions;
+  schedule();
+}
+
+function connect() {
+  const conn = document.getElementById('conn');
+  const text = document.getElementById('connText');
+  const es = new EventSource('/events');
+  es.addEventListener('open', () => { conn.classList.add('ok'); text.textContent = '接続中（リアルタイム）'; });
+  es.addEventListener('error', () => { conn.classList.remove('ok'); text.textContent = '再接続を待っています…'; });
+  es.addEventListener('snapshot', (m) => applySnapshot(JSON.parse(m.data)));
+  es.addEventListener('task', (m) => {
+    const e = JSON.parse(m.data);
+    tasks.set(e.task.id, e.task);
+    edgesByFrom.set(e.task.id, e.edges);
+    schedule();
+  });
+  es.addEventListener('remove', (m) => {
+    const e = JSON.parse(m.data);
+    tasks.delete(e.id); edgesByFrom.delete(e.id);
+    schedule();
+  });
+  es.addEventListener('sessions', (m) => { sessions = JSON.parse(m.data).sessions; schedule(); });
+}
+
+buildLegends();
+connect();
+setInterval(() => { for (const s of document.querySelectorAll('.ago')) s.textContent = ago(s.dataset.at); }, 1000);
+window.addEventListener('resize', drawEdges);
+document.getElementById('wrap').addEventListener('scroll', drawEdges);
+</script>
+</body>
+</html>
