@@ -21,6 +21,8 @@ export interface HarnessConfig {
     areas: Record<string, string[]>;
     /** Issue の分類を Jev に問うか（shadow は提案コメントのみ、label は足りないラベルを Jev が付ける） */
     issueTriage: 'off' | 'shadow' | 'label';
+    /** Jev に priority を問うときの段階ごとの基準（英文）。空でない文字列の段階だけ既定（harness/lib/issue-triage.ts）を上書きする（Issue #259） */
+    priorityCriteria?: Partial<Record<'highest' | 'high' | 'medium' | 'low' | 'lowest', string>>;
   };
   mergeMethod: 'SQUASH' | 'MERGE' | 'REBASE';
   routine: { maxItemsPerRun: number; humanClaimStaleHours: number; routineClaimTakeoverMinutes: number };

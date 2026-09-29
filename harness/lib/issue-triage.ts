@@ -18,8 +18,11 @@ const TYPES = {
   chore: 'Build, CI, dependencies, or harness maintenance.',
 };
 
-/** 選択肢の名前は priority:* の段階と同じ（harness/lib/config.ts の PRIORITY_LABELS） */
-const PRIORITIES = {
+/**
+ * 選択肢の名前は priority:* の段階と同じ（harness/lib/config.ts の PRIORITY_LABELS）。
+ * 既定の基準。導入先は classification.priorityCriteria で段階ごとに上書きできる（Issue #259）
+ */
+export const DEFAULT_PRIORITY_CRITERIA = {
   highest: 'Emergency: security, data loss, a broken main branch, or everything else is blocked on it. Drop other work.',
   high: 'Urgent: blocks users or other planned work; should be done before regular work.',
   medium: 'Regular planned work.',
@@ -27,7 +30,31 @@ const PRIORITIES = {
   lowest: 'Someday: only if nothing else is waiting.',
 };
 
-export function buildTriageRequest(config: HarnessConfig, title: string, c: IssueContract) {
+/** Jev に「既に分かっているラベル」として渡すもの。priority:*（問うもの）・agent:*（進み具合）は渡さない */
+const KNOWN_LABEL = /^(type|risk|area):/;
+
+/** App が API から集めた Issue の関係の情報（#104 の守り：セッションが書いたものは渡さない） */
+export interface TriageContext {
+  /** Issue に付いているラベル */
+  labels?: string[];
+  /** 子（Sub-issues）の数 */
+  subIssues?: number;
+}
+
+/** priority の基準。classification.priorityCriteria のうち、既定の段階で空でない文字列のものだけ上書きする */
+export function priorityCriteria(config: HarnessConfig): Record<keyof typeof DEFAULT_PRIORITY_CRITERIA, string> {
+  const override = (config.classification.priorityCriteria ?? {}) as Record<string, unknown>;
+  const out = { ...DEFAULT_PRIORITY_CRITERIA };
+  for (const key of Object.keys(out) as (keyof typeof out)[]) {
+    const v = Object.hasOwn(override, key) ? override[key] : undefined;
+    if (typeof v === 'string' && v.trim() !== '') out[key] = v;
+  }
+  return out;
+}
+
+export function buildTriageRequest(config: HarnessConfig, title: string, c: IssueContract, context?: TriageContext) {
+  const knownLabels = [...new Set((context?.labels ?? []).filter((l) => KNOWN_LABEL.test(l) || l === 'epic'))].sort();
+  const subIssues = context?.subIssues ?? 0;
   const areas: Record<string, string> = Object.fromEntries(
     Object.entries(config.classification.areas).map(([name, patterns]) => [name, `Changes files under ${patterns.join(', ')}`]),
   );
@@ -41,11 +68,14 @@ export function buildTriageRequest(config: HarnessConfig, title: string, c: Issu
       requirements: c.requirements,
       non_goals: c.nonGoals,
       acceptance_criteria: c.acceptanceCriteria,
+      dependencies: c.dependencies ?? '',
+      ...(knownLabels.length > 0 ? { known_labels: knownLabels } : {}),
+      ...(Number.isInteger(subIssues) && subIssues > 0 ? { sub_issue_count: subIssues } : {}),
     },
     questions: {
       type: { type: 'choice', instructions: 'What kind of change does this issue request?', criteria: TYPES },
       area: { type: 'choice', instructions: 'Which part of the repository will this issue most likely change?', criteria: areas },
-      priority: { type: 'choice', instructions: 'How urgent is this issue?', criteria: PRIORITIES },
+      priority: { type: 'choice', instructions: 'How urgent is this issue?', criteria: priorityCriteria(config) },
       ac_verifiable: { type: 'noul', instructions: 'Is every item in `acceptance_criteria` concrete and objectively verifiable (an observable output, a test, or a command result)?' },
       requirements_clear: { type: 'noul', instructions: 'Could an engineer implement this issue without asking any clarifying questions?' },
     },

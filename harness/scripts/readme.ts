@@ -62,7 +62,7 @@ const NO_COMMENT_TEXT: Record<string, string> = {
   'harness/managed.json':
     '導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー',
   'harness/templates/harness.config.json':
-    '導入先の harness.config.json の雛形（初回だけ写す）。appSlug・projectChecks・guardrailPaths・classification.areas・humanMergePaths を導入先に合わせて書き換える',
+    '導入先の harness.config.json の雛形（初回だけ写す）。appSlug・projectChecks・guardrailPaths・classification.areas・classification.priorityCriteria・humanMergePaths を導入先に合わせて書き換える',
   '.github/ISSUE_TEMPLATE/':
     'Issue の作り方の設定。`agent-task.yml` は「Agent タスク」の Issue Form（Goal・Requirements・Acceptance Criteria などの見出しをゲートが読む）、`config.yml` は Form を使わない Issue も作れるようにする設定。ここに .md を置くと Issue のテンプレートとして扱われるので、README は置かない',
   '.github/pull_request_template.md': 'PR 本文の見本（`Closes #番号`、変更の概要、AC ごとの対応、範囲外の変更、テスト）',
