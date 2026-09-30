@@ -4,10 +4,10 @@ import { onComment } from './on-comment.ts';
 import { onIssue } from './on-issue.ts';
 import { onMainPush } from './on-main-push.ts';
 import { onPullRequest } from './on-pr.ts';
-import { publishQueue } from './publish-queue.ts';
+import { publishesQueueOn, publishQueue } from './publish-queue.ts';
 
 /**
- * ゲートの入口で、イベントの種類ごとに処理を選び、最後に queue を公開し直す。
+ * ゲートの入口で、イベントの種類ごとに処理を選ぶ。定期実行と手動の起動のときだけ、最後に queue を公開し直す。
  * workflow から `node harness/gates/run.ts` で呼ぶ。
  */
 const ctx = createContext();
@@ -31,11 +31,15 @@ if (!handler) {
     ctx.log(`ゲートが失敗しました: ${(e as Error).stack ?? e}`);
     process.exitCode = 1;
   }
-  // ゲートの成否にかかわらず、次にやること（queue）をダッシュボードに公開し直す（Routine はこれを読む）
-  try {
-    await publishQueue(ctx);
-  } catch (e) {
-    ctx.log(`queue の公開に失敗しました: ${(e as Error).stack ?? e}`);
-    process.exitCode = 1;
+  // 定期実行と手動の起動のときだけ、ゲートの成否にかかわらず、次にやること（queue）をダッシュボードに公開し直す（Routine はこれを読む）
+  if (publishesQueueOn(ctx.eventName)) {
+    try {
+      await publishQueue(ctx);
+    } catch (e) {
+      ctx.log(`queue の公開に失敗しました: ${(e as Error).stack ?? e}`);
+      process.exitCode = 1;
+    }
+  } else {
+    ctx.log('queue の公開はしません（定期実行・手動の起動だけ）');
   }
 }

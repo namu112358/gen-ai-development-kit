@@ -9,6 +9,14 @@ import { ensureDashboard } from './stale.ts';
  * 状態の判定（plan-ok を付けたのが App か、判定が現在の差分に有効か など）を App 側で行うので、Routine 側で偽装しにくい。
  */
 
+/**
+ * queue を公開し直すイベントか。定期実行と手動の起動のときだけ（#379）。イベントのたびに計算すると
+ * 1回で約80回の API を呼び、App の installation の上限（1時間 5000 回）を超えるため
+ */
+export function publishesQueueOn(eventName: string): boolean {
+  return eventName === 'schedule' || eventName === 'workflow_dispatch';
+}
+
 export const QUEUE_START = '<!-- agent-harness:queue:start -->';
 export const QUEUE_END = '<!-- agent-harness:queue:end -->';
 

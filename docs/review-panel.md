@@ -14,7 +14,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 | 3 ①〜⑤ | `review-lens`（観点の番号を変えて5回） | sonnet | ① CLAUDE.md（`@` で読み込むファイルの規則も含む）、② 明らかなバグ、③ 履歴（`git log`・`git blame`）、④ 過去の PR のコメント、⑤ コードのコメント |
 | 3 ⑥ | `review-ac-scope` | opus | AC を満たすか（`ac-unmet`）、範囲外の変更（`out-of-scope`） |
 | 3 ⑦ | `review-safety` | opus | `data-destruction`・`secret-leak`・`regression` |
-| 3 ⑨ | `review-overbuild` | sonnet | 計画・AC が求めていない `over-implementation`（過剰な実装）・`over-testing`（過剰なテスト）・`over-engineering`（オーバーエンジニアリング）。1判定5件まで。提案だけ |
+| 3 ⑨ | `review-overbuild` | sonnet | 計画・AC が求めていない `over-implementation`（過剰な実装）・`over-testing`（過剰なテスト）・`over-engineering`（オーバーエンジニアリング）。1判定5件まで。提案だけ（#386 の Merge まで。確信度 75 以上をブロッキングにすると決めた。決定ログの Q103） |
 | 3 ⑧ | `review-panel.ts` の `check` | — | head の detached の worktree で `npm ci` と `npm run check`。終了コードと出力の末尾 60 行 |
 | 4 | `review-scorer`（指摘ごと） | haiku（⑥⑦の指摘は opus） | 指摘1件の確信度（0〜100）。公式の採点基準を英文のまま使う。⑥⑦の指摘には Issue 本文と計画の節も渡す |
 | 5・6 | `review-panel.ts` の `compose`・`post` | — | head の再確認、組み立て、記録のコメントの投稿 |
@@ -28,7 +28,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 | ① | ブロッキング（`claude-md`） | 捨てる（記録には `dropped` で残す） |
 | ②〜⑤ | ブロッキング（`bug`） | 捨てる（同上） |
 | ⑥・⑦ | ブロッキング（指摘の `kind`） | `humanNotes.concerns` |
-| ⑨ | `nonBlocking`（確信度に関わらず。計画の方針ごと過剰なら `humanNotes.checkPoints` にも） | `nonBlocking`（同左） |
+| ⑨ | `nonBlocking`（確信度に関わらず。計画の方針ごと過剰なら `humanNotes.checkPoints` にも。75 以上をブロッキングにするのは #386 の Merge から。Q103） | `nonBlocking`（同左） |
 | ⑧ | 採点しない。終了コードが 0 でなければ必ず `typecheck-test-failure` | — |
 
 - 採点の無い指摘・同じ ID の採点が2つ・指摘に無い ID の採点・0〜100 の外や整数でない点数・未知の観点は、組み立てを止める（黙って捨てない）。
@@ -54,7 +54,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 | 前にレビューしたかを PR のコメントで見る | judge-input の「前回の判定」の head で見る | 担当は GitHub を読まない |
 | 結果を PR にコメントする | reviewer と同じ形の JSON と、記録のコメント（`agent-review-panel`）にする | 判定は App が受け付ける判定コメントに一本化する |
 | 観点は①〜⑤ | ⑥（AC・範囲）・⑦（秘密・データ破壊・退行）・⑧（`npm run check`）を足す | 今の reviewer の基準を引き継ぐ |
-| 観点は①〜⑤ | ⑨（過剰さ）を足す。提案だけで合否を変えない（review-overbuild の指摘は採点して点を記録に残すが、確信度に関わらず `nonBlocking`） | PR の段階で過剰な実装・テストを見るところが無かった。止めるかは記録がたまってから人が決める（#325） |
+| 観点は①〜⑤ | ⑨（過剰さ）を足す。提案だけで合否を変えない（review-overbuild の指摘は採点して点を記録に残すが、確信度に関わらず `nonBlocking`） | PR の段階で過剰な実装・テストを見るところが無かった。記録（⑨の指摘 52 件、重複を除いて 40 件）を見て、確信度 75 以上をブロッキングにすると人が決めた（#352、決定ログの Q103）。実装は #386 で、Merge までは提案だけ |
 | 採点はすべて Haiku | ⑥⑦の指摘の採点だけ opus で呼ぶ（Agent の model の上書き。定義は haiku のまま） | ⑥（opus）⑦（opus）が見つけた指摘を、弱いモデルの採点で落とさない。置き換える今の reviewer は opus で AC・退行を自分で判断している（#318） |
 | 誤検知の例を段階4・5のすべてに当てる | ①〜⑤の指摘にだけ当てる | ⑥⑦の既存の問題・セキュリティの問題を誤検知として落とさない |
 | ④は担当が `gh` で過去の PR を読む | セッションが judge-input の「過去の PR のコメント」の節に集めたものを使う。App と Claude の目印のコメントは含めない | 担当は GitHub を読まない。前の reviewer の指摘の再掲を避ける（下の「④の材料」） |
@@ -113,3 +113,5 @@ shadow の期間の「前回の判定」と⑥⑦の `unfixedPrevious` は、今
 4. 切り替えてよいと決めたら、人が `reviewPanel.mode` を `enforce` にする Issue を立てる（`agent:ready` は人が決めてから付ける）。変更は `harness.config.json` の1行。
 
 このリポジトリは 2026-09-30 に `enforce` に切り替えた（#319。決定ログの Q102）。集計の基準は「満たす」だったが、しきい値 80 では合体版が一度もブロックしていなかったので、先に #317（PR #321、しきい値 75）・#318（PR #334、今の reviewer との差を埋める）・#325（PR #335、⑨ 過剰さの提案）を入れた。料金の基準 (5)（今の reviewer の3倍以下）は約 3.1 倍の見込みで超えるが、人の決定で受け入れた。
+
+切り替えの後、⑨の記録がたまったところで扱いを見直した（#352、決定ログの Q103）。確信度 75 以上の⑨の指摘をブロッキングにし、75 未満は提案のままにする。実装は #386 で、Merge までは上の表のとおり提案だけ。75 以上は件数が少ない（重複を除いた 40 件のうち 2 件）ので、切り替えた後の 20 件ほどで人が誤検知を見る。
