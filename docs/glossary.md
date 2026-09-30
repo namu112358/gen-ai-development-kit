@@ -18,7 +18,7 @@ Claude が人と一緒に作業するセッション。着手は `node harness/s
 
 ### queue
 
-App が次に Routine がやることを計算してダッシュボード Issue の本文に公開し、Routine がそれに従って処理する仕組み。詳細：[formats.md](formats.md#app-の記録agent-app)
+App が次に Routine がやることを計算してダッシュボード Issue の本文に公開し、Routine がそれに従って処理する仕組み。公開し直すのは定期実行（1時間ごと）と手動の起動のときだけ。詳細：[formats.md](formats.md#app-の記録agent-app)
 
 ### `agent:ready`
 
@@ -140,7 +140,7 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ### ダッシュボード
 
-App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR、必須ラベルが足りない（または規則に反する）Issue・PR を3時間ごとに一覧にする。詳細：[operations.md](operations.md#止める仕組み)
+App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR、必須ラベルが足りない（または規則に反する）Issue・PR を1時間ごとに一覧にする。詳細：[operations.md](operations.md#止める仕組み)
 
 ## 外部
 
