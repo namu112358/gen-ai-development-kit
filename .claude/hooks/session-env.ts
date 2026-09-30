@@ -53,7 +53,7 @@ export function orcaEnvironment(platform: string, env: Record<string, string | u
 
 /** 環境ごとの「見つからない」の一文（systemMessage と additionalContext の頭） */
 const ORCA_MISSING: Record<OrcaEnvironment, string> = {
-  windows: 'Windows で Orca の CLI（PATH の orca）が見つかりません。',
+  windows: 'Windows で Orca の CLI（ORCA_CLI_COMMAND・PATH の orca）が見つかりません。ORCA_CLI_COMMAND で CLI を指定できます。',
   wsl: 'WSL で Orca の CLI（ORCA_CLI_COMMAND・PATH の orca-ide）が見つかりません。Orca が管理する WSL の端末では ORCA_CLI_COMMAND が入ります。',
   linux: 'Linux で Orca の CLI（ORCA_CLI_COMMAND・PATH の orca-ide）が見つかりません。',
   other: 'Orca の CLI（ORCA_CLI_COMMAND・orca-ide）が見つかりません。',
@@ -67,7 +67,10 @@ const ORCA_NO_BARE = '素の orca は実行しないでください。';
 /** Windows で PATHEXT が無い・空のときの拡張子 */
 const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
 
-/** isExecutable に渡すパス。Windows は PATH の各ディレクトリの orca に PATHEXT の拡張子を付けたもの、ほかは各ディレクトリの orca-ide */
+/**
+ * isExecutable に渡すパス。Windows は PATH の各ディレクトリの orca に PATHEXT の拡張子を付けたもの、ほかは各ディレクトリの orca-ide。
+ * Windows の PATH の要素は前後の `"` だけを外す。要素の途中の `"` と、`%VAR%` の展開は扱わない。
+ */
 function orcaCandidates(where: OrcaEnvironment, env: Record<string, string | undefined>): string[] {
   if (where !== 'windows') {
     return (env.PATH ?? '')
