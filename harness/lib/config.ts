@@ -67,6 +67,8 @@ export interface HarnessConfig {
    */
   projectChecks?: { context: string; integrationId?: number }[];
   fixLoop: { normalLimit: number; criticalLimit: number };
+  /** sync ⇄ judge のループの上限（agent.ts step。PR の main からの取り込みの数）。無ければ既定値（syncLoopConfig）。Issue #306 */
+  syncLoop?: { limit?: number };
   staleHours: number;
   dashboardIssueTitle: string;
   reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
@@ -119,6 +121,18 @@ export function fleetConfig(config: Pick<HarnessConfig, 'fleet'>): { nesting: 'o
   if (nesting !== 'orca' && nesting !== 'flat') throw new Error('fleet.nesting は orca か flat で書いてください');
   if (typeof maxParallelShips !== 'number' || !Number.isInteger(maxParallelShips) || maxParallelShips <= 0) throw new Error('fleet.maxParallelShips は正の整数で書いてください');
   return { nesting, maxParallelShips };
+}
+
+/** sync ⇄ judge のループの上限の既定値 */
+export const SYNC_LOOP_DEFAULTS = { limit: 3 } as const;
+
+/** sync ⇄ judge のループの上限（無い項目は既定値）。書式の誤りは throw する（上限が決まらないまま step を進めない） */
+export function syncLoopConfig(config: Pick<HarnessConfig, 'syncLoop'>): { limit: number } {
+  const raw = config.syncLoop as unknown;
+  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('syncLoop はオブジェクトで書いてください（例：{ "limit": 3 }）');
+  const { limit = SYNC_LOOP_DEFAULTS.limit } = (raw ?? {}) as { limit?: unknown };
+  if (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0) throw new Error('syncLoop.limit は正の整数で書いてください');
+  return { limit };
 }
 
 /** App が操作したことを示す GitHub 上のログイン名 */

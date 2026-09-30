@@ -60,11 +60,14 @@ const BEFORE_SPLIT = [
   'worktree-remove',
 ];
 
-test('loadCommands(COMMANDS_DIR) の名前は分ける前の31件とちょうど同じ', async () => {
+/** 分けた後に commands/ に足したサブコマンドの名前（step は Issue #306） */
+const ADDED_AFTER_SPLIT = ['step'];
+
+test('loadCommands(COMMANDS_DIR) の名前は分ける前の31件と、分けた後に足したものとちょうど同じ', async () => {
   const { loadCommands, COMMANDS_DIR } = await loadCli();
   const commands = await loadCommands(COMMANDS_DIR);
   assert.equal(BEFORE_SPLIT.length, 31);
-  assert.deepEqual([...commands.keys()].sort(), [...BEFORE_SPLIT].sort());
+  assert.deepEqual([...commands.keys()].sort(), [...BEFORE_SPLIT, ...ADDED_AFTER_SPLIT].sort());
   for (const [name, cmd] of commands) {
     assert.equal(cmd.name, name);
     assert.equal(typeof cmd.run, 'function', `${name} に run がありません`);
