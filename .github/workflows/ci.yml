@@ -5,7 +5,8 @@
 # - 結果は PR 側のコードとこの YAML が決めるので、PR を出した側が偽れる。情報のためだけに出す。
 # - 自動 Merge の条件や App の agent/* チェックの代わりにしない（条件にするなら、信頼できる実行が別に要る）。
 # - Ruleset の必須チェック（context は ci）に足さない。ci ジョブとは別のジョブにする。
-# - 全 PR で動かす（自動 Merge の経路に乗る PR だけに絞らない）。
+# - 全 PR で起動する（自動 Merge の経路に乗る PR だけに絞らない）。実装の .ts・.js を変えていない PR では
+#   `mutate.ts --check-targets` だけが動き、npm ci と本体を省く（Summary に理由を出す）。
 # - 壊す箇所の数（--max-mutants）と時間（--max-minutes）に上限を置く。上限で打ち切っても失敗にせず、打ち切った旨を出す。
 name: ci
 
@@ -13,6 +14,12 @@ on:
   pull_request:
   push:
     branches: [main]
+
+# 同じ PR に続けて push したら、古い head の実行を取り消す（必須チェックは head ごとなので、新しい head の ci が結果になる）。
+# main への push は取り消さない。同じグループで待つ実行は cancel-in-progress が偽でも取り消されるので、push は実行ごとに別のグループにする
+concurrency:
+  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
@@ -45,9 +52,14 @@ jobs:
           persist-credentials: false
           # マージコミットの第1親（base）と比べる
           fetch-depth: 2
+      # npm ci を省く実行でキャッシュの保存が警告を出さないように、npm のキャッシュは使わない（依存は devDependencies の2つだけ）
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .node-version
-          cache: npm
-      - run: npm ci
-      - run: node harness/scripts/mutate.ts --max-mutants 30 --max-minutes 15 --test-timeout-seconds 90
+      # 壊す候補（実装の .ts・.js の変更）が無ければ、npm ci と本体を省く。数えられなければ has-targets=true
+      - id: targets
+        run: node harness/scripts/mutate.ts --check-targets
+      - if: steps.targets.outputs.has-targets == 'true'
+        run: npm ci
+      - if: steps.targets.outputs.has-targets == 'true'
+        run: node harness/scripts/mutate.ts --max-mutants 30 --max-minutes 15 --test-timeout-seconds 90
