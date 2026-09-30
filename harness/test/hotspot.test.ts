@@ -1,7 +1,12 @@
 // Issue #326：ホットスポットの集計（hotspot）。`git log --numstat` の形の入力と行数から、変更回数・行数・並び順・上限（truncated）・除外（消えたファイル・sizeExclude の形）が決まることを確かめる。
+// Issue #350：git が引用符と8進のエスケープで出す ASCII でないパス（core.quotepath）を、元の名前に戻して数える。
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { countLines, HOTSPOT_LOG_ARGS, parseNumstat, rankHotspots, type FileChurn } from '../lib/hotspot.ts';
+import { countLines, HOTSPOT_LOG_ARGS, parseNumstat, rankHotspots, unquoteGitPath, type FileChurn } from '../lib/hotspot.ts';
 
 const LOG = [
   'commit aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
@@ -41,6 +46,81 @@ test('parseNumstat：同じコミットに同じファイルが2回出ても変�
 
 test('parseNumstat：空の入力は空', () => {
   assert.deepEqual(parseNumstat(''), []);
+});
+
+test('unquoteGitPath：引用された8進のエスケープを UTF-8 の文字に戻し、1文字のエスケープも戻し、囲まれていないパスはそのまま', () => {
+  assert.equal(unquoteGitPath('"\\346\\227\\245\\346\\234\\254\\350\\252\\236.md"'), '日本語.md');
+  assert.equal(unquoteGitPath('"docs/\\346\\227\\245\\346\\234\\254\\350\\252\\236/a.md"'), 'docs/日本語/a.md');
+  assert.equal(unquoteGitPath('"a\\tb.md"'), 'a\tb.md');
+  assert.equal(unquoteGitPath('"say \\"hi\\".md"'), 'say "hi".md');
+  assert.equal(unquoteGitPath('"back\\\\slash.md"'), 'back\\slash.md');
+  assert.equal(unquoteGitPath('"\\a\\b\\n\\v\\f\\r"'), '\x07\b\n\v\f\r');
+  assert.equal(unquoteGitPath('harness/lib/a.ts'), 'harness/lib/a.ts');
+  assert.equal(unquoteGitPath('a\\346.md'), 'a\\346.md');
+  assert.equal(unquoteGitPath('"abc'), '"abc');
+  assert.equal(unquoteGitPath('日本語.md'), '日本語.md');
+});
+
+test('unquoteGitPath：終わりが不完全なエスケープは例外を投げず文字どおり残し、UTF-8 として読めないバイトは U+FFFD にする', () => {
+  assert.doesNotThrow(() => unquoteGitPath('"abc\\"'));
+  assert.equal(unquoteGitPath('"abc\\"'), 'abc\\');
+  assert.doesNotThrow(() => unquoteGitPath('"abc\\34"'));
+  assert.equal(unquoteGitPath('"abc\\34"'), 'abc\\34');
+  assert.equal(unquoteGitPath('"abc\\3"'), 'abc\\3');
+  assert.equal(unquoteGitPath('"\\377.md"'), '�.md');
+});
+
+test('parseNumstat：引用されたパスを元の名前に戻し、同じファイルの引用されない形と合わせて1ファイルとして数える', () => {
+  const log = [
+    'commit aaaa',
+    '2\t1\t"\\346\\227\\245\\346\\234\\254\\350\\252\\236.md"',
+    '1\t0\ta.md',
+    'commit bbbb',
+    '3\t0\t日本語.md',
+  ].join('\n');
+  assert.deepEqual(parseNumstat(log), [
+    { file: 'a.md', commits: 1, added: 1, deleted: 0 },
+    { file: '日本語.md', commits: 2, added: 5, deleted: 1 },
+  ]);
+});
+
+test('parseNumstat：一時的な git リポジトリで core.quotepath=true の git log を読み、日本語のファイル名をそのままの名前で数える', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hotspot-quotepath-'));
+  try {
+    const emptyConfig = join(dir, 'empty-gitconfig');
+    writeFileSync(emptyConfig, '');
+    const repo = join(dir, 'repo');
+    const env: NodeJS.ProcessEnv = {};
+    for (const [k, v] of Object.entries(process.env)) if (!k.startsWith('GIT_')) env[k] = v;
+    env.GIT_CONFIG_GLOBAL = emptyConfig;
+    env.GIT_CONFIG_NOSYSTEM = '1';
+    const git = (cwd: string, ...args: string[]): string => {
+      const r = spawnSync('git', args, { cwd, env, encoding: 'utf8' });
+      assert.equal(r.status, 0, `git ${args.join(' ')}: ${r.stderr}`);
+      return r.stdout;
+    };
+    git(dir, 'init', '-q', 'repo');
+    git(repo, 'config', 'user.name', 'hotspot-test');
+    git(repo, 'config', 'user.email', 'hotspot-test@example.invalid');
+    writeFileSync(join(repo, '日本語.md'), 'one\ntwo\n');
+    writeFileSync(join(repo, 'a.md'), 'x\n');
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'first');
+    writeFileSync(join(repo, '日本語.md'), 'one\n');
+    writeFileSync(join(repo, 'a.md'), 'x\ny\n');
+    git(repo, 'add', '-A');
+    git(repo, '-c', 'commit.gpgsign=false', 'commit', '-q', '-m', 'second');
+
+    const log = git(repo, '-c', 'core.quotepath=true', ...HOTSPOT_LOG_ARGS('2000-01-01T00:00:00Z'));
+    const churn = parseNumstat(log);
+    assert.deepEqual(churn, [
+      { file: 'a.md', commits: 2, added: 2, deleted: 0 },
+      { file: '日本語.md', commits: 2, added: 2, deleted: 1 },
+    ]);
+    assert.ok(churn.every((c) => !c.file.startsWith('"')));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('countLines：末尾の改行は数えず、空は 0', () => {
