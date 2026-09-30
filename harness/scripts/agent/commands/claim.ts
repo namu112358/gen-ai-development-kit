@@ -2,9 +2,10 @@ import { checkAssignee } from '../../../lib/assignee.ts';
 import { postClaim } from '../../../lib/claim.ts';
 import { countsTowardAreaLimit, describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
 import { GitHub } from '../../../lib/github.ts';
+import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
 import { type ClaimStage, SESSION_ID_MISSING } from '../../../lib/queue.ts';
 import { latestPlanGate, linkedIssues, type PlanGateRecord, type PullRequest, withStack } from '../../../lib/state.ts';
-import { type AgentCommand, assigneeIo, claimBody, config, currentSession, ensureOwnClaim, fail, parseStage, renderClaim, sessionUrl } from '../cli.ts';
+import { type AgentCommand, assigneeIo, claimBody, config, currentSession, ensureOwnClaim, fail, parseStage, harnessDrift, renderClaim, sessionUrl } from '../cli.ts';
 
 /**
  * 着手宣言（宣言・持ち主の確かめ・解除）。
@@ -17,13 +18,20 @@ import { type AgentCommand, assigneeIo, claimBody, config, currentSession, ensur
  *                                                           このセッションの ID が得られなければ投稿せずに止まる
  *                                                           harness.config.json の requireAssignee が true なら、--manual は Assignee がちょうど1人で今の GitHub のユーザーのときだけ宣言する
  *                                                           （PR 番号なら PR が Close する Issue の Assignee。ensure-claim などの確かめも同じ。エージェントはアサインしない）
+ *                                                           このセッションの読み込みが古い（harness-drift）とき、--stage judge は宣言を投稿せずに止まる（--force・--takeover でも。Issue #199）。
+ *                                                           ほかの段階は宣言の後に標準エラーへ一言出すだけで止めない
  *   node harness/scripts/agent.ts ensure-claim <番号>        このセッションの着手宣言（持ち主）があるかを確かめるだけ（PR を作る前に使う）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント（このセッションの ID が得られなければ止まる）
  */
 
 async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, takeover: boolean, stage?: ClaimStage): Promise<void> {
-  // 宣言の前の確かめ：Assignee（手動の宣言。--force・--takeover でも）→ 領域の上限（手動で --force でないとき）の順
+  // 読み込みの記録があるときだけ fetch して比べる（judge の前の確かめと、宣言の後の一言で1回だけ読む）
+  let drift: ReturnType<typeof harnessDrift> | undefined;
+  const readDrift = () => (drift === undefined ? (drift = harnessDrift()) : drift);
+  // 宣言の前の確かめ：読み込みが古いときの judge（--force・--takeover でも）→ Assignee（手動の宣言。--force・--takeover でも）→ 領域の上限（手動で --force でないとき）の順
   const before = async (): Promise<string | null> => {
+    const stale = stage === 'judge' ? judgeBlock(stage, readDrift()) : null;
+    if (stale) return `#${n}: ${stale}`;
     if (manual) {
       const notMine = await checkAssignee(assigneeIo(gh), config, n);
       if (notMine) return notMine;
@@ -52,6 +60,8 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
     before,
   });
   if (r.error) fail([r.error]);
+  const line = driftLine(readDrift());
+  if (line) console.error(line);
 }
 
 /** 着手宣言の解除。ID が得られなければ持ち主の解除として数えられないので止める */

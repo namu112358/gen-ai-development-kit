@@ -49,6 +49,10 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
 
+ハーネスが更新されたときの交代（#199）：Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始時に読むので、始めた後に main でハーネスが変わっても、そのセッションは古いまま動く。SessionStart の hook が始めたときに読み込んだハーネスのファイルの版を記録し（書式は [formats.md](formats.md) の「読み込みの記録」）、`node harness/scripts/agent.ts harness-drift`・`claim`・`fleet-status` がそれを `origin/<既定ブランチ>` と比べる（比べる元は本体の HEAD ではなく読み込んだ中身なので、本体の checkout が古いまま始めた場合も最初の `fleet-status`・`claim` で分かる。ブランチが自分で変えたファイルは数えない）。古いと `fleet-status` の表の下に「このセッションの読み込みは古い」が出て、`claim --stage judge` と `step` は judge を始めない（止まる理由 `harness-stale`）。fleet（と人が付き添う単独の ship）は段階の切れ目で着手宣言を全部解除してから、交代するかを人に聞き、承認されたら Orca で本体（main の checkout。hq と同じ）を `git pull --ff-only` で追いつかせてから `claude --permission-mode auto "/fleet --epic <Epic番号> <番号…>"` を起動し、画面の `auto mode` を確かめて元のセッションを終える。Orca が無いときは、人が新しいセッションに渡す1行を示して止まる（手順は fleet・ship の SKILL.md の「ハーネスが更新されたときの交代」）。docs/plan.md の Q92（ノードごとに `claude -p` を呼ぶ実行役は作らない）とは違い、`claude -p` は使わず、人が画面で見られる対話のセッションを人の承認の後に1つ起動するだけで、段階の判断は新しいセッションが今の skill のまま行う。
+
+待つ間の読み直し（#199）：fleet は、選んだ Issue が App・CI や人の Merge を待つだけになっても終わらず、`fleet.watch.intervalMinutes` 分おきに `fleet-status --watch` を読み直す（schedule・Actions・Routine は使わず、付き添いのセッションの中で待つ）。Merge・plan-ok などで次にやることが出たら ship を呼び直し、自分の PR の次にやることが `sync` になったら Merge 待ちでも ship を呼び直して sync させる。App が `fleet.watch.appStallMinutes` 分以上動かない行は1回だけ人に知らせる。fleet が終わるのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（手順は fleet の SKILL.md の「待つ間の読み直し」。記録の書式は [formats.md](formats.md) の「見張りの記録」）。
+
 Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときだけ動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。
 
 いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../harness/scripts/dashboard/README.md)）で見られる。`node harness/scripts/dashboard.ts` を実行して表示された URL を開くと、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。読み取りだけで、GitHub には書かない。
@@ -151,7 +155,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 
 ## 上限の設定
 
-運用の上限の数値は、すべて `harness.config.json` にある（Issue #272）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q101）。
+運用の上限の数値は、すべて `harness.config.json` にある（Issue #272。省略できるキーは、書かなければ既定値で動く）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q101）。
 
 | キー | 今の値 | 意味 | 読む側 |
 | --- | --- | --- | --- |
@@ -167,6 +171,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | `jev.decisionMaxTargets`・`decisionMaxAnswerChars` | 20・20000 | 決定の記録を Jev に問う項目の数・答えの文字数の上限（超えれば問わない） | ゲート |
 | `classification.issueTriageJevPerRun` | 5 | 1回の定期実行で Jev に分類を問う Issue の数（残りは次の実行） | ゲート（`label-apply`） |
 | `fleet.maxParallelShips` | 3 | `--max` が無いときに同時に動かす ship の数 | セッションだけ |
+| `fleet.watch.intervalMinutes`・`appStallMinutes` | （書かない。既定 3・20） | fleet の待つ間の読み直しの間隔と、App が止まったとみなす時間（分。#199）。書かなければ既定値。誤りは `fleet-status --watch` の実行時に止まる（`loadConfig` では検査しない） | セッションだけ（`fleet-status --watch`） |
 | `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
 
 - `routine.gateReplyTimeoutMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。

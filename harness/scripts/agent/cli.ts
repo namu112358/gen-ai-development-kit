@@ -11,6 +11,7 @@ import { LABELS, loadConfig, REASON_CODES, type ReasonCode, reasonMark, riskLabe
 import { parseDecision } from '../../lib/decision.ts';
 import { GitHub, transportFromEnv } from '../../lib/github.ts';
 import { judgedHeadError, samePrPatch } from '../../lib/patch-id.ts';
+import { compareHarness, type DriftResult, harnessVersionsAt, loadedRecordPath, readLoadedRecord } from '../../lib/harness-drift.ts';
 import { expectedPlanGate, parsePlan, type Plan, plannerRequestsHuman } from '../../lib/plan.ts';
 import { type Claim, CLAIM_STAGES, type ClaimStage } from '../../lib/queue.ts';
 import { transcriptSessionId } from '../../lib/session.ts';
@@ -44,6 +45,47 @@ export function spawnGit(args: string[]): string {
  */
 export function currentSession(): string | null {
   return sessionUrl() ?? (process.env.AGENT_HARNESS_SESSION || null);
+}
+
+/** このセッションの読み込みを origin と比べた結果（harness-drift のコマンドと claim・fleet-status・step が使う。Issue #199） */
+export interface HarnessDrift extends DriftResult {
+  judged: true;
+  /** 比べた origin の ref と commit */
+  base: string;
+  /** 記録の HEAD と origin の merge-base（求まらなければ null） */
+  mergeBase: string | null;
+  recordedAt: string;
+  note: string | null;
+}
+
+/**
+ * このセッション（AGENT_HARNESS_SESSION。Routine では判断しない）の読み込みの記録を、origin の既定ブランチと比べる。記録が無ければ null（fetch もしない）。
+ * fetch に失敗しても止めず、手元の origin の ref で比べたことを note に書く。merge-base が求まらなければ M 無しで比べる（安全側）
+ */
+export function harnessDrift(): HarnessDrift | null {
+  const session = transcriptSessionId(process.env);
+  const commonDir = spawnGit(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const path = commonDir ? loadedRecordPath(commonDir, session) : null;
+  const record = path ? readLoadedRecord(path) : null;
+  if (!record) return null;
+  const notes: string[] = [];
+  const ref = `origin/${config.defaultBranch}`;
+  if (spawnSync('git', ['fetch', '--quiet', '--no-tags', 'origin', config.defaultBranch], { encoding: 'utf8' }).status !== 0) notes.push(`git fetch に失敗したため、手元の ${ref} で比べた`);
+  const origin = harnessVersionsAt(process.cwd(), ref);
+  if (origin === null) return null;
+  let mergeBase: string | null = null;
+  let base: Record<string, string> | null = null;
+  if (record.head) {
+    const r = spawnSync('git', ['merge-base', record.head, ref], { encoding: 'utf8' });
+    mergeBase = r.status === 0 ? (r.stdout ?? '').trim() || null : null;
+    base = mergeBase ? harnessVersionsAt(process.cwd(), mergeBase) : null;
+    if (base === null) {
+      mergeBase = null;
+      notes.push('記録の HEAD と origin の merge-base が求まらないため、記録と origin だけで比べた');
+    }
+  } else notes.push('記録に HEAD が無いため、記録と origin だけで比べた');
+  const result = compareHarness(record.files, origin, base);
+  return { judged: true, ...result, base: `${ref} (${spawnGit(['rev-parse', ref])})`, mergeBase, recordedAt: record.at, note: notes.length > 0 ? notes.join('。') : null };
 }
 
 export function parseStage(args: string[]): ClaimStage | undefined {

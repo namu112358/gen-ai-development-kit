@@ -19,10 +19,12 @@
 | `epic.ts` | Epic：計画の `split` で大きな課題を子課題に分ける。 | ○ |
 | `exempt.ts` | 人が付ける例外ラベル（review:exempt・test:exempt）は、付けた時点の PR の差分にだけ効く。 | ○ |
 | `facts.ts` | queue の材料（事実）を GitHub から集める。 | ○ |
+| `fleet-watch.ts` | fleet の待つ間の読み直しの判断（Issue #199、人の決定 2026-09-30）。 | ○ |
 | `fleet.ts` | fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。 | ○ |
 | `flow.ts` | 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。 | ○ |
 | `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |
 | `guardrail.ts` | ガードレール：Agent が自分を縛る仕組み（App が機械的に強制している部分）。 | ○ |
+| `harness-drift.ts` | 読み込みの記録：付き添いのセッションが始めたときに読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の版を、セッションごとに記録し、今の origin の既定ブランチの版と比べて「このセッションの読み込みは古い」かを決める（Issue #199）。 | ○ |
 | `hotspot.ts` | 保守の観測（harness/scripts/observe.ts）のホットスポット：直近の期間に変更の多い大きなファイル。 | ○ |
 | `issue-form.ts` | Issue Forms（.github/ISSUE_TEMPLATE/agent-task.yml）が出力する本文の読み取り。 | ○ |
 | `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。 | 対象外 |
