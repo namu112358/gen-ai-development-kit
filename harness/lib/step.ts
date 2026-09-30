@@ -52,6 +52,11 @@ export interface StepInput {
   proceed: boolean;
   now: Date;
   humanClaimStaleHours: number;
+  /**
+   * このセッションの読み込みが古いときの judge を止める文（harness/lib/harness-drift.ts の judgeBlock）。古くない・判断しないなら null か無し。
+   * judge のノードの前だけ見て、宣言を出さずに stop（harness-stale。自分の宣言は解除する）を返す（Issue #199）
+   */
+  harnessStale?: string | null;
 }
 
 interface StepBase {
@@ -309,6 +314,7 @@ export function decideStep(input: StepInput): StepDecision {
       if (input.areaFull) return wait('plan-ok', 'area-limit', input.areaFull);
       return run('implement', { preconditions: ['計画ゲートを通った（App の agent:plan-ok）'] });
     case 'judge':
+      if (input.harnessStale) return stop('judge', 'harness-stale', input.harnessStale);
       return run('judge');
     case 'fix': {
       const [prev, latest] = input.fixRequests.slice(-2);

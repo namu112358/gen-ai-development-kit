@@ -49,6 +49,10 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
 
+ハーネスが更新されたときの交代（#199）：Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始時に読むので、始めた後に main でハーネスが変わっても、そのセッションは古いまま動く。SessionStart の hook が始めたときに読み込んだハーネスのファイルの版を記録し（書式は [formats.md](formats.md) の「読み込みの記録」）、`node harness/scripts/agent.ts harness-drift`・`claim`・`fleet-status` がそれを `origin/<既定ブランチ>` と比べる（比べる元は本体の HEAD ではなく読み込んだ中身なので、本体の checkout が古いまま始めた場合も最初の `fleet-status`・`claim` で分かる。ブランチが自分で変えたファイルは数えない）。古いと `fleet-status` の表の下に「このセッションの読み込みは古い」が出て、`claim --stage judge` と `step` は judge を始めない（止まる理由 `harness-stale`）。fleet（と人が付き添う単独の ship）は段階の切れ目で着手宣言を全部解除してから、交代するかを人に聞き、承認されたら Orca で本体（main の checkout。hq と同じ）を `git pull --ff-only` で追いつかせてから `claude --permission-mode auto "/fleet --epic <Epic番号> <番号…>"` を起動し、画面の `auto mode` を確かめて元のセッションを終える。Orca が無いときは、人が新しいセッションに渡す1行を示して止まる（手順は fleet・ship の SKILL.md の「ハーネスが更新されたときの交代」）。docs/plan.md の Q92（ノードごとに `claude -p` を呼ぶ実行役は作らない）とは違い、`claude -p` は使わず、人が画面で見られる対話のセッションを人の承認の後に1つ起動するだけで、段階の判断は新しいセッションが今の skill のまま行う。
+
+待つ間の読み直し（#199）：fleet は、選んだ Issue が App・CI や人の Merge を待つだけになっても終わらず、`fleet.watch.intervalMinutes` 分おきに `fleet-status --watch` を読み直す（schedule・Actions・Routine は使わず、付き添いのセッションの中で待つ）。Merge・plan-ok などで次にやることが出たら ship を呼び直し、自分の PR の次にやることが `sync` になったら Merge 待ちでも ship を呼び直して sync させる。App が `fleet.watch.appStallMinutes` 分以上動かない行は1回だけ人に知らせる。fleet が終わるのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（手順は fleet の SKILL.md の「待つ間の読み直し」。記録の書式は [formats.md](formats.md) の「見張りの記録」）。
+
 worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <ブランチ>` が作る worktree の置き場所は、既定では本体の隣の `../<リポジトリ名>.worktrees/<ブランチ名を安全にした名前>`。全員で変えるなら `harness.config.json` の `worktreeRoot`、そのパソコンだけ変えるなら環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（例：WSL の中の FS。環境変数が設定より優先）。書き方は、`~/` はホーム、相対パスは本体のルートから、`{repo}` はリポジトリ名に置き換える（複数のリポジトリで同じ場所を使うなら `{repo}` を入れる。入れないと、ダッシュボードがほかのリポジトリの worktree のセッションも拾いうる）。リポジトリの中になる値と、本体を含む祖先（`..` など）は拒む（`worktree`・`worktree-remove`・合体版のレビューの⑧・ダッシュボードが同じ関数（`harness/lib/worktree.ts` の `worktreeRoot`）で決め、同じく止まる）。本体の `.git` は元の場所に残るので、速くなるのは作業ツリーの分だけ。置き場所を変える前に作った worktree は `worktree-remove` が見つけられないので、先に消しておくか `git worktree remove <パス>` で消す。Orca があっても worktree は `agent.ts worktree` で作り、Orca はその worktree での起動と監視に使う（規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md)）。Orca があれば `worktree` が Issue のブランチ（`claude/issue-<番号>-<短い名前>`）の worktree に表示名「#番号 短い名前」と Issue を付ける（親子は付けない。表示のためだけ）。Orca が無ければ何もせず、失敗したときは警告だけで続ける（Orca のアプリは起動しない）。
 
 ### hq（テーマごとの fleet をまとめる）
@@ -192,7 +196,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 
 ## 上限の設定
 
-運用の上限の数値は、すべて `harness.config.json` にある（Issue #272）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q101）。
+運用の上限の数値は、すべて `harness.config.json` にある（Issue #272。省略できるキーは、書かなければ既定値で動く）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q101）。
 
 | キー | 今の値 | 意味 | 読む側 |
 | --- | --- | --- | --- |
@@ -208,6 +212,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `jev.decisionMaxTargets`・`decisionMaxAnswerChars` | 20・20000 | 決定の記録を Jev に問う項目の数・答えの文字数の上限（超えれば問わない） | ゲート |
 | `classification.issueTriageJevPerRun` | 5 | 1回の定期実行で Jev に分類を問う Issue の数（残りは次の実行） | ゲート（`label-apply`） |
 | `fleet.maxParallelShips` | 3 | `--max` が無いときに同時に動かす ship の数 | セッションだけ |
+| `fleet.watch.intervalMinutes`・`appStallMinutes` | （書かない。既定 3・20） | fleet の待つ間の読み直しの間隔と、App が止まったとみなす時間（分。#199）。書かなければ既定値。誤りは `fleet-status --watch` の実行時に止まる（`loadConfig` では検査しない） | セッションだけ（`fleet-status --watch`） |
 | `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
 
 - `routine.gateReplyTimeoutMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。

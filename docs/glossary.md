@@ -28,6 +28,10 @@ App が次に Routine がやることを計算してダッシュボード Issue 
 
 Routine か付き添いのセッションが作業の前に残す、着手者を記録したコメント（```` ```agent-claim ````）。付き添いのセッションの着手（`manual`）は Routine が奪わない。付き添いのセッションの宣言には段階（`stage`）とセッションの ID（`session`）が入り、ほかのセッションからどの段階かが見える。最初の宣言が持ち主で、後の宣言は `--takeover`（`takeover: true`）のときだけ持ち主を移す。同時に宣言した後の側は読み直しで気づき、自分の宣言を取り下げて止まる。詳細：[formats.md](formats.md#着手宣言agent-claim)
 
+### 読み込みの記録 / 読み込みが古い
+
+付き添いのセッションが始めたときに読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の版を、SessionStart の hook がセッションごとに記録したもの。今の `origin/<既定ブランチ>` と比べて違えば「読み込みが古い」で、judge を始めず、段階の切れ目で新しいセッションに交代する（#199）。詳細：[formats.md](formats.md#読み込みの記録)・[operations.md](operations.md#付き添いのセッションで進める)
+
 ## 計画
 
 ### 計画コメント
