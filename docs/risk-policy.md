@@ -66,7 +66,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 委任承認（計画＋Merge）が有効な間は、ガードレールや Risk を理由に Human Merge になる Agent PR も、ほかの条件を満たせば自動 Merge する。`agent:delegate-plan` だけでは Merge の委任は無効。
 
 - 飛ばす理由は2つだけ：ガードレールに触れること、Risk が `low` でない・8問のどれかが安全側でないこと。
-- 今のまま必須の条件：既存 CI、`agent/review` の合格、範囲照合（ゲートを通った計画か、ゲートの停止で止まった計画と照らす）、`agent:hold` なし、base が既定ブランチ、`agent/tests`（委任で乗る PR ではテストの改ざんの検出で止める）、`jev.mode` が `enforce` のときの Jev。
+- 今のまま必須の条件：既存 CI、`agent/review` の合格、範囲照合（ゲートを通った計画か、ゲートの停止で止まった計画か、人が進めると決めた計画と照らす。人が進めると決めた計画は、Planner の申告か前の印で止まった計画のうち、付き添いのセッションが人の「進める」を決定の記録（`agent-decision` の `proceed`、`post-decision`）で残し、App が `plan-proceed` の記録（`status: ok`）を付けたもので、その後に計画コメントの本文が変わっていないものだけ。記録が無い・計画を出し直した・本文が変わったときは照合に使わない。[formats.md](formats.md#決定の記録agent-decision)）、`agent:hold` なし、base が既定ブランチ、`agent/tests`（委任で乗る PR ではテストの改ざんの検出で止める）、`jev.mode` が `enforce` のときの Jev。
 - 中核は委ねない：`delegateMergeExclude` に当たるファイル（`harness.config.json` は常に）に触れる PR は、委任の間も人が Merge する。
 - 委任で auto-merge を付けたときは PR に App の記録（`delegated-merge`）を残す。`agent:delegate-merge` を外す・停止スイッチを入れると、委任で付けた auto-merge を外し、記録（`delegated-merge-end`）と人へのレビュー依頼を出す。merge-route は書くたびに今の委任の状態で評価するので、委任が終わった後に書かれた merge-route は委任を理由に通さない。
 - `agent:delegate-plan` を外しても、計画の委任が終わるだけで、PR には何もしない。
@@ -80,7 +80,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 
 - 有効な条件：ダッシュボードにラベルがあり、人が付けている（App・Bot が付けたものは無効）。期限は無い。停止スイッチ（`agent:auto-merge-stopped`）が優先する。
 - 飛ばす理由：Risk が `low` でない・8問のどれかが安全側でないこと、ガードレールに触れること、`humanMergePaths` に触れること、`delegateMergeExclude`（`harness.config.json` を含む）に触れること、`jev.mode` が `enforce` のときの Jev。
-- 今のまま必須の条件：既存 CI、`agent/review` の合格（ブロッキング指摘なし）、範囲照合（委任と同じく、ゲートを通った計画か、ゲートの停止で止まった計画と照らす）、`agent/tests`（bypass で乗る PR ではテストの改ざんの検出で止める）、`agent:hold` なし、base が既定ブランチ、自動 Merge モードが有効。
+- 今のまま必須の条件：既存 CI、`agent/review` の合格（ブロッキング指摘なし）、範囲照合（委任と同じく、ゲートを通った計画か、ゲートの停止で止まった計画か、人が進めると決めた計画（App の `plan-proceed` の記録がある）と照らす）、`agent/tests`（bypass で乗る PR ではテストの改ざんの検出で止める）、`agent:hold` なし、base が既定ブランチ、自動 Merge モードが有効。
 - 順序：自動 Merge の対象 → 委任承認（計画＋Merge） → bypass の順に見て、最初に当たったもので乗せる。bypass は、自動 Merge の対象でも委任でも乗らない PR だけを扱う。委任と bypass が両方有効な間に片方が終わったら、もう片方で乗る PR は auto-merge を外さずに引き継ぐ（前の乗り方の終わりの記録を書き、人へのレビュー依頼は出さない）。
 - ハーネス自身の守りも委ねる：ゲート（`harness/gates/**`）・ガードレールの一覧（`harness.config.json`）・hook・deny・workflow を変える Agent PR も、人を通らずに Merge される（持ち主の決定。[security.md](security.md#受け入れているリスク)）。bypass の判断そのもの（`harness/gates/bypass.ts`）は `delegateMergeExclude` の中にあり、委任承認では緩められない。
 - bypass で auto-merge を付けたときは PR に App の記録（`bypass-merge`）を残す。ラベルを外す・停止スイッチを入れると、bypass で付けた auto-merge を外し、記録（`bypass-merge-end`）と人へのレビュー依頼を出す（停止スイッチのときも出す）。merge-route は書くたびに今の bypass の状態で評価するので、bypass が終わった後に書かれた merge-route は bypass を理由に通さない。

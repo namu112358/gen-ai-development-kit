@@ -36,6 +36,7 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
      - ファイルがあって JSON として読めないときは、呼び直さずに人に返す。
      - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、批評を使わず人に返す（plan-critic が出力のパスの外を書いた恐れがある）。付き添いの作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
 7. 判定はファイルの中身で決める。返事の本文とファイルの中身が食い違ったら、ファイルの中身を使う。判定ごとの扱いと止める条件は、[.claude/routine.md](../../routine.md) の plan の手順4と [.claude/agents/plan-critic.md](../../agents/plan-critic.md) の出力の節に従う（ここに写さない）。
+   - 危険の判定（auto mode）：どの判定でも `critique` を書くときは、最後の回の plan-critic の出力のファイルの `danger`（`answer` と `reason`）を、そのまま計画ブロックの `critique.danger` に写す（書き換えない。自分で答えない。出力に `danger` が無ければ書かない。App は auto mode の間、無いものを保留にする）。危険の答えで `verdict` の扱いは変えない。
    - `go`：計画ブロックに `critique`（`verdict` と `rounds`）を書いて次へ。
    - `revise`：指摘を反映して直し、手順5からやり直す。
    - `split`：分け方の案に従い、`split` 付きの計画にして、`critique` の `verdict` を `split` にする。
@@ -45,6 +46,7 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
    - App の計画ゲートの結果（`gh issue view <番号> --json labels`）が `agent:plan-review` で、宣言が残っている（出力の `claim` が `plan-gate` だった）なら、`node harness/scripts/agent.ts release <番号>` で解除してから、進めてよいかを AskUserQuestion で聞く。
    - 出し直し（計画ゲートで止まった Issue に計画を出し直す）：前の停止が App のゲートによるもの（critical・ガードレールなど）なら、App は前の印に引きずられずに新しい計画を判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。Planner の申告（`needsHuman`・`openQuestions`）は、手順9の決定の記録を App が確かめて外すことがある。`acChangeProposed` と人が付けた印は、人が外すまで残る。`agent:plan-review` を手で外さない。
 9. `expectedGate` が Planner の申告（`needsHuman`・`openQuestions`）で止まる見込みなら（手順3の投稿の前に聞いても答えの無かったもの。入れ子の ship では fleet が聞いても答えの無かったもの）、`needsHumanReasons`・`openQuestions` を人に聞く（入れ子の ship は聞かずに止まって fleet に返し、fleet から渡された答えを使う）。答えは人の言葉のまま（選択肢で答えたときは選んだ項目と書き添えた文）を `agent-decision` のファイル（書式は [docs/formats.md](../../../docs/formats.md) の「決定の記録」）に書き、`node harness/scripts/agent.ts post-decision <番号> <ファイル>` で記録する。App が `plan-decision` の記録を付ける（`shadow` なら記録だけ、`enforce` で通れば App が `agent:plan-review` を外す）。人にラベルを外すよう頼まない。
+10. 計画ゲートが `agent:plan-review` で止めた計画を人が「進める」と答えたら（ゲートの停止・Planner の申告・前の印のどれでも。入れ子の ship では fleet から渡された答え）、implement に進む前に、その言葉のまま（選択肢で答えたときは選んだ項目と書き添えた文）を `agent-decision` の `proceed` のファイル（書式は [docs/formats.md](../../../docs/formats.md) の「進める記録（proceed）」。`answers` は書かない）に書き、`node harness/scripts/agent.ts post-decision <番号> <ファイル>` で記録する。コメントに書くだけにしない。手順9の答えの記録があれば、その後に出す。App の `plan-proceed` の記録（`gh issue view <番号> --comments`）を確かめ、`ok` なら委任承認の Merge と bypass の範囲照合がその計画を使う。`ineligible` なら理由（人が付けた印・`acChangeProposed`・編集された計画など）を ship / fleet の人がすることの一覧に書く。ラベルは変わらない（外すよう頼まない）。`post-decision` が「止まった記録ではありません」で止まったら（ゲートを通った計画）、記録は要らない。
 
 ## 終わりの状態
 
@@ -58,4 +60,4 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 - plan-critic を呼んだ後の `git status --porcelain --untracked-files=all` に、呼ぶ前と比べて増えた行・変わった行がある
 - 要件・AC を変えたほうがよい（Issue 本文は書き換えない。コメントで提案する）
 - `post-plan` が書式の誤りや権限で失敗した（拒否された操作は別の方法で試さない）
-- やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
+- やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
