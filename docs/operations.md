@@ -245,6 +245,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
   - `off`：問わない（今までどおり）。
 - Human Merge の PR にも問って記録する（一致率の材料を増やすため。結論は neutral のまま）。経路の判断（Human Merge か、委任・bypass か）は変えない。
 - enforce への切り替えは、`node harness/scripts/report.ts` の「テストの改ざん：Jev と人の判断」の行（一致率と、Jev は通す・人は直させた件数）を見て人が決める（[security.md](security.md#テストの改ざん)）。
+- このリポジトリは 2026-09-30 に `enforce` にした（持ち主の決定、#364。docs/plan.md の Q104）。上の一般の手順と違い、一致率は見ずに切り替えた（`report.ts` が5分で終わらず読めなかった）。Jev と Claude で妥当かを確かめる仕組み（#349、Epic #339）より先に、`test:exempt` を付ける手間を早く減らすため。`report.ts` は enforce で Jev が通した記録を一致率に数えないので、切り替えの後は一致率の材料が減る。導入先の雛形（`harness/templates/harness.config.json`）の既定は `shadow` のまま。
 
 ### 分かっている限界
 
