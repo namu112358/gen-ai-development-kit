@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { appMarkKind, extractBlock } from './blocks.ts';
 import { appLogin, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
@@ -295,7 +296,7 @@ async function filesOfIssues(issues: number[], one: (n: number) => Promise<{ fil
 
 /**
  * 委任承認（計画＋Merge）の範囲照合に使う計画の files。ゲートを通った計画か、ゲートの停止（planReviewOrigin: gate。ガードレール・Risk などで App が止め、
- * Planner の申告が無いもの）で止まった計画だけを使う。Planner の申告で止まった計画・古い停止・記録が無いときは理由を返す
+ * Planner の申告が無いもの）で止まった計画か、人が進めると決めた計画（plan-proceed の記録。issueDelegateFiles）だけを使う。ほかの Planner の申告で止まった計画・古い停止・記録が無いときは理由を返す
  */
 export async function plannedFilesForDelegate(gh: GitHub, config: HarnessConfig, prOrNumber: number | LinkablePr): Promise<{ files: string[] } | { missing: string }> {
   const pr = await linkablePr(gh, prOrNumber);
@@ -306,13 +307,31 @@ export async function plannedFilesForDelegate(gh: GitHub, config: HarnessConfig,
 
 /**
  * Issue 1件の、委任承認（計画＋Merge）・bypass の範囲照合に使う計画の files（ローカルの scope-check も使う）。
- * ゲートを通った計画か、ゲートの停止（planReviewOrigin: gate）で止まった計画だけ。無ければ理由を返す
+ * ゲートを通った計画か、ゲートの停止（planReviewOrigin: gate）で止まった計画か、Planner の申告・前の印で止まり人が進めると決めた計画
+ * （proceededPlan。App の plan-proceed の記録があり、計画コメントの本文がその後変わっていない）だけ。無ければ理由を返す
  */
 export async function issueDelegateFiles(gh: GitHub, config: HarnessConfig, n: number): Promise<{ files: string[] } | { missing: string }> {
-  const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
-  const usable = gate?.value.pass === true || (gate?.value.pass === false && gate.value.planReviewOrigin === 'gate');
+  const comments = await gh.listComments(n);
+  const gate = latestPlanGate(config, comments) as { value: PlanGateRecord & { plan?: { files: string[] }; planBodySha256?: string } } | null;
+  const usable =
+    gate?.value.pass === true ||
+    (gate?.value.pass === false && (gate.value.planReviewOrigin === 'gate' || (gate.value.planReviewOrigin === 'planner' && proceededPlan(config, comments, gate.value))));
   if (!gate || !usable || !gate.value.plan) return { missing: `#${n} に委任承認で照合できる計画がありません（ゲートを通ったか、ゲートの停止で止まった計画だけを使う）` };
   return { files: gate.value.plan.files };
+}
+
+/**
+ * 止まった計画ゲートの記録の計画を、人が進めると決めたか（Issue #365）。App の plan-proceed の記録（status: ok）のうち、
+ * planCommentId が記録と一致し、planBodySha256 が記録の値と一致し、今の計画コメントの本文の sha256 もそれと一致するものがあれば真。
+ * 出し直した計画（planCommentId が変わる）・決定の後に編集された計画・App 以外の名義の記録では偽（harness/gates/plan-decision.ts の onProceed）
+ */
+function proceededPlan(config: HarnessConfig, comments: IssueComment[], gate: { planCommentId: number; planBodySha256?: string }): boolean {
+  if (!gate.planBodySha256) return false;
+  const planComment = comments.find((c) => c.id === gate.planCommentId);
+  if (!planComment || createHash('sha256').update(planComment.body).digest('hex') !== gate.planBodySha256) return false;
+  return appRecords<{ status?: string; planCommentId?: number; planBodySha256?: string | null }>(config, comments, 'plan-proceed').some(
+    (r) => r.value.status === 'ok' && r.value.planCommentId === gate.planCommentId && r.value.planBodySha256 === gate.planBodySha256,
+  );
 }
 
 /**

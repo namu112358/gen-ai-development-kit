@@ -11,7 +11,7 @@
 - **ラベルの変更は、ゲートを起動するコメント（計画・判定）を投稿する前に済ませる。** MCP のラベル更新はラベルの一覧を丸ごと置き換えるので、投稿の後に更新すると、その間に App が付けたラベル（`agent:plan-ok` など）を消してしまう。更新するときは直前に現在のラベルを読み、変えたいものだけを足し引きした一覧を渡す。
 - **承認を求める状況を作らない。** Routine には確認する人がいない。操作が拒否されたら、同じ目的を別のコマンドや別の経路で試さず、そのアクションを飛ばして（`render-claim --release`）、何が足りないかを最後の要約に書く。環境変数・資格情報・トークンは調べない。
 - **作業は常に worktree で行う。** `node harness/scripts/agent.ts worktree <ブランチ> --routine` で作り（出力がパス）、そのディレクトリで作業する（`--routine` は着手宣言の確かめを飛ばす印。Routine の環境には `gh` が無く、確かめは GitHub の API を呼ぶため）。判定のテスト実行は `worktree <headSha> --detach`。終わったら `worktree-remove <ブランチ|SHA>` で消す。clone した作業ツリーでは直接作業しない。
-- **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` の付け外し、main への push、force push、Issue 本文の書き換え。これらは App と人の役割。決定の記録（```` ```agent-decision ````）の投稿もしない（人の答えを記録するもので、人のいない Routine は書かない）。
+- **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）の付け外し、main への push、force push、Issue 本文の書き換え。これらは App と人の役割。決定の記録（```` ```agent-decision ````）の投稿もしない（人の答えを記録するもので、人のいない Routine は書かない）。
 
 ## 手順
 
@@ -43,6 +43,7 @@
    - `revise`：必須の `fixes` を反映して計画を直し、もう一度批評させる。回数だけでは止めない。次のどちらかに当たったら止める：**前回と同じ必須の指摘が直っていない**（堂々巡り）、**3回目でも必須が残る**（上限）。Routine（無人）では `render-block needs-decision <理由>` で人に返す（有人セッションでの扱いは CLAUDE.md）。
    - `split`：分け方の案に従い、計画ブロックに `split`（子課題ごとの title・goal・requirements・acceptanceCriteria・files・dependsOn。書式は [docs/formats.md](../docs/formats.md)）を書き、`critique` の `verdict` を `split` にして次へ（案に無い requirements・acceptanceCriteria は Issue から補う。兄弟の `files` は重ならないように分ける）。分け方の検査に通れば App が子 Issue を作り、子課題ごとの計画でまた批評する。
    - `drop`：`render-block needs-decision <理由>` で人に返す。
+   - 危険の判定（auto mode）：`critique` を書くときは、最後の回の plan-critic の答えの `danger`（`answer` と `reason`）を、そのまま `critique.danger` に写す（書き換えない。自分で答えない。答えに `danger` が無ければ書かない）。危険の答えで判定ごとの扱いは変えない。
 5. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。`addLabels` の `agent:plan-review` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）のときだけ。App のゲートの停止の後に出し直した計画は、止めた理由が当たらなければ App が `agent:plan-review` を外して通す（人が付けた印は人が外すまで残る）。Planner の申告は、付き添いのセッションが記録した人の決定を App が確かめて外すことがある。Routine は記録を書かない。
 6. 実装は**しない**。
 
@@ -73,7 +74,7 @@ Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同�
 - 担当が書いたファイルが出力のパスにあり、JSON として読めること（`node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読むだけ）。
 - ファイルが無いときは、同じパスを渡してその担当を1回だけ呼び直す。2回目も無い、またはファイルがあって JSON として読めないときは、判定せずに終える。
 - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、判定せずに終える（担当が出力のパスの外を書いた恐れがある）。
-4. 担当が書いた2つのファイルの JSON から判定コメントを組み立て、一時ファイルに書く（reviewer の `humanNotes` はそのまま `review.humanNotes` に入れる）（書式は [docs/formats.md](../docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
+4. 担当が書いた2つのファイルの JSON から判定コメントを組み立て、一時ファイルに書く（reviewer の `humanNotes` はそのまま `review.humanNotes` に入れる。risk-agent の `danger`（auto mode の危険の判定）はそのまま `risk.danger` に入れる）（書式は [docs/formats.md](../docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
 5. `node harness/scripts/agent.ts render-verdict <PR番号> <headSha> <ファイル>` で検査し、出力を PR にコメントする。
 6. `render-metrics judge ...` の出力を PR にコメントする。
 7. Merge・Ready 化・auto-merge は App が行う。何もしない。
