@@ -7,6 +7,8 @@ import { Checker } from './validate.ts';
  * 決定の記録（```agent-decision）：Planner の申告（needsHuman・openQuestions）への人の答えを、付き添いのセッションが記録する。
  * App はそれを Jev に確かめさせ、jev.decisionRelease が enforce でしきい値以上なら、答え済みの計画として計画ゲートで判定し直す（harness/gates/plan-decision.ts）。
  * 記録は人の名義で書かれ App は書き手を区別できないため、外すのは Planner の申告の停止だけにする（decisionEligibility）。書式は docs/formats.md。
+ * proceed のある記録は、agent:plan-review で止まった計画を人が「この計画で進める」と決めた記録（Issue #365）。App は Jev に問わず proceedEligibility で確かめ、
+ * plan-proceed の記録を付ける（ラベルは変えない）。その記録があれば、委任・bypass の範囲照合がその計画を使う（harness/lib/state.ts の issueDelegateFiles）。
  */
 
 export interface DecisionAnswer {
@@ -19,11 +21,22 @@ export interface DecisionAnswer {
   at: string;
 }
 
+/** 人が「この計画で進める」と決めたこと（answers とは同じ記録に書かない） */
+export interface DecisionProceed {
+  /** 選択肢で答えたときに選んだ項目 */
+  choice?: string;
+  /** 人の言葉そのまま */
+  quote: string;
+  at: string;
+}
+
 export interface Decision {
   version: 1;
   issue: number;
   planCommentId: number;
+  /** proceed のある記録では空 */
   answers: DecisionAnswer[];
+  proceed?: DecisionProceed;
 }
 
 export type DecisionParsed = { ok: true; value: Decision } | { ok: false; errors: string[] };
@@ -37,7 +50,18 @@ export function parseDecision(raw: unknown): DecisionParsed {
   if (!o) return { ok: false, errors: c.errors };
   if (o.version !== 1) c.errors.push('decision.version: 1 ではありません');
   const answers: DecisionAnswer[] = [];
-  if (!Array.isArray(o.answers)) c.errors.push('decision.answers: 配列ではありません');
+  let proceed: DecisionProceed | undefined;
+  if (o.proceed !== undefined) {
+    if (o.answers !== undefined) c.errors.push('decision: proceed と answers は同じ記録に書けません（答えの記録と進める記録は分けて出す）');
+    const x = c.object(o.proceed, 'decision.proceed');
+    if (x) {
+      const quote = c.string(x.quote, 'decision.proceed.quote', { nonEmpty: true });
+      const at = c.string(x.at, 'decision.proceed.at');
+      if (typeof x.at === 'string' && (!ISO_RE.test(at) || Number.isNaN(Date.parse(at)))) c.errors.push('decision.proceed.at: ISO 8601 の日時ではありません');
+      proceed = { quote, at };
+      if (x.choice !== undefined) proceed.choice = c.string(x.choice, 'decision.proceed.choice', { nonEmpty: true });
+    }
+  } else if (!Array.isArray(o.answers)) c.errors.push('decision.answers: 配列ではありません');
   else if (o.answers.length === 0) c.errors.push('decision.answers: 1件以上必要です');
   else {
     o.answers.forEach((a, i) => {
@@ -60,6 +84,7 @@ export function parseDecision(raw: unknown): DecisionParsed {
     planCommentId: c.integer(o.planCommentId, 'decision.planCommentId'),
     answers,
   };
+  if (proceed) decision.proceed = proceed;
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: decision };
 }
 
@@ -148,6 +173,51 @@ export function decisionEligibility(input: DecisionEligibilityInput): { eligible
     if (labeled === null || labeled < from || labeled > to) reasons.push('`agent:plan-review` が計画の投稿か App の停止の外で付いています（人が付けた印は人が外します）');
   }
   if (input.priorDecisionIds.includes(input.decisionCommentId)) reasons.push('この決定の記録は確かめ済みです');
+  return { eligible: reasons.length === 0, reasons };
+}
+
+export interface ProceedEligibilityInput {
+  issue: { number: number; state: string; labels: { name: string }[] };
+  decision: Decision;
+  decisionCommentId: number;
+  /** App の最新の計画ゲートの記録（コメントの id と作成時刻つき） */
+  latest: { commentId: number; createdAt: string; value: PlanGateRecord & { plan?: Plan; planBodySha256?: string } } | null;
+  /** 記録の計画コメント（無ければ null） */
+  planComment: { id: number; createdAt: string; bodySha256: string } | null;
+  /** App の計画ゲートの記録ごとの、計画コメントの作成時刻と記録の作成時刻（印が post-plan か App の停止で付いたかを見る窓） */
+  windows: { planCreatedAt: string; gateCreatedAt: string }[];
+  /** Issue のイベント（古い順） */
+  events: TimelineEvent[];
+  /** これまでの plan-proceed の記録の decisionCommentId */
+  priorProceedIds: number[];
+}
+
+/**
+ * 進める決定（proceed）で、その計画を委任・bypass の範囲照合に使ってよいか。理由（使わない理由）が空なら対象。
+ * 印の見分け方は decisionEligibility と同じで、窓を最新の計画だけでなく、それまでの計画ゲートの記録にも広げる（前の計画の申告で付いた印が残った停止も対象。Issue #365）。
+ * 窓の外で付いた印（人が付けた印）・acChangeProposed・ゲートの後に編集された計画・停止より前の決定は対象外（安全側）。
+ */
+export function proceedEligibility(input: ProceedEligibilityInput): { eligible: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const { issue, decision, latest, planComment } = input;
+  if (issue.state !== 'open') reasons.push('Issue が開いていません');
+  if (!issue.labels.some((l) => l.name === 'agent:plan-review')) reasons.push('`agent:plan-review` が付いていません');
+  if (decision.issue !== issue.number) reasons.push(`決定の記録の issue 番号（#${decision.issue}）がこの Issue（#${issue.number}）と一致しません`);
+  const record = latest?.value;
+  if (!record) reasons.push('App の計画ゲートの記録がありません');
+  else if (record.pass !== false) reasons.push('最新の計画ゲートの記録が止まった記録ではありません');
+  else if (!record.plan || !record.planBodySha256) reasons.push('計画ゲートの記録に計画の写しか本文の sha256 がありません');
+  if (record?.plan?.acChangeProposed) reasons.push('要件・AC の変更提案があります（Issue 本文の変更は人の役割のため、この経路では使いません）');
+  if (record && decision.planCommentId !== record.planCommentId) reasons.push(`決定の記録の planCommentId（${decision.planCommentId}）が最新の計画ゲートの記録（${record.planCommentId}）と一致しません`);
+  if (record && (!planComment || planComment.id !== record.planCommentId)) reasons.push('計画コメントが見つかりません');
+  else if (record?.planBodySha256 && planComment && planComment.bodySha256 !== record.planBodySha256) reasons.push('計画コメントがゲートの後に編集されています');
+  if (latest && input.decisionCommentId <= latest.commentId) reasons.push('決定の記録が計画ゲートの停止より前に書かれています');
+  if (reasons.length === 0) {
+    const labeled = lastLabeledAt(input.events, 'agent:plan-review');
+    const inWindow = labeled !== null && input.windows.some((w) => labeled >= Date.parse(w.planCreatedAt) - LABEL_GRACE_MS && labeled <= Date.parse(w.gateCreatedAt));
+    if (!inWindow) reasons.push('`agent:plan-review` が計画の投稿か App の停止の外で付いています（人が付けた印は人が外します）');
+  }
+  if (input.priorProceedIds.includes(input.decisionCommentId)) reasons.push('この決定の記録は確かめ済みです');
   return { eligible: reasons.length === 0, reasons };
 }
 
