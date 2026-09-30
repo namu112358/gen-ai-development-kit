@@ -24,7 +24,7 @@ const AGENTS: Record<string, string> = {
   'review-intake': 'haiku',
   'review-lens': 'sonnet',
   'review-ac-scope': 'opus',
-  'review-safety': 'sonnet',
+  'review-safety': 'opus',
   'review-scorer': 'haiku',
 };
 const agentPath = (name: string): string => `.claude/agents/${name}.md`;

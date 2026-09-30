@@ -24,7 +24,7 @@ model: opus
 1. AC を1項目ずつ、diff とテストで満たされているか確かめる。満たされていなければ `ac-unmet`。
 2. 計画の `files` と diff を比べ、Issue の範囲外の変更（Non-goals に触れる、計画にないファイルを意味もなく変える）がないか確かめる（`agent/scope` の結果も使う）。あれば `out-of-scope`。
 3. 再レビュー（「前回の判定」がある）のとき：前回のブロッキング指摘のうち `ac-unmet`・`out-of-scope` のものが直っていなければ、その指摘を `unfixedPrevious: true` で出す。ほかの指摘は `unfixedPrevious: false`。前回の head から変わった行かどうかは呼び出し元の組み立てが決めるので、ここでは絞らない。
-4. 壊れるとしたらどこか、確かめきれていないことを `concerns` に、人に見てほしいファイル・関数・観点を `checkPoints` に書く。
+4. 壊れるとしたらどこか、確かめきれていないことを `concerns` に、人に見てほしいファイル・関数・観点を `checkPoints` に書く。`concerns`・`checkPoints` は、ハーネス自体・公開インターフェース・データに触れる変更と、テストで確かめきれていない変更では必ず書く（今の Reviewer の humanNotes と同じ）。
 5. 次の JSON だけを出力する（前後に説明文を付けない）。
 
 ```json
@@ -33,10 +33,11 @@ model: opus
     { "kind": "ac-unmet", "file": "path（任意）", "line": 12, "detail": "何が問題で、どう直すべきか", "unfixedPrevious": false }
   ],
   "concerns": ["壊れるとしたらどこか、何を確かめきれていないか"],
-  "checkPoints": ["人に見てほしいファイル・関数・観点"]
+  "checkPoints": ["人に見てほしいファイル・関数・観点"],
+  "suggestions": ["Merge を止めない提案"]
 }
 ```
 
 返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。
 
-`kind` は `ac-unmet` か `out-of-scope` だけ。`file`・`line` は分からなければ省く。
+`kind` は `ac-unmet` か `out-of-scope` だけ。`suggestions` は任意で、Merge を止めないスタイル・命名・より良い書き方の提案だけを書く（1つの担当につき3件までを目安）。バグ・CLAUDE.md の違反・AC・範囲・安全の指摘は、確信が低くても `findings` に書いて採点と組み立てに任せ、`suggestions` に移さない（しきい値に届かない指摘を `nonBlocking` に回さないため）。提案が無ければ省くか空にする。`file`・`line` は分からなければ省く。
