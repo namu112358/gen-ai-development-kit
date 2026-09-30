@@ -9,7 +9,8 @@
   "routine": {
     "maxItemsPerRun": 5,
     "humanClaimStaleHours": 6,
-    "routineClaimTakeoverMinutes": 90
+    "routineClaimTakeoverMinutes": 90,
+    "gateReplyTimeoutMinutes": 30
   },
   "testPatterns": ["**/*.test.*", "**/*.spec.*", "**/test/**", "**/tests/**", "**/__tests__/**"],
   "guardrailPaths": [
@@ -78,6 +79,8 @@
     "mode": "shadow",
     "model": "jev-1.13.0",
     "maxDiffChars": 80000,
+    "decisionMaxTargets": 20,
+    "decisionMaxAnswerChars": 20000,
     "decisionRelease": "shadow",
     "testTamper": "shadow",
     "thresholds": {
@@ -154,6 +157,7 @@
       ]
     },
     "issueTriage": "label",
+    "issueTriageJevPerRun": 5,
     "priorityCriteria": {
       "highest": "Emergency: a security hole, data loss, a broken main branch, or the whole harness (gates, verdicts, merging) has stopped. Drop other work.",
       "high": "The harness flow is blocked or wrong: a gate, plan gate, verdict, merge route, or claim stops work it should pass, passes work it should stop, or loses records; or other planned issues are waiting on this one.",

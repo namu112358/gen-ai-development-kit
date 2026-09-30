@@ -27,7 +27,7 @@ import { onSchedule } from './stale.ts';
 const TYPE_LABELS: string[] = TITLE_TYPES.map(typeLabel);
 const PRIORITIES: string[] = Object.values(PRIORITY_LABELS);
 
-/** 1回の定期実行で Jev に問う Issue の数の上限（残りは次の実行） */
+/** 1回の定期実行で Jev に問う Issue の数の上限の既定値（残りは次の実行。classification.issueTriageJevPerRun が無いとき） */
 export const JEV_PER_RUN = 5;
 
 export interface LabelTarget {
@@ -361,7 +361,7 @@ export async function labelApply(ctx: GateContext): Promise<void> {
       if (ctx.config.classification.issueTriage === 'label' && (missing.priority || missing.area)) {
         after = applyChanges(after, { add: await reapplyJevLabels(ctx, { number: i.number, labels: after }, await getComments()), remove: [] });
       }
-      const mayNeedJev = ctx.config.classification.issueTriage === 'label' && ctx.secrets.jevApiKey && asked < JEV_PER_RUN;
+      const mayNeedJev = ctx.config.classification.issueTriage === 'label' && ctx.secrets.jevApiKey && asked < (ctx.config.classification.issueTriageJevPerRun ?? JEV_PER_RUN);
       const needs = jevNeeds(ctx.config, after, false);
       if (mayNeedJev && (needs.priority || needs.area)) {
         if (await triageLabels(ctx, { number: i.number, title: i.title, body: i.body, labels: after, subIssues }, await getComments(), { proposal: false })) asked++;

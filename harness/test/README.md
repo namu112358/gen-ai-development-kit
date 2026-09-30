@@ -27,6 +27,7 @@
 | `step-node.test.ts`・`step-stop.test.ts`・`step-claim.test.ts`・`stage-file.test.ts`・`sync-loop-config.test.ts` | `agent.ts step`（`harness/lib/step.ts`）が状態ごとに返すノードと、stop の理由コード・宣言の投稿と解除、段階のファイル（`harness/lib/stage-file.ts`）の書き読み、`syncLoop.limit` の設定の検査（#306） |
 | `fleet-*.test.ts` | fleet の選び方（重なり・PR 同士の衝突・着手宣言の扱い）と、進め方（入れ子の orca／交互の flat）のテスト |
 | `usage-*.test.ts` | usage の集計（今のセッションの記録の選び方、入れ子のサブエージェントの記録も含めること）のテスト |
+| `config-limits.test.ts`・`config-limit-keys.test.ts` | 上限の数値のキーの検査（`harness/lib/config.ts` の `limitErrors`：必須・型・範囲、`loadConfig` が誤りで止まること、実物の設定と雛形が通ること）と、コードの定数を設定に出したキー（`classification.issueTriageJevPerRun`・`routine.gateReplyTimeoutMinutes`・`jev.decisionMaxTargets`・`decisionMaxAnswerChars`）で上限が変わり、無ければ今の値で動くこと（#272） |
 | `test-tamper-jev.test.ts` | テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問う材料・問い方・答えのまとめ（`harness/lib/test-tamper-jev.ts`）のテスト |
 | `gates-tests-jev.test.ts` | `agent/tests` の Jev の判定（shadow・enforce・off、同じ差分の記録の使い回し、判定の受け付けと auto-merge の後の書き直し）のテスト |
 | `report-tamper.test.ts` | テストの改ざんの Jev の判定と人の判断（`test:exempt`・Merge した差分）の一致の集計のテスト |
