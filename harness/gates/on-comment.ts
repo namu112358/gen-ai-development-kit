@@ -317,7 +317,7 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
   const total = (await ctx.gh.get<{ changed_files: number }>(`/pulls/${prNumber}`)).changed_files;
   const partial = new Set(files).size < total ? [`（変更ファイル ${total} 件のうち ${new Set(files).size} 件しか取得できません）`] : null;
   if (partial) scope = { ok: false, outside: partial };
-  // 委任承認（計画＋Merge）の範囲照合：ゲートを通った計画か、ゲートの停止で止まった計画と照らす（harness/lib/delegate.ts）
+  // 委任承認（計画＋Merge）の範囲照合：ゲートを通った計画か、ゲートの停止で止まった計画か、人が進めると決めた計画（plan-proceed）と照らす（harness/lib/delegate.ts・state.ts）
   const delegatePlanned = await plannedFilesForDelegate(ctx.gh, ctx.config, prNumber);
   let delegateScope = 'files' in delegatePlanned ? checkScope(delegatePlanned.files, files) : { ok: false, outside: [`（${delegatePlanned.missing}）`] };
   if (partial) delegateScope = { ok: false, outside: partial };

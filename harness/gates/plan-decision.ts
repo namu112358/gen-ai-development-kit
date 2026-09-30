@@ -8,7 +8,9 @@ import {
   decisionThreshold,
   evaluateDecisionAnswers,
   parseDecision,
+  proceedEligibility,
   uncoveredTargets,
+  type Decision,
   type DecisionTarget,
 } from '../lib/decision.ts';
 import type { IssueComment } from '../lib/github.ts';
@@ -22,7 +24,20 @@ import { sha256 } from './on-comment.ts';
  * 決定の記録（```agent-decision）の受け付け。Planner の申告で止まった計画への人の答えを Jev に確かめさせ、
  * shadow なら記録だけ、enforce でしきい値以上なら、判定し直す計画コメントを返す（判定し直しは on-comment.ts の onPlan）。
  * 外すのは Planner の申告の停止だけ（harness/lib/decision.ts の decisionEligibility）。ラベルはここでは変えない。
+ * proceed のある記録（人が「この計画で進める」と決めた）は Jev に問わず、jev.decisionRelease にも依らずに proceedEligibility で確かめ、
+ * plan-proceed の記録を付ける（onProceed。ラベルも計画ゲートの結果も変えない。範囲照合は harness/lib/state.ts の issueDelegateFiles。Issue #365）。
  */
+
+/** 進める決定（proceed）を App が確かめた結果（kind=plan-proceed）。status が ok なら、planBodySha256 の計画を委任・bypass の範囲照合に使う */
+export interface PlanProceedRecord {
+  version: 1;
+  decisionCommentId: number;
+  planCommentId: number;
+  /** 確かめた時点の計画コメントの本文の sha256（ok のとき。対象外なら null） */
+  planBodySha256: string | null;
+  status: 'ok' | 'ineligible';
+  reasons?: string[];
+}
 
 export interface PlanDecisionRecord {
   version: 1;
@@ -59,6 +74,10 @@ export async function onDecision(
     return null;
   }
   const decision = parsed.value;
+  if (decision.proceed) {
+    await onProceed(ctx, issue, comment, decision);
+    return null;
+  }
   const comments = await ctx.gh.listComments(issue.number);
   const latest = latestPlanGate(ctx.config, comments) as { comment: IssueComment; value: PlanGateRecord & { plan?: Plan; planBodySha256?: string } } | null;
   const planComment = latest ? comments.find((c) => c.id === latest.value.planCommentId) ?? null : null;
@@ -131,3 +150,45 @@ export async function onDecision(
   return { planComment, block: extractBlock(planComment.body, 'agent-plan') };
 }
 
+
+/** 進める決定（proceed）の受け付け。Jev に問わず、対象なら ok、対象外なら ineligible の plan-proceed の記録を付ける。同じ決定の記録への二度目は何も書かない */
+async function onProceed(
+  ctx: GateContext,
+  issue: { number: number; state: string; labels: { name: string }[] },
+  comment: IssueComment,
+  decision: Decision,
+): Promise<void> {
+  const comments = await ctx.gh.listComments(issue.number);
+  const gates = appRecords<PlanGateRecord & { plan?: Plan; planBodySha256?: string }>(ctx.config, comments, 'plan-gate');
+  const latest = gates.at(-1) ?? null;
+  const planComment = latest ? comments.find((c) => c.id === latest.value.planCommentId) ?? null : null;
+  // 印の窓：App の計画ゲートの記録ごとに、その計画コメントの作成から記録の作成まで（前の計画の申告で付いた印も見分ける）
+  const windows = gates.flatMap((g) => {
+    const p = comments.find((c) => c.id === g.value.planCommentId);
+    return p ? [{ planCreatedAt: p.created_at, gateCreatedAt: g.comment.created_at }] : [];
+  });
+  const elig = proceedEligibility({
+    issue,
+    decision,
+    decisionCommentId: comment.id,
+    latest: latest ? { commentId: latest.comment.id, createdAt: latest.comment.created_at, value: latest.value } : null,
+    planComment: planComment ? { id: planComment.id, createdAt: planComment.created_at, bodySha256: sha256(planComment.body) } : null,
+    windows,
+    events: await ctx.gh.paginate<TimelineEvent>(`/issues/${issue.number}/events`),
+    priorProceedIds: appRecords<PlanProceedRecord>(ctx.config, comments, 'plan-proceed').map((r) => r.value.decisionCommentId),
+  });
+  if (elig.reasons.includes(PROCEED_SEEN)) return;
+  if (!elig.eligible || !planComment) {
+    const text = [`進める決定の記録（[コメント](${comment.html_url})）は、委任・bypass の範囲照合に使えません。\`agent:plan-review\` は変えません。`, '', ...elig.reasons.map((r) => `- ${r}`)].join('\n');
+    await appComment(ctx, issue.number, 'plan-proceed', text, {
+      version: 1, decisionCommentId: comment.id, planCommentId: decision.planCommentId, planBodySha256: null, status: 'ineligible', reasons: elig.reasons,
+    } satisfies PlanProceedRecord);
+    return;
+  }
+  const text = `人がこの計画（[計画](${planComment.html_url})）で進めると決めた記録（[コメント](${comment.html_url})）を確かめました。計画コメントの本文が変わらない間、委任承認の Merge と bypass の範囲照合にこの計画を使います。\`agent:plan-review\` と計画ゲートの結果は変えません。`;
+  await appComment(ctx, issue.number, 'plan-proceed', text, {
+    version: 1, decisionCommentId: comment.id, planCommentId: decision.planCommentId, planBodySha256: sha256(planComment.body), status: 'ok',
+  } satisfies PlanProceedRecord);
+}
+
+const PROCEED_SEEN = 'この決定の記録は確かめ済みです';
