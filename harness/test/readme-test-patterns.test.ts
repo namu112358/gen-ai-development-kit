@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { checkAll, directChildren, namesInTable, uncoveredTests } from '../scripts/readme.ts';
+import { checkAll, namesInTable, uncoveredTests } from '../scripts/readme.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 
@@ -102,11 +102,6 @@ const readmeText = (): string => readFileSync(join(root, 'harness', 'test', 'REA
 
 test('実リポジトリ：harness/test のテストファイルはすべて README の表のどれかのパターンに当たる（AC3）', () => {
   assert.deepEqual(checkAll(root).uncoveredTests, []);
-});
-
-test('実リポジトリ：uncoveredTests を直接呼んでも、今あるテストファイルに当たらないものが無い（AC3）', () => {
-  const names = namesInTable(readmeText());
-  assert.deepEqual(uncoveredTests(names, directChildren(root, 'harness/test')), []);
 });
 
 test('実リポジトリ：README の表の1列目は、* を含むパターンか support/ だけ（AC1）', () => {

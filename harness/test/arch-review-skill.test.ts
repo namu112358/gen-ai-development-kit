@@ -215,8 +215,8 @@ test('.claude/skills/README.md と .claude/agents/README.md の表に載って�
   assert.ok(read('.claude/agents/README.md').split('\n').some((l) => l.startsWith('| `arch-reviewer.md` |')), '.claude/agents/README.md に arch-reviewer.md の行がありません');
 });
 
-// #389：harness/test/README.md はファイル名を並べずパターンで書くので、パターンに当たるかで確かめる
-test('harness/test/README.md の表のパターンに arch-review のテストが当たる', () => {
+// #389：harness/test/README.md はファイル名を並べずパターンで書くので、表のパターンに当たることで「載っている」を確かめる
+test('harness/test/README.md に arch-review のテストが載っている', () => {
   const patterns = namesInTable(read('harness/test/README.md'));
   assert.deepEqual(uncoveredTests(patterns, ['arch-review-skill.test.ts', 'arch-review.test.ts']), []);
 });
