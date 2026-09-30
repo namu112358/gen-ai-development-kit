@@ -122,6 +122,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | `resplit` | Epic を子課題に分けた後に、別の分け方の計画が来た |
 | `split-failed` | Epic の子課題を作る途中で失敗した |
 | `fix-limit` | 修正回数の上限に達した |
+| `orphan-base` | スタックでないのに base が既定ブランチ以外の PR（Draft に留めている）。Stacked PR の上の層は `gh stack link` で組むまでの一時的な状態 |
 | `external` | 権限・外部サービス・手作業など Claude の外の対応が必要 |
 | `other` | その他（コメントに詳細） |
 
@@ -165,6 +166,20 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 4. 既に子課題に分けた親（`epic-split` の記録か、App が作った目印付きの子がある）に別の計画が来て検査を通っても、分け直さずに `agent:plan-review`（理由コード `resplit`）で止める。既存の子課題をどうするかは人が決める。同じ計画コメントの再実行は分け直しとみなさない。
 5. 子 Issue はふつうの Issue として、それぞれ計画ゲート・批評・判定を通る。分け方の誤りはそこで拾う。queue は `epic` の親を飛ばす。
 6. 子 Issue がすべて閉じると、App が親を閉じる。
+
+## Stacked PR
+
+Stacked PR は、下の層のブランチを base にした PR を重ねたもの（GitHub のスタック）。層ごとの diff が小さくなり、判定も層ごとに行える。
+
+- 使える場所：付き添いのセッションだけ（Routine の環境には gh が無い）。組み方は [gh-stack の skill](../.claude/skills/gh-stack/SKILL.md)、実装の手順は implement の skill の「Stacked PR で出すとき」。
+- 積んでよい条件：上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に `main` 宛てで出す。Reviewer は、どれにも当たらない層をブロッキング指摘（`out-of-scope`）にする。
+- 紐付け：1層＝1 Issue。下の層の本文は `Refs #N`、一番上の層は `Closes #N`（どちらも1つだけ）。App は層を計画に紐付け（`agent/plan-link`）、紐付けの記録（`kind=stack-link`）を PR に残す（[formats.md](formats.md#app-の記録agent-app)）。
+- 組み方：層ごとに `gh pr create --draft --base <下の層のブランチ>` で Draft PR を出し、全部そろったら `gh stack link <下の PR 番号> <上の PR 番号>` で組む。上の層は組むまで base が既定ブランチでもスタックでもないので、App が一時的に orphan-base（Draft に留めて `agent:blocked`、理由コード `orphan-base`）にする。組めば（`stacked` のイベント）App が `kind=base-resolved` を残して戻す。
+- 判定：層ごとに、その PR の base からの差分（`git diff origin/<PR の base>...<head>`）で行う。judge-input にスタックの節（base・位置・下の層と変更ファイル）が入る。
+- Merge：Stacked PR は Human Merge。GitHub の auto-merge も従来の Merge API も使えないので、人が全部の層が Ready になってから GitHub の画面でスタックを Merge する（Draft の層があると Merge できない）。スタックの Merge の API（`merge-async`）は App も使わない。
+- Merge の後：層が既定ブランチに Merge されたら、App が `stack-link` の記録の Issue を閉じ、Issue に `kind=stack-closed` を残す（層の `Refs` は GitHub が閉じないため）。
+- 追従：`git merge` で行う（`main` を一番下の層に、下の層を上の層に、下から順に）。rebase と force push はしない。App が既定ブランチへの push のたびに Agent PR を base に追従させる（update-branch＝merge）のと食い違わない。
+- 止める操作：見張りの hook（`.claude/hooks/guard.ts`）が `gh stack` の `merge`・`push`・`sync`・`rebase`・`submit`・`modify`・`alias`・`unstack`・`checkout` など、ブランチ名やフラグを渡す `gh stack link`、`gh api -X PUT …/merge-async` を止める（`gh extension exec stack`・`gh-stack` の直接の実行も）。通すのは link（PR 番号・URL だけ）・view・移動だけ。
 
 ## 同時に開ける PR の数
 

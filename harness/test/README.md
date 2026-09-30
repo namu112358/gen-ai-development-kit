@@ -11,6 +11,7 @@
 | `qa-retro-loop.test.ts` | qa-retro を `/loop` から回すときの期間のつなぎ方（`harness/lib/qa-retro-loop.ts`：前回の回の終わりを次の始まりに・終わりは今の7日前、境目の PR が1回だけ数えられること）、状態のファイルの読み方と進めるときの一致の確かめ、下書きの記録と採用、skill・docs の書き方（#329） |
 | `agent-commands.test.ts` | `harness/scripts/agent.ts` の入口がコマンドの一覧を持たず、`harness/scripts/agent/commands/` から読み込むこと（名前が分ける前と同じ・重複で止まる・.ts だけを読む・知らないコマンドの出力と終了コード）（#313） |
 | `orca-skills.test.ts`・`settings-permission-mode.test.ts` | Orca の導入の検査（#195）。`orca-skills.test.ts`：skill の入口（`.claude/skills/orca-cli`・`orchestration`）を取り込んだ版（sha256・コミットの固定値）のまま配ること、MIT の表示（`docs/upstream/`・`NOTICE`）、`harness/managed.json` に当たること、入口に素の `orca` のコマンドが無いこと、`docs/setup.md` の Orca の節と `docs/security.md` の受け入れているリスクの行。`settings-permission-mode.test.ts`：`.claude/settings.json` の `permissions.disableBypassPermissionsMode` で bypass を使えなくし `defaultMode` を書かないこと、`harness/managed.json` がそのキーを持つこと、`docs/setup.md` の Orca の節の利用者の設定と Agent Permissions の手順 |
+| `stack-docs.test.ts` | Stacked PR の使い方と制限（#147）：ハーネスの規則・docs・reviewer.md・gh-stack の skill に、積む3条件・`Refs #N`／`Closes #N`・Human Merge・`git merge` での追従が書かれ、reviewer・risk-agent・judge・sync の差分が PR の base からか |
 | `plan-ask-before-post.test.ts` | plan の skill で、Planner の質問（`openQuestions`・`needsHumanReasons`）を批評と投稿の前に人に聞き、答えを計画に書き込んで申告から除く手順と、Routine は聞かないこと、入れ子の ship は投稿せずに fleet に返し、fleet がまとめて聞いて呼び直すこと、`harness/CLAUDE.harness.md` の規則の検査（#289・#299） |
 | `readme-*.test.ts` | 各ディレクトリの README が、直下の実在する名前・先頭のコメントから生成した表と食い違っていないかの検査（`readme-index.test.ts`・`readme-generate.test.ts`・`readme-stale-names.test.ts`・`readme-mjs.test.ts`・`readme-folded-description.test.ts`） |
 | `report-*.test.ts` | 判定の集計（`harness/lib/report.ts`）のテスト：外れの数え方と fix の PR の結び付け（行・参照の根拠）、Jev の問いの版・問いごとの確率、文字数とトークン数の比 |
@@ -38,7 +39,7 @@
 | `auto-mode-state.test.ts`・`auto-mode-danger.test.ts`・`auto-mode-danger-format.test.ts` | auto mode（`harness/lib/auto-mode.ts`）：ダッシュボードのラベルと timeline からの状態（人が付けたもの・App や Bot・停止スイッチ）、`autoMode` の設定の既定・上書き・誤り、雛形と `harness.config.json` の `autoMode` と `delegateMergeExclude`。Jev と Claude の答えから保留するかと理由、Jev への要求の state（PR は diff と変更ファイルだけ）、diff が大きすぎるときの skipped（#342）。Claude の危険の判定の書式（計画の `critique.danger`・判定の `risk.danger` の検査、compose-verdict の写し、plan-critic・Risk Agent の定義と手順の文書。#343） |
 | `worktree-root.test.ts`・`worktree-orca.test.ts`・`worktree-rules.test.ts` | worktree の置き場所（`harness/lib/worktree.ts` の `worktreeRoot`：環境変数 `AGENT_HARNESS_WORKTREE_ROOT` → 設定 `worktreeRoot` → 既定、リポジトリの中と本体を含む祖先を拒む）と、worktree コマンド・合体版のレビューの⑧・ダッシュボードが同じ置き場所を使うこと、Orca の表示名「#番号 短い名前」と Issue を付けること（親子なし、無い・失敗でも止めない）、`harness/CLAUDE.harness.md` の worktree の優先順位の行と `docs/operations.md` の段落（#196） |
 | `panes.test.ts`・`panes-config.test.ts` | fleet と hq のワークスペースのペイン表示（`harness/lib/panes.ts`・`harness/scripts/panes.ts`）：段階の読み替え、fleet 自身の着手宣言の扱い、描き方がスナップショットだけを受け取ること、collect の間隔と、設定（`fleet.shipMode`・`hq.maxFleets`・`panes.collectIntervalSeconds`）の既定値と不正な値（#284） |
-| その他 | `harness/lib/`・`harness/scripts/` の各ロジックのテスト（`<機能名>.test.ts`。例：`plan.test.ts`・`scope.test.ts`・`mutate.test.ts`・`mutate-check-targets.test.ts`・`api-count.test.ts`） |
+| その他 | `harness/lib/`・`harness/scripts/` の各ロジックのテスト（`<機能名>.test.ts`。例：`plan.test.ts`・`scope.test.ts`・`mutate.test.ts`・`mutate-check-targets.test.ts`・`mutate-related-tests.test.ts`・`api-count.test.ts`） |
 | `support/` | テストが共有する補助（テストとしては動かない） |
 
 新しいテストは既存のファイルの末尾に足さず、機能・ハンドラーごとのファイルに書く。
