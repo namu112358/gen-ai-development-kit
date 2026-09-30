@@ -39,6 +39,7 @@
 | `panes.ts` | fleet と hq のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。 | ○ |
 | `past-pr-reads.ts` | judge-input の過去の PR の節の材料（変更ファイルを触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント）を GraphQL でまとめて読む。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
+| `patrol.ts` | 見直しのまとめ役（patrol の skill）が、観測の差と前回からの経過で今回まわす見直しを決める（純粋関数）。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
 | `qa-retro-loop.ts` | qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と手元の状態（純粋関数）。 | ○ |
