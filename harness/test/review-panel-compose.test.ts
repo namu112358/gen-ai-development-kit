@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
 import {
-  composePanel, parseChangedLines, parsePanelOutputs, previousFromJudgeInput, PANEL_OUTPUT_NAMES,
+  composePanel, parseChangedLines, parsePanelOutputs, previousFromJudgeInput, PANEL_OUTPUT_NAMES, SCORE_THRESHOLD,
   type ChangedLines, type CheckResult, type PanelFinding, type PanelSource,
 } from '../lib/review-panel.ts';
 import { composeVerdict, renderJudgeInput } from '../lib/session-inputs.ts';
@@ -39,8 +39,8 @@ const treatmentOf = (value: { findings: { id: string; treatment: string }[] }, i
 
 // ---- 表のとおりの扱い ----
 
-test('compose：①は 80 以上で claude-md のブロッキング、80 未満は dropped（review のどこにも出ない）', () => {
-  const v = ok(compose([finding('lens1', 0, 'claude-md'), finding('lens1', 1, 'claude-md', { detail: '捨てられる①' })], { 'lens1-0': 80, 'lens1-1': 79 }));
+test('compose：①は 75 以上で claude-md のブロッキング、75 未満は dropped（review のどこにも出ない）', () => {
+  const v = ok(compose([finding('lens1', 0, 'claude-md'), finding('lens1', 1, 'claude-md', { detail: '捨てられる①' })], { 'lens1-0': 75, 'lens1-1': 74 }));
   assert.equal(treatmentOf(v, 'lens1-0'), 'blocking');
   assert.equal(treatmentOf(v, 'lens1-1'), 'dropped');
   assert.deepEqual(v.review.blocking.map((b) => b.kind), ['claude-md']);
@@ -48,10 +48,10 @@ test('compose：①は 80 以上で claude-md のブロッキング、80 未満�
   assert.equal(v.review.pass, false);
 });
 
-test('compose：②〜⑤は 80 以上で bug のブロッキング、80 未満は dropped', () => {
+test('compose：②〜⑤は 75 以上で bug のブロッキング、75 未満は dropped', () => {
   const sources = ['lens2', 'lens3', 'lens4', 'lens5'] as const;
   const findings = sources.flatMap((s) => [finding(s, 0, 'bug'), finding(s, 1, 'bug', { detail: `${s} の捨てられる指摘` })]);
-  const map = Object.fromEntries(sources.flatMap((s) => [[`${s}-0`, 80], [`${s}-1`, 79]]));
+  const map = Object.fromEntries(sources.flatMap((s) => [[`${s}-0`, 75], [`${s}-1`, 74]]));
   const v = ok(compose(findings, map));
   for (const s of sources) {
     assert.equal(treatmentOf(v, `${s}-0`), 'blocking', s);
@@ -62,18 +62,38 @@ test('compose：②〜⑤は 80 以上で bug のブロッキング、80 未満�
   assert.ok(v.review.blocking.every((b) => b.kind === 'bug'));
 });
 
-test('compose：⑥⑦は 80 以上で出力の kind のままブロッキング、80 未満は humanNotes.concerns に入る', () => {
+test('compose：⑥⑦は 75 以上で出力の kind のままブロッキング、75 未満は humanNotes.concerns に入る', () => {
   const v = ok(compose([
     finding('ac-scope', 0, 'ac-unmet', { unfixedPrevious: false }),
     finding('ac-scope', 1, 'out-of-scope', { unfixedPrevious: false, detail: '範囲外かもしれない' }),
     finding('safety', 0, 'secret-leak', { unfixedPrevious: false }),
     finding('safety', 1, 'data-destruction', { unfixedPrevious: false, detail: '消えるかもしれない' }),
-  ], { 'ac-scope-0': 100, 'ac-scope-1': 79, 'safety-0': 80, 'safety-1': 0 }));
+  ], { 'ac-scope-0': 100, 'ac-scope-1': 74, 'safety-0': 75, 'safety-1': 0 }));
   assert.deepEqual(v.review.blocking.map((b) => b.kind), ['ac-unmet', 'secret-leak']);
   assert.equal(treatmentOf(v, 'ac-scope-1'), 'humanNotes');
   assert.equal(treatmentOf(v, 'safety-1'), 'humanNotes');
   const concerns = v.review.humanNotes.concerns.join('\n');
   assert.ok(concerns.includes('範囲外かもしれない') && concerns.includes('消えるかもしれない'));
+});
+
+test('compose：しきい値 SCORE_THRESHOLD は 75 で、ちょうど SCORE_THRESHOLD はブロッキング、SCORE_THRESHOLD - 1 は①〜⑤で dropped・⑥⑦で humanNotes', () => {
+  assert.equal(SCORE_THRESHOLD, 75);
+  const v = ok(compose([
+    finding('lens1', 0, 'claude-md'), finding('lens1', 1, 'claude-md'),
+    finding('lens5', 0, 'bug'), finding('lens5', 1, 'bug'),
+    finding('safety', 0, 'secret-leak', { unfixedPrevious: false }), finding('safety', 1, 'secret-leak', { unfixedPrevious: false }),
+  ], {
+    'lens1-0': SCORE_THRESHOLD, 'lens1-1': SCORE_THRESHOLD - 1,
+    'lens5-0': SCORE_THRESHOLD, 'lens5-1': SCORE_THRESHOLD - 1,
+    'safety-0': SCORE_THRESHOLD, 'safety-1': SCORE_THRESHOLD - 1,
+  }));
+  assert.equal(treatmentOf(v, 'lens1-0'), 'blocking');
+  assert.equal(treatmentOf(v, 'lens1-1'), 'dropped');
+  assert.equal(treatmentOf(v, 'lens5-0'), 'blocking');
+  assert.equal(treatmentOf(v, 'lens5-1'), 'dropped');
+  assert.equal(treatmentOf(v, 'safety-0'), 'blocking');
+  assert.equal(treatmentOf(v, 'safety-1'), 'humanNotes');
+  assert.equal(v.review.blocking.length, 3);
 });
 
 test('compose：ブロッキングの detail は file:line と元の内容を含み、file は BlockingFinding の file に入る', () => {
@@ -110,10 +130,10 @@ test('compose：⑧は終了コードが 0 でなければ採点なしで必ず 
 // ---- pass と blocking ----
 
 test('compose：pass はブロッキングが空のときだけ true（dropped・humanNotes だけなら合格）', () => {
-  const v = ok(compose([finding('lens2', 0, 'bug'), finding('safety', 0, 'regression', { unfixedPrevious: false })], { 'lens2-0': 50, 'safety-0': 79 }));
+  const v = ok(compose([finding('lens2', 0, 'bug'), finding('safety', 0, 'regression', { unfixedPrevious: false })], { 'lens2-0': 50, 'safety-0': 74 }));
   assert.equal(v.review.pass, true);
   assert.deepEqual(v.review.blocking, []);
-  const ng = ok(compose([finding('lens2', 0, 'bug')], { 'lens2-0': 80 }));
+  const ng = ok(compose([finding('lens2', 0, 'bug')], { 'lens2-0': 75 }));
   assert.equal(ng.review.pass, false);
 });
 
@@ -139,7 +159,7 @@ test('compose：前回の判定があるのに changedLines が無ければ拒�
 
 // ---- 再レビュー ----
 
-test('compose：再レビューでは変わった行に当たる指摘・unfixedPrevious・⑧だけブロッキングにし、ほかの 80 以上は nonBlocking', () => {
+test('compose：再レビューでは変わった行に当たる指摘・unfixedPrevious・⑧だけブロッキングにし、ほかの 75 以上は nonBlocking', () => {
   const previous: { headSha: string; blocking: BlockingFinding[] } = { headSha: OLD_HEAD, blocking: [{ kind: 'ac-unmet', file: 'c.ts', detail: '前回の指摘' }] };
   const changedLines: ChangedLines = { 'a.ts': [3, 4], 'b.ts': [] };
   const findings = [
@@ -152,7 +172,7 @@ test('compose：再レビューでは変わった行に当たる指摘・unfixed
     finding('ac-scope', 1, 'out-of-scope', { file: 'c.ts', line: 5, unfixedPrevious: false, detail: '新しく見つけた範囲外' }),
     finding('safety', 0, 'regression', { file: 'c.ts', line: 7, unfixedPrevious: true, detail: '前回から直っていない退行' }),
   ];
-  const map = { 'lens2-0': 90, 'lens2-1': 90, 'lens3-0': 85, 'lens3-1': 85, 'lens4-0': 79, 'ac-scope-0': 80, 'ac-scope-1': 95, 'safety-0': 100 };
+  const map = { 'lens2-0': 90, 'lens2-1': 90, 'lens3-0': 85, 'lens3-1': 85, 'lens4-0': 74, 'ac-scope-0': 75, 'ac-scope-1': 95, 'safety-0': 100 };
   const v = ok(composePanel({ findings, scores: scores(map), check: CHECK_NG, previous, changedLines }));
   assert.equal(treatmentOf(v, 'lens2-0'), 'blocking');
   assert.equal(treatmentOf(v, 'lens2-1'), 'nonBlocking');

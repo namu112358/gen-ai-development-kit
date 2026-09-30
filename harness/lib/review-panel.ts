@@ -20,8 +20,8 @@ export type PanelSource = (typeof PANEL_SOURCES)[number];
 /** 担当の出力のファイル名（拡張子なし） */
 export const PANEL_OUTPUT_NAMES: readonly string[] = ['intake', ...PANEL_SOURCES];
 
-/** 確信度がこれ以上の指摘だけを扱う（公式の段階6と同じ） */
-export const SCORE_THRESHOLD = 80;
+/** 確信度がこれ以上の指摘だけを扱う（公式の段階6は 80。採点の刻み 0/25/50/75/100 の 75 をブロッキングにするため 75。docs/review-panel.md） */
+export const SCORE_THRESHOLD = 75;
 
 const AC_SCOPE_KINDS = ['ac-unmet', 'out-of-scope'] as const satisfies readonly BlockingKind[];
 const SAFETY_KINDS = ['data-destruction', 'secret-leak', 'regression'] as const satisfies readonly BlockingKind[];
@@ -52,6 +52,8 @@ export interface PanelOutputs {
   findings: PanelFinding[];
   /** ac-scope・safety の concerns・checkPoints を順に連結したもの */
   notes: HumanNotes;
+  /** 担当の提案（Merge を止めない）を担当の順に連結したもの。`[提案・<担当>] <文>` の形で、採点せず nonBlocking に入れる */
+  suggestions: string[];
 }
 
 export interface PanelScore {
@@ -131,10 +133,17 @@ function parseIntake(c: Checker, raw: unknown): IntakeOutput {
   };
 }
 
-function parseLens(c: Checker, n: number, raw: unknown): PanelFinding[] {
+/** 担当の任意の suggestions を読み、`[提案・<担当>]` を付けて足す */
+function readSuggestions(c: Checker, o: Record<string, unknown>, name: string, out: string[]): void {
+  if (o.suggestions === undefined) return;
+  out.push(...c.stringArray(o.suggestions, `${name}.suggestions`).map((s) => `[提案・${name}] ${s}`));
+}
+
+function parseLens(c: Checker, n: number, raw: unknown, suggestions: string[]): PanelFinding[] {
   const name = `lens${n}`;
   const o = c.object(raw, name) ?? {};
-  checkKnownKeys(c, o, name, ['lens', 'findings']);
+  checkKnownKeys(c, o, name, ['lens', 'findings', 'suggestions']);
+  readSuggestions(c, o, name, suggestions);
   if (o.lens !== n) c.errors.push(`${name}.lens: ${n} ではありません`);
   const source = name as PanelSource;
   return c.array(o.findings, `${name}.findings`).map((item, i): PanelFinding => {
@@ -155,10 +164,11 @@ function parseLens(c: Checker, n: number, raw: unknown): PanelFinding[] {
   });
 }
 
-function parseChecker(c: Checker, name: 'ac-scope' | 'safety', raw: unknown, notes: HumanNotes): PanelFinding[] {
+function parseChecker(c: Checker, name: 'ac-scope' | 'safety', raw: unknown, notes: HumanNotes, suggestions: string[]): PanelFinding[] {
   const kinds: readonly BlockingKind[] = name === 'ac-scope' ? AC_SCOPE_KINDS : SAFETY_KINDS;
   const o = c.object(raw, name) ?? {};
-  checkKnownKeys(c, o, name, ['findings', 'concerns', 'checkPoints']);
+  checkKnownKeys(c, o, name, ['findings', 'concerns', 'checkPoints', 'suggestions']);
+  readSuggestions(c, o, name, suggestions);
   notes.concerns.push(...c.stringArray(o.concerns, `${name}.concerns`));
   notes.checkPoints.push(...c.stringArray(o.checkPoints, `${name}.checkPoints`));
   return c.array(o.findings, `${name}.findings`).map((item, i): PanelFinding => {
@@ -186,13 +196,14 @@ export function parsePanelOutputs(files: Record<string, unknown>): Parsed<PanelO
   for (const k of PANEL_OUTPUT_NAMES) if (!(k in files)) c.errors.push(`${k}: 担当の出力がありません`);
   if (c.errors.length > 0) return { ok: false, errors: c.errors };
   const notes: HumanNotes = { concerns: [], checkPoints: [] };
+  const suggestions: string[] = [];
   const intake = parseIntake(c, files.intake);
   const findings = [
-    ...[1, 2, 3, 4, 5].flatMap((n) => parseLens(c, n, files[`lens${n}`])),
-    ...parseChecker(c, 'ac-scope', files['ac-scope'], notes),
-    ...parseChecker(c, 'safety', files.safety, notes),
+    ...[1, 2, 3, 4, 5].flatMap((n) => parseLens(c, n, files[`lens${n}`], suggestions)),
+    ...parseChecker(c, 'ac-scope', files['ac-scope'], notes, suggestions),
+    ...parseChecker(c, 'safety', files.safety, notes, suggestions),
   ];
-  return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: { intake, findings, notes } };
+  return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: { intake, findings, notes, suggestions } };
 }
 
 // ---- 組み立て ----
@@ -228,13 +239,14 @@ function hitsChanged(f: PanelFinding, changed: ChangedLines): boolean {
 
 /**
  * 担当の指摘・採点・⑧の結果から、reviewer と同じ形の出力と指摘ごとの扱いを作る。
- * ①は claude-md、②〜⑤は bug、⑥⑦は指摘の kind で、確信度 80 以上をブロッキングにする（80 未満は①〜⑤は捨て、⑥⑦は humanNotes.concerns）。
+ * ①は claude-md、②〜⑤は bug、⑥⑦は指摘の kind で、確信度 75 以上をブロッキングにする（75 未満は①〜⑤は捨て、⑥⑦は humanNotes.concerns）。
  * ⑧は採点せず、終了コードが 0 でなければ必ずブロッキング。再レビューでは、変わった行に当たる指摘・⑥⑦の直っていない前回の指摘・⑧だけをブロッキングにする。
- * 採点の欠け・重複・余り・範囲外は、黙って捨てずに拒否する。
+ * 採点の欠け・重複・余り・範囲外は、黙って捨てずに拒否する。担当の提案（suggestions）は採点せず、nonBlocking の末尾に入れる（合否を変えない）。
  */
 export function composePanel(input: {
   findings: PanelFinding[];
   notes?: HumanNotes;
+  suggestions?: string[];
   scores: unknown[];
   check: CheckResult;
   previous: { headSha: string; blocking: BlockingFinding[] } | null;
@@ -272,6 +284,7 @@ export function composePanel(input: {
     return { id: f.id, source: f.source, kind: f.kind, score, treatment, ...(f.file ? { file: f.file } : {}), ...(f.line !== undefined ? { line: f.line } : {}), detail: f.detail };
   });
 
+  nonBlocking.push(...(input.suggestions ?? []));
   return { ok: true, value: { review: { pass: blocking.length === 0, blocking, nonBlocking, humanNotes }, findings: results } };
 }
 
