@@ -3,9 +3,12 @@
  * 壊してもテストが落ちなかった箇所（survived）を一覧にする。
  *
  *   node harness/scripts/mutate.ts [--base <ref>] [--max-mutants 30] [--max-minutes 15] [--test-timeout-seconds 90]
+ *   node harness/scripts/mutate.ts --check-targets [--base <ref>]
  *
  * 比べる範囲は `git diff -U0 <base> HEAD`（既定の base は HEAD^1。pull_request の checkout はマージコミットなので第1親が base）。
  * 壊したファイルは、1回ごとに finally で（止められたときはシグナルの処理で）元に戻す。
+ * `--check-targets` は壊す候補があるかだけを数え、`GITHUB_OUTPUT` に `has-targets=true|false` を書く（テストは動かさない）。
+ * ci の mutation ジョブが npm ci の前に動かすので、このファイルと import 先は実行時に npm の依存を読まない（Node の組み込みだけ）。
  *
  * 限界：
  * - 結果は PR 側のコードと YAML（.github/workflows/ci.yml の mutation ジョブ）が決めるので、PR を出した側が偽れる。
@@ -256,13 +259,33 @@ export function renderSkipped(reason: string): string {
   return [REPORT_TITLE, '', REPORT_NOTE, '', `試していません：${reason}`, ''].join('\n');
 }
 
+/** --check-targets の結果：GITHUB_OUTPUT に書く行と、候補が無いときの Summary */
+export function checkTargetsResult(total: number): { output: string; summary: string | null } {
+  if (total > 0) return { output: 'has-targets=true\n', summary: null };
+  return { output: 'has-targets=false\n', summary: renderSkipped('実装の .ts・.js の変更がありません（npm ci と mutation を省きました）。') };
+}
+
+/** 候補があるか。数えられなかった（例外）ときは、黙って mutation を省かないように true */
+export function hasTargetsSafely(count: () => number): boolean {
+  try {
+    return count() > 0;
+  } catch {
+    return true;
+  }
+}
+
 // ---- CLI（import.meta.main の中だけで動く） ----
 
 const TEST_ARGS = ['--test', 'harness/test/**/*.test.ts'];
 
-function parseArgs(argv: string[]): { base: string; maxMutants: number; maxMinutes: number; testTimeoutSeconds: number } {
-  const opts = { base: 'HEAD^1', maxMutants: 30, maxMinutes: 15, testTimeoutSeconds: 90 };
+function parseArgs(argv: string[]): { base: string; maxMutants: number; maxMinutes: number; testTimeoutSeconds: number; checkTargets: boolean } {
+  const opts = { base: 'HEAD^1', maxMutants: 30, maxMinutes: 15, testTimeoutSeconds: 90, checkTargets: false };
   for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === '--check-targets') {
+      // 値を取らないフラグ
+      opts.checkTargets = true;
+      continue;
+    }
     const [key, value] = [argv[i], argv[i + 1]];
     if (value === undefined) throw new Error(`${key} の値がありません`);
     if (key === '--base') opts.base = value;
@@ -322,8 +345,42 @@ function report(markdown: string): void {
   if (summary) appendFileSync(summary, markdown);
 }
 
+function readDiff(base: string): string {
+  return execFileSync('git', ['diff', '-U0', '--no-color', '--no-ext-diff', base, 'HEAD'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+}
+
+/** 差分から壊す候補の行を選ぶ（作業ツリーの行が差分の行と同じものだけ） */
+function changedTargets(diff: string): ChangedLine[] {
+  const config = loadConfig();
+  return selectTargets(parseChangedLines(diff), config.testPatterns ?? DEFAULT_TEST_PATTERNS).filter((t) => {
+    // 作業ツリーの行が差分の行と同じものだけ（HEAD 以外を見ていると位置がずれる）
+    try {
+      return readFileSync(t.file, 'utf8').split('\n')[t.line - 1] === t.text;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** --check-targets：候補があるかを GITHUB_OUTPUT に書く。数えられなければ true（本体の実行に任せる） */
+function checkTargets(base: string): void {
+  const has = hasTargetsSafely(() => {
+    process.chdir(execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim());
+    return planMutants(changedTargets(readDiff(base)), 1).total;
+  });
+  const result = checkTargetsResult(has ? 1 : 0);
+  const output = process.env.GITHUB_OUTPUT;
+  if (output) appendFileSync(output, result.output);
+  process.stdout.write(result.output);
+  if (result.summary) report(result.summary);
+}
+
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
+  if (opts.checkTargets) {
+    checkTargets(opts.base);
+    return;
+  }
   const started = Date.now();
   const deadline = started + opts.maxMinutes * 60_000;
   process.chdir(execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim());
@@ -338,20 +395,12 @@ async function main(): Promise<void> {
 
   let diff: string;
   try {
-    diff = execFileSync('git', ['diff', '-U0', '--no-color', '--no-ext-diff', opts.base, 'HEAD'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+    diff = readDiff(opts.base);
   } catch {
     report(renderSkipped(`比べる範囲（${opts.base}..HEAD）の差分が読めませんでした。`));
     return;
   }
-  const config = loadConfig();
-  const targets = selectTargets(parseChangedLines(diff), config.testPatterns ?? DEFAULT_TEST_PATTERNS).filter((t) => {
-    // 作業ツリーの行が差分の行と同じものだけ（HEAD 以外を見ていると位置がずれる）
-    try {
-      return readFileSync(t.file, 'utf8').split('\n')[t.line - 1] === t.text;
-    } catch {
-      return false;
-    }
-  });
+  const targets = changedTargets(diff);
   const plan = planMutants(targets, opts.maxMutants);
   if (plan.total === 0) {
     report(renderReport(plan, { caught: [], survived: [], notRun: 0, truncated: null }));
