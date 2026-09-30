@@ -9,7 +9,7 @@ import { APP, acceptanceFake, ctxFor, pr, verdict, verdictEvent, type FakeGitHub
 const config = loadConfig();
 
 /** 判定の連鎖（#103）：判定を組み立て・伝えるファイル */
-const judgeChain = ['harness/scripts/agent.ts', '.claude/skills/judge/SKILL.md', '.claude/skills/plan/SKILL.md', '.claude/routine.md', '.claude/agents/plan-critic.md', '.claude/agents/test-designer.md'];
+const judgeChain = ['harness/scripts/agent.ts', 'harness/scripts/agent/cli.ts', 'harness/scripts/agent/commands/judge.ts', 'harness/scripts/agent/commands/claim.ts', '.claude/skills/judge/SKILL.md', '.claude/skills/plan/SKILL.md', '.claude/routine.md', '.claude/agents/plan-critic.md', '.claude/agents/test-designer.md'];
 const stillExcluded = ['harness/lib/usage.ts', 'harness/lib/classify.ts', 'harness/lib/worktree.ts', 'harness/lib/issue-triage.ts', 'harness/lib/queue.ts', 'harness/lib/concurrency.ts'];
 
 test('判定の連鎖のファイルはガードレールに当たる', () => {

@@ -7,6 +7,7 @@ import { claudeMark, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { ensureOwnClaim, postClaim } from '../lib/claim.ts';
 import type { IssueComment } from '../lib/github.ts';
 import type { Claim } from '../lib/queue.ts';
+import { agentSource } from './support/agent-source.ts';
 
 const SESSION = '3f2a9c1e-0b1d-4c2e-9f00-123456789abc';
 const OTHER = '9b8c7d6e-1111-2222-3333-444455556666';
@@ -230,7 +231,7 @@ const root = join(import.meta.dirname, '..', '..');
 const read = (path: string): string => readFileSync(join(root, path), 'utf8');
 
 test('agent.ts：isRoutine() が無く、ensureOwnClaim が CLAUDE_CODE_REMOTE_SESSION_ID で早抜けしない', () => {
-  const src = read('harness/scripts/agent.ts');
+  const src = agentSource();
   assert.doesNotMatch(src, /\bisRoutine\b/, 'isRoutine が残っている');
   const i = src.indexOf('function ensureOwnClaim');
   if (i >= 0) {
@@ -240,16 +241,16 @@ test('agent.ts：isRoutine() が無く、ensureOwnClaim が CLAUDE_CODE_REMOTE_S
 });
 
 test('agent.ts：claim は lib/claim.ts の postClaim を使い、worktree は --routine のときだけ宣言を確かめない', () => {
-  const src = read('harness/scripts/agent.ts');
-  assert.match(src, /from '\.\.\/lib\/claim\.ts'/);
+  const src = agentSource();
+  assert.match(src, /from '(?:\.\.\/)+lib\/claim\.ts'/);
   assert.match(src, /\bpostClaim\(/);
   assert.match(src, /worktreeClaimIssue\([^)]*args\.includes\('--routine'\)\)/);
 });
 
 test('agent.ts：ensure-claim <番号> のコマンドがあり、使い方に書かれている', () => {
-  const src = read('harness/scripts/agent.ts');
+  const src = agentSource();
   assert.match(src, /'ensure-claim'/, 'コマンドの分岐');
-  const usage = src.match(/\/\*\*[\s\S]*?\*\//g)?.find((c) => c.includes('node harness/scripts/agent.ts')) ?? '';
+  const usage = (src.match(/\/\*\*[\s\S]*?\*\//g) ?? []).filter((c) => c.includes('node harness/scripts/agent.ts')).join('\n');
   assert.match(usage, /^\s*\*\s+node harness\/scripts\/agent\.ts ensure-claim <番号>/m, '使い方のコメント');
 });
 
