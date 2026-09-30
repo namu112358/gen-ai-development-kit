@@ -4,6 +4,7 @@
  *   node harness/scripts/panes.ts collect --session <fleet のセッション ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...
  *   node harness/scripts/panes.ts progress|todo|prs (--session <ID> | --snapshot <パス>)
  *   node harness/scripts/panes.ts hq --session <ID> [--session <ID>...]
+ *   node harness/scripts/panes.ts fleets --session <ID> [--session <ID>...]
  *   node harness/scripts/panes.ts config
  *
  * - collect：GitHub と記録を読むのはこれだけ。harness.config.json の panes.collectIntervalSeconds（既定 180 秒）ごとに、
@@ -12,6 +13,9 @@
  *   スナップショット（harness/lib/panes.ts の PaneSnapshot）を一時ファイルに書いてから名前を変える。このペインは進み具合も描く。
  *   記録のディレクトリは作業ディレクトリごとに分かれるので、fleet のセッションの作業ディレクトリが collect と違えば --cwd で渡す。
  * - progress・todo・prs・hq：スナップショットを数秒ごとに読み直して描くだけ（GitHub を読まない）。
+ * - fleets：渡した fleet のスナップショットを1回読み、進んでいないかの判定（harness/lib/hq-stall.ts の fleetStall。しきい値は
+ *   hq.staleSnapshotMinutes・hq.stuckMinutes）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
+ *   終わった fleet の古いスナップショットも一時ディレクトリに残るので、--session は必ず渡す（無ければ終了コード 1）。
  * - config：fleet.shipMode・hq・panes の設定を JSON で出す。fleet.shipMode が worker なら理由を標準エラーに出して終了コード 1。
  * - スナップショットの既定の置き場所は OS の一時ディレクトリの agent-harness-panes/<セッション ID>.json。
  * 段階の読み替えと描き方は harness/lib/panes.ts。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
@@ -22,6 +26,7 @@ import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hqConfig, loadConfig, panesConfig, shipModeConfig } from '../lib/config.ts';
+import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
 import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderHq, renderProgress, renderPrs, renderTodo, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
@@ -246,7 +251,7 @@ function parseCli(args: string[]): CliArgs {
   return out;
 }
 
-const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq --session <ID>... | config';
+const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq --session <ID>... | fleets --session <ID>... | config';
 
 function main(argv: string[]): void {
   const [mode, ...rest] = argv;
@@ -307,6 +312,20 @@ function main(argv: string[]): void {
   if (mode === 'progress' || mode === 'todo' || mode === 'prs') {
     const draw = { progress: renderProgress, todo: renderTodo, prs: renderPrs }[mode];
     startRender(renderDeps(pathOf(args.sessions[0])), draw, every);
+    return;
+  }
+  if (mode === 'fleets') {
+    if (args.sessions.length === 0) {
+      console.error(`--session を1つ以上渡してください（${USAGE}）`);
+      process.exit(1);
+    }
+    const cfg = hqStallConfig(config);
+    const now = Date.now();
+    const out = args.sessions.map((s) => {
+      const snap = readSnapshotFile(defaultSnapshotPath(tmpdir(), s));
+      return snap ? fleetStall(snap, now, cfg) : missingFleet(s);
+    });
+    console.log(JSON.stringify(out, null, 2));
     return;
   }
   if (mode === 'hq') {

@@ -16,6 +16,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [fix](../.claude/skills/fix/SKILL.md) | ブロッキング指摘や人のレビューを直し、判定をやり直す |
 | [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
 | [arch-review](../.claude/skills/arch-review/SKILL.md) | Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す |
+| [hq](../.claude/skills/hq/SKILL.md) | Orca のプライマリ（main の checkout）で、テーマ（Epic）ごとの fleet を起こし、fleet の質問をまとめて人に聞き、Epic の Close で片付ける。ファイルは書き換えない |
 | [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） |
 | [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときだけ。Issue の段階ではない） |
 | [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） |
@@ -32,6 +33,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - 計画は投稿の前に **plan-critic** サブエージェントに批評させる（入力の渡し方と判定ごとの扱いは [.claude/routine.md](../.claude/routine.md) の plan と同じ）。ただし止める条件（前回と同じ必須の指摘が直っていない、3回目でも必須が残る）に当たっても、有人セッションでは routine.md の `render-block` に従わず、Issue を止めない。その場で人に要点（残る必須の指摘）を示し、「進める／直す／やめる」を聞く。「進める」なら `critique` は `revise` のまま、`mustRemaining` に残った必須の件数を書く。
 - 付き添いのセッションで人の判断が要るとき（plan-critic の項の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、要件・AC の変更を認めるか、引き継ぎ（`--takeover`）、計画の `files` の外の変更、ship・fleet の最後の人の判断待ちなど）は、文章の中に並べず AskUserQuestion で選択肢つきで聞く。セッションのおすすめを先頭の選択肢に置き、1回に聞くのは4問まで（残りは次の回か一覧に書く）。書式や既定の規則で決まることは聞かない。人が拒んだ・答えなかったら同じ質問を繰り返さず、要点を文章で示して止まる。定期 Routine は人がいないので対象外（Routine の手順の `render-block` に従う）。fleet の入れ子の方式でサブエージェントとして動く ship は聞かずに止まり、聞くことを fleet に返す（fleet がまとめて聞く）。
 - 付き添いのセッションでは、Planner の質問（計画の `openQuestions`・`needsHumanReasons`）を投稿の前に AskUserQuestion で聞き、答えを計画の本文に人の言葉のまま書き込んで、解消したものを申告から除く（[plan の skill](../.claude/skills/plan/SKILL.md) の手順3）。人が答えなかった・拒んだものは申告に残して投稿し、投稿の後は決定の記録（`post-decision`）の経路に乗せる。`acChangeProposed` は今までどおり。定期 Routine は聞かない（申告を残して投稿する）。fleet の入れ子の方式でサブエージェントとして動く ship は、上の「聞かずに止まる」のとおり投稿せずに止まり、質問と書きかけの計画のパスを fleet に返す。fleet がまとめて聞いて答えを渡して呼び直し、ship は答えを計画に書き込んでから批評・投稿に進む（答えの無いものは申告に残す。答えが無いまま fleet が終えるときは `release <番号>`）。
+- hq は Orca の本体（main の checkout）で動き、ファイルを書き換えない（唯一の書き込みは fleet のワークスペースの印 `.agent-harness-workspace`）。人に聞く窓口は hq にまとめる（ship → fleet → hq → 人）。Orca が無ければ hq を使わず、fleet・ship をそのまま使う。
 - fleet は `harness.config.json` の `fleet.nesting` が `orca`（既定）なら、Issue ごとに ship をサブエージェントとして並行に動かす（同時に動かす数は `--max`、無ければ `fleet.maxParallelShips`）。ship が入れ子にできない（Agent ツールが無い）と返したら、1つのセッションで段階を交互に進める方式に戻る。`flat` なら初めから交互に進める。
 - ブランチは付き添いのセッションでも `claude/issue-<番号>-<短い名前>` にする。書いているのは AI なので Agent PR として扱い、判定・修正と、low なら自動 Merge の経路に乗る（critical は人が Merge する）。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。
