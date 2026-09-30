@@ -23,6 +23,7 @@
 | `label-on-open.test.ts`・`label-area-from-stopped-plan.test.ts` | Issue の作成で足りない `priority:*`・`area:*` を Jev に問うて付けること（`on-issue.ts`）と、計画ゲートで止まった計画の files が1つの領域に収まるときに App が付ける `area:*`（`on-comment.ts`・`label-apply.ts`）のテスト |
 | `issue-triage-materials.test.ts` | Jev にラベルを問う材料（`dependencies`・今の `type:*`・`risk:*`・`area:*`・`epic` のラベル・子の数）と、設定の `classification.priorityCriteria` で priority の基準を上書きすること、`label-apply.ts`・`on-issue.ts` が材料を渡すこと（#259） |
 | `scope-check.test.ts` | PR を出す前のローカルの範囲照合（`harness/lib/scope-check.ts`）：ローカルの変更の集め方、App の範囲照合と同じ関数での照合、使える計画が無いときの出力、implement の skill の手順（#290）。サブディレクトリから走らせたときのルートからのパス、`problems` と終了コードの決まり（0・1・3）（#300） |
+| `decision-proceed.test.ts`・`scope-check-proceed.test.ts` | 進める記録（`agent-decision` の `proceed`）：`parseDecision` の書式と `proceedEligibility` の対象の条件（印の窓・編集された計画・停止より前の決定・`acChangeProposed` など）、App の `plan-proceed` の記録があるときのローカルの `scope-check` の委任の照合（#365） |
 | `flow.test.ts`・`flow-queue-fleet.test.ts` | 段階のグラフのデータ（`harness/lib/flow.ts`）の検査（行き止まり・届かないノード・端と理由コード）と、queue と fleet の判断の食い違い（既知のものは `support/flow-divergences.ts`）・コードとデータのつながりの検査（#201） |
 | `step-node.test.ts`・`step-stop.test.ts`・`step-claim.test.ts`・`stage-file.test.ts`・`sync-loop-config.test.ts` | `agent.ts step`（`harness/lib/step.ts`）が状態ごとに返すノードと、stop の理由コード・宣言の投稿と解除、段階のファイル（`harness/lib/stage-file.ts`）の書き読み、`syncLoop.limit` の設定の検査（#306） |
 | `fleet-*.test.ts` | fleet の選び方（重なり・PR 同士の衝突・着手宣言の扱い）と、進め方（入れ子の orca／交互の flat）のテスト |
