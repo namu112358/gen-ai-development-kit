@@ -16,4 +16,5 @@
 | `report.ts` | 判定の集計（Jev の切り替え判断用）。 | ○ |
 | `review-panel.ts` | 合体版のレビュー（.claude/skills/review-panel/SKILL.md）の CLI。 | ○ |
 | `setup.ts` | リポジトリ設定を冪等に適用する（人が手元で、リポジトリ管理者の gh 認証で実行する）。 | ○ |
+| `test-prune.ts` | 減らせるテストの材料を、人が指示したときに1回分だけ集める（LLM を呼ばない決まる集計）。 |  |
 <!-- readme:generated end -->
