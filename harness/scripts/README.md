@@ -6,6 +6,7 @@
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
 | `agent.ts` | Routine と人のセッションが使う CLI。 | ○ |
+| `agent/` | `harness/scripts/agent.ts` のサブコマンドの実装（`commands/`）と、コマンドが共有する補助（`cli.ts`）。 | ○ |
 | `dashboard.ts` | エージェントの状態をグラフで見る、手元の読み取り専用のダッシュボード（GitHub には書かない）。 |  |
 | `dashboard/` | エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。 |  |
 | `jev-language.ts` | 日本語の材料と英訳した材料を同じ問いで Jev（TypeSafe AI）に投げ比べる、手で実行する実験用スクリプト。 |  |

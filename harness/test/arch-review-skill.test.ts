@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { NO_OVERWRITE_RULE, WRITE_RULES } from './support/output-file-rules.ts';
+import { documentedAgentCommands } from './support/agent-source.ts';
 
 // Issue #184：arch-review の skill と arch-reviewer の定義、一覧への掲載
 
@@ -38,11 +39,9 @@ function section(text: string, heading: string): string {
 /** 句点と改行で文に分ける */
 const sentences = (text: string): string[] => text.split(/[。\n]/).map((s) => s.trim()).filter((s) => s !== '');
 
-/** agent.ts の使い方のコメントに書かれたコマンド名 */
+/** agent.ts とサブコマンド（harness/scripts/agent/commands/）の使い方のコメントに書かれたコマンド名 */
 function documentedCommands(): Set<string> {
-  const source = read('harness/scripts/agent.ts');
-  const usage = source.match(/\/\*\*[\s\S]*?\*\//g)?.find((c) => c.includes('node harness/scripts/agent.ts')) ?? '';
-  return new Set([...usage.matchAll(/^\s*\*\s+node harness\/scripts\/agent\.ts ([a-z][a-z-]*)/gm)].map((m) => m[1]!));
+  return documentedAgentCommands();
 }
 
 /** 「やってはいけないこと」の見出しの節、または「やってはいけないこと」を含む行（見出しでなければその行と続く箇条書き） */

@@ -1,14 +1,12 @@
 // Issue #283：fleet-status の中身を JSON でも出す（fleetStatusData）。同じ事実から作った表（renderFleetStatus）と、
 // 行の順・段階・次にやること・選ぶか待つかと理由・重なり・メモ・選んだ数・進め方が一致し、着手宣言の段階とセッションが出ることを確かめる。
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig } from '../lib/config.ts';
 import { FLEET_STAGES, fleetStatus, fleetStatusData, renderFleetStatus, selectFleet, type FleetFacts, type FleetIssue, type FleetPr } from '../lib/fleet.ts';
 import type { Claim, IssueFacts, PrFacts } from '../lib/queue.ts';
+import { agentSource } from './support/agent-source.ts';
 
-const root = join(import.meta.dirname, '..', '..');
 // 実物の harness.config.json の既定値に依存しないよう、sharedFiles を明示する
 const base = loadConfig();
 const config = { ...base, fleet: { ...base.fleet, sharedFiles: ['docs/plan.md'] } };
@@ -219,7 +217,7 @@ test('JSON.stringify して JSON.parse し直しても同じ（Map などが入�
 });
 
 test('fleet-status は --json を受け付け、fleetStatusData で JSON を出す', () => {
-  const agent = readFileSync(join(root, 'harness', 'scripts', 'agent.ts'), 'utf8');
+  const agent = agentSource();
   assert.match(agent, /fleet-status \[[^\n]*--json/, 'usage に --json がある');
-  assert.match(agent, /fleetStatusData\(/, 'agent.ts が fleetStatusData を使う');
+  assert.match(agent, /fleetStatusData\(/, 'agent.ts（のサブコマンド）が fleetStatusData を使う');
 });
