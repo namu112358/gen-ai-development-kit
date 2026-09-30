@@ -60,5 +60,5 @@
 | `usage.ts` | Claude Code のセッション記録（jsonl）からトークン数を集計し、API で動かした場合の料金を見積もる。 | 対象外 |
 | `validate.ts` | 依存なしの小さな検証ヘルパー。 | ○ |
 | `verdict.ts` | 判定コメントの構造化出力（````agent-verdict````）。 | ○ |
-| `worktree.ts` | 作業用の git worktree（リポジトリの外の作業場所）の作成（`node_modules` が無ければ `npm ci` まで）と削除。 | 対象外 |
+| `worktree.ts` | 作業用の git worktree（リポジトリの外の作業場所）の作成（`node_modules` が無ければ `npm ci` まで）と削除、置き場所の決め方、Orca の表示名。 | 対象外 |
 <!-- readme:generated end -->

@@ -49,6 +49,8 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
 
+worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <ブランチ>` が作る worktree の置き場所は、既定では本体の隣の `../<リポジトリ名>.worktrees/<ブランチ名を安全にした名前>`。全員で変えるなら `harness.config.json` の `worktreeRoot`、そのパソコンだけ変えるなら環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（例：WSL の中の FS。環境変数が設定より優先）。書き方は、`~/` はホーム、相対パスは本体のルートから、`{repo}` はリポジトリ名に置き換える（複数のリポジトリで同じ場所を使うなら `{repo}` を入れる。入れないと、ダッシュボードがほかのリポジトリの worktree のセッションも拾いうる）。リポジトリの中になる値と、本体を含む祖先（`..` など）は拒む（`worktree`・`worktree-remove`・合体版のレビューの⑧・ダッシュボードが同じ関数（`harness/lib/worktree.ts` の `worktreeRoot`）で決め、同じく止まる）。本体の `.git` は元の場所に残るので、速くなるのは作業ツリーの分だけ。置き場所を変える前に作った worktree は `worktree-remove` が見つけられないので、先に消しておくか `git worktree remove <パス>` で消す。Orca があっても worktree は `agent.ts worktree` で作り、Orca はその worktree での起動と監視に使う（規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md)）。Orca があれば `worktree` が Issue のブランチ（`claude/issue-<番号>-<短い名前>`）の worktree に表示名「#番号 短い名前」と Issue を付ける（親子は付けない。表示のためだけ）。Orca が無ければ何もせず、失敗したときは警告だけで続ける（Orca のアプリは起動しない）。
+
 ### hq（テーマごとの fleet をまとめる）
 
 Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
