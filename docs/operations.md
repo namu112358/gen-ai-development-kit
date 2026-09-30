@@ -148,6 +148,30 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 - 修正の上限（`agent:blocked`、理由コード `fix-limit`）で止まった Agent PR は Draft のまま人を待つので、数え続ける。人が片付けるまで、同じ領域の新しい着手は止まる。
 - 計画・判定・修正の段階は止めない。
 
+## 上限の設定
+
+運用の上限の数値は、すべて `harness.config.json` にある（Issue #272）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q100）。
+
+| キー | 今の値 | 意味 | 読む側 |
+| --- | --- | --- | --- |
+| `routine.maxItemsPerRun` | 5 | 1回の Routine で扱う項目の数 | Routine（[.claude/routine.md](../.claude/routine.md)） |
+| `routine.humanClaimStaleHours` | 6 | 人の着手宣言を期限切れとみなす時間 | ゲート・セッション（queue・`claim`・`fleet-status`） |
+| `routine.routineClaimTakeoverMinutes` | 90 | Routine の着手宣言を引き継げるまでの時間 | ゲート・セッション（queue） |
+| `routine.gateReplyTimeoutMinutes` | 30 | 判定コメントへの App の返答を待つ時間（過ぎたら判定し直す） | `prFacts` を通してゲートとセッション（queue・fleet）の両方 |
+| `areaConcurrency` | `{"harness": 3}` | 領域ごとに同時に開いてよい判定前の Agent PR の数（節「同時に開ける PR の数」） | ゲート（queue）・セッション（`claim`） |
+| `fixLoop.normalLimit`・`criticalLimit` | 2・3 | 修正の上限（`criticalLimit` は `normalLimit` 以上） | ゲート・セッション（`agent.ts step`） |
+| `syncLoop.limit` | 3 | sync ⇄ judge のループの上限 | セッション（`agent.ts step`） |
+| `staleHours` | 24 | 停滞とみなす時間・ダッシュボードで見返す期間 | ゲート（`stale`） |
+| `jev.maxDiffChars` | 80000 | Jev に渡す diff の文字数の上限 | ゲート |
+| `jev.decisionMaxTargets`・`decisionMaxAnswerChars` | 20・20000 | 決定の記録を Jev に問う項目の数・答えの文字数の上限（超えれば問わない） | ゲート |
+| `classification.issueTriageJevPerRun` | 5 | 1回の定期実行で Jev に分類を問う Issue の数（残りは次の実行） | ゲート（`label-apply`） |
+| `fleet.maxParallelShips` | 3 | `--max` が無いときに同時に動かす ship の数 | セッションだけ |
+| `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
+
+- `routine.gateReplyTimeoutMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。
+- 読むときの検査：`loadConfig` が上限の数値のキーを型と範囲で検査する（`harness/lib/config.ts` の `limitErrors`）。回数・件数・文字数は正の整数、時間は正の数、`minRemainingMinutes` は 0 以上。必須のキー（`routine` の3つ、`fixLoop` の2つ、`staleHours`、`jev.maxDiffChars`）が無いのも誤り。誤りがあれば、キーと今の値を示して止まる（上限が効かないまま動かない）。上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない。
+- 誤りのある設定が main に入ると、ゲートと `agent.ts` のコマンドが全部止まる。guard の hook も設定を読めず、`git … push` を送り先に関わらず止めるので、セッションは直す PR を push できない。人が手元で `harness.config.json` を直す PR を出して Merge する。`npm run check` が実物の設定と雛形を検査する（`harness/test/config-limits.test.ts`）ので、PR の段階で落ちる。
+
 ## テストの改ざん検査
 
 App は PR の差分（`base...head`）から、テストを弱める変更を必須チェック `agent/tests` で検出する。fork の PR も対象。テストファイルは `harness.config.json` の `testPatterns`（範囲照合と同じパターンの書式）で見分ける。

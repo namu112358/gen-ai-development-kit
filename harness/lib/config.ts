@@ -23,9 +23,17 @@ export interface HarnessConfig {
     issueTriage: 'off' | 'shadow' | 'label';
     /** Jev に priority を問うときの段階ごとの基準（英文）。空でない文字列の段階だけ既定（harness/lib/issue-triage.ts）を上書きする（Issue #259） */
     priorityCriteria?: Partial<Record<'highest' | 'high' | 'medium' | 'low' | 'lowest', string>>;
+    /** 1回の定期実行で Jev に分類を問う Issue の数の上限（残りは次の実行）。無ければ 5（harness/gates/label-apply.ts の JEV_PER_RUN。Issue #272） */
+    issueTriageJevPerRun?: number;
   };
   mergeMethod: 'SQUASH' | 'MERGE' | 'REBASE';
-  routine: { maxItemsPerRun: number; humanClaimStaleHours: number; routineClaimTakeoverMinutes: number };
+  routine: {
+    maxItemsPerRun: number;
+    humanClaimStaleHours: number;
+    routineClaimTakeoverMinutes: number;
+    /** 判定コメントへの App の返答をこれ以上待たない時間（分。過ぎたら判定し直す）。無ければ 30（harness/lib/facts.ts。Issue #272） */
+    gateReplyTimeoutMinutes?: number;
+  };
   /**
    * true なら、Assignee がちょうど1人で今の GitHub のユーザーである Issue（と、その Issue を Close する PR）にだけ着手する（claim --manual・ensureOwnClaim・fleet。harness/lib/assignee.ts）。
    * 無ければ（または false なら）確かめない（Issue #172）
@@ -82,15 +90,90 @@ export interface HarnessConfig {
     /** 計画の files が重なれば待つ判定で、行を足すだけなら待たせない共有ファイルのパターン（harness/lib/scope.ts の書式）。無ければ何も除外しない（harness/lib/fleet.ts） */
     sharedFiles?: string[];
   };
-  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; /** テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問うか（無ければ shadow。jev.mode とは独立。Q95） */ testTamper?: 'off' | 'shadow' | 'enforce'; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** ラベルごとの下限（ラベル → 0〜1）。当たらないラベルは labelProbability。labelProbability が未設定なら使わない（Q94） */ labelProbabilityByLabel?: Record<string, number>; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number; /** testTamper が enforce のとき、agent/tests を通す確率の下限（無ければ通さない） */ testTamperProbability?: number } };
+  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; /** テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問うか（無ければ shadow。jev.mode とは独立。Q95） */ testTamper?: 'off' | 'shadow' | 'enforce'; /** 決定の記録を Jev に問う項目の数の上限（超えれば問わない。無ければ 20。harness/lib/decision.ts。Issue #272） */ decisionMaxTargets?: number; /** 決定の記録を Jev に問う答えの文字数の上限（無ければ 20000） */ decisionMaxAnswerChars?: number; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** ラベルごとの下限（ラベル → 0〜1）。当たらないラベルは labelProbability。labelProbability が未設定なら使わない（Q94） */ labelProbabilityByLabel?: Record<string, number>; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number; /** testTamper が enforce のとき、agent/tests を通す確率の下限（無ければ通さない） */ testTamperProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;
 }
 
 const CONFIG_PATH = fileURLToPath(new URL('../../harness.config.json', import.meta.url));
 
+/**
+ * 設定を読み、上限の数値のキーを検査する（limitErrors）。誤りがあれば throw する（上限が効かないまま動かない。Issue #272）。
+ * 上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない
+ */
 export function loadConfig(path: string = CONFIG_PATH): HarnessConfig {
-  return JSON.parse(readFileSync(path, 'utf8')) as HarnessConfig;
+  const config: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const errors = limitErrors(config);
+  if (errors.length > 0) throw new Error(`harness.config.json の上限の設定に誤りがあります：${errors.join(' / ')}`);
+  return config as HarnessConfig;
+}
+
+type LimitKind = 'positiveInteger' | 'positive' | 'nonNegative';
+
+/** 上限の数値のキー（パス・求める形・必須か）。areaConcurrency の各値と fixLoop の大小は limitErrors が別に調べる */
+const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
+  { path: 'routine.maxItemsPerRun', kind: 'positiveInteger', required: true },
+  { path: 'routine.humanClaimStaleHours', kind: 'positive', required: true },
+  { path: 'routine.routineClaimTakeoverMinutes', kind: 'positive', required: true },
+  { path: 'routine.gateReplyTimeoutMinutes', kind: 'positive', required: false },
+  { path: 'fixLoop.normalLimit', kind: 'positiveInteger', required: true },
+  { path: 'fixLoop.criticalLimit', kind: 'positiveInteger', required: true },
+  { path: 'syncLoop.limit', kind: 'positiveInteger', required: false },
+  { path: 'staleHours', kind: 'positive', required: true },
+  { path: 'delegateMerge.hours', kind: 'positive', required: false },
+  { path: 'delegateMerge.minRemainingMinutes', kind: 'nonNegative', required: false },
+  { path: 'fleet.maxParallelShips', kind: 'positiveInteger', required: false },
+  { path: 'jev.maxDiffChars', kind: 'positiveInteger', required: true },
+  { path: 'jev.decisionMaxTargets', kind: 'positiveInteger', required: false },
+  { path: 'jev.decisionMaxAnswerChars', kind: 'positiveInteger', required: false },
+  { path: 'classification.issueTriageJevPerRun', kind: 'positiveInteger', required: false },
+];
+
+const LIMIT_KIND_TEXT: Record<LimitKind, string> = { positiveInteger: '正の整数', positive: '正の数', nonNegative: '0 以上の数' };
+
+function limitOk(kind: LimitKind, value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+  if (kind === 'positiveInteger') return Number.isInteger(value) && value > 0;
+  return kind === 'positive' ? value > 0 : value >= 0;
+}
+
+function valueAt(root: unknown, path: string): unknown {
+  let cur = root;
+  for (const key of path.split('.')) {
+    if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
+const shown = (value: unknown): string => (value === undefined ? '無し' : JSON.stringify(value));
+
+/**
+ * 上限の数値のキーを型と範囲で検査し、誤りごとに「キー・求める形・今の値」の1文を返す（純粋関数。Issue #272）。
+ * 必須のキーが無いのも誤り。省略できるキーは、無ければ調べない
+ */
+export function limitErrors(config: unknown): string[] {
+  const errors: string[] = [];
+  for (const { path, kind, required } of LIMIT_KEYS) {
+    const value = valueAt(config, path);
+    if (value === undefined && !required) continue;
+    if (!limitOk(kind, value)) errors.push(`${path} は${LIMIT_KIND_TEXT[kind]}で書いてください（今の値：${shown(value)}）`);
+  }
+  const normal = valueAt(config, 'fixLoop.normalLimit');
+  const critical = valueAt(config, 'fixLoop.criticalLimit');
+  if (limitOk('positiveInteger', normal) && limitOk('positiveInteger', critical) && (critical as number) < (normal as number)) {
+    errors.push(`fixLoop.criticalLimit は fixLoop.normalLimit 以上で書いてください（今の値：${shown(critical)}、normalLimit：${shown(normal)}）`);
+  }
+  const areas = valueAt(config, 'areaConcurrency');
+  if (areas !== undefined) {
+    if (areas === null || typeof areas !== 'object' || Array.isArray(areas)) errors.push(`areaConcurrency は領域の名前 → 正の整数のオブジェクトで書いてください（今の値：${shown(areas)}）`);
+    else {
+      for (const [area, value] of Object.entries(areas)) {
+        if (!limitOk('positiveInteger', value)) errors.push(`areaConcurrency.${area} は正の整数で書いてください（今の値：${shown(value)}）`);
+      }
+    }
+  }
+  return errors;
 }
 
 /** 委任承認のラベルの既定値 */
@@ -218,7 +301,7 @@ export const GITHUB_ACTIONS_APP_ID = 15368;
 
 /**
  * projectChecks を既定値で埋めて検査する。書式の誤りは throw する。
- * loadConfig では検査しない（ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
+ * loadConfig では検査しない（loadConfig が検査するのは上限の数値のキーだけ（limitErrors）。ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
  */
 export function projectChecks(config: HarnessConfig): { context: string; integrationId: number }[] {
   const raw: unknown = config.projectChecks ?? [{ context: 'ci' }];

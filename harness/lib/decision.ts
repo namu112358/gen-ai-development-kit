@@ -95,7 +95,7 @@ export function answeredPlan<T extends Pick<Plan, 'needsHuman' | 'needsHumanReas
 
 /** 計画の投稿の直前に post-plan が印を付ける分の猶予 */
 export const LABEL_GRACE_MS = 60_000;
-/** Jev に渡す項目の上限と、答えの文字数の上限 */
+/** Jev に渡す項目の上限と、答えの文字数の上限の既定値（jev.decisionMaxTargets・decisionMaxAnswerChars が無いとき） */
 export const DECISION_MAX_TARGETS = 20;
 export const DECISION_MAX_ANSWER_CHARS = 20_000;
 /** 問いの版（問いの文や criteria を変えたら上げる。記録の questionSet に残す） */
@@ -171,7 +171,7 @@ const questionKey = (t: DecisionTarget): string => `item_${t.id.replace(':', '_'
 export function buildDecisionRequest(config: HarnessConfig, targets: DecisionTarget[], decision: Pick<Decision, 'answers'>) {
   const answers = decision.answers.map((a) => ({ to: a.to, ...(a.choice !== undefined ? { choice: a.choice } : {}), quote: a.quote }));
   const chars = answers.reduce((n, a) => n + a.quote.length + (a.choice?.length ?? 0), 0);
-  if (targets.length > DECISION_MAX_TARGETS || chars > DECISION_MAX_ANSWER_CHARS) return null;
+  if (targets.length > (config.jev.decisionMaxTargets ?? DECISION_MAX_TARGETS) || chars > (config.jev.decisionMaxAnswerChars ?? DECISION_MAX_ANSWER_CHARS)) return null;
   const questions: Record<string, unknown> = {
     all_answered: {
       type: 'noul',
