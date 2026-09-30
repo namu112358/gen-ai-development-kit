@@ -25,7 +25,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 8. PR を作る前に、worktree で `node harness/scripts/agent.ts scope-check <番号>` を走らせ、変更が計画の `files` に収まるかを App の範囲照合と同じ関数で確かめる（読むだけ。worktree のどのディレクトリから走らせてもよい）。`agent/scope`（ゲートを通った計画）と委任・bypass の範囲照合の両方を見て、終了コードと出力の JSON の `problems`（`check` がどちらの照合か、`kind` が `outside`（範囲の外）か `no-plan`（使える計画が無い））で分ける。
    - 終了コード 0：両方の照合に計画があり、範囲の外が無い。次へ。
    - 終了コード 1（範囲の外のファイルがある。`problems` の `outside` の `files`）：PR を作らずに、計画を出し直す（plan の skill の出し直し）か、その変更を外すかを AskUserQuestion で聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。変更を外したら、commit・push し直して `scope-check` をもう一度走らせる。
-   - 終了コード 3（範囲の外は無いが、どちらかの照合に使える計画が無い。`problems` の `no-plan`。ゲートの停止で止まった計画は `agent/scope` で、Planner の申告で止まり人が進めると決めた計画は両方で計画なし）：聞かずに進め、どの照合（`agent/scope`・委任・bypass）に乗らないかを PR 本文の「人に見てほしい点」に書く。
+   - 終了コード 3（範囲の外は無いが、どちらかの照合に使える計画が無い。`problems` の `no-plan`。ゲートの停止で止まった計画と、人が進めると決めて App の `plan-proceed` の記録（`status: ok`）がある計画は `agent/scope` だけで計画なし。Planner の申告か前の印で止まり、`plan-proceed` の記録が無い計画は両方で計画なし）：委任・bypass の照合（`check` が `delegate`）が `no-plan` で、人が `agent:plan-review` の計画を進めると決めていたのに進める記録が無ければ、plan の skill の手順10どおり進める記録を出し、App の `plan-proceed` の記録を待って `scope-check` を読み直す（`ineligible` なら理由を書く）。そのほかは聞かずに進め、どの照合（`agent/scope`・委任・bypass）に乗らないかを PR 本文の「人に見てほしい点」に書く。
    - それ以外（終了コード 2 など、JSON が出ずに終わった。引数・git・GitHub のエラー）：照合できていないので、範囲の外が無い扱いにせず、PR を作らずに人に返す。
    - `untracked` にあるファイルは PR にまだ入っていない。入れるものは手順6に戻って commit する。
 9. PR を作る前に `node harness/scripts/agent.ts ensure-claim <番号>` で、このセッションの着手宣言が今も持ち主かを確かめる。止まったら PR を出さずに人に返す（ほかのセッションが先に宣言していた、または引き継いだ）。
