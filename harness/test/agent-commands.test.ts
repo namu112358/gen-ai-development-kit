@@ -60,8 +60,8 @@ const BEFORE_SPLIT = [
   'worktree-remove',
 ];
 
-/** 分けた後に commands/ に足したサブコマンドの名前（step は Issue #306） */
-const ADDED_AFTER_SPLIT = ['step'];
+/** 分けた後に commands/ に足したサブコマンドの名前（step は Issue #306、arch-review-pending・arch-review-adopt は Issue #328） */
+const ADDED_AFTER_SPLIT = ['step', 'arch-review-pending', 'arch-review-adopt'];
 
 test('loadCommands(COMMANDS_DIR) の名前は分ける前の31件と、分けた後に足したものとちょうど同じ', async () => {
   const { loadCommands, COMMANDS_DIR } = await loadCli();

@@ -1,15 +1,15 @@
 import { spawnSync } from 'node:child_process';
 import { checkAssignee, requireAssignee } from '../../../lib/assignee.ts';
 import { appMarkKind, hasClaudeMark } from '../../../lib/blocks.ts';
-import { areaLimitLabels, describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
+import { describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
 import { fleetConfig, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
-import { issueFacts, prFacts } from '../../../lib/facts.ts';
-import { type FleetIssue, type FleetPr, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
+import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../../../lib/fleet-reads.ts';
+import { type FleetIssue, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { fixRequestFindings } from '../../../lib/report.ts';
 import { splitArgs } from '../../../lib/session-inputs.ts';
 import { carriedCritique, type CritiqueRound, readStageFile, stageFilePath, writeStageFile } from '../../../lib/stage-file.ts';
-import { isAppComment, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from '../../../lib/state.ts';
+import { isAppComment, type PullRequest } from '../../../lib/state.ts';
 import { applyStepClaims, decideStep, type StepLocal, type StepResult } from '../../../lib/step.ts';
 import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail, readJson, renderClaim, spawnGit } from '../cli.ts';
 
@@ -20,7 +20,8 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           fleet で並行して進める Issue・PR ごとの段階・次にやること・選ぶか（待つ理由）・触るファイルの重なり・
  *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue と、agent:* の無い、コラボレーターか App が立てた開いた Issue（harness/lib/fleet.ts の fleetTargets）。
  *                                                           開いた PR 同士は head を fetch して git merge-tree で試し、衝突する組だけ後の側が待つ。
- *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）
+ *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）。
+ *                                                           Issue・PR の材料は GraphQL でまとめて読む（harness/lib/fleet-reads.ts。#249）
  *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする。
  *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
  *   node harness/scripts/agent.ts step <番号> [--plan <file> | --critique <file>] [--proceed]
@@ -32,19 +33,6 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           --plan は計画を書いた後（書式を検査して plan-critique へ）、--critique は plan-critic の出力を渡すとき、
  *                                                           --proceed は人が agent:plan-review の計画を進めると決めたとき。終了コードは node・wait が 0、stop が 2
  */
-
-type FleetIssueItem = { number: number; title: string; state: string; labels: { name: string }[]; pull_request?: unknown; user?: { login: string } | null; author_association?: string; assignees?: { login: string }[] | null };
-
-/** Issue を Closes する PR（開いたもの・Merge 済みのもの） */
-async function closingPrs(gh: GitHub, issue: number): Promise<{ number: number; state: string }[]> {
-  const data = await gh.graphql<{ repository: { issue: { closedByPullRequestsReferences: { nodes: { number: number; state: string; repository: { nameWithOwner: string } }[] } } } }>(
-    `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){closedByPullRequestsReferences(first:20,includeClosedPrs:true){nodes{number state repository{nameWithOwner}}}}}}`,
-    { owner: gh.owner, repo: gh.repo, n: issue },
-  );
-  return data.repository.issue.closedByPullRequestsReferences.nodes
-    .filter((p) => p.repository.nameWithOwner === `${gh.owner}/${gh.repo}` && (p.state === 'OPEN' || p.state === 'MERGED'))
-    .map((p) => ({ number: p.number, state: p.state }));
-}
 
 /**
  * fleet の Issue の開いた PR 同士を git merge-tree で試し、衝突する組（試せなかった組を含む）を返す。
@@ -70,56 +58,6 @@ function prConflicts(issues: FleetIssue[]): PrConflict[] {
   return out;
 }
 
-/**
- * fleet の Issue ごとの事実（Closes する PR・Issue と PR の事実・main との差・human-review・計画の files）を GitHub から読む（書き込みはしない）。
- * fleet-status と step（Issue #306）が同じ集め方を使う。openPrs は同じリポジトリの開いた PR（step が head のブランチと領域の上限に使う）
- */
-async function collectFleetIssues(gh: GitHub, items: FleetIssueItem[]): Promise<{ issues: FleetIssue[]; openPrs: PullRequest[]; openPrLabels: string[][] }> {
-  const repository = `${gh.owner}/${gh.repo}`;
-  const openPrs = (await gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isSameRepoPr(p, repository));
-  const openPrLabels = areaLimitLabels(config, openPrs, repository);
-  const prsOf = new Map<number, { number: number; state: string }[]>();
-  for (const i of items) prsOf.set(i.number, await closingPrs(gh, i.number));
-  const prByIssue = new Map<number, number>();
-  for (const [n, prs] of prsOf) {
-    const open = prs.find((p) => p.state === 'OPEN');
-    if (open) prByIssue.set(n, open.number);
-  }
-  const iFacts = await Promise.all(items.map((i) => issueFacts(gh, config, i, prByIssue, openPrLabels)));
-  const readyAt = new Map(iFacts.map((f) => [f.number, f.readyAt]));
-  const issueLabels = new Map(iFacts.map((f) => [f.number, f.labels]));
-
-  const issues: FleetIssue[] = [];
-  for (const [idx, item] of items.entries()) {
-    const gate = latestPlanGate(config, await gh.listComments(item.number)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
-    const prs: FleetPr[] = [];
-    for (const ref of prsOf.get(item.number) ?? []) {
-      if (ref.state === 'MERGED') {
-        prs.push({ number: ref.number, merged: true, draft: false, autoMerge: false, humanReview: false, behindMain: false, facts: null });
-        continue;
-      }
-      const pr = openPrs.find((p) => p.number === ref.number) ?? await gh.get<PullRequest>(`/pulls/${ref.number}`);
-      const [facts, comments, compare] = await Promise.all([
-        prFacts(gh, config, pr, readyAt, issueLabels),
-        gh.listComments(pr.number),
-        gh.get<{ ahead_by: number }>(`/compare/${encodeURIComponent(pr.head.sha)}...${encodeURIComponent(config.defaultBranch)}`),
-      ]);
-      prs.push({
-        number: pr.number,
-        merged: false,
-        draft: pr.draft,
-        autoMerge: pr.auto_merge !== null && pr.auto_merge !== undefined,
-        humanReview: comments.some((c) => isAppComment(config, c) && appMarkKind(c.body) === 'human-review'),
-        behindMain: compare.ahead_by > 0,
-        facts,
-      });
-    }
-    issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs, assignees: (item.assignees ?? []).map((u) => u.login) });
-  }
-
-  return { issues, openPrs, openPrLabels };
-}
-
 /** fleet の事実を GitHub から読み（書き込みはしない）、段階・選び方の表を返す。判断は harness/lib/fleet.ts の純粋関数 */
 async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const usage = 'fleet-status [--max <n>] [--json] [<Issue 番号>...]';
@@ -143,7 +81,9 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const nonIssue = items.find((i) => i.pull_request);
   if (nonIssue) fail([`#${nonIssue.number} は PR です。Issue 番号を渡してください`]);
 
-  const { issues } = await collectFleetIssues(gh, items);
+  // 材料はまとめた GraphQL の問い合わせで先に読む（harness/lib/fleet-reads.ts。#249）
+  const snap = await readFleetSnapshot(gh, config, items.map((i) => i.number));
+  const { issues } = await collectFleetIssues(prefetchedGitHub(gh, config, snap), config, items, snap);
 
   const facts = { issues, prConflicts: prConflicts(issues) };
   const rows = fleetStatus(facts);
@@ -202,20 +142,23 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
   const session = currentSession();
   const item = await gh.get<FleetIssueItem>(`/issues/${n}`);
   if (item.pull_request) fail([`#${n} は PR です。Issue 番号を渡してください`]);
-  const { issues, openPrs, openPrLabels } = await collectFleetIssues(gh, [item]);
+  // 読み取りは先読みの GitHub（#249）。宣言の投稿・読み直し（applyStepClaims）と担当の確かめ（assigneeIo）は、先読みを通さない gh で行う
+  const snap = await readStepSnapshot(gh, config, n);
+  const reads = prefetchedGitHub(gh, config, snap);
+  const { issues, openPrs, openPrLabels } = await collectFleetIssues(reads, config, [item], snap);
   const issue = issues[0]!;
   const open = issue.prs.find((p) => !p.merged && p.facts !== null) ?? null;
 
   let fixRequests: ReturnType<typeof fixRequestFindings>[] = [];
   let mergeCommits = 0;
   let prBranch: string | null = null;
-  let reasonComments = await gh.listComments(n);
+  let reasonComments = await reads.listComments(n);
   if (open) {
     const [reviews, commits, prComments, pr] = await Promise.all([
-      gh.paginate<{ body: string | null; user: { login: string; type: string } | null }>(`/pulls/${open.number}/reviews`),
-      gh.paginate<{ parents: unknown[] }>(`/pulls/${open.number}/commits`),
-      gh.listComments(open.number),
-      openPrs.find((p) => p.number === open.number) ?? gh.get<PullRequest>(`/pulls/${open.number}`),
+      reads.paginate<{ body: string | null; user: { login: string; type: string } | null }>(`/pulls/${open.number}/reviews`),
+      reads.paginate<{ parents: unknown[] }>(`/pulls/${open.number}/commits`),
+      reads.listComments(open.number),
+      openPrs.find((p) => p.number === open.number) ?? reads.get<PullRequest>(`/pulls/${open.number}`),
     ]);
     fixRequests = reviews.filter((r) => isAppComment(config, r) && appMarkKind(r.body) === 'fix-request').map((r) => fixRequestFindings(r.body ?? ''));
     mergeCommits = commits.filter((c) => Array.isArray(c.parents) && c.parents.length > 1).length;
