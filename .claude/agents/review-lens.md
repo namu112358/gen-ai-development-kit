@@ -53,14 +53,15 @@ Examples of false positives, for steps 4 and 5:
 
 ## 出力
 
-次の JSON だけを出力する（前後に説明文を付けない）。`lens` は渡された観点の番号。`line` は新しい側の行番号（分からなければ省く）。`rule` は指摘の根拠（①は CLAUDE.md の引用とパス。ほかは任意）。指摘が無ければ `findings` は空にする。
+次の JSON だけを出力する（前後に説明文を付けない）。`lens` は渡された観点の番号。`line` は新しい側の行番号（分からなければ省く）。`rule` は指摘の根拠（①は CLAUDE.md の引用とパス。ほかは任意）。指摘が無ければ `findings` は空にする。`suggestions` は任意で、Merge を止めないスタイル・命名・より良い書き方の提案だけを書く（1つの担当につき3件までを目安）。バグ・CLAUDE.md の違反・AC・範囲・安全の指摘は、確信が低くても `findings` に書いて採点と組み立てに任せ、`suggestions` に移さない（しきい値に届かない指摘を `nonBlocking` に回さないため）。提案が無ければ省くか空にする。
 
 ```json
 {
   "lens": 2,
   "findings": [
     { "file": "path", "line": 12, "detail": "何が問題で、どう直すべきか", "rule": "根拠" }
-  ]
+  ],
+  "suggestions": ["Merge を止めない提案"]
 }
 ```
 

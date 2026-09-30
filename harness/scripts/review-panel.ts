@@ -195,7 +195,7 @@ async function compose(gh: GitHub, args: string[]): Promise<string> {
   const composeHeadError = headError(head, current);
   if (composeHeadError !== null) fail([composeHeadError]);
 
-  const composed = composePanel({ findings: outputs.findings, notes: outputs.notes, scores, check: checkRaw as CheckResult, previous: previous.value, changedLines });
+  const composed = composePanel({ findings: outputs.findings, notes: outputs.notes, suggestions: outputs.suggestions, scores, check: checkRaw as CheckResult, previous: previous.value, changedLines });
   if (!composed.ok) fail(composed.errors);
   const head7 = head.slice(0, 7);
   const record: PanelRecord = {
