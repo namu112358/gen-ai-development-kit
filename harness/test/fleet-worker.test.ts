@@ -76,7 +76,15 @@ test('fleet の skill：worker の節に、terminal close でペインを片付�
 // ---- shipMode の読み分け ----
 
 test('fleet の skill：worker の節に、node harness/scripts/panes.ts config で shipMode を読み、worker と subagent を読み分ける手順がある', () => {
-  assertWords(workerSection(), ['node harness/scripts/panes.ts config', 'worker', 'subagent']);
+  assertWords(workerSection(), ['node harness/scripts/panes.ts config', '`worker`', '`subagent`']);
+});
+
+// Issue #197：worker は止めずに、節「Orca の worker で ship を動かすとき」に進む
+test('fleet の skill：worker の節で shipMode が worker なら、節「Orca の worker で ship を動かすとき」に進み、「まだ無い」で止める文が無い', () => {
+  const sub = workerSection();
+  const line = sub.split('\n').find((l) => l.includes('`worker`') && l.includes('Orca の worker で ship を動かすとき'));
+  assert.ok(line, '「`worker`」と「Orca の worker で ship を動かすとき」を同じ行に含む文がありません');
+  assert.ok(!sub.includes('まだ無い'), '「まだ無い」で止める文が残っています');
 });
 
 // ---- 書き換えないこと ----
