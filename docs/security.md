@@ -9,7 +9,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 観点 | 実装 |
 | --- | --- |
 | 起動 | Claude は付き添いのセッションと定期 Routine だけ。`gate.yml` は Claude を動かさない |
-| 信頼の根 | App の名義で書かれたラベルイベント・コメント・Check Run だけを信頼する（`harness/lib/state.ts`） |
+| 信頼の根 | App の名義で書かれたラベルイベント・コメント・Check Run だけを信頼する（`harness/lib/state.ts`）。GraphQL で読んだ作者（Bot の `login` に `[bot]` が無い）・関係（`authorAssociation`）・コメントの ID（`fullDatabaseId`）も、`harness/lib/graphql-prefetch.ts` の変換（`restUser` など）で REST の形にそろえてから同じ判定をする（ダッシュボード・`fleet-status`・`step`・`judge-input` の過去の PR の節） |
 | 次にやること | App が Actions で queue を計算し、ダッシュボード Issue に公開する。Routine はそれに従う。「`agent:plan-ok` を付けたのが App か」「判定が現在の差分に有効か」は App 側で判断する |
 | Routine の GitHub 操作 | Routine に組み込みの GitHub MCP ツールのみ（`gh` と API 用トークンは環境にない）。push は `git` |
 | ゲートの起動 | `issue_comment` / `issues` / `pull_request_target`（`ready_for_review` は App 自身のものを除く。Stacked PR に組まれた `stacked` も）/ `push`（既定ブランチ）/ `schedule`。いずれも既定ブランチの workflow が動く |

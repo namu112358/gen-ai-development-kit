@@ -60,7 +60,7 @@ node harness/scripts/setup.ts all <owner>/<repo> <app-id>
 
 | 対象 | 設定 |
 | --- | --- |
-| ラベル | `agent:*`、`risk:*`、`agent:auto-merge-stopped`、`agent:delegate-plan`、`agent:delegate-merge`、`agent:bypass-merge` |
+| ラベル | `agent:*`、`risk:*`、`agent:auto-merge-stopped`、`agent:delegate-plan`、`agent:delegate-merge`、`agent:bypass-merge`、`agent:auto-mode` |
 | マージ | squash のみ、auto-merge 許可、Merge 後にブランチ削除 |
 | Actions | `GITHUB_TOKEN` の既定権限は read |
 | Ruleset | 既定ブランチの削除・force push 禁止、PR 必須（承認 0）、必須チェック `projectChecks` のもの（既定は `ci`、GitHub Actions）・`agent/review`・`merge-route`・`agent/plan-link`・`agent/title`・`agent/tests`（App）、main への追従必須、bypass なし |
