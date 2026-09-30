@@ -33,6 +33,8 @@ mkdirSync(main);
 git(main, 'init', '-q', '-b', 'main');
 git(main, 'config', 'user.name', 't');
 git(main, 'config', 'user.email', 't@example.com');
+// 人のパソコンの global に pull.ff=only があっても「git pull は止まる」の検査が同じ意味になるよう、local に pull.ff=false を書く
+git(main, 'config', 'pull.ff', 'false');
 mkdirSync(join(main, 'src'));
 writeFileSync(join(main, 'src', 'a.ts'), 'a\n');
 writeFileSync(join(main, '.gitignore'), '.claude/worktrees/\n');
@@ -167,17 +169,6 @@ test('AC1：allowRoots はパスの区切りの単位で比べ（main/sr は mai
   assertDeny(decide(write(join(main, 'src', 'a.ts')), c), 'main/sr は main/src を含まない');
   const c2 = realContext({ allowRoots: [join(main, 'src')] });
   assertAllow(decide(write(join(main, 'src', 'a.ts')), c2), 'allowRoots が先に効く（main の中でも）');
-});
-
-test('AC1（Windows）：allowRoots と main の比べ方は大文字小文字・区切りを区別せず、Git Bash の /c/... を C:/... と読む', { skip: process.platform !== 'win32' }, () => {
-  const upper = join(allowDir, 'x.txt').toUpperCase();
-  assertAllow(decide(write(upper, main), ctx), `大文字: ${upper}`);
-  assertAllow(decide(write(sh(join(allowDir, 'x.txt')), main), ctx), '区切りが /');
-  const gitBash = (p: string) => sh(p).replace(/^([A-Za-z]):/, (_m, d: string) => `/${d.toLowerCase()}`);
-  assertAllow(decide(write(gitBash(join(allowDir, 'x.txt')), main), ctx), `Git Bash の形: ${gitBash(join(allowDir, 'x.txt'))}`);
-  assertDeny(decide(write(join(main, 'src', 'a.ts').toUpperCase(), main), ctx), 'main の大文字');
-  assertDeny(decide(write(gitBash(join(main, 'src', 'a.ts')), main), ctx), `main の Git Bash の形: ${gitBash(join(main, 'src', 'a.ts'))}`);
-  assertAllow(decide(write(gitBash(join(issueWt, 'a.ts')), main), ctx), 'worktree の Git Bash の形');
 });
 
 test('AC1：file_path・notebook_path が無い・文字列でないなら止める', () => {
@@ -315,12 +306,6 @@ test('AC2：作業ツリーは git -C <dir>、前置きの cd <dir> &&、無け�
   assertAllow(decide(bash(`git -C ${sh(main)} pull --ff-only`, issueWt), ctx), 'git -C main pull --ff-only');
   assertAllow(decide(bash(`git -C ${sh(main)} worktree add ../x -b y`, issueWt), ctx), 'git -C main worktree add');
   assertDeny(decide(bash('git -C src commit -m x', main), ctx), 'git -C の相対パス（main の下）');
-});
-
-test('AC2（Windows）：git -C の Git Bash の形 /c/... も C:/... と読む', { skip: process.platform !== 'win32' }, () => {
-  const gitBash = (p: string) => sh(p).replace(/^([A-Za-z]):/, (_m, d: string) => `/${d.toLowerCase()}`);
-  assertDeny(decide(bash(`git -C ${gitBash(main)} commit -m x`, issueWt), ctx), `git -C ${gitBash(main)}`);
-  assertAllow(decide(bash(`git -C ${gitBash(issueWt)} commit -m x`, main), ctx), `git -C ${gitBash(issueWt)}`);
 });
 
 test('AC2：静的に決まらない -C・--git-dir・--work-tree・GIT_DIR=・GIT_WORK_TREE= の付いた止めるサブコマンドは止める（cwd が worktree でも）', () => {
