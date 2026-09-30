@@ -6,7 +6,7 @@
 | --- | --- |
 | `gates-*.test.ts` | ゲート（`harness/gates/`）のテスト。偽の GitHub にイベントを渡し、App が書くコメント・ラベル・チェックを確かめる |
 | `*-guardrail.test.ts` | ガードレールの範囲と、それに触れる計画・PR の扱い（止めるか通すか）のテスト |
-| `hooks-*.test.ts` | hook（`.claude/hooks/`）：見張りの hook（`guard.ts`）が止めるべき操作を止めるか、SessionStart の hook（`session-env.ts`）がセッションの ID を書き残すか、Orca の CLI が無いときに知らせるか、入口（`run.mjs`）が Node の版を確かめて、動けないときに guard は止め SessionStart は知らせるか |
+| `hooks-*.test.ts` | hook（`.claude/hooks/`）：見張りの hook（`guard.ts`）が止めるべき操作を止めるか、SessionStart の hook（`session-env.ts`）がセッションの ID を書き残すか、Orca の CLI が無いときに Windows・WSL・Linux を見分けて知らせるか、入口（`run.mjs`）が Node の版を確かめて、動けないときに guard は止め SessionStart は知らせるか |
 | `skills.test.ts`・`ship-skill.test.ts`・`qa-retro-skill.test.ts`・`label-delegation.test.ts`・`label-session-decide.test.ts`・`arch-review-skill.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、ラベルを Jev に任せる手順・Jev が下限未満で付けなかったものをセッションが決めて付ける手順・arch-review の手順と arch-reviewer の定義の検査 |
 | `orca-skills.test.ts`・`settings-permission-mode.test.ts` | Orca の導入の検査（#195）。`orca-skills.test.ts`：skill の入口（`.claude/skills/orca-cli`・`orchestration`）を取り込んだ版（sha256・コミットの固定値）のまま配ること、MIT の表示（`docs/upstream/`・`NOTICE`）、`harness/managed.json` に当たること、入口に素の `orca` のコマンドが無いこと、`docs/setup.md` の Orca の節と `docs/security.md` の受け入れているリスクの行。`settings-permission-mode.test.ts`：`.claude/settings.json` の `permissions.disableBypassPermissionsMode` で bypass を使えなくし `defaultMode` を書かないこと、`harness/managed.json` がそのキーを持つこと、`docs/setup.md` の Orca の節の利用者の設定と Agent Permissions の手順 |
 | `stack-docs.test.ts` | Stacked PR の使い方と制限（#147）：ハーネスの規則・docs・reviewer.md・gh-stack の skill に、積む3条件・`Refs #N`／`Closes #N`・Human Merge・`git merge` での追従が書かれ、reviewer・risk-agent・judge・sync の差分が PR の base からか |
