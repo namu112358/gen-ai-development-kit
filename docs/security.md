@@ -33,7 +33,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 停止スイッチ | ダッシュボードの `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い |
 | 委任承認のスイッチ | ダッシュボードの `agent:delegate-plan`（計画）と `agent:delegate-merge`（計画＋Merge）は人だけが付ける（App・Bot が付けたもの、付けた時刻が未来のものは無効）。セッションは本人の名義で動き GitHub では区別できないため、hook（`.claude/hooks/guard.ts` の保護ラベル）と `.claude/settings.json` の deny、規則の「やってはいけないこと」で止める。自動 Merge の仕組みそのもの（`delegateMergeExclude`、`harness.config.json` は常に）は、計画ゲートでも Merge でも委ねない。停止スイッチが優先する |
 | bypass モードのスイッチ | ダッシュボードの `agent:bypass-merge` は人だけが付ける。`agent:delegate-merge` と同じく、hook（`.claude/hooks/guard.ts` の保護ラベル）と `.claude/settings.json` の deny、規則の「やってはいけないこと」で止める。App・Bot が付けたものは無効 |
-| 書き換えの場所 | main の checkout と fleet のワークスペース（一番上に印のファイル `.agent-harness-workspace` がある作業ツリー）の中の Edit・Write・NotebookEdit と、作業ツリー・索引を変える git（commit・add・reset など、`--ff-only` の無い pull）を、PreToolUse の hook（`.claude/hooks/workspace-guard.ts`）がどのセッションでも止める（人の決定、#281・#286）。書き換えは Issue の worktree の中だけ。OS の一時ディレクトリと `~/.claude` は通す。判定できないとき・hook が動けないときは止める。PreToolUse の hook はこれと `guard.ts`（push・Merge・保護ラベル）の2つ |
+| 書き換えの場所 | main の checkout と fleet のワークスペース（一番上に印のファイル `.agent-harness-workspace` がある作業ツリー）の中の Edit・Write・NotebookEdit と、作業ツリー・索引を変える git（commit・add・reset など、`--ff-only` も `pull.ff=only` の設定も無い pull と、rebase を伴う pull）を、PreToolUse の hook（`.claude/hooks/workspace-guard.ts`）がどのセッションでも止める（人の決定、#281・#286・#296）。main の checkout は `git-dir` と `git-common-dir` が同じ作業ツリー（`--separate-git-dir` を含む）で見分ける。書き換えは Issue の worktree の中だけ。OS の一時ディレクトリと `~/.claude` は通す。判定できないとき・hook が動けないときは止める。PreToolUse の hook はこれと `guard.ts`（push・Merge・保護ラベル）の2つ |
 | 別リポジトリの参照 | `Closes`・親 Issue・依存の参照先が別リポジトリなら無視する |
 
 ## 受け入れているリスク

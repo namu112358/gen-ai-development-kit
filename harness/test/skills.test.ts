@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { documentedAgentCommands } from './support/agent-source.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const SKILLS = ['plan', 'implement', 'judge', 'fix', 'sync', 'fleet'];
@@ -17,11 +18,9 @@ function frontmatter(text: string): Record<string, string> {
   return Object.fromEntries(m[1]!.split('\n').map((l) => l.match(/^([a-z-]+):\s*(.*)$/)).filter((x) => x !== null).map((x) => [x[1]!, x[2]!.trim()]));
 }
 
-/** agent.ts の使い方のコメントに書かれたコマンド名 */
+/** agent.ts とサブコマンド（harness/scripts/agent/commands/）の使い方のコメントに書かれたコマンド名 */
 function documentedCommands(): Set<string> {
-  const source = readFileSync(join(root, 'harness', 'scripts', 'agent.ts'), 'utf8');
-  const usage = source.match(/\/\*\*[\s\S]*?\*\//g)?.find((c) => c.includes('node harness/scripts/agent.ts')) ?? '';
-  return new Set([...usage.matchAll(/^\s*\*\s+node harness\/scripts\/agent\.ts ([a-z][a-z-]*)/gm)].map((m) => m[1]!));
+  return documentedAgentCommands();
 }
 
 test('5つの SKILL.md がある', () => {
