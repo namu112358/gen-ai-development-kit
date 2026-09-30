@@ -12,7 +12,7 @@ GitHub Issues × Claude Code の自律開発ハーネス。概要は [README.md]
 | --- | --- |
 | `harness/lib/` | ロジック（Issue Form、計画・判定の書式、範囲照合、merge-route、patch-id、queue、Jev） |
 | `harness/gates/` | Actions で App として動くゲート（`gate.yml` → `node harness/gates/run.ts`） |
-| `harness/scripts/agent.ts` | 書式検査と本文生成（`render-*`、API を呼ばない）と、付き添いのセッション用の操作（`gh` を使う） |
+| `harness/scripts/agent.ts` | 書式検査と本文生成（`render-*`、API を呼ばない）と、付き添いのセッション用の操作（`gh` を使う）の入口。各コマンドは `harness/scripts/agent/commands/` にあり、ファイルを置けば読み込まれる |
 | `harness/scripts/setup.ts` | 導入先の設定（ラベル・Ruleset・Environment・App） |
 | `harness/test/` | `node:test` のテスト |
 | `harness/CLAUDE.harness.md` | ハーネスの規則（進め方・立場・やってはいけないこと）。この CLAUDE.md が読み込む。導入先にも配る |
