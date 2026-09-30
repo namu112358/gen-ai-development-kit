@@ -20,11 +20,9 @@ test('shipModeConfig：fleet・shipMode が無ければ既定の subagent で st
   assert.deepEqual(shipModeConfig({ fleet: { shipMode: 'subagent' } } as unknown as Pick<HarnessConfig, 'fleet'>), { shipMode: 'subagent', stopReason: null });
 });
 
-test('shipModeConfig：worker なら stopReason に subagent を含む文が入る', () => {
+test('shipModeConfig：worker なら止めずに shipMode worker・stopReason null を返す（Issue #197）', () => {
   const r = shipModeConfig({ fleet: { shipMode: 'worker' } } as unknown as Pick<HarnessConfig, 'fleet'>);
-  assert.equal(r.shipMode, 'worker');
-  assert.equal(typeof r.stopReason, 'string');
-  assert.match(r.stopReason ?? '', /subagent/);
+  assert.deepEqual(r, { shipMode: 'worker', stopReason: null });
 });
 
 test('shipModeConfig：subagent・worker 以外（文字列・数値・null）は throw する', () => {

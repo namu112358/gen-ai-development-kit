@@ -101,7 +101,7 @@ export interface HarnessConfig {
     maxParallelShips?: number;
     /** 計画の files が重なれば待つ判定で、行を足すだけなら待たせない共有ファイルのパターン（harness/lib/scope.ts の書式）。無ければ何も除外しない（harness/lib/fleet.ts） */
     sharedFiles?: string[];
-    /** ship の動かし方。subagent（既定）はサブエージェント、worker（Orca の worker）はまだ無いので止める（shipModeConfig。Epic #281） */
+    /** ship の動かし方。subagent（既定）はサブエージェント、worker は Orca があれば ship を Orca の worker で動かす（無ければ今の手順。fleet の skill。Issue #197） */
     shipMode?: 'subagent' | 'worker';
   };
   /** hq（テーマごとの fleet をまとめて見る）の設定。maxFleets は hq のペインがまとめる fleet の数の目安（超えると警告。hqConfig） */
@@ -246,13 +246,13 @@ function sectionOf(raw: unknown, name: string, example: string): Record<string, 
 export const SHIP_MODE_DEFAULTS = { shipMode: 'subagent' } as const;
 
 /**
- * ship の動かし方（fleet.shipMode。無ければ subagent）。worker（Orca の worker として動かす）はまだ無いので、
- * 止める理由を stopReason に入れて返す（呼び出し元が止める）。それ以外の値は throw する。fleetConfig の戻り値は変えない
+ * ship の動かし方（fleet.shipMode。無ければ subagent）。worker は Orca があれば ship を Orca の worker として動かす
+ * （Orca の有無は fleet の skill が確かめる。Issue #197）。stopReason は将来の止めの入口で、今はどちらの値でも null（呼び出し元は値があれば止める）。それ以外の値は throw する。fleetConfig の戻り値は変えない
  */
 export function shipModeConfig(config: Pick<HarnessConfig, 'fleet'>): { shipMode: 'subagent' | 'worker'; stopReason: string | null } {
   const { shipMode = SHIP_MODE_DEFAULTS.shipMode } = sectionOf(config.fleet, 'fleet', '{ "shipMode": "subagent" }');
   if (shipMode === 'subagent') return { shipMode, stopReason: null };
-  if (shipMode === 'worker') return { shipMode, stopReason: 'ship を Orca の worker として動かす方式はまだ無い（Epic #281 の範囲の外）。fleet.shipMode を subagent にしてください' };
+  if (shipMode === 'worker') return { shipMode, stopReason: null };
   throw new Error('fleet.shipMode は subagent か worker で書いてください');
 }
 

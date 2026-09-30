@@ -10,6 +10,8 @@ ship（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）を複数の Issue に
 - **入れ子（orca、既定）**：サブエージェントの中でさらにサブエージェントを呼べる環境（Orca）で、Issue ごとに ship をサブエージェントとして並行に動かす（fleet > ship > plan-critic・test-designer・reviewer・risk-agent）。1つの Issue のコードの読み書きは、その ship のコンテキストに閉じる。手順は「入れ子の方式」の節。
 - **交互（flat）**：1つのセッションの中で、ship の段階を Issue ごとに交互に進める。ship の中でサブエージェントを呼ぶので、ship そのものをサブエージェントにしない。手順は「手順」の節の2〜5。入れ子の方式でも、ship が「入れ子不可」を返したらこちらに切り替える。
 
+`harness.config.json` の `fleet.shipMode` が `worker`（既定は `subagent`）で、かつ Orca があるときだけ、ship をサブエージェントでなく Orca の worker（独立したセッション）で動かす。手順は節「Orca の worker で ship を動かすとき」。Orca が無い・動かないときは、上の2つのどちらかで進める。
+
 hq に Orca の worker として起こされたとき（プロンプトに orchestration の注入の前置きがある）は、節「Orca の worker として動くとき」にも従う。それ以外のときは、その節を読まない。
 
 ## 入力
@@ -32,7 +34,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 
 ## 手順
 
-1. `node harness/scripts/agent.ts fleet-status`（対象を指定されたら番号も、本数を絞るなら `--max <n>` も渡す）で表を出し、「選ぶ」の Issue を控える。以降は同じ番号を渡して表を読み直す。選べる Issue が無ければ、待つ理由を添えて人に返す。表の末尾の「進め方」の行が入れ子（orca）なら、この手順1の宣言の扱いを守ったまま「入れ子の方式」の節で進め、交互（flat）なら手順2〜5で進める。`fleet-status` が `harness.config.json` の `fleet` の誤りで止まったら、人に返す（方式を推測で選ばない）。
+1. `node harness/scripts/agent.ts fleet-status`（対象を指定されたら番号も、本数を絞るなら `--max <n>` も渡す）で表を出し、「選ぶ」の Issue を控える。以降は同じ番号を渡して表を読み直す。選べる Issue が無ければ、待つ理由を添えて人に返す。表の末尾の「進め方」の行が入れ子（orca）なら、この手順1の宣言の扱いを守ったまま「入れ子の方式」の節で進め、交互（flat）なら手順2〜5で進める。ただし `node harness/scripts/panes.ts config` の `shipMode` が `worker` なら、先に節「Orca の worker で ship を動かすとき」の 1 で Orca の有無を確かめ、あればその節で進める。`fleet-status` が `harness.config.json` の `fleet` の誤りで止まったら、人に返す（方式を推測で選ばない）。
    - このセッションの着手宣言（宣言の session が今のセッションの ID と同じ）は選ばれ、メモに段階が出る。PR の無い段階は Issue の宣言を、PR の段階は PR の宣言（`claim <PR番号> --stage judge|fix|sync`）を見る（メモには「PR の着手宣言」と出る）。「着手宣言あり」で選ばれない Issue が止まった前のセッションの途中のもの（`/clear` で ID が変わった場合を含む）なら、1件ずつ聞かずに、前のセッションごとに「前のセッション（session <短い ID>）の宣言 #…（N 件）をこのセッションに引き継ぐか」を AskUserQuestion の1問でまとめて聞く（おすすめは引き継ぐ。Orca の worker のときは hq に `ask` の1問）。引き継ぐなら全部を `node harness/scripts/agent.ts claim <番号> --manual --takeover` で出し直して読み直す（PR の段階なら `claim <PR番号> --manual --stage judge|fix|sync --takeover`）。拒まれたら出し直さない。
    - Issue に手を付ける最初に、ship と同じく `claim <番号> --manual --stage <段階>` で宣言する。人の判断待ちで止めてセッションを終えるときは `release <番号>` で解除する。
    - `claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue を飛ばして次の Issue へ進み、最後の一覧に「#番号 は session … が着手中」と載せる（引き継ぐかは人が決める）。
@@ -78,6 +80,45 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - Merge 済みの Issue が出たら、次にやることが sync になった残りの PR の ship を呼び直す。
 3. 「選ぶ」の Issue が全部、人の Merge 待ちか人の判断待ちになるまで、1〜2を繰り返す。その後、手順6〜8に進み（手順8の一覧は、ship が返した人がすることの項目をまとめる）、人の判断待ちだけが残ったのでなければ、終わらずに節「待つ間の読み直し」へ進む。
 
+## Orca の worker で ship を動かすとき
+
+`fleet.shipMode` が `worker` で、かつ Orca があるときだけ、Issue ごとに ship を Orca の worker（独立した Claude のセッション）で起こす（#197。人の決定 2026-09-30）。既定の `subagent` と、Orca が無いときの手順（「手順」「入れ子の方式（orca）」の節）は変えない。ここに書いていないことは、上の節（入力・選び方・手順）のとおりに進める。hq に起こされた fleet（節「Orca の worker として動くとき」）も、この節で ship を worker で動かしてよい（質問は ship → fleet → hq の順に `ask` で上げる）。
+
+Orca のコマンドは、orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」で決めた実行ファイルを使う（下では `ORCA` と書く。そのまま打たずに置き換える。Linux で素の実行ファイル名を使わない）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
+
+1. **Orca の有無を確かめる**：`node harness/scripts/panes.ts config` の `shipMode` が `worker` のとき、`ORCA status --json` と `ORCA skills get orchestration` を走らせる。両方が成功すれば、この節で進める。どちらかが失敗したら、Orca が無い・動かないとして、今の手順（「手順」と「入れ子の方式（orca）」の節。中身は変えない）で進める（戻り先は下の 7）。この分かれ道は、入口の skill（orca-cli・orchestration）の「エラーを報告して止まる」「`ORCA open` で起動する」より優先する。`ORCA open` は試さない。
+2. **Run を作る**：`ORCA orchestration run-create --objective "<テーマか Issue 番号の集合>" --json` で fleet の Run を1つ作り、ship の worker の `worker-start`・`check`・`worker-list` には `--run <fleet の Run ID>` を付ける。hq の Run と分かれるので、hq が数える fleet に ship の worker が混ざらない。
+3. **worker を起こす条件**：`node harness/scripts/agent.ts fleet-status` の「選ぶ」の Issue のうち、次にやることが段階（plan・implement・judge・fix・sync）で、控え（scratchpad の `fleet-ship-workers.json`：Issue 番号・Dispatch ID・worktree・起こしたときの次にやること）に settle していない Dispatch が無い Issue だけを起こす。
+   - `worker_done`（人の判断待ち・人の Merge 待ち）で返った Issue は、表の次にやることが控えと変わるまで起こし直さない。
+   - 「—」（計画ゲート・判定の受け付け・Merge 経路を待つ）の Issue は起こさない。
+   - 同時に動かすのは、表の「同時に動かす ship は <n> まで」の数まで。
+4. **worker を起こす**：Issue ごとに次の順で進める。
+   - `node harness/scripts/agent.ts claim <番号> --manual --stage <次にやることの段階>`（次の `worktree` がこのセッションの宣言を要るため。PR の段階なら `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge|fix|sync`）
+   - `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>`（PR があれば、その head のブランチ）
+   - `ORCA terminal create --worktree path:<worktree の絶対パス> --json` で素のシェルのターミナルを作り、`ORCA terminal send --terminal <handle> --text "claude --permission-mode auto" --enter` で権限モードを明示して Claude を起動する（`--command` に空白を含めて渡さない決まりのため、`terminal send` で送る）。
+   - `ORCA terminal read --terminal <handle> --json` で起動した画面を読み、モードの表示が `auto mode` かを確かめる。bypass（`bypass permissions`）だった・auto でない・確かめられないときは、その worker を起こさず、`ORCA terminal close --terminal <handle>` で閉じ、その Issue を進めずに人に返す（hq に起こされた fleet なら hq に `escalation`）。
+   - `node harness/scripts/agent.ts release <番号>`（worker が自分のセッションで宣言し直すため）
+   - `ORCA orchestration worker-start --spec "<仕様>" --worktree path:<worktree の絶対パス> --terminal <handle> --run <fleet の Run ID> --json`。受け取った Dispatch ID を控えに書く。
+   - Issue #197 の本文は `--agent claude` で起こすと書いているが、`worker-start` には権限モードを渡すフラグが無く、人の決定（2026-09-29：権限モードを明示して起動し、画面の表示を確かめる）を守れない。そのため `--agent claude` を使わず、権限モードを明示して起動したターミナルを `--terminal` で渡す。
+5. **仕様**：`--spec` は Task-spec の5項目（対象・すること・守ること・持ち分・終わりの確かめ）で、それだけで分かるように書く。
+   - 対象：Issue 番号、worktree の絶対パス、`node harness/scripts/agent.ts fleet-status` に渡す番号の集合と `--max`
+   - すること：ship の skill（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）で、人の Merge 待ちか人の判断待ちまで進める
+   - 守ること：最初に自分のセッションで `node harness/scripts/agent.ts claim <番号> --manual --stage <段階>` を出す。領域の上限で止まったら `--force` を付けて宣言し直す（fleet は領域の上限を見ないため）。ほかのセッションの宣言で止まったら何もせず、`worker_done` を `--outcome failed` で送る。人に聞くところは AskUserQuestion を使わず、前置きの `ask` で fleet に聞く。bypass permissions で動いていると分かったら進めず、`--outcome failed` で返す。Merge・Draft の解除・保護ラベルの付け外しをしない
+   - 持ち分：その Issue の worktree の中だけを書き換える
+   - 終わりの確かめ：人がすることの項目を `--report-path` のファイルに書き、`worker_done` を1回だけ送る。人の判断待ちで止めるなら `node harness/scripts/agent.ts release <番号>` で解除してから送る
+6. **待つ・答える**：`ORCA orchestration check --wait --run <fleet の Run ID> --types "worker_done,escalation,question" --json` で待つ。
+   - 状態の正は GitHub（`node harness/scripts/agent.ts fleet-status`）で、人の判断の正はラベル。Orca の decision gate は知らせるだけで、判断の正にしない。
+   - `question`：fleet が答えられないもの（人の判断）は、今の手順のとおり AskUserQuestion で人に聞く（hq に起こされた fleet なら、節「Orca の worker として動くとき」の 5 のとおり hq に `ask` で上げる）。答えは `ORCA orchestration reply --id <message_id> --body "<人の答え>" --run <fleet の Run ID> --json` で、人の言葉のまま worker に返す。
+   - `escalation`：理由を人がすることの一覧に書く（hq に起こされた fleet なら hq に `escalation` で送る）。
+   - `worker_done`：`--report-path` のファイルを読み、控えを直し、`node harness/scripts/agent.ts fleet-status` を読み直して、上の 3 の条件で次の worker を起こす。settle した worker は `ORCA orchestration worker-release --dispatch <Dispatch ID> --json` で解放する。
+   - fleet の `release` から worker の `claim` までの間にほかのセッションが宣言したときは、worker が failed の `worker_done` で返る。控えの Dispatch を settle 済みにして解放し、次の読み直しでその Issue が「着手宣言あり」なら起こし直さず、最後の一覧に「#番号 は session … が着手中」と書く（引き継ぐかは人が決める）。
+   - hq に起こされた fleet は2つを読む：前置きの `check`（hq からの指示）と、自分の Run の `check --run <fleet の Run ID>`（ship の worker）。段階の切れ目（`worker_done` を受けたとき・`fleet-status` を読み直すとき）には、先に前置きの `check` で hq の指示を読み、次に自分の Run を読む。自分の Run の `check --wait` は `--timeout-ms` を付けて区切り、区切りごとに前置きの `check` と heartbeat をはさむ。
+7. **起動に失敗したとき**：`worker-start`（または上の 4 の起動・画面の確かめの手前の Orca のコマンド）が 0 以外で終わった Issue は出し直さず、このセッションで今の手順で進める。
+   - hq に起こされていない fleet：入れ子の方式（`fleet.nesting` が `orca`）か、交互の方式（`flat`、または入れ子にできないとき）。
+   - hq に起こされた fleet（前置きがあるとき）：入れ子の方式に戻るだけ。入れ子にできなければ、節「Orca の worker として動くとき」の 2 のとおり理由を hq に `escalation` で送って止める（交互の方式では fleet がファイルを書き換えるため）。
+   - ship をサブエージェントとして並べる決まり（交互の方式では ship をサブエージェントにしない・入れ子の方式の本数の上限）は残す。Orca の worker は独立したセッションなので、この決まりには当たらない。
+8. **人がすることの一覧**：手順8の一覧は、各 worker の `worker_done` のレポートをまとめて作る。worker の ship の費用は、記録のディレクトリが worker ごとに分かれるので `node harness/scripts/agent.ts usage` の合計に入らない。一覧の「費用」にこの限界を書く（合計は別の Issue。人の決定 2026-09-30）。
+
 ## Orca の worker として動くとき
 
 hq（テーマごとの fleet をまとめる付き添いのセッション）が Orca の orchestration で起こした fleet の手順。人に聞く窓口は hq にまとめる（ship → fleet → hq → 人）。ここに書いていないことは、上の節（入力・選び方・手順・入れ子の方式）のとおりに進める。
@@ -86,8 +127,9 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
 
 1. **当てはまるとき**：プロンプトに orchestration の注入の前置き（Task ID・Dispatch ID・worker の handle・capability）があるとき。前置きが無ければこの節は使わず、今までどおり AskUserQuestion で人に聞く。前置きのコマンド（実行ファイル・handle・capability・ID）は写して使い、組み立て直さない。
 2. **ship の動かし方を読む**：最初に `node harness/scripts/panes.ts config` を読む。
-   - 終了コード 1（`fleet.shipMode` が `worker`）：着手宣言をせず、何もしないで止める。標準エラーの理由を hq に `escalation` で送り、`worker_done` を `--outcome failed` で送る。
+   - `worker`：節「Orca の worker で ship を動かすとき」で、ship を Orca の worker として起こす（ship の worker は fleet の Run に入れ、質問は ship → fleet → hq の順に `ask` で上げる）。その節の 1 で Orca が動かなければ、または起動に失敗したら、その節の 7 のとおり入れ子の方式に戻る。
    - `subagent`（既定）：入れ子の方式で進める。
+   - 終了コード 1（設定の誤りなど）：着手宣言をせず、何もしないで止める。標準エラーの理由を hq に `escalation` で送り、`worker_done` を `--outcome failed` で送る。
    - 表の「進め方」が交互（flat）のとき、または ship が「入れ子不可」を返したときも、同じく理由を hq に送って止める。交互の方式では fleet が worktree で自分でファイルを書き換えることになり、下の 4 に反するため。止めるときに着手宣言が残っていれば `release <番号>` で解除する。
 3. **ペインを作る**：fleet の Claude のターミナル（前置きの handle。無ければ `ORCA terminal list --worktree current --json` で自分のもの）を `ORCA terminal split --terminal <handle> --json` で3回分けて、4ペイン（fleet の Claude・進み具合・あなたがすること・PR と費用）にする。分けたペインで動かすコマンドは、`--command` に空白を含めて渡さない。`ORCA terminal send --terminal <新しい handle> --text "<コマンド>" --enter` で後から送る。
    - 進み具合：`node harness/scripts/panes.ts collect --session <fleet のセッション ID> --label "<テーマ>" [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...`。GitHub を読むのはこのペインだけで、間隔は `panes.collectIntervalSeconds`
@@ -95,7 +137,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - PR と費用：`node harness/scripts/panes.ts prs --session <fleet のセッション ID>`
    - セッション ID は fleet 自身のもの（`AGENT_HARNESS_SESSION`）。表示用のペインは Claude のセッションではないので、渡さないと fleet の宣言が「ほかのセッション」と表示される。テーマは hq の指示の名前（`fleet: #<Epic番号> <短い名前>` の名前）。名前は表示のためだけで、宣言・usage・`fleet-status` はセッション ID で見分ける。Issue 番号は `fleet-status` に渡す番号の集合と同じにする。
    - 作ったペインの handle を控える（片付けで使う）。対象の Issue が変わったら、進み具合のペインを閉じて作り直す。
-4. **fleet は指揮と読むことだけ**：fleet はリポジトリのファイル（ワークスペースの checkout と Issue の worktree）を書き換えない。コードや docs の書き換え・commit・push は、ship が Issue の worktree の中でだけ行う。fleet がするのは、`fleet-status`・`panes.ts`・`usage`・`gh` で読むこと、ship を呼ぶこと、着手宣言（`claim`・`release`）、hq とのやり取りだけ。一時ファイルは scratchpad にだけ書く。
+4. **fleet は指揮と読むことだけ**：fleet はリポジトリのファイル（ワークスペースの checkout と Issue の worktree）を書き換えない。コードや docs の書き換え・commit・push は、ship が Issue の worktree の中でだけ行う。fleet がするのは、`fleet-status`・`panes.ts`・`usage`・`gh` で読むこと、ship を呼ぶこと、着手宣言（`claim`・`release`）、hq とのやり取り、ship を worker で動かすとき（節「Orca の worker で ship を動かすとき」）の `node harness/scripts/agent.ts worktree`（リポジトリの外に Issue の worktree を作るだけ）と、ship の worker の `terminal create`・`terminal send`・`worker-start`・`worker-release` だけ。一時ファイルは scratchpad にだけ書く。
 5. **人に聞く（ask）**：ship と fleet の手順が AskUserQuestion で聞くところでは、AskUserQuestion を使わず、前置きの `ask` のコマンドで hq に聞く。手順1の引き継ぎ、手順2と入れ子の方式の手順2の投稿の前の質問、`agent:plan-review` で進めてよいか、「進める／直す／やめる」、手順8の人の判断待ちなどがこれに当たる。前置きに無ければ、形は `ORCA orchestration ask --from <handle> --dispatch-capability <capability> --question "<質問>" --options "<おすすめ>,<ほかの選択肢>" --timeout-ms <ミリ秒>`。
    - 1回の `ask` に1問。質問には、Issue 番号・段階・なぜ人が要るかを1行で入れる。選択肢はおすすめを先頭に置く。聞き方の決まりは [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方と同じで、書式や既定の規則で決まることは聞かない。
    - 待つ間に時間切れや切断になっても、新しく聞き直さない。同じ質問の ID を `--resume <message_id>` に渡して待ち直す（同じ質問を二重にしない）。

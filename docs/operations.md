@@ -71,7 +71,7 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 
 | キー | 既定 | 内容 |
 | --- | --- | --- |
-| `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker`（ship を Orca の worker として動かす）はまだ無いので、fleet が理由を示して止まる |
+| `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker` は Orca があれば ship を Orca の worker で動かす（無ければ今の手順） |
 | `hq.maxFleets` | 2 | 同時に動かす fleet の数の上限（正の整数）。hq のペインは超えると警告する |
 | `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
 | `hq.stuckMinutes` | 120 | AI の番の行がこれ以上同じ状態なら、進んでいないとみなす（正の整数、分） |
