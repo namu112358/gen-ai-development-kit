@@ -133,10 +133,10 @@ test('ガードレール：合体版の定義・skill・スクリプト・ロジ
 
 // ---- 切り替え ----
 
-test('切り替え：harness.config.json の reviewPanel.mode は off・shadow・enforce のどれか（このリポジトリは shadow）', () => {
+test('切り替え：harness.config.json の reviewPanel.mode は off・shadow・enforce のどれか（このリポジトリは enforce）', () => {
   const mode = config.reviewPanel?.mode;
   assert.ok(mode === 'off' || mode === 'shadow' || mode === 'enforce', `reviewPanel.mode: ${mode}`);
-  assert.equal(mode, 'shadow');
+  assert.equal(mode, 'enforce');
 });
 
 test('切り替え：judge の skill が mode を読み、off・shadow・enforce の3つの分岐がある', () => {

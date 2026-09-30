@@ -10,7 +10,7 @@ import { APP, CRITIQUE, DELEGATE, critiqueClaim, ctxFor, delegateLabeled, delega
 import { appRecordComment } from './support/stack-fixtures.ts';
 
 /** ガードレールに当たり、delegateMergeExclude に当たらない files（委任なら飛ばせる停止） */
-const GUARDED = 'harness/lib/plan.ts';
+const GUARDED = 'harness/lib/epic.ts';
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex');
 let nextId = 7000;
 

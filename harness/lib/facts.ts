@@ -127,7 +127,7 @@ function areaFullFor(cfg: HarnessConfig, gate: ReturnType<typeof latestPlanGate>
   return full.length > 0 ? describeFullAreas(full) : null;
 }
 
-/** 判定コメントへの App の返答をこれ以上待たない時間（ゲートの実行が落ちた場合に判定し直す） */
+/** 判定コメントへの App の返答をこれ以上待たない時間の既定値（ゲートの実行が落ちた場合に判定し直す。routine.gateReplyTimeoutMinutes が無いとき） */
 const GATE_REPLY_TIMEOUT_MS = 30 * 60_000;
 
 /**
@@ -162,7 +162,7 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
   const lastGateReply = comments.filter((c) => isAppComment(cfg, c) && /kind=(acceptance|verdict-rejected)/.test(c.body)).at(-1);
   const verdictBlock = verdict ? extractBlock(verdict.body, 'agent-verdict') : null;
   const verdictHead = verdictBlock?.found && verdictBlock.ok ? (verdictBlock.value as { headSha?: unknown }).headSha : undefined;
-  const verdictFresh = verdict !== null && Date.now() - new Date(verdict.created_at).getTime() < GATE_REPLY_TIMEOUT_MS;
+  const verdictFresh = verdict !== null && Date.now() - new Date(verdict.created_at).getTime() < (cfg.routine.gateReplyTimeoutMinutes !== undefined ? cfg.routine.gateReplyTimeoutMinutes * 60_000 : GATE_REPLY_TIMEOUT_MS);
   const noReplyYet = verdict !== null && (!lastGateReply || lastGateReply.created_at < verdict.created_at);
   // 判定した head が今の head と違っても、PR 自身の差分の patch-id が同じなら App は受け付ける（on-comment.ts の onVerdict と同じ条件）。
   // 判定した head の diff は、判定が新しく返事がまだ無いときだけ取る（API 呼び出しを増やさない）。取れなければ待ちに数えない

@@ -23,9 +23,17 @@ export interface HarnessConfig {
     issueTriage: 'off' | 'shadow' | 'label';
     /** Jev に priority を問うときの段階ごとの基準（英文）。空でない文字列の段階だけ既定（harness/lib/issue-triage.ts）を上書きする（Issue #259） */
     priorityCriteria?: Partial<Record<'highest' | 'high' | 'medium' | 'low' | 'lowest', string>>;
+    /** 1回の定期実行で Jev に分類を問う Issue の数の上限（残りは次の実行）。無ければ 5（harness/gates/label-apply.ts の JEV_PER_RUN。Issue #272） */
+    issueTriageJevPerRun?: number;
   };
   mergeMethod: 'SQUASH' | 'MERGE' | 'REBASE';
-  routine: { maxItemsPerRun: number; humanClaimStaleHours: number; routineClaimTakeoverMinutes: number };
+  routine: {
+    maxItemsPerRun: number;
+    humanClaimStaleHours: number;
+    routineClaimTakeoverMinutes: number;
+    /** 判定コメントへの App の返答をこれ以上待たない時間（分。過ぎたら判定し直す）。無ければ 30（harness/lib/facts.ts。Issue #272） */
+    gateReplyTimeoutMinutes?: number;
+  };
   /**
    * true なら、Assignee がちょうど1人で今の GitHub のユーザーである Issue（と、その Issue を Close する PR）にだけ着手する（claim --manual・ensureOwnClaim・fleet。harness/lib/assignee.ts）。
    * 無ければ（または false なら）確かめない（Issue #172）
@@ -57,6 +65,12 @@ export interface HarnessConfig {
    */
   bypassMerge?: { label: string };
   /**
+   * auto mode（計画ゲートと Merge を App に任せ、Jev と Claude のどちらかが危険と答えたものだけを保留する。Epic #339）。
+   * ダッシュボードに人が label を付けている間だけ有効（期限なし）。jev は危険の問い（計画用・PR 用）と、安全側の確率の下限。
+   * 無い項目は既定値（harness/lib/auto-mode.ts の autoModeConfig）
+   */
+  autoMode?: { label?: string; jev?: { dangerSafe?: number; plan?: AutoModeJevQuestion; pr?: AutoModeJevQuestion } };
+  /**
    * 委任承認の間でも人が承認・Merge するパス（自動 Merge の仕組みそのもの。harness.config.json は一覧に無くても当たる）。範囲パターンの書式。
    * 触れる PR は委任で自動経路に乗せず、重なりうる files の計画は委任で計画ゲートを通さない
    */
@@ -81,16 +95,103 @@ export interface HarnessConfig {
     maxParallelShips?: number;
     /** 計画の files が重なれば待つ判定で、行を足すだけなら待たせない共有ファイルのパターン（harness/lib/scope.ts の書式）。無ければ何も除外しない（harness/lib/fleet.ts） */
     sharedFiles?: string[];
+    /** ship の動かし方。subagent（既定）はサブエージェント、worker（Orca の worker）はまだ無いので止める（shipModeConfig。Epic #281） */
+    shipMode?: 'subagent' | 'worker';
   };
-  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; /** テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問うか（無ければ shadow。jev.mode とは独立。Q95） */ testTamper?: 'off' | 'shadow' | 'enforce'; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** ラベルごとの下限（ラベル → 0〜1）。当たらないラベルは labelProbability。labelProbability が未設定なら使わない（Q94） */ labelProbabilityByLabel?: Record<string, number>; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number; /** testTamper が enforce のとき、agent/tests を通す確率の下限（無ければ通さない） */ testTamperProbability?: number } };
+  /** hq（テーマごとの fleet をまとめて見る）の設定。maxFleets は hq のペインがまとめる fleet の数の目安（超えると警告。hqConfig） */
+  hq?: { maxFleets?: number };
+  /** fleet と hq のペイン表示（harness/scripts/panes.ts）。collectIntervalSeconds は collect が GitHub と記録を読む間隔（panesConfig） */
+  panes?: { collectIntervalSeconds?: number };
+  jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; /** テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問うか（無ければ shadow。jev.mode とは独立。Q95） */ testTamper?: 'off' | 'shadow' | 'enforce'; /** 決定の記録を Jev に問う項目の数の上限（超えれば問わない。無ければ 20。harness/lib/decision.ts。Issue #272） */ decisionMaxTargets?: number; /** 決定の記録を Jev に問う答えの文字数の上限（無ければ 20000） */ decisionMaxAnswerChars?: number; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** ラベルごとの下限（ラベル → 0〜1）。当たらないラベルは labelProbability。labelProbability が未設定なら使わない（Q94） */ labelProbabilityByLabel?: Record<string, number>; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number; /** testTamper が enforce のとき、agent/tests を通す確率の下限（無ければ通さない） */ testTamperProbability?: number } };
   /** モデル ID → 100 万トークンあたりの USD（推定料金用。`$comment` は無視される） */
   pricing?: PricingTable;
 }
 
+/** auto mode の Jev への問い（Noul の1問。英文。criteria の形は Noul の API に合わせる） */
+export interface AutoModeJevQuestion {
+  instructions: string;
+  criteria: { true: string; false: string };
+}
+
 const CONFIG_PATH = fileURLToPath(new URL('../../harness.config.json', import.meta.url));
 
+/**
+ * 設定を読み、上限の数値のキーを検査する（limitErrors）。誤りがあれば throw する（上限が効かないまま動かない。Issue #272）。
+ * 上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない
+ */
 export function loadConfig(path: string = CONFIG_PATH): HarnessConfig {
-  return JSON.parse(readFileSync(path, 'utf8')) as HarnessConfig;
+  const config: unknown = JSON.parse(readFileSync(path, 'utf8'));
+  const errors = limitErrors(config);
+  if (errors.length > 0) throw new Error(`harness.config.json の上限の設定に誤りがあります：${errors.join(' / ')}`);
+  return config as HarnessConfig;
+}
+
+type LimitKind = 'positiveInteger' | 'positive' | 'nonNegative';
+
+/** 上限の数値のキー（パス・求める形・必須か）。areaConcurrency の各値と fixLoop の大小は limitErrors が別に調べる */
+const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
+  { path: 'routine.maxItemsPerRun', kind: 'positiveInteger', required: true },
+  { path: 'routine.humanClaimStaleHours', kind: 'positive', required: true },
+  { path: 'routine.routineClaimTakeoverMinutes', kind: 'positive', required: true },
+  { path: 'routine.gateReplyTimeoutMinutes', kind: 'positive', required: false },
+  { path: 'fixLoop.normalLimit', kind: 'positiveInteger', required: true },
+  { path: 'fixLoop.criticalLimit', kind: 'positiveInteger', required: true },
+  { path: 'syncLoop.limit', kind: 'positiveInteger', required: false },
+  { path: 'staleHours', kind: 'positive', required: true },
+  { path: 'delegateMerge.hours', kind: 'positive', required: false },
+  { path: 'delegateMerge.minRemainingMinutes', kind: 'nonNegative', required: false },
+  { path: 'fleet.maxParallelShips', kind: 'positiveInteger', required: false },
+  { path: 'jev.maxDiffChars', kind: 'positiveInteger', required: true },
+  { path: 'jev.decisionMaxTargets', kind: 'positiveInteger', required: false },
+  { path: 'jev.decisionMaxAnswerChars', kind: 'positiveInteger', required: false },
+  { path: 'classification.issueTriageJevPerRun', kind: 'positiveInteger', required: false },
+];
+
+const LIMIT_KIND_TEXT: Record<LimitKind, string> = { positiveInteger: '正の整数', positive: '正の数', nonNegative: '0 以上の数' };
+
+function limitOk(kind: LimitKind, value: unknown): boolean {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return false;
+  if (kind === 'positiveInteger') return Number.isInteger(value) && value > 0;
+  return kind === 'positive' ? value > 0 : value >= 0;
+}
+
+function valueAt(root: unknown, path: string): unknown {
+  let cur = root;
+  for (const key of path.split('.')) {
+    if (cur === null || typeof cur !== 'object' || Array.isArray(cur)) return undefined;
+    cur = (cur as Record<string, unknown>)[key];
+  }
+  return cur;
+}
+
+const shown = (value: unknown): string => (value === undefined ? '無し' : JSON.stringify(value));
+
+/**
+ * 上限の数値のキーを型と範囲で検査し、誤りごとに「キー・求める形・今の値」の1文を返す（純粋関数。Issue #272）。
+ * 必須のキーが無いのも誤り。省略できるキーは、無ければ調べない
+ */
+export function limitErrors(config: unknown): string[] {
+  const errors: string[] = [];
+  for (const { path, kind, required } of LIMIT_KEYS) {
+    const value = valueAt(config, path);
+    if (value === undefined && !required) continue;
+    if (!limitOk(kind, value)) errors.push(`${path} は${LIMIT_KIND_TEXT[kind]}で書いてください（今の値：${shown(value)}）`);
+  }
+  const normal = valueAt(config, 'fixLoop.normalLimit');
+  const critical = valueAt(config, 'fixLoop.criticalLimit');
+  if (limitOk('positiveInteger', normal) && limitOk('positiveInteger', critical) && (critical as number) < (normal as number)) {
+    errors.push(`fixLoop.criticalLimit は fixLoop.normalLimit 以上で書いてください（今の値：${shown(critical)}、normalLimit：${shown(normal)}）`);
+  }
+  const areas = valueAt(config, 'areaConcurrency');
+  if (areas !== undefined) {
+    if (areas === null || typeof areas !== 'object' || Array.isArray(areas)) errors.push(`areaConcurrency は領域の名前 → 正の整数のオブジェクトで書いてください（今の値：${shown(areas)}）`);
+    else {
+      for (const [area, value] of Object.entries(areas)) {
+        if (!limitOk('positiveInteger', value)) errors.push(`areaConcurrency.${area} は正の整数で書いてください（今の値：${shown(value)}）`);
+      }
+    }
+  }
+  return errors;
 }
 
 /** 委任承認のラベルの既定値 */
@@ -112,6 +213,12 @@ export function bypassMergeConfig(config: Pick<HarnessConfig, 'bypassMerge'>): {
   return { ...BYPASS_MERGE_DEFAULTS, ...config.bypassMerge };
 }
 
+/**
+ * auto mode のラベルの既定値（LABEL_DEFS で使う）。そのほかの既定値と設定の読み方は harness/lib/auto-mode.ts に置く（auto-mode.ts が config.ts を import し、逆はしない）。
+ * autoMode.label を変えても setup が作るのは既定の名前のラベルで、上書きが効くのは状態の判定だけ（bypass と同じ）
+ */
+export const AUTO_MODE_LABEL_DEFAULT = 'agent:auto-mode';
+
 /** fleet の進め方の既定値 */
 export const FLEET_DEFAULTS = { nesting: 'orca', maxParallelShips: 3 } as const;
 
@@ -121,6 +228,50 @@ export function fleetConfig(config: Pick<HarnessConfig, 'fleet'>): { nesting: 'o
   if (nesting !== 'orca' && nesting !== 'flat') throw new Error('fleet.nesting は orca か flat で書いてください');
   if (typeof maxParallelShips !== 'number' || !Number.isInteger(maxParallelShips) || maxParallelShips <= 0) throw new Error('fleet.maxParallelShips は正の整数で書いてください');
   return { nesting, maxParallelShips };
+}
+
+/** 設定の節がオブジェクトか（無い＝undefined は既定値で埋める）。それ以外は throw する */
+function sectionOf(raw: unknown, name: string, example: string): Record<string, unknown> {
+  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error(`${name} はオブジェクトで書いてください（例：${example}）`);
+  return (raw ?? {}) as Record<string, unknown>;
+}
+
+/** ship の動かし方の既定値 */
+export const SHIP_MODE_DEFAULTS = { shipMode: 'subagent' } as const;
+
+/**
+ * ship の動かし方（fleet.shipMode。無ければ subagent）。worker（Orca の worker として動かす）はまだ無いので、
+ * 止める理由を stopReason に入れて返す（呼び出し元が止める）。それ以外の値は throw する。fleetConfig の戻り値は変えない
+ */
+export function shipModeConfig(config: Pick<HarnessConfig, 'fleet'>): { shipMode: 'subagent' | 'worker'; stopReason: string | null } {
+  const { shipMode = SHIP_MODE_DEFAULTS.shipMode } = sectionOf(config.fleet, 'fleet', '{ "shipMode": "subagent" }');
+  if (shipMode === 'subagent') return { shipMode, stopReason: null };
+  if (shipMode === 'worker') return { shipMode, stopReason: 'ship を Orca の worker として動かす方式はまだ無い（Epic #281 の範囲の外）。fleet.shipMode を subagent にしてください' };
+  throw new Error('fleet.shipMode は subagent か worker で書いてください');
+}
+
+/** hq の既定値 */
+export const HQ_DEFAULTS = { maxFleets: 2 } as const;
+
+/** hq の設定（無い項目は既定値）。maxFleets は正の整数。書式の誤りは throw する */
+export function hqConfig(config: Pick<HarnessConfig, 'hq'>): { maxFleets: number } {
+  const { maxFleets = HQ_DEFAULTS.maxFleets } = sectionOf(config.hq, 'hq', '{ "maxFleets": 2 }');
+  if (typeof maxFleets !== 'number' || !Number.isInteger(maxFleets) || maxFleets <= 0) throw new Error('hq.maxFleets は正の整数で書いてください');
+  return { maxFleets };
+}
+
+/** ペイン表示の既定値。GitHub の API の二次の上限に当たったことがあるので、読む間隔は長め */
+export const PANES_DEFAULTS = { collectIntervalSeconds: 180 } as const;
+/** collect の読む間隔の下限（秒） */
+export const PANES_MIN_INTERVAL_SECONDS = 60;
+
+/** ペイン表示の設定（無い項目は既定値）。collectIntervalSeconds は 60 以上の整数。書式の誤りは throw する */
+export function panesConfig(config: Pick<HarnessConfig, 'panes'>): { collectIntervalSeconds: number } {
+  const { collectIntervalSeconds = PANES_DEFAULTS.collectIntervalSeconds } = sectionOf(config.panes, 'panes', '{ "collectIntervalSeconds": 180 }');
+  if (typeof collectIntervalSeconds !== 'number' || !Number.isInteger(collectIntervalSeconds) || collectIntervalSeconds < PANES_MIN_INTERVAL_SECONDS) {
+    throw new Error(`panes.collectIntervalSeconds は ${PANES_MIN_INTERVAL_SECONDS} 以上の整数で書いてください`);
+  }
+  return { collectIntervalSeconds };
 }
 
 /** sync ⇄ judge のループの上限の既定値 */
@@ -218,7 +369,7 @@ export const GITHUB_ACTIONS_APP_ID = 15368;
 
 /**
  * projectChecks を既定値で埋めて検査する。書式の誤りは throw する。
- * loadConfig では検査しない（ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
+ * loadConfig では検査しない（loadConfig が検査するのは上限の数値のキーだけ（limitErrors）。ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
  */
 export function projectChecks(config: HarnessConfig): { context: string; integrationId: number }[] {
   const raw: unknown = config.projectChecks ?? [{ context: 'ci' }];
@@ -268,6 +419,7 @@ export const LABEL_DEFS: { name: string; color: string; description: string }[] 
   { name: DELEGATE_DEFAULTS.planLabel, color: '8a63d2', description: 'ダッシュボード専用・人だけが付ける: 計画ゲートの承認を App に委ねる（委任承認・計画）' },
   { name: DELEGATE_DEFAULTS.mergeLabel, color: '5319e7', description: 'ダッシュボード専用・人だけが付ける: 計画ゲートの承認と Merge を App に委ねる（委任承認・計画＋Merge）' },
   { name: BYPASS_MERGE_DEFAULTS.label, color: 'b60205', description: 'ダッシュボード専用・人だけが付ける: ブロッキング指摘が無ければ Human Merge の理由を飛ばして自動 Merge する（bypass モード）' },
+  { name: AUTO_MODE_LABEL_DEFAULT, color: 'b60205', description: 'ダッシュボード専用・人だけが付ける: 計画ゲートと Merge を App に任せ、危険と判定したものだけ保留する（auto mode）' },
   { name: riskLabel('low'), color: 'c2e0c6', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
   { name: riskLabel('medium'), color: 'fef2c0', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },
   { name: riskLabel('high'), color: 'f9d0c4', description: 'Issue：計画時の想定 Risk／PR：App が受け付けた判定の Risk（表示用）' },

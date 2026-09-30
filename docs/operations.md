@@ -77,6 +77,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | `agent:delegate-plan` | 人のみ | ダッシュボード専用。計画ゲートの承認だけを App に委ねる「委任承認（計画）」のスイッチ（`harness.config.json` の `delegate.planLabel`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けている間、ガードレール・想定 Risk だけで止まる計画に App が `agent:plan-ok` を付け、付けたときと定期実行で、その理由だけで止まっている Issue を判定し直す（[risk-policy.md](risk-policy.md#委任承認)）。期限は無い。外すと計画の委任が終わるだけで、委任で付けた `agent:plan-ok` は外さない |
 | `agent:delegate-merge` | 人のみ | ダッシュボード専用。計画ゲートの承認と Merge の判断を App に委ねる「委任承認（計画＋Merge）」のスイッチ（`harness.config.json` の `delegate.mergeLabel`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けている間、`agent:delegate-plan` と同じく計画を通し、条件を満たす Agent PR にガードレール・Risk の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#委任承認)）。期限は無い。外すと、委任で付けた auto-merge を外して人にレビューを依頼する（委任で付けた `agent:plan-ok` は外さない） |
 | `agent:bypass-merge` | 人のみ | ダッシュボード専用。ブロッキング指摘の無い Agent PR の Merge を App に任せる「bypass モード」のスイッチ（`harness.config.json` の `bypassMerge`）。セッションは付け外ししない（hook と deny で止める）。付けている間（期限なし）、ブロッキング指摘が無く範囲照合と `agent/tests` を通る Agent PR に、Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#bypass-モード)）。外す・停止スイッチで、bypass で付けた auto-merge を外して人にレビューを依頼する |
+| `agent:auto-mode` | 人のみ | ダッシュボード専用。計画ゲートと Merge の両方を App に任せ、危険なものだけを人の判断に保留する「auto mode」のスイッチ（`harness.config.json` の `autoMode`）。セッションは付け外ししない。有効な条件は bypass と同じ（人が付けたもの、期限なし、停止スイッチが優先）。危険の判定は Jev（`autoMode.jev` の問いと下限）と Claude の両方に問い、どちらかが危険・判断できない、記録が無い・読めないときは保留する。今はラベルと判断の lib（`harness/lib/auto-mode.ts`）だけで、App の計画ゲート・Merge の経路はまだ auto mode を見ない（Epic #339 の子課題で足す） |
 
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
 
@@ -162,6 +163,30 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 - 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。急ぐときは `--force` を付ける。ほかのセッションの着手宣言があるときも止まり、こちらは `--force` では越えない。引き継ぐのは人が決めたときだけで、`--takeover` を付ける。
 - 修正の上限（`agent:blocked`、理由コード `fix-limit`）で止まった Agent PR は Draft のまま人を待つので、数え続ける。人が片付けるまで、同じ領域の新しい着手は止まる。
 - 計画・判定・修正の段階は止めない。
+
+## 上限の設定
+
+運用の上限の数値は、すべて `harness.config.json` にある（Issue #272）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q101）。
+
+| キー | 今の値 | 意味 | 読む側 |
+| --- | --- | --- | --- |
+| `routine.maxItemsPerRun` | 5 | 1回の Routine で扱う項目の数 | Routine（[.claude/routine.md](../.claude/routine.md)） |
+| `routine.humanClaimStaleHours` | 6 | 人の着手宣言を期限切れとみなす時間 | ゲート・セッション（queue・`claim`・`fleet-status`） |
+| `routine.routineClaimTakeoverMinutes` | 90 | Routine の着手宣言を引き継げるまでの時間 | ゲート・セッション（queue） |
+| `routine.gateReplyTimeoutMinutes` | 30 | 判定コメントへの App の返答を待つ時間（過ぎたら判定し直す） | `prFacts` を通してゲートとセッション（queue・fleet）の両方 |
+| `areaConcurrency` | `{"harness": 3}` | 領域ごとに同時に開いてよい判定前の Agent PR の数（節「同時に開ける PR の数」） | ゲート（queue）・セッション（`claim`） |
+| `fixLoop.normalLimit`・`criticalLimit` | 2・3 | 修正の上限（`criticalLimit` は `normalLimit` 以上） | ゲート・セッション（`agent.ts step`） |
+| `syncLoop.limit` | 3 | sync ⇄ judge のループの上限 | セッション（`agent.ts step`） |
+| `staleHours` | 24 | 停滞とみなす時間・ダッシュボードで見返す期間 | ゲート（`stale`） |
+| `jev.maxDiffChars` | 80000 | Jev に渡す diff の文字数の上限 | ゲート |
+| `jev.decisionMaxTargets`・`decisionMaxAnswerChars` | 20・20000 | 決定の記録を Jev に問う項目の数・答えの文字数の上限（超えれば問わない） | ゲート |
+| `classification.issueTriageJevPerRun` | 5 | 1回の定期実行で Jev に分類を問う Issue の数（残りは次の実行） | ゲート（`label-apply`） |
+| `fleet.maxParallelShips` | 3 | `--max` が無いときに同時に動かす ship の数 | セッションだけ |
+| `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
+
+- `routine.gateReplyTimeoutMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。
+- 読むときの検査：`loadConfig` が上限の数値のキーを型と範囲で検査する（`harness/lib/config.ts` の `limitErrors`）。回数・件数・文字数は正の整数、時間は正の数、`minRemainingMinutes` は 0 以上。必須のキー（`routine` の3つ、`fixLoop` の2つ、`staleHours`、`jev.maxDiffChars`）が無いのも誤り。誤りがあれば、キーと今の値を示して止まる（上限が効かないまま動かない）。上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない。
+- 誤りのある設定が main に入ると、ゲートと `agent.ts` のコマンドが全部止まる。guard の hook も設定を読めず、`git … push` を送り先に関わらず止めるので、セッションは直す PR を push できない。人が手元で `harness.config.json` を直す PR を出して Merge する。`npm run check` が実物の設定と雛形を検査する（`harness/test/config-limits.test.ts`）ので、PR の段階で落ちる。
 
 ## テストの改ざん検査
 
@@ -253,6 +278,8 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 委任承認を見返す | ダッシュボードの委任承認の状態の行（計画のみ・計画＋Merge・無効と、付けた人）、「委任承認で Merge された PR」（直近 `staleHours` 時間）、PR の App の記録（`kind=delegated-merge`）、Issue の計画ゲートの記録（`kind=plan-gate` の `delegated`）を見る |
 | bypass モードを始める | ダッシュボードに `agent:bypass-merge` を付ける（外すまで続く）。ブロッキング指摘の無い Agent PR は、ハーネス自身の変更も含めて自動 Merge される（[risk-policy.md](risk-policy.md#bypass-モード)） |
 | bypass モードを見返す | ダッシュボードの「bypass で Merge された PR」（直近 `staleHours` 時間）と、PR の App の記録（`kind=bypass-merge`）を見る |
+| auto mode を始める | ダッシュボードに `agent:auto-mode` を付ける（外すまで続く）。中核に触れる計画・PR も、Jev と Claude のどちらも危険と答えなければ App が通す（Epic #339 の子課題で App の経路に足す。それまではラベルを付けても動きは変わらない） |
+| auto mode を見返す | ダッシュボードの auto mode の状態・通した計画と Merge した PR・保留にしたものと理由（Epic #339 の子課題で足す）と、計画・PR の保留の理由のコメント（Jev の確率と Claude の答え）を見る |
 
 ## 止める仕組み
 
@@ -261,6 +288,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 停止スイッチ | 「Agent ダッシュボード」Issue に `agent:auto-merge-stopped` を付ける | App が全 PR の auto-merge を外し、merge-route が自動経路を failure にする。Human Merge は通る |
 | 委任承認を終える | ダッシュボードの `agent:delegate-plan`・`agent:delegate-merge` を外す（期限は無いので、外すまで続く）。停止スイッチでも止まる（停止スイッチの間は計画の委任も無効） | `agent:delegate-merge` を外すと、App が委任で付けた auto-merge を外し（記録 `delegated-merge-end`）、人にレビューを依頼する。自動 Merge の対象の PR（low など）はそのまま。`agent:delegate-plan` を外すと計画の委任が終わるだけ。どちらも委任で付けた `agent:plan-ok` は外さない |
 | bypass モードを終える | ダッシュボードの `agent:bypass-merge` を外す。停止スイッチでも止まる | App が bypass で付けた auto-merge を外し（記録 `bypass-merge-end`）、人にレビューを依頼する。委任承認（計画＋Merge）で乗る PR は委任に引き継ぐ。自動 Merge の対象の PR（low など）はそのまま |
+| auto mode を終える | ダッシュボードの `agent:auto-mode` を外す。停止スイッチでも止まる | App が auto mode で付けた auto-merge を外し、記録を残して人にレビューを依頼する（bypass と同じ。Epic #339 の子課題で足す）。自動 Merge の対象の PR（low など）はそのまま |
 | 最終手段 | Settings → General → Allow auto-merge を切る | auto-merge が一斉に効かなくなる |
 | 個別停止 | Issue / PR に `agent:hold` を付ける | PR は merge-route が failure、Issue は Routine が処理しない。外されると App が記録する |
 | revert で自動停止 | 自動 Merge された PR を revert する | App が停止スイッチを入れる。人が確認して外すまで再開しない |
@@ -282,6 +310,26 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。集計のしかたと切り替えの基準は [security.md](security.md#jev) を見る。同じ集計の最後に、合体版のレビューの記録と今の判定を比べる節（「合体版のレビュー（記録だけの期間の比較）」）が出る。その切り替えの基準は [plan.md](plan.md) の決定ログの Q91。
 
 PR に残る実行メトリクスのトークン数と推定料金（`harness.config.json` の `pricing` で計算）はセッションの累計による目安で、実際の請求額ではない。手元では `node harness/scripts/agent.ts usage` で確認できる。
+
+## 保守の観測
+
+PR ごとの判定は1つの diff しか見ないので、リポジトリ全体に積み重なるずれは、人が指示したときに `node harness/scripts/observe.ts` で1回分だけ観測する。LLM を呼ばない決まる集計で、判断（直すか・Issue にするか）は人が行う。
+
+```
+node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run-tests] [--previous <前回の JSON>] [--offline]
+```
+
+| 節 | 出るもの（根拠） |
+| --- | --- |
+| docs の照合 | docs（`docs/upstream/` を除く）・skill・agent の定義・`.claude/routine.md`・CLAUDE.md・`harness/CLAUDE.harness.md`・README に書かれた、実在しない `agent.ts` のサブコマンド・リポジトリ内のパス・ラベル名・設定キー（「`harness.config.json` の `キー`」の形で書いたもの）と、リンク切れ・無い見出しへのリンク（ファイルと行、名前）。コードブロックの中、`<…>` を含む例、導入先のパス（リポジトリの最上位に無い名前で始まるもの）は見ない |
+| ホットスポット | 直近 `--days` 日（既定 30）の変更回数 × 今の行数の大きい順（変更回数、追加・削除行数、行数）。消えたファイルと `classification.sizeExclude` に当たるものは除く |
+| 遅いテスト | テストごと・ファイルごとの時間の上位。`--junit` に Node の junit の出力を渡すか、`--run-tests` でこのリポジトリのテストを動かす（導入先には `harness/test` が無いので `--junit` を渡す）。どちらも無ければ読めない旨を出す |
+| 不安定なテスト | 同じ head で失敗の後に成功した CI の実行のテスト名ごとの回数と、失敗した実行の URL（qa-retro と同じ集め方） |
+| 生き残ったミュータント | ci ワークフローの mutation ジョブのログの `survived` の行（ファイル・行・壊し方・PR・実行の URL）。同じ箇所は新しい実行だけ残し、今は無いファイルは除く。行番号はその PR のもので、今の main とずれることがある。ログが読めなかった実行は数と理由を出す |
+
+- 標準出力に人が読む要約を出し、最後の行に JSON のパスを出す。JSON は OS の一時ディレクトリに書く。リポジトリにも GitHub にも書かない（GitHub は gh の認証で読むだけ）。
+- 各節は `--top`（既定 20）件までで、切った数を出す。GitHub が読めない（`--offline`、認証が無い）ときは、不安定なテストと生き残ったミュータントの節を読めない旨にして、ほかの節は出す。
+- `--previous` に前回の JSON を渡すと、節ごとに「新しく出たもの」「消えたもの」（上位の中での比較）を足す。次の段階で `/loop` から呼ぶときの材料にする（前回の JSON をどこに置くかは呼び出す側が決める）。集計のロジックは `harness/lib/observe.ts`・`observe-docs.ts`・`hotspot.ts`・`test-health.ts`。
 
 ## よくある質問
 

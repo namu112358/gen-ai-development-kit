@@ -8,6 +8,7 @@
 | `api-count.ts` | GitHub API の呼び出しの回数を、メソッドとパスの形（番号などを伏せたもの）ごとに数える（#247）。 | ○ |
 | `arch-review.ts` | arch-review（Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す skill）の決まる部分。 | ○ |
 | `assignee.ts` | 担当（Issue の Assignee）の確かめ（Issue #172）。 | ○ |
+| `auto-mode.ts` | auto mode（Epic #339）の設定・今の状態・Jev の危険の問い・保留するかの判断。 | ○ |
 | `blocks.ts` | コメントに埋め込む構造化データと目印。 | ○ |
 | `claim.ts` | 着手宣言の投稿と読み直し（Issue #171）。 | ○ |
 | `classify.ts` | PR の分類ラベル（表示用）。 | 対象外 |
@@ -22,11 +23,15 @@
 | `flow.ts` | 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。 | ○ |
 | `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |
 | `guardrail.ts` | ガードレール：Agent が自分を縛る仕組み（App が機械的に強制している部分）。 | ○ |
+| `hotspot.ts` | 保守の観測（harness/scripts/observe.ts）のホットスポット：直近の期間に変更の多い大きなファイル。 | ○ |
 | `issue-form.ts` | Issue Forms（.github/ISSUE_TEMPLATE/agent-task.yml）が出力する本文の読み取り。 | ○ |
 | `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。 | 対象外 |
 | `jev.ts` | TypeSafe AI の Jev（https://docs.typesafe.ai/api）で、Risk ポリシーの8問に1回の呼び出しで答えさせる。 | ○ |
 | `label-rules.ts` | 必須ラベルの検査（docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
+| `observe-docs.ts` | 保守の観測（harness/scripts/observe.ts）の docs の照合。 | ○ |
+| `observe.ts` | 保守の観測（harness/scripts/observe.ts）のまとめ。 | ○ |
+| `panes.ts` | fleet と hq のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
@@ -43,6 +48,8 @@
 | `stage-file.ts` | 段階のファイル：agent.ts step（harness/lib/step.ts）が返した今の段階（Issue・ノード・ブランチ・計画の files）を、セッションごとに書くファイル（Issue #306）。 | ○ |
 | `state.ts` | GitHub 上の状態の読み取り。 | ○ |
 | `step.ts` | agent.ts step の判断（Issue #306）：GitHub の事実と段階のグラフ（flow.ts）から、今やってよいノードを1つだけ返す。 | ○ |
+| `test-health.ts` | 保守の観測（harness/scripts/observe.ts）のテストの健康：遅いテスト、不安定なテスト（同じ head で失敗の後に成功）、mutation で生き残ったミュータント。 | ○ |
+| `test-prune.ts` | 減らせるテストの材料（harness/scripts/test-prune.ts）の決まる集計。 | ○ |
 | `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えを Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
 | `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |
