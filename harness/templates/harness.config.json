@@ -13,7 +13,8 @@
   "routine": {
     "maxItemsPerRun": 5,
     "humanClaimStaleHours": 6,
-    "routineClaimTakeoverMinutes": 90
+    "routineClaimTakeoverMinutes": 90,
+    "gateReplyTimeoutMinutes": 30
   },
   "testPatterns": [
     "**/*.test.*",
@@ -69,6 +70,8 @@
     "mode": "shadow",
     "model": "jev-1.13.0",
     "maxDiffChars": 80000,
+    "decisionMaxTargets": 20,
+    "decisionMaxAnswerChars": 20000,
     "decisionRelease": "shadow",
     "testTamper": "shadow",
     "thresholds": {
@@ -139,6 +142,7 @@
       ]
     },
     "issueTriage": "label",
+    "issueTriageJevPerRun": 5,
     "priorityCriteria": {
       "highest": "Emergency: security, data loss, a broken main branch, or everything else is blocked on it. Drop other work.",
       "high": "Urgent: blocks users or other planned work; should be done before regular work.",
