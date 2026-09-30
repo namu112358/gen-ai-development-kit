@@ -365,7 +365,7 @@ node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run
 
 ## 見直しを /loop で回す
 
-Merge 済みの変更の見直し（arch-review・qa-retro）は、人が付き添うセッションの `/loop` から続けて回せる。skill によらない規則をここに書き、1回分の処理（間隔の目安・見る範囲や期間・記録や状態の書式）は各 skill の「/loop で回すとき」の節に書く。
+見直し（Merge 済みの変更の arch-review・qa-retro と、テストの test-prune）は、人が付き添うセッションの `/loop` から続けて回せる。skill によらない規則をここに書き、1回分の処理（間隔の目安・見る範囲や期間・記録や状態の書式）は各 skill の「/loop で回すとき」の節に書く。
 
 - 回すのは、人が付き添うセッションの `/loop` だけ（`/loop 6h /arch-review --loop` のように）。schedule（Actions・クラウドの Routine）は使わない。セッションの中なので `gh` をそのまま使える。
 - `/loop` から呼ぶときは skill に `--loop` を付け、skill は `--loop` のあるときだけループの回として動く。人が `--loop` なしで呼んだときは、今までどおりの手順。

@@ -16,9 +16,9 @@ description: 人が付き添うセッションの /loop から、保守の観測
 ```
 
 - 間隔の目安：数時間〜1日おき（例 `/loop 6h /patrol`）。各見直しの間隔は下の決め方で patrol が絞るので、短めにしても回しすぎない。
-- `--max <n>`：1回に動かす見直しの上限（既定 2）。`patrol.ts select` に渡す。人に勧めるだけの見直し（test-prune）は枠を使わない。
+- `--max <n>`：1回に動かす見直しの上限（既定 2）。`patrol.ts select` に渡す。形が suggest（人に勧めるだけ）の見直しは枠を使わない。
 - `--state <path>`：状態のファイル（`patrol.ts previous`・`select`・`record` に渡す）。確かめるときの一時の状態に使う。既定は `git rev-parse --path-format=absolute --git-common-dir` の下の `agent-harness/patrol.json`（worktree をまたいで同じ。作業ツリーにも GitHub にも書かない）。
-- `--dry-run`：見直しを動かさず、観測・選択・記録と要約だけを行う（確かめるときに arch-review・qa-retro の本物の記録・状態を進めないため）。記録では `select` の `run` を `--ran` として渡す。`--dry-run` は `--state` と一緒のときだけ受け付け、`--state` が無ければその回を止めて理由を出す（既定の状態に、動かしていない見直しを記録しないため）。
+- `--dry-run`：見直しを動かさず、観測・選択・記録と要約だけを行う（確かめるときに arch-review・qa-retro・test-prune の本物の記録・状態を進めないため）。記録では `select` の `run` を `--ran` として渡す。`--dry-run` は `--state` と一緒のときだけ受け付け、`--state` が無ければその回を止めて理由を出す（既定の状態に、動かしていない見直しを記録しないため）。
 
 ## 手順
 
@@ -30,15 +30,15 @@ description: 人が付き添うセッションの /loop から、保守の観測
 4. `run` の順に、各 skill の「/loop で回すとき」の1回分の処理を行う（`--dry-run` なら動かさない）。
    - arch-review：`arch-review --loop` の回（[arch-review の「/loop で回すとき」](../arch-review/SKILL.md)）。観測は arch-review の回が自分で回すので、patrol の観測の JSON は渡さない。
    - qa-retro：`qa-retro --loop` の回（[qa-retro の「/loop で回すとき」](../qa-retro/SKILL.md)）。
-   - test-prune は `run` に入らない（`suggest` に入る）。patrol は `test-prune.ts` を動かさない。
+   - test-prune：`test-prune --loop` の回（[test-prune の「/loop で回すとき」](../test-prune/SKILL.md)）。手順2の観測の JSON を `test-prune.ts` の `--health` に渡す。
    - 1つの見直しが失敗・中断しても、残りの見直しは続ける。失敗したものは次の手順で「回した」に数えない。
-5. `node harness/scripts/patrol.ts record <観測の JSON> [--ran <回した見直し>]... [--suggested <勧めた見直し>]... [--state <path>]` で回を記録する（回した見直しの時刻・勧めた見直しの時刻を更新し、観測の JSON を状態の置き場所に写す）。回した見直しが無くても記録する（観測の写しが次の回の `--previous` になる）。`suggest` に入った test-prune は `--suggested test-prune` で渡す。
+5. `node harness/scripts/patrol.ts record <観測の JSON> [--ran <回した見直し>]... [--suggested <勧めた見直し>]... [--state <path>]` で回を記録する（回した見直しの時刻・勧めた見直しの時刻を更新し、観測の JSON を状態の置き場所に写す）。回した見直しが無くても記録する（観測の写しが次の回の `--previous` になる）。`--suggested` は `suggest` に入った見直しがあるときだけ渡す。
 6. 回の要約を文章で出す（PR・Issue には投稿しない）。
    - 観測の差：節ごとの増えた・消えた件数。差が読めない節はその旨
    - 動かした見直しと、回さなかった見直し（`skipped` と `reasons` の理由）
-   - 勧める見直し：`suggest` にあれば「test-prune を回す時期です（理由）。人が `/test-prune` を呼ぶ（観測の JSON のパスを渡せる）」
-   - たまった下書きの数：`node harness/scripts/agent.ts arch-review-pending` と `node harness/scripts/qa-retro-loop.ts pending` の未採用の数
-   - 「Issue にするなら『arch-review の下書きを選ぶ』『qa-retro の下書きを選ぶ』と頼む」（人が選ぶ場面は各 skill の手順のまま）
+   - 勧める見直し：`suggest` にあれば、その見直しと理由（人がその skill を呼ぶ）
+   - たまった下書きの数：`node harness/scripts/agent.ts arch-review-pending`・`node harness/scripts/qa-retro-loop.ts pending`・`node harness/scripts/test-prune-loop.ts pending` の未採用の数
+   - 「Issue にするなら『arch-review の下書きを選ぶ』『qa-retro の下書きを選ぶ』『test-prune の下書きを選ぶ』と頼む」（人が選ぶ場面は各 skill の手順のまま）
 
 - 止め方：`/loop` を止める（止めるよう頼む・セッションを閉じる）。手順5の前に止めた回は、次の回が同じ前回から観測の差を出し、見直しの時刻も進んでいない。
 - 同時に2つのセッションで patrol を回さない（状態のファイルは1つ。書き込みは一時ファイルに書いてから名前を変えるので壊れはしないが、回した時刻が後の側で上書きされる）。
@@ -51,10 +51,10 @@ description: 人が付き添うセッションの /loop から、保守の観測
 | --- | --- | --- | --- | --- |
 | arch-review | 動かす（`run`） | `docs` | 12 時間 | 3 日 |
 | qa-retro | 動かす（`run`） | `flakyTests`・`mutants` | 1 日 | 7 日 |
-| test-prune | 勧めるだけ（`suggest`） | `slowTests`・`flakyTests`・`mutants` | 1 日 | 14 日 |
+| test-prune | 動かす（`run`） | `slowTests`・`flakyTests`・`mutants` | 1 日 | 14 日 |
 
 - 見直しごとに、上から最初に当たったもの：一度も回していない（勧めていない）→ 選ぶ（`never`）／前回から上限以上 → 選ぶ（`overdue`）／下限未満 → 選ばない（`too-soon`）／対応する節に差がある → 選ぶ（`diff`）／それ以外 → 選ばない（`no-diff`）。
-- 経過は、動かす形なら前回回した時刻、勧めるだけの形なら前回勧めた時刻から測る（人が `/test-prune` を呼んだかは patrol から見えない）。
+- 経過は、動かす形なら前回回した時刻（`lastRunAt`）、勧めるだけの形なら前回勧めた時刻（`lastSuggestedAt`）から測る。今は3つとも動かす形（前の状態のファイルで test-prune に `lastSuggestedAt` しか無ければ、次の回は `never` として回す）。
 - 読めない節（null）と、前回の観測が無いとき（初回・写しが消えた）は差なしとして数える。
 - 動かすものが `--max` を超えたら、`never` → `overdue`（超えた時間の長い順）→ `diff`（差の件数の多い順）で上限までにし、残りは `limit` で次の回に回す。
 
@@ -69,8 +69,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 - `gh issue create` をしない（Issue にするのは、人が「〜の下書きを選ぶ」と頼んだときに各 skill の手順で）
 - ラベルを付けない（`agent:ready`・`priority:*`・`area:*` も）
 - PR・Issue に要約を投稿しない
-- 各 skill の記録・状態（arch-review の記録、`qa-retro-loop.json` など）を patrol が書き換えない
-- 無人の回で test-prune を動かさない（勧めるだけ）
+- 各 skill の記録・状態（arch-review の記録、`qa-retro-loop.json`・`test-prune-loop.json` など）を patrol が書き換えない
 - schedule（Actions・クラウドの Routine）で動かさない
 - 要約を判定の材料にしない（reviewer・risk-agent・review-panel に渡さない）
 

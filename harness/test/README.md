@@ -10,7 +10,8 @@
 | `skills.test.ts`・`ship-skill.test.ts`・`qa-retro-skill.test.ts`・`label-delegation.test.ts`・`label-session-decide.test.ts`・`arch-review-skill.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、ラベルを Jev に任せる手順・Jev が下限未満で付けなかったものをセッションが決めて付ける手順・arch-review の手順と arch-reviewer の定義の検査 |
 | `arch-review-loop.test.ts` | arch-review を `/loop` から回すときの検査（#328）：記録の書式（`trigger`・下書きの `body`・`duplicateOf`・`commented`、`/loop` の下書きの上限、本文の「下書き N 件・採用 M 件」）、下書きの採用（`adoptArchReviewDraft`）と採用待ちの一覧（`archReviewAdoption`）、本文の長さの上限、採用で編集した記録があっても作成の新しい記録を前回に選ぶこと、`arch-review-drafts --loop`、skill の「/loop で回すとき」の節と docs の見出し |
 | `qa-retro-loop.test.ts` | qa-retro を `/loop` から回すときの期間のつなぎ方（`harness/lib/qa-retro-loop.ts`：前回の回の終わりを次の始まりに・終わりは今の7日前、境目の PR が1回だけ数えられること）、状態のファイルの読み方と進めるときの一致の確かめ、下書きの記録と採用、skill・docs の書き方（#329） |
-| `patrol.test.ts` | 見直しのまとめ役 patrol が今回まわす見直しの決め方（`harness/lib/patrol.ts`：観測の差の有無・前回からの経過の下限と上限・1回に回す数の上限・test-prune は勧めるだけ）、2回分の回での変わり方、状態のファイルの読み書きと引数の検査 |
+| `test-prune-loop.test.ts` | test-prune を `/loop` から回すときの手元の状態（`harness/lib/test-prune-loop.ts`：状態のファイルの読み方、回の記録と古い集計の拒否、同じタイトルの下書きを重ねないこと、下書きの未採用の一覧と採用）と、skill・docs の書き方（#388） |
+| `patrol.test.ts` | 見直しのまとめ役 patrol が今回まわす見直しの決め方（`harness/lib/patrol.ts`：観測の差の有無・前回からの経過の下限と上限・1回に回す数の上限・時期が来た test-prune を回すこと・勧めるだけの形）、2回分の回での変わり方、状態のファイルの読み書きと引数の検査 |
 | `patrol-skill.test.ts` | patrol の skill（`.claude/skills/patrol/SKILL.md`）の書き方（入力・手順・やってはいけないこと、`patrol.ts`・`agent.ts` のコマンドの実在、docs/operations.md の「見直しを /loop で回す」へのリンク）と、skill の一覧への載せ方 |
 | `unowned-conflict.test.ts` | 持ち主のいない衝突した Agent PR の判定（`harness/lib/unowned-conflict.ts`：宣言の期限の数え方、期限内の宣言があれば出さない、表示する宣言の選び方、「引き継ぐか決める」の行の書き方）。ダッシュボードに出るかは `gates-stale-unowned-conflict.test.ts`（#371） |
 | `agent-commands.test.ts` | `harness/scripts/agent.ts` の入口がコマンドの一覧を持たず、`harness/scripts/agent/commands/` から読み込むこと（名前が分ける前と同じ・重複で止まる・.ts だけを読む・知らないコマンドの出力と終了コード）（#313） |
