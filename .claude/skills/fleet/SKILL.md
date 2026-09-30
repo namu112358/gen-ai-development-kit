@@ -111,6 +111,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - `question`：fleet が答えられないもの（人の判断）は、今の手順のとおり AskUserQuestion で人に聞く（hq に起こされた fleet なら、節「Orca の worker として動くとき」の 5 のとおり hq に `ask` で上げる）。答えは `ORCA orchestration reply --id <message_id> --body "<人の答え>" --run <fleet の Run ID> --json` で、人の言葉のまま worker に返す。
    - `escalation`：理由を人がすることの一覧に書く（hq に起こされた fleet なら hq に `escalation` で送る）。
    - `worker_done`：`--report-path` のファイルを読み、控えを直し、`node harness/scripts/agent.ts fleet-status` を読み直して、上の 3 の条件で次の worker を起こす。settle した worker は `ORCA orchestration worker-release --dispatch <Dispatch ID> --json` で解放する。
+   - 束の中の heartbeat（ship の worker の生存の知らせ）は、読んだらすぐ `--ack <delivery_id>` して、question・escalation・worker_done を後回しにしない（hq の手順7と同じ扱い。heartbeat を ack しないと、その後ろに並んだ question に届かない）。
    - fleet の `release` から worker の `claim` までの間にほかのセッションが宣言したときは、worker が failed の `worker_done` で返る。控えの Dispatch を settle 済みにして解放し、次の読み直しでその Issue が「着手宣言あり」なら起こし直さず、最後の一覧に「#番号 は session … が着手中」と書く（引き継ぐかは人が決める）。
    - hq に起こされた fleet は2つを読む：前置きの `check`（hq からの指示）と、自分の Run の `check --run <fleet の Run ID>`（ship の worker）。段階の切れ目（`worker_done` を受けたとき・`fleet-status` を読み直すとき）には、先に前置きの `check` で hq の指示を読み、次に自分の Run を読む。自分の Run の `check --wait` は `--timeout-ms` を付けて区切り、区切りごとに前置きの `check` と heartbeat をはさむ。
 7. **起動に失敗したとき**：`worker-start`（または上の 4 の起動・画面の確かめの手前の Orca のコマンド）が 0 以外で終わった Issue は出し直さず、このセッションで今の手順で進める。
@@ -167,10 +168,23 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
      - 人が fleet のタブ（fleet の Claude）で答えたら、それを人の答え（人の言葉のまま）として扱い、`node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <番号> --answer "<人の答え>"` で答え済みにしてから、各 skill の手順どおりに続ける（宣言し直して ship を呼び直すなど）。続きを進めたら `pending-remove` で控えから外す。
      - hq が戻ったとき（前置きの `check` に新しい hq の `send`（件名 `hq-back`）が届いた、または控えの `hqHandle` が変わり、その端末が live）：答えの無い控えのうち `messageId` のあるものは `ask --resume <message_id>` で待ち直し（新しい hq が前の Run を引き継いで同じ質問を受け取るので、新しく聞き直さない）、`messageId` の無いものは新しく `ask` する。hq に上げた控えは `node harness/scripts/hq-state.ts pending-remove --session <ID> --issue <番号>` でペインから外す（人と hq に二重に出さない）。答え済みの控えは待ち直さない（新しい hq が控えを読み、その質問に本文 `fleet のタブで人が答え済み` で `reply` する）。
 6. **hq からの追加の指示**：段階の切れ目（ship が返ったとき、`fleet-status` を読み直すとき）と `worker_done` の直前に、前置きの `check` のコマンドで hq の追加の指示を読む。前置きが求める間隔で heartbeat を送る（`ask`・`check --wait` の間は送らない）。
-7. **終わるとき**：`worker_done` を送るのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（節「待つ間の読み直し」の 7）。それまでは手順8の一覧を scratchpad に書き直し、`check` で hq の指示を読みながら読み直しを続ける。手順8の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
+   - heartbeat の間隔：前置きの間隔より短い間隔で送らない。この節の 8 で `status` を送った直後の区切りでは、heartbeat を重ねて送らない（束を増やして hq の question を遅らせないため）。
+7. **終わるとき**：途中の知らせは、この節の 8 で続けて送る（8 は終わるまでずっと続ける手順で、時間の順では 7 の前でもある）。`worker_done` を送るのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（節「待つ間の読み直し」の 7）。それまでは手順8の一覧を scratchpad に書き直し、`check` で hq の指示を読みながら読み直しを続ける。手順8の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
    - 送る前に、手順3で作った表示のペイン（あなたがすること・進み具合・PR と費用）を `ORCA terminal close --terminal <handle>` で閉じる。`ORCA terminal close` を送る前に毎回、閉じる handle が手順3で控えた表示のペインの handle で、fleet 自身の Claude の端末の handle と違うことを確かめる。同じなら閉じない（#409 で hq がペインを閉じたときに自分の端末まで閉じた見込みと同じことを、fleet で起こさないため）。
    - `ORCA terminal list --worktree current --json` で読み直して、閉じた後に残った空のシェルのペインも閉じる。このときも fleet 自身の Claude の端末の handle と比べ、同じものは閉じない。
    - ワークスペース（Orca の worktree）そのものは消さない（片付けるのは hq）。`worker_done` の後は、新しい作業を始めない。
+   - hq に `ask` で聞いて答えを待っている Issue があるうちは、`worker_done` を送らない（読み直しと `ask --resume <message_id>` の待ちを続ける）。交代・Orca のエラーなどで答えを待たずに終えるしかないときは、その Issue を `release <番号>` で解除し、レポートに「hq に聞いた質問（message_id・質問）の答えを受け取っていない」と書いてから送る。
+8. **hq に知らせる（send）**：途中の報告・連絡を、その都度 hq に `status` で送る。形は前置きの `--from`・`--dispatch-capability`・`--task-id`・`--dispatch-id` を写した `ORCA orchestration send ... --type status --subject "<件名>" --body "<1〜3行>"`（`--to` は付けない。worker が `--to` を省くと、自分の Dispatch の Run の mailbox（hq）に届く）。
+   - 送る時機：ship が返ったとき・`fleet-status` を読み直したとき・節「待つ間の読み直し」で気づいたとき。
+   - 報告（件名）：
+     - `ready-<PR>`：PR が人の Merge 待ち（`human-merge`・`auto-merge`）になった。本文に Human Merge か自動 Merge か
+     - `merged-<PR>`：Merge された
+     - `verdict-<PR>`：判定に合格／不合格。本文に合否とブロッキングの件数
+     - `wait-<Issue>`：fleet が Issue を待ちにした。本文に理由（重なり・PR 同士の衝突・`--max`・領域の上限・読み込みが古い）
+   - 連絡（件名 `notice`）：着手宣言の引き継ぎ・宣言で負けた・衝突・main の取り込みで判定が外れた・ほかのセッションと重なった。本文の先頭に Issue／PR 番号。人の判断が要るなら本文にそう書く。
+   - 相談：今の `ask`（この節の 5）のまま。人の判断が要るものは `status` で送らない。
+   - 二重に送らない：送った件名と状態を scratchpad の `fleet-hq-sent.json` に控え、読み直しで同じ状態なら送らない（状態が変わったら送り直す）。
+   - `status` は知らせるだけで、判断の正は GitHub（`fleet-status`）とラベル。
 
 ## ハーネスが更新されたときの交代
 
