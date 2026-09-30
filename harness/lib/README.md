@@ -8,6 +8,7 @@
 | `api-count.ts` | GitHub API の呼び出しの回数を、メソッドとパスの形（番号などを伏せたもの）ごとに数える（#247）。 | ○ |
 | `arch-review.ts` | arch-review（Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す skill）の決まる部分。 | ○ |
 | `assignee.ts` | 担当（Issue の Assignee）の確かめ（Issue #172）。 | ○ |
+| `auto-mode.ts` | auto mode（Epic #339）の設定・今の状態・Jev の危険の問い・保留するかの判断。 | ○ |
 | `blocks.ts` | コメントに埋め込む構造化データと目印。 | ○ |
 | `claim.ts` | 着手宣言の投稿と読み直し（Issue #171）。 | ○ |
 | `classify.ts` | PR の分類ラベル（表示用）。 | 対象外 |
@@ -32,6 +33,7 @@
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `observe-docs.ts` | 保守の観測（harness/scripts/observe.ts）の docs の照合。 | ○ |
 | `observe.ts` | 保守の観測（harness/scripts/observe.ts）のまとめ。 | ○ |
+| `panes.ts` | fleet と hq のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。 | ○ |
 | `past-pr-reads.ts` | judge-input の過去の PR の節の材料（変更ファイルを触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント）を GraphQL でまとめて読む。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
@@ -50,6 +52,7 @@
 | `state.ts` | GitHub 上の状態の読み取り。 | ○ |
 | `step.ts` | agent.ts step の判断（Issue #306）：GitHub の事実と段階のグラフ（flow.ts）から、今やってよいノードを1つだけ返す。 | ○ |
 | `test-health.ts` | 保守の観測（harness/scripts/observe.ts）のテストの健康：遅いテスト、不安定なテスト（同じ head で失敗の後に成功）、mutation で生き残ったミュータント。 | ○ |
+| `test-prune.ts` | 減らせるテストの材料（harness/scripts/test-prune.ts）の決まる集計。 | ○ |
 | `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えを Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
 | `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |

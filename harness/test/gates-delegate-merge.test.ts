@@ -17,7 +17,7 @@ import { acceptanceComment, appRecordComment, countCalls, dashboardLabelEvent, p
 
 const MERGE = DELEGATE.mergeLabel;
 const PLAN = DELEGATE.planLabel;
-const GUARDED = 'harness/lib/plan.ts';
+const GUARDED = 'harness/lib/epic.ts';
 const SKIP_DIFF = "diff --git a/a.test.ts b/a.test.ts\n--- a/a.test.ts\n+++ b/a.test.ts\n@@ -1 +1 @@\n-test('a', () => {});\n+test.skip('a', () => {});\n";
 
 const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
@@ -27,7 +27,7 @@ const critical = () => verdict({ risk: { ...verdict().risk, level: 'critical' } 
 /** 計画ゲートを通った計画（files 指定） */
 const planGate = (files: string[]) => appRecordComment(90, 'plan-gate', 'ok', { version: 1, planCommentId: 80, pass: true, reasons: [], plan: { files } });
 
-/** 判定の受け付け（onComment）用。変更ファイルと計画の files は同じ（範囲内）。既定はガードレールに触れる harness/lib/plan.ts */
+/** 判定の受け付け（onComment）用。変更ファイルと計画の files は同じ（範囲内）。既定はガードレールに触れる harness/lib/epic.ts */
 function verdictFake(o: { dashboardLabels: string[]; events?: unknown[]; files?: string[]; pr?: ReturnType<typeof pr>; diff?: string; prComments?: unknown[] }): FakeGitHub {
   const files = o.files ?? [GUARDED];
   const fake = acceptanceFake({ pr: o.pr ?? pr(), dashboardLabels: o.dashboardLabels, dashboardEvents: o.events ?? [], prComments: o.prComments ?? [] })

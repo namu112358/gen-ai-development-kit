@@ -85,7 +85,7 @@ test('ghApiArgs：include が偽なら今の引数と完全に一致（body あ�
 
 test('ghApiArgs：include が偽なら今の引数と完全に一致（accept 指定・先頭の / 無し）', () => {
   assert.deepEqual(ghApiArgs('GET', '/repos/o/r/pulls/3', { accept: 'application/vnd.github.diff', raw: true }, false), [
-    'api', '--method', 'GET', 'repos/o/r/pulls/3', '-H', 'Accept: application/vnd.github.diff',
+    'api', '--method', 'GET', 'repos/o/r/pulls/3', '-H', 'Accept: application/vnd.github.diff', '--allow-escape-sequences',
   ]);
   assert.deepEqual(ghApiArgs('GET', 'user', {}, false), ['api', '--method', 'GET', 'user', '-H', 'Accept: application/vnd.github+json']);
 });

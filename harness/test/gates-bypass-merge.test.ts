@@ -20,7 +20,7 @@ const STOP = config.autoMergeStopLabel;
 /** ガードレールにも delegateMergeExclude にも当たる（委任でも乗らない） */
 const CONFIG_FILE = 'harness.config.json';
 /** ガードレールに当たるが delegateMergeExclude には当たらない（委任で乗る） */
-const GUARDED = 'harness/lib/plan.ts';
+const GUARDED = 'harness/lib/epic.ts';
 const SKIP_DIFF = "diff --git a/a.test.ts b/a.test.ts\n--- a/a.test.ts\n+++ b/a.test.ts\n@@ -1 +1 @@\n-test('a', () => {});\n+test.skip('a', () => {});\n";
 
 const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
