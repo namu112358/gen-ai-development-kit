@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { HarnessConfig } from './config.ts';
 
 /**
@@ -33,12 +33,12 @@ const real = (p: string): string => {
 /** child が parent 自身かその下か */
 function isSameOrInside(parent: string, child: string): boolean {
   const rel = relative(parent, child);
-  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel));
 }
 
 /**
  * worktree の置き場所（絶対パス）。環境変数 → 設定 → 既定の順（空・空白だけは無いとみなす）。
- * `{repo}` はリポジトリ名、`~`・`~/`・`~\` はホーム、絶対パスはそのまま、それ以外は repoRoot から。
+ * `{repo}` はリポジトリ名、`~`・`~/`・`~\` はホーム（`~` の後ろは `/` も `\` も区切りとみなす。POSIX でも同じ）、絶対パスはそのまま、それ以外は repoRoot から。
  * 展開した結果が repoRoot 自身かその下、または repoRoot を含む祖先なら、値の出どころを示して投げる。
  * 比べるときだけ realpath でそろえ、返す値は resolve の結果のまま。env の既定は空（呼び出し元が process.env を渡す）
  */
@@ -56,7 +56,7 @@ export function worktreeRoot(
   if (value === null) return resolve(root, '..', `${name}.worktrees`);
   const replaced = value.replaceAll('{repo}', name);
   const expanded =
-    replaced === '~' ? resolve(home) : /^~[/\\]/.test(replaced) ? resolve(home, replaced.slice(2)) : isAbsolute(replaced) ? resolve(replaced) : resolve(root, replaced);
+    replaced === '~' ? resolve(home) : /^~[/\\]/.test(replaced) ? resolve(home, ...replaced.slice(2).split(/[/\\]/)) : isAbsolute(replaced) ? resolve(replaced) : resolve(root, replaced);
   const [r, e] = [real(root), real(expanded)];
   if (isSameOrInside(r, e)) throw new Error(`${source}（${value}）の worktree の置き場所 ${expanded} がリポジトリの中です。リポジトリの外を指定してください`);
   if (isSameOrInside(e, r)) throw new Error(`${source}（${value}）の worktree の置き場所 ${expanded} がリポジトリを含みます。リポジトリの外の別のディレクトリを指定してください`);
