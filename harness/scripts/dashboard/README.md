@@ -24,8 +24,13 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 
 ## 更新の仕組み
 
-- GitHub：`/issues?state=all&sort=updated` を条件付きリクエスト（`If-None-Match`）で `--interval` 秒ごとに問い合わせる。304（変化なし）は API の上限に数えられず、組み直しもしない。`updated_at` が変わった Issue / PR（と、それを Closes する側・される側）だけ facts を取り直す。
-- API の上限：応答の `X-RateLimit-*`（資源ごと。`/graphql` は `X-RateLimit-Resource: graphql`）と、GraphQL の応答に `data.rateLimit` があればそれを読む。どれかの資源の残りが `--min-remaining` の割合を切ったら、リセットの時刻まで GitHub を読まず、止めていることと再開の時刻を画面の上に出す（読み直しの途中で切ったら、その回の変化は取り込まずに次の回で読み直す）。
+- GitHub の見張り：`/issues?state=all&sort=updated` を条件付きリクエスト（`If-None-Match`）で `--interval` 秒ごとに問い合わせる。304（変化なし）は API の上限に数えられず、組み直しもしない。
+- GitHub の読み直し：`updated_at` が変わった Issue / PR（と、それを Closes する側・される側）だけ facts を取り直す。その材料は、変わった番号をまとめた GraphQL の問い合わせ1回で読む（`github.ts` の `DashboardData` の `refresh`。すべて読み直す `loadAll` も、開いた Issue と開いた PR を1回の問い合わせで読む）。1回で読めないのは次の2つだけ。
+  - 接続のページ送り（`pageInfo` の続き）。その接続だけの問い合わせで読み足し、REST には流さない。
+  - 新しく開いた PR（紐付けが変わった PR）が、その回に読んでいない Issue に紐付くときの2回目の問い合わせ。
+- REST に残るもの：見張りの条件付きリクエスト（上の項）、PR の差分（head ごとに覚え、同じ head では読み直さない）、Stacked PR の層の `/pulls/{n}`（`stack` の欄が GraphQL に無いため。読み直しの回の中だけ、PR ごと（同じ `updated_at`）に1回。`mergeable_state` が main の動きで変わるので、回をまたいでは使わない）。
+- App の名義：GraphQL は、読み手から見えない非公開の App（ハーネスの App もそう）の check run の checkSuite の `app` を null で返す。null はハーネスの App（`harness.config.json` の `appSlug`）の名義として読む（見える App は slug のまま）。
+- API の上限：応答の `X-RateLimit-*`（資源ごと。`/graphql` は `X-RateLimit-Resource: graphql`）と、GraphQL の応答に `data.rateLimit` があればそれを読む。読み直しのまとめた問い合わせ（ページ送り・2回目の問い合わせも）は `rateLimit` を含み、上限の読み取り（#278、`rate-limit.ts`）はその値も読む。どれかの資源の残りが `--min-remaining` の割合を切ったら、リセットの時刻まで GitHub を読まず、止めていることと再開の時刻を画面の上に出す（読み直しの途中で切ったら、その回の変化は取り込まずに次の回で読み直す）。
 - 失敗したとき（403・429・502・503・504・通信の失敗）：決まった間隔では読み直さず、full jitter の exponential backoff（`--interval` を基に倍々、上限 15 分）で遅らせる。`Retry-After`・リセットの時刻より早くしない。成功したら `--interval` に戻る。
 - ブラウザの接続（`/events`）が0の間は GitHub を読まない。接続が来たらすぐ1回読む（止めている・遅らせている間はその時刻まで待つ）。
 - セッション記録：`fs.watch` で変化を拾う（2秒ごとにも見直す）。
@@ -45,7 +50,7 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 | 名前 | 内容 |
 | --- | --- |
 | `graph.ts` | facts とセッションから列・タスク・辺を組む純粋関数と、前後の差分 |
-| `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し |
+| `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し（まとめた GraphQL の問い合わせでの先読み） |
 | `rate-limit.ts` | API の上限の残りを応答から読み、下限を切ったらリセットまで送らない Transport と fetch の包み |
 | `scheduler.ts` | 見張りの回し方（間隔・上限で止める・失敗の後の backoff・接続が0の間は読まない） |
 | `backoff.ts` | 失敗の後の待ち方（full jitter の exponential backoff） |
