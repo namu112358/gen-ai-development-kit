@@ -16,7 +16,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [fix](../.claude/skills/fix/SKILL.md) | ブロッキング指摘や人のレビューを直し、判定をやり直す |
 | [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
 | [arch-review](../.claude/skills/arch-review/SKILL.md) | Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す |
-| [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときだけ。Issue の段階ではない） |
+| [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） |
 | [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときだけ。Issue の段階ではない） |
 | [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） |
 
