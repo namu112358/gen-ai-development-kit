@@ -108,6 +108,14 @@ App が書く必須チェック。PR の差分からテストの削除、skip・
 
 Human Merge は人が PR を Merge する経路で、Risk が medium 以上の PR はこちらになる。自動 Merge は、low で条件をすべて満たす PR に App が auto-merge を付け、必須チェックが揃うと GitHub が Merge する経路。詳細：[risk-policy.md](risk-policy.md#自動-merge-の条件)
 
+### Stacked PR / 層
+
+Stacked PR は、下の層のブランチを base にした PR を重ねた GitHub のスタック。層はその1本1本の PR で、1層＝1 Issue。下の層は `Refs #N`、一番上の層は `Closes #N` で Issue に紐付く。付き添いのセッションだけで使い、いつも Human Merge。詳細：[operations.md](operations.md#stacked-pr)
+
+### orphan-base
+
+スタックでないのに base が既定ブランチ以外の PR。App が Draft に留めて `agent:blocked`（理由コード `orphan-base`）を付け、スタックに組まれるか base が既定ブランチになると戻す。Stacked PR の上の層は `gh stack link` で組むまで一時的にこの状態になる。詳細：[operations.md](operations.md#stacked-pr)
+
 ### 修正ループ
 
 Reviewer のブロッキング指摘を受けて Routine が直すこと。通常2回まで、3回目は critical な指摘があるときだけで、超えると `agent:blocked` になる。詳細：[plan.md](plan.md#運用)
