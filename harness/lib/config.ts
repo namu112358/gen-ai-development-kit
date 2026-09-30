@@ -10,6 +10,12 @@ import type { PricingTable } from './usage.ts';
 export interface HarnessConfig {
   appSlug: string;
   defaultBranch: string;
+  /**
+   * 作業用の worktree の置き場所（任意）。`~/` はホーム、相対パスは本体のリポジトリのルートから、`{repo}` はリポジトリ名に置き換える。
+   * 無ければ今の `../<リポジトリ名>.worktrees`。リポジトリの中になる値と、本体を含む祖先は拒む。
+   * パソコンごとの上書きは環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（こちらが優先）。決め方は `harness/lib/worktree.ts` の `worktreeRoot`
+   */
+  worktreeRoot?: string;
   agentBranchPrefix: string;
   /** ダッシュボード Issue にこのラベルがあれば自動 Merge モードは停止（ダッシュボードが無い場合も停止） */
   autoMergeStopLabel: string;

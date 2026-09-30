@@ -34,6 +34,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - ブランチは付き添いのセッションでも `claude/issue-<番号>-<短い名前>` にする。書いているのは AI なので Agent PR として扱い、判定・修正と、low なら自動 Merge の経路に乗る（critical は人が Merge する）。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。
 - 作業は常に worktree で行う（`node harness/scripts/agent.ts worktree <ブランチ>`。置き場所はリポジトリの外）。作業ツリーを複数の作業で共有しない。
+- Orca があるときも、Issue の作業の worktree は `node harness/scripts/agent.ts worktree <ブランチ>` で作り、Orca はその worktree でのエージェントの起動と監視に使う（[orca-cli](../.claude/skills/orca-cli/SKILL.md) の skill の「生の git worktree より Orca を優先」より、この規則を優先する。Orca の `worktree create` は `claude/` で始まらないブランチを作り Agent PR と見なされないので使わない）。`worktree` は Orca があれば、その worktree に表示名「#番号 短い名前」（ブランチの `claude/issue-<番号>-` の後ろ）と Issue を付ける（親子は付けない。表示のためだけで、着手宣言・usage・fleet-status はセッション ID で見分ける）。Orca が無い・動かないときは今の手順で進める（入口の skill（`orca-cli`・`orchestration`）の「エラーを報告して止まる」「`ORCA open` で起動する」より優先し、Orca のアプリを起動しない）。
 - プラグイン（[docs/setup.md](../docs/setup.md#8-プラグイン全員に同じ版で入れる) の節8）：Jev に関わる作業（問い・criteria・しきい値を書く計画・実装）では `typesafe` の skill を使う。skill を作る・直すときは `skill-creator` を使える。`pr-review-toolkit` の agent は判定（reviewer → App）の外の補助で、判定コメント（`agent-verdict`）の材料にしない。
 
 ## 立場
