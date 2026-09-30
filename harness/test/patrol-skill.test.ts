@@ -10,12 +10,6 @@ const HEADINGS = ['## 入力', '## 手順', '## 出力', '## やってはいけ�
 const OPERATIONS_LINK = '../../../docs/operations.md#見直しを-loop-で回す';
 const OPERATIONS_HEADING = '## 見直しを /loop で回す';
 
-/**
- * #328（arch-review を /loop で回す。未 Merge）が足すもの。#328 の Merge で消す。
- * それまでは、docs/operations.md の見出しと agent.ts のコマンドが「実在するか、ここに載っている」で通す。
- */
-const AWAITING_328 = { headings: [OPERATIONS_HEADING], agentCommands: ['arch-review-pending'] };
-
 const skillPath = join(root, '.claude', 'skills', 'patrol', 'SKILL.md');
 const readRoot = (...parts: string[]): string => readFileSync(join(root, ...parts), 'utf8').replace(/\r\n/g, '\n');
 const skill = (): string => readFileSync(skillPath, 'utf8').replace(/\r\n/g, '\n');
@@ -99,13 +93,10 @@ test('やってはいけないことに、AskUserQuestion・gh issue create・�
   for (const word of ['AskUserQuestion', 'gh issue create', 'ラベル']) assert.ok(body.includes(word), `「## やってはいけないこと」に「${word}」がありません`);
 });
 
-test('docs/operations.md の「見直しを /loop で回す」へリンクし、リンク先の見出しがある（#328 の Merge まで AWAITING_328 で通す）', () => {
+test('docs/operations.md の「見直しを /loop で回す」へリンクし、リンク先の見出しがある', () => {
   assert.ok(skill().includes(`](${OPERATIONS_LINK})`), `${OPERATIONS_LINK} へのリンクがありません`);
   const lines = readRoot('docs', 'operations.md').split('\n');
-  assert.ok(
-    lines.includes(OPERATIONS_HEADING) || AWAITING_328.headings.includes(OPERATIONS_HEADING),
-    `docs/operations.md に「${OPERATIONS_HEADING}」がありません`,
-  );
+  assert.ok(lines.includes(OPERATIONS_HEADING), `docs/operations.md に「${OPERATIONS_HEADING}」がありません`);
 });
 
 test('skill が使う patrol.ts のサブコマンド（previous・select・record）は、スクリプトの使い方のコメントに実在する', () => {
@@ -116,11 +107,11 @@ test('skill が使う patrol.ts のサブコマンド（previous・select・reco
   for (const sub of used) assert.ok(known.has(sub), `patrol.ts ${sub} は使い方のコメントにありません`);
 });
 
-test('skill が使う agent.ts のコマンドは使い方のコメントに実在し（#328 の Merge まで AWAITING_328 で通す）、arch-review-pending を含む', () => {
+test('skill が使う agent.ts のコマンドは使い方のコメントに実在し、arch-review-pending を含む', () => {
   const known = documentedAgentCommands();
   const used = [...skill().matchAll(/node harness\/scripts\/agent\.ts ([^\s`]+)/g)].map((m) => m[1]!);
   assert.ok(used.includes('arch-review-pending'), 'SKILL.md が node harness/scripts/agent.ts arch-review-pending を使っていません');
-  for (const cmd of used) assert.ok(known.has(cmd) || AWAITING_328.agentCommands.includes(cmd), `agent.ts ${cmd} は使い方のコメントにありません`);
+  for (const cmd of used) assert.ok(known.has(cmd), `agent.ts ${cmd} は使い方のコメントにありません`);
 });
 
 test('skill が使う qa-retro-loop.ts の pending は、スクリプトの使い方のコメントに実在する', () => {
