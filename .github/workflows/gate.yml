@@ -17,7 +17,7 @@ on:
   push:
     branches: [main]
   schedule:
-    - cron: '17 */3 * * *'
+    - cron: '17 * * * *'
   workflow_dispatch:
 
 # checkout に必要な最小限（private 移行後も checkout できるように）。書き込みはすべて App のトークンで行う
@@ -27,12 +27,12 @@ permissions:
 jobs:
   gate:
     # 関係のないイベントでは起動しない（Actions はジョブごとに1分単位で課金されるため）
-    # - コメント：計画・判定・決定の記録のブロックを含むものだけ。着手宣言（agent-claim）では起動しない（ゲートの判定は何もせず queue を公開し直すだけだったため。宣言の変化は次の gate の実行か定期実行で queue に出る）
+    # - コメント：計画・判定・決定の記録のブロックを含むものだけ。着手宣言（agent-claim）では起動しない（ゲートの判定は何もしないため。宣言の変化は定期実行か手動の起動で queue に出る）
     # - Issue：作成、タイトルの編集（本文の編集では動かない。type:* を付け直す。Sub-issue の追加は定期実行の label-apply で拾う）、Close と、意味のあるラベル（plan-ok はこの App 以外が付けたときだけ）
     # - PR：ラベルは hold と例外ラベル（plan / review / test:exempt）だけ。auto-merge の変化はこの App 以外によるものだけ
     # - PR：Ready への切り替え（ready_for_review）はこの App 以外によるものだけ（App 自身が Ready にしたときは起動しない）。スタックへの組み込み（stacked）でも起動する
     # 「この App」はリポジトリ変数 AGENT_APP_SLUG で判定する（他の Bot の操作は起動する）。
-    # どの実行も最後に queue（次に Routine がやること）をダッシュボードに公開し直す。着手宣言の変化は、次の gate の実行か定期実行（3時間ごと）で queue に出る。
+    # queue（次に Routine がやること）は、定期実行（1時間ごと）と手動の起動のときだけダッシュボードに公開し直す（イベントのたびに計算すると App の API の上限を超えるため。#379）。
     # GITHUB_TOKEN による操作は workflow を起動しないため、定期実行でも merge-route を照合し直す
     # 委任承認のラベル（ダッシュボードの agent:delegate-plan・agent:delegate-merge）の付け外しでも起動する。期限は無い（docs/risk-policy.md）
     if: >-
