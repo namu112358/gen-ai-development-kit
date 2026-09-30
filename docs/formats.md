@@ -192,7 +192,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 - 批評の止まり方（`critique-limit`・批評の `repeated-finding`・`drop`）は、Issue の Requirements の「stop のときは自分の宣言だけを解除する」の例外で、宣言を残す。有人セッションで人が「進める」と決めれば `post-plan` で投稿し、`post-plan` は `ensureOwnClaim` でこのセッションの宣言を確かめるため。「やめる」なら skill の手順で `release` する。ほかの stop で `step` が解除した後は、`release` を呼ばなくてよい。
 - 計画の段階は、段階のファイルの中だけで進む：`--plan <file>` は計画を書いた後（`agent.ts check` と同じ検査。通れば宣言を `plan-critique` にして node `plan-critique`、誤りがあれば node `plan` の `inputs` に誤り）、`--critique <file>` は plan-critic の出力を渡すとき（`go`・`split` なら node `plan-critique` の `allowed` に `post-plan`、`revise` は上限と繰り返しを見て node `plan`）。
-- `--proceed` は、人が `agent:plan-review` の計画を進めると決めたとき（計画コメントがあれば node `implement`）。人の答えが Planner の申告への答えなら、先に決定の記録（`post-decision`）を残す。
+- `--proceed` は、人が `agent:plan-review` の計画を進めると決めたとき（計画コメントがあれば node `implement`）。人の答えが Planner の申告への答えなら、先に決定の記録（`post-decision`）を残す。implement の前に、人の「進める」を `proceed` の決定の記録（[決定の記録](#決定の記録agent-decision)）で残す（委任・bypass の範囲照合に使えるようにする）。
 - `step` は1件の Issue で読むので、自分の PR が開いている間は「Merge 済みの PR があり main に追従していない」の sync は起きず、sync は main と衝突したときだけ（fleet は `fleet-status` で集合を見て決める）。
 - `sync ⇄ judge` の上限は `harness.config.json` の `"syncLoop": { "limit": 3 }`（正の整数。無ければ 3。`harness/lib/config.ts` の `syncLoopConfig`。書式が違えば `step` は GitHub を読む前にエラー）。
 
@@ -236,6 +236,19 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - `quote` は人の言葉そのまま（空は不可）。選択肢で答えたときは `choice` に選んだ項目を書き、`quote` に書き添えた文を書く。`at` は ISO 8601 の日時。
 - App が外すのは、最新の計画ゲートの記録が Planner の申告（`planReviewOrigin: planner`）の停止で、印がその計画の投稿（`post-plan`）か App の停止で付いたものだけ（`harness/lib/decision.ts` の `decisionEligibility`）。App のゲートの停止・人が付けた印・`acChangeProposed` は、この経路で外れない。
 - App が Jev に渡すのは、App の記録にある計画の写しの `needsHumanReasons`・`openQuestions` と、答えの `to`・`choice`・`quote` だけ（本文の要約と `at` は渡さない）。
+
+### 進める記録（proceed）
+
+`agent:plan-review` で止まった計画を、人が「この計画で進める」と決めたときも、付き添いのセッションが同じ `post-decision` で記録する（Issue #365）。`answers` の代わりに `proceed` を書く（同じ記録に両方は書けない。Planner の申告への答えがあれば、先に答えの記録を出し、その後に進める記録を出す）。
+
+```json
+{ "version": 1, "issue": 249, "planCommentId": 1234567890,
+  "proceed": { "choice": "進める", "quote": "この計画で進めて", "at": "2026-09-30T10:00:00+09:00" } }
+```
+
+- `quote` は人の言葉そのまま（空は不可）、`choice` は選択肢で答えたときに選んだ項目、`at` は ISO 8601 の日時。
+- App は Jev に問わず、`jev.decisionRelease` にも依らずに確かめ（`harness/lib/decision.ts` の `proceedEligibility`）、`plan-proceed` の記録を付ける。ラベルと計画ゲートの結果は変えない。対象になるのは、Issue が開いていて `agent:plan-review` が付き、App の最新の計画ゲートの記録が止まった記録で `planCommentId` が一致し、計画コメントの本文がゲートの後に変わっておらず、決定の記録がその停止の後に書かれ、計画に `acChangeProposed` が無く、今の印がどれかの計画の投稿（`post-plan`）か App の停止の窓（計画コメントの投稿の 60 秒前からその計画ゲートの記録まで）で付いたもの。窓の外で付いた印（人が付けた印）は対象外で、人が外して計画を出し直す。
+- 委任承認の Merge と bypass の範囲照合（`harness/lib/state.ts` の `issueDelegateFiles`）は、`status: ok` の `plan-proceed` の記録の `planCommentId` と `planBodySha256` が最新の計画ゲートの記録と一致し、今の計画コメントの本文の sha256 も一致するときだけ、その計画を使う。`agent/scope` は今までどおりゲートを通った計画だけ。
 
 ## arch-review の記録
 
@@ -302,6 +315,7 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | kind | 置き場所 | 内容 |
 | --- | --- | --- |
 | `plan-gate` | Issue | `{ planCommentId, planBodySha256, pass, reasons, plan, decisionCommentId?, critiqueProceeded?, delegated? }`。`plan` はゲート時点の計画の写し。`decisionCommentId` は決定の記録で判定し直したときのコメント。`critiqueProceeded`（`{ verdict: 'revise', mustRemaining }`）は、批評で必須の指摘が残ったまま人が進めると決めて通った計画（古い記録には無い）。`delegated`（`{ skipped, label, mode, by, since }`）は委任承認で通したときだけ：`skipped` は委任で飛ばした理由（ガードレール・Risk）、`label` は有効だったラベル、`mode` は `plan`（`agent:delegate-plan`）か `plan+merge`（`agent:delegate-merge`）、`by`・`since` はラベルを付けた人と時刻 |
+| `plan-proceed` | Issue | 進める記録（`agent-decision` の `proceed`）を App が確かめた結果。`{ version, decisionCommentId, planCommentId, planBodySha256, status, reasons? }`。`status` は `ok`（`planBodySha256` は確かめた時点の計画コメントの本文の sha256）か `ineligible`（`planBodySha256` は null、`reasons` に理由）。同じ `decisionCommentId` には二度書かない |
 | `plan-decision` | Issue | 決定の記録を App が確かめた結果。`{ version, decisionCommentId, planCommentId, mode, questionSet, threshold, status, model, answers, pass, missing, regate }`。`status` は `ok` / `invalid`（書式・答えの無い項目）/ `ineligible`（対象外）/ `skipped`（鍵が無い・大きすぎる）/ `error`。`mode` が `shadow` なら記録だけでラベルは変えない。`regate` は `enforce` で判定し直したか。同じ `decisionCommentId` には二度問わない |
 | `epic-split` | Issue（Epic の親） | `{ planCommentId, children }`。作った（または使い回した）子 Issue の番号を `split` の順に |
 | `queue` | ダッシュボードの本文 | `{ computedAt, actions, skipped }`。Routine が次にやること |

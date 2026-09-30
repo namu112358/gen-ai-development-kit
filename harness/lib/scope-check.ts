@@ -1,6 +1,7 @@
 /**
  * PR を出す前に、ローカルの変更が計画の files に収まるかを確かめる（agent.ts の scope-check、Issue #290）。
  * 照合は App の範囲照合と同じ関数（state.ts の issuePlannedFiles・issueDelegateFiles と scope.ts の checkScope）で行い、決まりを写さない。GitHub は読むだけ。
+ * 委任・bypass の照合は、人が進めると決めた計画（App の plan-proceed の記録）も使う（issueDelegateFiles。Issue #365）。
  */
 import { spawnSync } from 'node:child_process';
 import type { HarnessConfig } from './config.ts';
