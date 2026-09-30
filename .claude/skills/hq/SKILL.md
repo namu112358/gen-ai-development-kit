@@ -26,7 +26,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
      - 控えがあり、`hqSession` が自分でない：控えの `hqHandle` を `ORCA terminal show --terminal <hqHandle> --json` で読む。live なら前の hq が動いているので、始めずに人に返す（hq を2つ動かさない。前の hq が応答しない（固まった）なら、人が前の hq のタブを閉じてから `/hq` を呼び直す）。無ければ `ORCA orchestration run-use --id <runId> --json` で前の Run をこの端末に結び直し、`node harness/scripts/hq-state.ts pending --all` で fleet の控えを読んでから、`check` の未処理（`question`・`escalation`・`worker_done`）を手順7のとおり処理する。控えで答え済み（`answer` がある）の質問には、人に聞かずに本文 `fleet のタブで人が答え済み` で返す（返し方は手順7）。`ORCA orchestration worker-list --run <runId> --json` の settle していない Dispatch ごとに `ORCA orchestration send --to dispatch:<Dispatch ID> --subject "hq-back" --body "hq が戻りました（session <短い ID>）" --json` で戻ったことを知らせ、控えの `hqHandle`・`hqSession`・`paneHandles`（手順6で作り直したもの）を自分のものにして `hq-state.ts ledger-save` で置く。
      - `run-use` が失敗した（Run が消えた・結べない）：手順4のとおり新しい Run を作り、fleet の控えの答えの無い質問を手順12の一覧に「fleet のタブ（テーマ）で答える」として出す（fleet は hq がいないときの退行のまま、人の答えを fleet のタブで受ける）。
      - 控えが無い（または `hqSession` が自分）：今の手順（手順4の `worker-list` で聞き直す）で作り、`hq-state.ts ledger-save` で置く。
-2. **hq は書き換えない**：hq はリポジトリのファイル（本体・fleet のワークスペース・Issue の worktree）を書き換えない。するのは、読むこと（`gh`・`node harness/scripts/agent.ts fleet-status`・`panes.ts`・`node harness/scripts/agent.ts usage`・Orca の読むコマンド）、指揮（Orca の orchestration）、GitHub への記録（コメント・着手宣言）、intel への `SendMessage`（節「相談・アイデアを intel に回す」）と、人が承認した案だけの Epic の Issue の作成と sub-issues への付け足し（手順8の止まったタスクの見回し）だけ。一時ファイルは scratchpad にだけ書く。唯一の書き込みは、手順5の印のファイル（スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`hq-state.ts` の控え）は作業ツリーの外で、書き換えに数えない）。fleet も書き換えない（fleet の skill の「Orca の worker として動くとき」の4）。コードや docs を書き換えるのは、Issue の worktree の中の ship だけ。
+2. **hq は書き換えない**：hq はリポジトリのファイル（本体・fleet のワークスペース・Issue の worktree）を書き換えない。するのは、読むこと（`gh`・`node harness/scripts/agent.ts fleet-status`・`panes.ts`・`node harness/scripts/agent.ts usage`・Orca の読むコマンド）、指揮（Orca の orchestration）、GitHub への記録（コメント・着手宣言）、intel への `SendMessage` と intel のタブの起こし方（本体での `ORCA terminal create`・`terminal send`。節「相談・アイデアを intel に回す」）と、人が承認した案だけの Epic の Issue の作成と sub-issues への付け足し（手順8の止まったタスクの見回し）だけ。一時ファイルは scratchpad にだけ書く。唯一の書き込みは、手順5の印のファイル（スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`hq-state.ts` の控え）は作業ツリーの外で、書き換えに数えない）。fleet も書き換えない（fleet の skill の「Orca の worker として動くとき」の4）。コードや docs を書き換えるのは、Issue の worktree の中の ship だけ。
 3. **テーマの案 → 人の承認**：テーマは Epic（fleet のワークスペースは Epic ごとに1つ）。開いた Epic と子課題を `node harness/scripts/agent.ts fleet-status <子課題の番号>...` で読み、依存の鎖・`area:*`・計画の `files` の重なりから、「どの Epic を進めるか／Epic に入っていない Issue をどう Epic にまとめるか」の案を作る。テーマどうしで `files` が重なる組は、同時に起こさない案にする。案は AskUserQuestion で人に聞き、承認をもらう（おすすめを先頭、1回に4問まで。聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。Epic にまとめるために Issue を新しく作るかは人が決める。人が承認しなかったテーマは起こさない。
 4. **fleet の起動**：`ORCA status --json` で Orca を確かめ、`ORCA orchestration run-create --objective "<承認されたテーマ>" --json` で Run を1つ作る（hq の Run。Run ID と hq の Claude の端末の handle を控えの `hq-fleets.json` に書き、`hq-state.ts ledger-save` で置く）。テーマごとに次で fleet を起こす。
    ```text
@@ -85,12 +85,24 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
     - 引き継ぐなら、新しい fleet の指示に「人の決定：前の宣言を引き継ぐ」と、Issue の段階は `node harness/scripts/agent.ts claim <番号> --manual --stage <段階> --takeover`、PR の段階は `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge|fix|sync --takeover` で出し直すことを書く。fleet が `ask` で引き継ぎを聞いてきたら、人の同じ答えを `reply` で返し、人に聞き直さない。引き継がないなら、その Issue を指示から外し、手順12の一覧に書く。
     - 止め方と新しい Dispatch（`worker-stop`・`worker-abandon`、`worker-start --task <task_id> --retry-of <dispatch_id>`、同じワークスペース）は `references/recovery-and-cleanup.md` に従う。起こし直したら控えとペインを直す（ペインを閉じるときは手順6の「自分の端末を閉じない」の確かめをする。控えは `hq-state.ts ledger-save` で置く）。
 11. **片付け**：Epic が Close した（`gh issue view <Epic番号> --json state` が `CLOSED`）テーマだけを片付ける。fleet の worker を `worker-release` で解放し、控えから外して `hq-state.ts ledger-save` で置き、ペインを作り直し（閉じる handle が hq 自身の端末（控えの `hqHandle`）でないことを、`ORCA terminal close` の前に確かめる。手順6の「自分の端末を閉じない」）、`ORCA worktree rm --worktree path:<ワークスペースの絶対パス> --json` でワークスペースを消す。人の判断待ちだけが残るとき（Epic が開いている）は残す。
-12. **人がすることの一覧**：各 fleet の `worker_done` のレポートと `panes.ts hq` の一覧を1つにまとめて人に出す（Merge・例外ラベル・`setup.ts` の要否・Merge 後の確かめ・人の判断待ち・進んでいない fleet・起こし直しの上限を超えた fleet・引き継がなかった宣言・手順7でためた fleet の報告・連絡（`merged`・`verdict`・`wait`・`notice`）・返せなくなった答え）。手順8の止まったタスクの見回しからは、割り振ったもの（どの fleet に渡したか）・案として聞いたもの（Epic の案・引き継ぎの問い）・人が決めなかったもの（答え無し・拒まれた・空き待ち）と、patrol の未採用の下書きの数を足す。費用は手順8の `panes.ts fleets --session` の各行の `totalUsd` と、hq 自身の `node harness/scripts/agent.ts usage` をまとめる。
+12. **人がすることの一覧**：各 fleet の `worker_done` のレポートと `panes.ts hq` の一覧を1つにまとめて人に出す（Merge・例外ラベル・`setup.ts` の要否・Merge 後の確かめ・人の判断待ち・進んでいない fleet・起こし直しの上限を超えた fleet・引き継がなかった宣言・手順7でためた fleet の報告・連絡（`merged`・`verdict`・`wait`・`notice`）・返せなくなった答え・intel に回せなかった気づき（節「相談・アイデアを intel に回す」））。手順8の止まったタスクの見回しからは、割り振ったもの（どの fleet に渡したか）・案として聞いたもの（Epic の案・引き継ぎの問い）・人が決めなかったもの（答え無し・拒まれた・空き待ち）と、patrol の未採用の下書きの数を足す。費用は手順8の `panes.ts fleets --session` の各行の `totalUsd` と、hq 自身の `node harness/scripts/agent.ts usage` をまとめる。
 
 ## 相談・アイデアを intel に回す
 
-- 運用で見つけたずれ・止まり方などの気づきは、`SendMessage` の `to: intel` で intel（[intel](../intel/SKILL.md)。Orca の本体のタブで待つ）に送る。本文は出どころ（fleet のテーマ・Issue 番号）・要点・根拠。返事を待たない（intel は「受け取った」と返すだけ）。
-- `ListAgents` に intel が無い、または `SendMessage` が失敗したら、送らずに今までどおり手順12の一覧に「intel に回せなかった気づき」として書く。
+hq に流れてきた相談・アイデア（fleet からも人からも）を、hq が自分で抱えずに intel（[intel](../intel/SKILL.md)。Orca の本体のタブで待つ）に回す（#396）。
+
+- **分け方**：
+  - 人に上げる（今までどおり ship → fleet → hq → 人）：今の進め方を決めるもの。fleet の `question`（`ask`）、`agent:plan-review` で進めてよいか、着手宣言の引き継ぎ、`escalation`、テーマの承認など。
+  - intel に回す：今すぐの判断が要らないもの。今の Issue の範囲の外の仕組みの問題・運用で見つけたずれ・止まり方・改善案・Issue の種。
+  - 1つの相談に両方が混ざるときは分け、判断の要る部分は hq が人に聞き、残りを intel に回す。迷ったら人に上げる側にする（判断の要るものを intel に流して止めないため）。
+- **回し方**：`SendMessage` の `to: intel` で送る。本文は出どころ（人・fleet のテーマ・Issue 番号）・要点・根拠（Issue・PR・コメントの番号、ファイル）を短く。返事を待たない（intel は「受け取った」と返すだけ）。hq は回したものを自分で抱えない（Issue にしない・下書きにしない）。
+- **人への案内**：人が hq に相談・アイデアを言い、それが intel に回すものなら、intel に回したうえで「intel に回しました。次からは intel のタブに直接送ってください」と1行で返す。人の判断が要る部分があれば、その部分は今までどおり hq が AskUserQuestion で扱う。
+- **intel のタブの起こし方**：手順1で本体を確かめた後に、`ListAgents` で `intel` の名前のセッションを探す。
+  - 既にいる（ほかの hq やこれまでの起動で残っている）ときは起こさずにそれを使い、タブを二重に作らない。
+  - 無ければ、`.claude/skills/intel/SKILL.md` が本体にあるときだけ、本体（main の checkout）にタブを作って起こす：`ORCA terminal create --worktree path:<本体の絶対パス> --title intel --json` の後、`ORCA terminal send --terminal <新しい handle> --text "claude --permission-mode auto --name intel /intel" --enter`（`--command` に空白を含めて渡さない。fleet の skill の手順3と同じ）。intel は何にも触らない役なので、本体で動かしてよい。
+  - 起こした後は、画面が auto mode であることを確かめる。bypass なら `ORCA terminal close --terminal <intel の handle>` で閉じ（閉じる handle が hq 自身の端末でないことを確かめる。手順6の「自分の端末を閉じない」）、「intel がいない」の扱いにする（intel は本体で動き、印 `.agent-harness-workspace` が無いので hook で書き換えを止められないため）。
+  - intel の skill が無い、起こせない（Orca のコマンドが失敗した）ときは、起こし直さずに「intel がいない」の扱いにする。
+- **intel がいないとき**：`ListAgents` に intel が無い、または `SendMessage` が失敗したら、送らずに今までどおり手順12の一覧に「intel に回せなかった気づき」として書く。
 
 ## 終わりの状態
 
