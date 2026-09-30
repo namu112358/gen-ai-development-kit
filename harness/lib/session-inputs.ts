@@ -497,7 +497,7 @@ export function renderCriticInput(issue: { number: number; title: string; body: 
 }
 
 const REVIEWER_KEYS = { required: ['pass', 'blocking'], optional: ['nonBlocking', 'humanNotes'] };
-const RISK_KEYS = { required: ['level', 'answers', 'rationale', 'facts'], optional: ['probabilities'] };
+const RISK_KEYS = { required: ['level', 'answers', 'rationale', 'facts'], optional: ['probabilities', 'danger'] };
 const BLOCKING_KEYS = { required: ['kind', 'detail'], optional: ['file'] };
 const HUMAN_NOTES_KEYS = { required: [], optional: ['concerns', 'checkPoints'] };
 
@@ -552,6 +552,7 @@ export function composeVerdict(input: ComposeInput, session: string | null = inp
     `- Reviewer：${v.review.pass ? '合格' : '不合格'}（ブロッキング指摘 ${v.review.blocking.length} 件）`,
     `- Risk：${v.risk.level}${unsafe.length > 0 ? '。安全側でない答え：' : ''}`,
     ...unsafe.map((l) => `  ${l}`),
+    ...(v.risk.danger ? [`- 危険の判定（auto mode）：${v.risk.danger.answer}：${v.risk.danger.reason}`] : []),
     '',
     renderBlock('agent-verdict', v),
   ].join('\n');
