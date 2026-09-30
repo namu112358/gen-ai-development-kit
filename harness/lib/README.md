@@ -31,6 +31,7 @@
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `observe-docs.ts` | 保守の観測（harness/scripts/observe.ts）の docs の照合。 | ○ |
 | `observe.ts` | 保守の観測（harness/scripts/observe.ts）のまとめ。 | ○ |
+| `panes.ts` | fleet と hq のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
