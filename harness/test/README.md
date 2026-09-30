@@ -32,6 +32,7 @@
 | `gates-tests-jev.test.ts` | `agent/tests` の Jev の判定（shadow・enforce・off、同じ差分の記録の使い回し、判定の受け付けと auto-merge の後の書き直し）のテスト |
 | `report-tamper.test.ts` | テストの改ざんの Jev の判定と人の判断（`test:exempt`・Merge した差分）の一致の集計のテスト |
 | `observe.test.ts`・`observe-docs.test.ts`・`hotspot.test.ts`・`test-health.test.ts` | 保守の観測（`harness/scripts/observe.ts`）：docs の照合（実在しないサブコマンド・パス・ラベル・設定キー・リンク先・見出し）、ホットスポット（変更回数 × 行数）、テストの健康（遅いテスト・不安定なテスト・生き残ったミュータント）と、節を組んだ JSON・前回との差・GitHub に GET しか呼ばないこと・出力を一時ディレクトリに書くこと（#326） |
+| `auto-mode-state.test.ts`・`auto-mode-danger.test.ts` | auto mode（`harness/lib/auto-mode.ts`）：ダッシュボードのラベルと timeline からの状態（人が付けたもの・App や Bot・停止スイッチ）、`autoMode` の設定の既定・上書き・誤り、雛形と `harness.config.json` の `autoMode` と `delegateMergeExclude`。Jev と Claude の答えから保留するかと理由、Jev への要求の state（PR は diff と変更ファイルだけ）、diff が大きすぎるときの skipped（#342） |
 | その他 | `harness/lib/`・`harness/scripts/` の各ロジックのテスト（`<機能名>.test.ts`。例：`plan.test.ts`・`scope.test.ts`・`mutate.test.ts`・`api-count.test.ts`） |
 | `support/` | テストが共有する補助（テストとしては動かない） |
 

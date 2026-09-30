@@ -15,7 +15,7 @@ import { appRecordComment, countCalls, dashboardLabelEvent } from './support/sta
 const PLAN = DELEGATE.planLabel;
 const MERGE = DELEGATE.mergeLabel;
 /** ガードレールに当たり、delegateMergeExclude に当たらない files */
-const GUARDED = 'harness/lib/plan.ts';
+const GUARDED = 'harness/lib/epic.ts';
 const GUARD_REASON = `ガードレールに触れます（人が実装して Merge する）: ${GUARDED}`;
 
 const minutesAgo = (m: number): string => new Date(Date.now() - m * 60_000).toISOString();
