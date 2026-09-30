@@ -14,7 +14,7 @@ const PANEL_SKILL = '.claude/skills/review-panel/SKILL.md';
 const ROUTINE = '.claude/routine.md';
 
 /** 判定の担当7つ */
-const AGENTS = ['reviewer', 'risk-agent', 'review-intake', 'review-lens', 'review-ac-scope', 'review-safety', 'review-scorer'];
+const AGENTS = ['reviewer', 'risk-agent', 'review-intake', 'review-lens', 'review-ac-scope', 'review-safety', 'review-scorer', 'review-overbuild'];
 const agentPath = (name: string): string => `.claude/agents/${name}.md`;
 
 /** 先頭の `---` で囲まれた frontmatter を key: value で読む */
@@ -122,6 +122,10 @@ test('呼び出し元：review-panel の skill は担当に review-panel.ts が�
   }
   assert.ok(text.includes('JSON として読める'), 'ファイルが JSON として読めるかを確かめる文がありません');
   assert.ok(text.includes('代わりに書かない'), '呼び出し元が代わりに書かない文がありません');
+});
+
+test('呼び出し元：review-panel の skill は⑨の担当に review-panel.ts が読む <dir>/overbuild.json を出力のパスとして渡す（Issue #325）', () => {
+  assert.ok(read(PANEL_SKILL).includes('<dir>/overbuild.json'), '<dir>/overbuild.json がありません');
 });
 
 test('呼び出し元：routine.md の judge は一時ディレクトリに出力のパスを決めて渡し、ファイルが JSON として読めるかを確かめる', () => {

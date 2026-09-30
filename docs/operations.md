@@ -150,7 +150,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 
 ## 上限の設定
 
-運用の上限の数値は、すべて `harness.config.json` にある（Issue #272）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q100）。
+運用の上限の数値は、すべて `harness.config.json` にある（Issue #272）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q101）。
 
 | キー | 今の値 | 意味 | 読む側 |
 | --- | --- | --- | --- |
