@@ -159,6 +159,55 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 持ち主の `"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
+## agent.ts step の出力
+
+`node harness/scripts/agent.ts step <番号> [--plan <計画のファイル> | --critique <批評のファイル>] [--proceed]` は、付き添いのセッションで今やってよいノードを1つだけ返す（JSON。判断は `harness/lib/step.ts` の `decideStep`、#306）。段階は `fleet-status` と同じ事実と判断（`harness/lib/fleet.ts` の `issueNode`）で決め、前提（セッションの ID・担当・着手宣言）、ループの上限、同じ指摘の繰り返しを確かめる。`kind` は次の3つで、終了コードは `node`・`wait` が 0、`stop` が 2（引数・設定の誤りは 1）。
+
+```json
+{ "version": 1, "kind": "node", "issue": 306, "pr": null, "node": "implement", "skill": "implement",
+  "claim": { "target": 306, "stage": "implement" }, "preconditions": ["…"], "allowed": ["…"], "inputs": ["…"], "output": "…",
+  "branch": null, "branchPrefix": "claude/issue-306-", "files": ["harness/lib/step.ts"] }
+```
+
+| `kind` | 中身 |
+| --- | --- |
+| `node` | `node`（`plan`・`plan-critique`・`implement`・`judge`・`fix`・`sync`）と使う `skill`、宣言する番号と段階 `claim`（judge・fix・sync は PR 番号）、確かめ済みの前提 `preconditions`、使ってよい操作 `allowed`、読むもの `inputs`、出すものの書式 `output`、ブランチ `branch`（PR の head。無ければ null）と接頭辞 `branchPrefix`、計画ゲートの記録の計画の `files`（計画の前は null）。`step` がこの宣言を出す（同じ段階の自分の宣言があれば出さない） |
+| `wait` | `waitingFor`：`app`（計画ゲート・判定の受け付け・Merge の経路・auto-merge）、`human`（人の Merge 待ち、人の PR の修正・取り込み）、`area-limit`（`areaConcurrency` の上限。`--force` は付けず人・fleet が決める）、`done`（Merge 済み）と `detail`。宣言は変えない |
+| `stop` | 理由コード `reason`、`detail`、このセッションの宣言を解除したか `released` |
+
+`stop` の理由コード：
+
+| 理由 | いつ | 宣言 |
+| --- | --- | --- |
+| `no-session` | このセッションの ID が無いか、付き添いのセッションの形（英数字と `-` `_`）でない（Routine は `queue` を使う） | 書き込まない |
+| `hold`・`blocked`・`waiting`・`epic`・`dependency` | Issue・PR の止まる印、Epic、未解決の依存 | 解除する |
+| `fix-limit` | PR が `agent:blocked` で、App・Claude の最新の理由コードが `fix-limit` | 解除する |
+| `plan-review` | 計画ゲートで人の判断待ち（`--proceed` が無い） | 解除する |
+| `assignee` | `requireAssignee` が有効で、Assignee が自分1人でない | 解除する |
+| `claimed` | ほかのセッションの有効な手動の宣言がある（`claim` と同じ `claimBlocker`。期限切れでも）か、宣言の読み直しで後の側になった | 解除しない（自分のものではない） |
+| `sync-limit` | PR の main からの取り込み（親が2つの commit）が `syncLoop.limit` に達した後に、もう一度 sync が要る | 解除する |
+| `repeated-finding` | fix：App の直近2つの変更要求レビュー（`kind=fix-request`）に同じ指摘（`kind` と `file` が同じ。`file` の無い指摘は `kind` と `detail` が同じ）がある。批評：前回と同じ必須の指摘が残る `revise` | fix は解除する。批評は解除しない |
+| `critique-limit` | 3回目の批評でも必須の指摘が残る | 解除しない |
+| `other` | plan-critic の判定が `drop` | 解除しない |
+
+- 批評の止まり方（`critique-limit`・批評の `repeated-finding`・`drop`）は、Issue の Requirements の「stop のときは自分の宣言だけを解除する」の例外で、宣言を残す。有人セッションで人が「進める」と決めれば `post-plan` で投稿し、`post-plan` は `ensureOwnClaim` でこのセッションの宣言を確かめるため。「やめる」なら skill の手順で `release` する。ほかの stop で `step` が解除した後は、`release` を呼ばなくてよい。
+- 計画の段階は、段階のファイルの中だけで進む：`--plan <file>` は計画を書いた後（`agent.ts check` と同じ検査。通れば宣言を `plan-critique` にして node `plan-critique`、誤りがあれば node `plan` の `inputs` に誤り）、`--critique <file>` は plan-critic の出力を渡すとき（`go`・`split` なら node `plan-critique` の `allowed` に `post-plan`、`revise` は上限と繰り返しを見て node `plan`）。
+- `--proceed` は、人が `agent:plan-review` の計画を進めると決めたとき（計画コメントがあれば node `implement`）。人の答えが Planner の申告への答えなら、先に決定の記録（`post-decision`）を残す。
+- `step` は1件の Issue で読むので、自分の PR が開いている間は「Merge 済みの PR があり main に追従していない」の sync は起きず、sync は main と衝突したときだけ（fleet は `fleet-status` で集合を見て決める）。
+- `sync ⇄ judge` の上限は `harness.config.json` の `"syncLoop": { "limit": 3 }`（正の整数。無ければ 3。`harness/lib/config.ts` の `syncLoopConfig`。書式が違えば `step` は GitHub を読む前にエラー）。
+
+### 段階のファイル
+
+`step` は結果を、git の共通ディレクトリ（`git rev-parse --path-format=absolute --git-common-dir`。worktree からも同じ）の下の `agent-harness/stage/<セッションの ID>.json` に毎回書き直す（`harness/lib/stage-file.ts`。commit されない）。段階に合わない操作を止める hook（別 Issue）がこれを読む。
+
+```json
+{ "version": 1, "session": "3f2a9c1e-…", "at": "2026-09-30T12:00:00.000Z", "issue": 306, "pr": null, "node": "implement", "kind": "node",
+  "branch": null, "branchPrefix": "claude/issue-306-", "files": ["harness/lib/step.ts"],
+  "critique": { "issue": 306, "gateAt": null, "rounds": [{ "verdict": "revise", "must": ["…"] }, { "verdict": "go", "must": [] }] } }
+```
+
+`critique` は批評の回（判定と必須の指摘の文）で、同じ Issue・同じ計画ゲートの記録の時刻（`gateAt`）の間だけ引き継ぐ（Issue が変わるか、計画ゲートの記録が新しくなれば空に戻す）。読めない・書式が違うファイルは無いものとして扱う。
+
 ## 決定の記録（agent-decision）
 
 Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付き添いのセッションが記録する（`node harness/scripts/agent.ts post-decision <番号> <ファイル>`）。人のいない Routine は書かない（[.claude/routine.md](../.claude/routine.md)）。

@@ -86,10 +86,19 @@ export const FLOW_EDGES: readonly FlowEdge[] = [
   { from: 'stopped', to: 'issue', when: '人が止まる印を外したか、依存が片付いた（今の状態から段階を決め直す）' },
 ];
 
-/** 止まる理由：ラベル・事実によるもの（hold・blocked・waiting・epic・依存）か、config.ts の REASON_CODES の理由コード */
+/** 止まる理由：ラベル・事実によるもの（hold・blocked・waiting・epic・依存）か、config.ts の REASON_CODES の理由コードか、agent.ts step だけが返す理由 */
 export type FlowStopLabel = 'hold' | 'blocked' | 'waiting' | 'epic' | 'dependency';
-export type FlowStopReason = FlowStopLabel | ReasonCode;
 export const FLOW_STOP_LABELS: readonly FlowStopLabel[] = ['hold', 'blocked', 'waiting', 'epic', 'dependency'];
+
+/**
+ * agent.ts step（harness/lib/step.ts）だけが返す止まる理由（Issue #306）。人に返す理由で、agent:blocked のコメントの理由コード（REASON_CODES）ではない。
+ * no-session＝セッションの ID が得られない、assignee＝担当の食い違い、claimed＝ほかのセッションの宣言、plan-review＝計画ゲートの人の判断待ち、
+ * sync-limit＝sync ⇄ judge の上限、repeated-finding＝同じ指摘の繰り返し、critique-limit＝批評の3回目でも必須が残る
+ */
+export type FlowStepStopReason = 'no-session' | 'assignee' | 'claimed' | 'plan-review' | 'sync-limit' | 'repeated-finding' | 'critique-limit';
+export const FLOW_STEP_STOP_REASONS: readonly FlowStepStopReason[] = ['no-session', 'assignee', 'claimed', 'plan-review', 'sync-limit', 'repeated-finding', 'critique-limit'];
+
+export type FlowStopReason = FlowStopLabel | ReasonCode | FlowStepStopReason;
 
 export interface FlowStop {
   from: readonly FlowNodeId[];
@@ -105,12 +114,18 @@ export const FLOW_STOPS: readonly FlowStop[] = [
   { from: ['plan-critique'], to: 'plan-review', reasons: ['needs-decision'] },
   { from: ['plan-gate'], to: 'plan-review', reasons: ['plan-invalid', 'needs-decision', 'high-risk', 'no-critique', 'split-invalid', 'resplit', 'split-failed', 'other'] },
   { from: ['issue'], to: 'stopped', reasons: ['form-error'] },
+  // agent.ts step の止まり方（Issue #306）
+  { from: ['issue', 'plan', 'plan-critique', 'plan-ok', 'judge', 'fix', 'sync'], to: 'stopped', reasons: ['no-session', 'assignee', 'claimed'] },
+  { from: ['plan-gate'], to: 'plan-review', reasons: ['plan-review'] },
+  { from: ['plan-critique'], to: 'plan-review', reasons: ['critique-limit', 'repeated-finding'] },
+  { from: ['fix'], to: 'stopped', reasons: ['repeated-finding'] },
+  { from: ['sync'], to: 'stopped', reasons: ['sync-limit'] },
 ];
 
 export interface FlowLoop {
   nodes: readonly [FlowNodeId, FlowNodeId];
   /** 回数の上限。数値、harness.config.json のキー、または上限なし（null） */
-  limit: number | { config: 'fixLoop.normalLimit' | 'fixLoop.criticalLimit' }[] | null;
+  limit: number | { config: 'fixLoop.normalLimit' | 'fixLoop.criticalLimit' | 'syncLoop.limit' }[] | null;
   /** 上限を超えたときの止まる理由（上限なしなら null） */
   stop: FlowStopReason | null;
   note: string;
@@ -118,9 +133,9 @@ export interface FlowLoop {
 
 /** ループと上限 */
 export const FLOW_LOOPS: readonly FlowLoop[] = [
-  { nodes: ['plan', 'plan-critique'], limit: 3, stop: 'needs-decision', note: '3回目でも必須の指摘が残るか、前回と同じ必須の指摘が直っていなければ止める（.claude/routine.md の plan。有人セッションでは人に聞く）' },
+  { nodes: ['plan', 'plan-critique'], limit: 3, stop: 'critique-limit', note: '3回目でも必須の指摘が残るか、前回と同じ必須の指摘が直っていなければ止める。Routine は needs-decision（.claude/routine.md の plan の render-block）、有人セッションの step は critique-limit・repeated-finding を返し、人に聞く' },
   { nodes: ['fix', 'judge'], limit: [{ config: 'fixLoop.normalLimit' }, { config: 'fixLoop.criticalLimit' }], stop: 'fix-limit', note: '修正の回数は App が数え、上限で agent:blocked にする（critical は criticalLimit）' },
-  { nodes: ['sync', 'judge'], limit: null, stop: null, note: '今は上限なし。足すかは agent.ts step の Issue（#202）で決める' },
+  { nodes: ['sync', 'judge'], limit: [{ config: 'syncLoop.limit' }], stop: 'sync-limit', note: 'PR の main からの取り込み（親が2つの commit）が harness.config.json の syncLoop.limit（無ければ 3）に達した後に、もう一度 sync が要れば agent.ts step が止める（#306）' },
 ];
 
 /** ノードの次にやること（リテラルの型のまま返す） */

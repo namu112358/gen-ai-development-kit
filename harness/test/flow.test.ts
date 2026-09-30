@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { loadConfig, REASON_CODES } from '../lib/config.ts';
-import { FLOW_EDGES, FLOW_LOOPS, FLOW_NODES, FLOW_STOP_LABELS, FLOW_STOPS, fleetStageOf, queueActionKindOf, stepNode, stepOf, type FlowNode, type FlowNodeId } from '../lib/flow.ts';
+import { FLOW_EDGES, FLOW_LOOPS, FLOW_NODES, FLOW_STEP_STOP_REASONS, FLOW_STOP_LABELS, FLOW_STOPS, fleetStageOf, queueActionKindOf, stepNode, stepOf, type FlowNode, type FlowNodeId } from '../lib/flow.ts';
 
 // 段階のグラフのデータ（harness/lib/flow.ts）の検査（Issue #201）：行き止まり・届かないノード・端の実在・止まる理由・終了条件と強制のされ方・step の行き先・ループの上限
 
@@ -66,8 +66,8 @@ test('どのノードからも merged に届く（抜け出せない輪が無い
   assert.deepEqual(ids.filter((id) => !reaches(id)), []);
 });
 
-test('止まる理由は FLOW_STOP_LABELS か config.ts の REASON_CODES のキー', () => {
-  const known = new Set<string>([...FLOW_STOP_LABELS, ...Object.keys(REASON_CODES)]);
+test('止まる理由は FLOW_STOP_LABELS か config.ts の REASON_CODES のキーか、step だけの理由（FLOW_STEP_STOP_REASONS）', () => {
+  const known = new Set<string>([...FLOW_STOP_LABELS, ...Object.keys(REASON_CODES), ...FLOW_STEP_STOP_REASONS]);
   const unknown = FLOW_STOPS.flatMap((s) => s.reasons.filter((r) => !known.has(r)).map((r) => `${s.from.join(',')}→${s.to}: ${r}`));
   assert.deepEqual(unknown, []);
   for (const s of FLOW_STOPS) assert.ok(s.reasons.length > 0, `${s.from.join(',')}→${s.to} に理由が無い`);
@@ -99,7 +99,7 @@ test('step が none でないノードは、stepNode(step) が自分か、自分
   }
 });
 
-test('ループの両方向にエッジがあり、上限は plan⇄plan-critique が 3、fix⇄judge が fixLoop のキー、sync⇄judge が上限なし', () => {
+test('ループの両方向にエッジがあり、上限は plan⇄plan-critique が 3、fix⇄judge が fixLoop のキー、sync⇄judge が syncLoop.limit のキー', () => {
   for (const l of FLOW_LOOPS) {
     const [a, b] = l.nodes;
     assert.ok(hasEdge(a, b), `${a}→${b}`);
@@ -111,6 +111,9 @@ test('ループの両方向にエッジがあり、上限は plan⇄plan-critiqu
   const critique = loopOf('plan', 'plan-critique');
   assert.ok(critique);
   assert.equal(critique.limit, 3);
+  assert.equal(critique.stop, 'critique-limit');
+  // Routine の止まり方（needs-decision）と有人セッションの step の止まり方の両方を note に書く
+  for (const w of ['needs-decision', 'critique-limit', 'repeated-finding']) assert.ok(critique.note.includes(w), `plan⇄plan-critique の note に ${w}`);
 
   const fix = loopOf('fix', 'judge');
   assert.ok(fix);
@@ -126,8 +129,8 @@ test('ループの両方向にエッジがあり、上限は plan⇄plan-critiqu
 
   const sync = loopOf('sync', 'judge');
   assert.ok(sync);
-  assert.equal(sync.limit, null);
-  assert.equal(sync.stop, null);
+  assert.deepEqual(sync.limit, [{ config: 'syncLoop.limit' }]);
+  assert.equal(sync.stop, 'sync-limit');
 });
 
 test('stepOf・fleetStageOf・queueActionKindOf はデータのとおりに引く', () => {
