@@ -2,7 +2,7 @@
  * fleet と hq のワークスペースのペイン表示（進み具合・人がすること・PR と費用）。読むだけで、GitHub にもリポジトリにも書かない。
  *
  *   node harness/scripts/panes.ts collect --session <fleet のセッション ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...
- *   node harness/scripts/panes.ts progress|todo|prs (--session <ID> | --snapshot <パス>)
+ *   node harness/scripts/panes.ts progress|todo|prs (--session <ID> | --snapshot <パス>)（todo は hq がいない間の控えの質問も出す）
  *   node harness/scripts/panes.ts hq --session <ID> [--session <ID>...]
  *   node harness/scripts/panes.ts fleets --session <ID> [--session <ID>...]
  *   node harness/scripts/panes.ts config
@@ -13,6 +13,8 @@
  *   スナップショット（harness/lib/panes.ts の PaneSnapshot）を一時ファイルに書いてから名前を変える。このペインは進み具合も描く。
  *   記録のディレクトリは作業ディレクトリごとに分かれるので、fleet のセッションの作業ディレクトリが collect と違えば --cwd で渡す。
  * - progress・todo・prs・hq：スナップショットを数秒ごとに読み直して描くだけ（GitHub を読まない）。
+ *   todo は、hq がいない間に fleet が控えた質問（harness/scripts/hq-state.ts の git の共通ディレクトリの下の控え）があれば先頭に出す（Issue #409）。
+ *   控えは --session の ID で引き、--snapshot だけのときはスナップショットの session で引く。
  * - fleets：渡した fleet のスナップショットを1回読み、進んでいないかの判定（harness/lib/hq-stall.ts の fleetStall。しきい値は
  *   hq.staleSnapshotMinutes・hq.stuckMinutes）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
  *   終わった fleet の古いスナップショットも一時ディレクトリに残るので、--session は必ず渡す（無ければ終了コード 1）。
@@ -30,6 +32,7 @@ import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
 import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderHq, renderProgress, renderPrs, renderTodo, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
+import { gitCommonDir, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
 import { projectTranscriptDir } from '../lib/usage.ts';
 
 export interface RunResult {
@@ -199,6 +202,16 @@ export function startRender(deps: RenderDeps, draw: (snap: PaneSnapshot | null, 
   schedule(tick, ms);
 }
 
+/** todo のペインの描き方。hq がいない間の fleet の控え（答えの無い質問）があれば先頭に出す。session が無ければスナップショットの session で引く */
+export function todoDraw(session: string | null, readPending: (session: string) => PendingFile | null): (snap: PaneSnapshot | null, now: number, width: number) => string {
+  return (snap, now, width) => {
+    const body = renderTodo(snap, now, width);
+    const id = session ?? snap?.session ?? null;
+    const lines = id ? renderPending(readPending(id)) : [];
+    return lines.length > 0 ? [...lines, '', body].join('\n') : body;
+  };
+}
+
 /** スナップショットの既定の置き場所。セッション ID は記録のファイル名に使える形だけを受け付ける */
 export function defaultSnapshotPath(tmp: string, session: string): string {
   if (!TRANSCRIPT_SESSION_ID.test(session)) throw new Error(`セッション ID の形が違います：${session}`);
@@ -310,7 +323,16 @@ function main(argv: string[]): void {
     return;
   }
   if (mode === 'progress' || mode === 'todo' || mode === 'prs') {
-    const draw = { progress: renderProgress, todo: renderTodo, prs: renderPrs }[mode];
+    const commonDir = mode === 'todo' ? gitCommonDir(root) : null;
+    const readPending = (id: string): PendingFile | null => {
+      if (!commonDir) return null;
+      try {
+        return readPendingFile(commonDir, id);
+      } catch {
+        return null;
+      }
+    };
+    const draw = { progress: renderProgress, todo: todoDraw(args.sessions[0] ?? null, readPending), prs: renderPrs }[mode];
     startRender(renderDeps(pathOf(args.sessions[0])), draw, every);
     return;
   }

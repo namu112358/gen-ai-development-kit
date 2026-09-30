@@ -59,13 +59,18 @@ worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <�
 
 Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
 
-- hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。ファイルは書き換えず、唯一の書き込みは fleet のワークスペースの直下の印 `.agent-harness-workspace`（`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。
+- hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。ファイルは書き換えず、唯一の書き込みは fleet のワークスペースの直下の印 `.agent-harness-workspace`（`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`harness/scripts/hq-state.ts` の控え）は作業ツリーの外で、書き換えに数えない。
 - テーマの案（どの Epic を進めるか／Issue をどう Epic にまとめるか）を人が承認してから、fleet を `orca orchestration worker-start --worktree new-top-level` で起こす。表示名は `fleet: #<Epic番号> <短い名前>`。同時に動く fleet は `hq.maxFleets` まで。
 - fleet の `ask` は hq がまとめて AskUserQuestion で人に聞き、`reply` の本文には人の答えだけを載せる。人が拒んだ・答えなかったら本文は `答え無し`。
 - 進んでいない fleet（ペインのスナップショットの `at` が `hq.staleSnapshotMinutes` より古い、AI の番の行が `hq.stuckMinutes` より長い）は起こし直さず、`orchestration send` で状況を聞き、答えが無ければ人に知らせる。hq がまだ答えていない質問のある Issue は、人の答え待ちなので数えない。判定は `node harness/scripts/panes.ts fleets --session <ID>...`。
 - 止まった fleet を起こし直すのは、`orca orchestration worker-list` で `exited` と確かめたときだけ（`unverifiable` は止まった証拠にしない）。同じ fleet は1時間に2回まで（Epic への hq の記録のコメントで数える）、超えたら人に知らせる。起こし直すときは、前の fleet の着手宣言を新しい fleet に引き継ぐかを1問で人に聞き、引き継ぐなら新しい fleet が `--takeover` で出し直す。
 - fleet が人の Merge 待ちで終わっても、Epic が開いていればワークスペースを残す。片付け（worker の解放とワークスペースの削除）は Epic が Close したとき。
 - 15分ごとの確かめのついでに、fleet の外で止まっているタスク（担当のいない PR・止まった宣言・どの fleet にも入っていない開いた Issue・Epic に入っていない単発の Issue）を見つける（#407）。読むのはダッシュボードの節・patrol の未採用の下書きの数・番号なしの `fleet-status --json` と、候補があるときだけ開いた Epic の子の一覧。今の fleet の Epic に入るものはその fleet に `orchestration send` で渡し、入らないものは `hq.maxFleets` に空きがあれば新しい fleet の案にする。引き継ぎは人が決め、Epic の案（「単発の #… を Epic #… に」「この3件で新しい Epic を」）と一緒に1回にまとめて聞く。承認されたら Epic の Issue は intel か hq が作り、sub-issues には人が承認した案だけ hq が足す。
+- hq の控え（hq の Run・hq の Claude の端末・ペイン・fleet の対応）は、git の共通ディレクトリの下の `agent-harness/hq/hq-fleets.json` に `node harness/scripts/hq-state.ts ledger-save` で置く（scratchpad ではないので、hq が落ちても新しい hq が読める）。hq はペインを閉じる前に、閉じる handle が自分の Claude の端末（控えの `hqHandle`）でないことを確かめ、本体に `orca terminal close --tab`・`--all` を使わない（#409）。
+- **hq がいない間の見方と戻し方**（#409。hq が落ちた・タブが閉じられた）：
+  - fleet は、hq への `ask` の時間切れや `check` の失敗の後、Orca が動いているのに hq の端末が無いことを5分以上あけて2回確かめたら、hq がいないとみなす。人の判断が要る Issue だけ宣言を解除して止め、ほかの Issue は進める。質問は fleet の控え（`agent-harness/hq/pending/<fleet のセッション ID>.json`）に書き、fleet のワークスペースの「あなたがすること」のペインの先頭に「hq がいない間の質問（fleet のタブで答える）」として出す。hq と人に同じ質問を二重に出さない。
+  - 人は、fleet のワークスペースの「進み具合」「あなたがすること」のペインで状況を見て、質問には fleet のタブ（fleet の Claude）で答える。intel がいれば、intel に状況を聞ける。
+  - 戻し方：新しいタブ（本体）で `/hq` を呼ぶ。新しい hq は `hq-fleets.json` を読み、前の Run を `orca orchestration run-use` で引き継いで未処理の質問と fleet の控えを処理し、fleet に `hq-back` を送る。fleet は答えの無い控えを hq に上げ直してペインから外す。前の hq の端末が残っていて応答しない（固まった）ときは、人が前の hq のタブを閉じてから `/hq` を呼び直す（新しい hq は、前の hq の端末が live なら始めない）。hq の自動の起こし直しはしない。
 - Orca が無い環境では hq を使わず、今までどおり fleet・ship を使う。
 
 fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
