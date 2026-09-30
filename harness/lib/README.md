@@ -38,6 +38,7 @@
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
+| `qa-retro-loop.ts` | qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と手元の状態（純粋関数）。 | ○ |
 | `qa-retro.ts` | Merge 済みの PR の振り返り（qa-retro の skill）の集計。 | ○ |
 | `queue.ts` | Routine の次の行動を決める純粋関数。 | 対象外 |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）の純粋関数。 | ○ |
