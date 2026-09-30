@@ -6,7 +6,7 @@
 | --- | --- |
 | `gates-*.test.ts` | ゲート（`harness/gates/`）のテスト。偽の GitHub にイベントを渡し、App が書くコメント・ラベル・チェックを確かめる |
 | `*-guardrail.test.ts` | ガードレールの範囲と、それに触れる計画・PR の扱い（止めるか通すか）のテスト |
-| `hooks-*.test.ts` | hook（`.claude/hooks/`）：見張りの hook（`guard.ts`）が止めるべき操作を止めるか、SessionStart の hook（`session-env.ts`）がセッションの ID を書き残すか、Orca の CLI が無いときに Windows・WSL・Linux を見分けて知らせるか、入口（`run.mjs`）が Node の版を確かめて、動けないときに guard は止め SessionStart は知らせるか |
+| `hooks-*.test.ts` | hook（`.claude/hooks/`）：見張りの hook（`guard.ts`）が止めるべき操作を止めるか、SessionStart の hook（`session-env.ts`）がセッションの ID を書き残すか、Orca の CLI が無いときに Windows・WSL・Linux を見分けて知らせるか、入口（`run.mjs`）が Node の版を確かめて、動けないときに guard は止め SessionStart は知らせるか、書き換えの場所の見張り（`workspace-guard.ts`。`hooks-workspace-guard*.test.ts`）が main の checkout と fleet のワークスペースの書き換えを止めるか |
 | `skills.test.ts`・`ship-skill.test.ts`・`qa-retro-skill.test.ts`・`label-delegation.test.ts`・`label-session-decide.test.ts`・`arch-review-skill.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、ラベルを Jev に任せる手順・Jev が下限未満で付けなかったものをセッションが決めて付ける手順・arch-review の手順と arch-reviewer の定義の検査 |
 | `qa-retro-loop.test.ts` | qa-retro を `/loop` から回すときの期間のつなぎ方（`harness/lib/qa-retro-loop.ts`：前回の回の終わりを次の始まりに・終わりは今の7日前、境目の PR が1回だけ数えられること）、状態のファイルの読み方と進めるときの一致の確かめ、下書きの記録と採用、skill・docs の書き方（#329） |
 | `agent-commands.test.ts` | `harness/scripts/agent.ts` の入口がコマンドの一覧を持たず、`harness/scripts/agent/commands/` から読み込むこと（名前が分ける前と同じ・重複で止まる・.ts だけを読む・知らないコマンドの出力と終了コード）（#313） |
@@ -24,9 +24,11 @@
 | `label-on-open.test.ts`・`label-area-from-stopped-plan.test.ts` | Issue の作成で足りない `priority:*`・`area:*` を Jev に問うて付けること（`on-issue.ts`）と、計画ゲートで止まった計画の files が1つの領域に収まるときに App が付ける `area:*`（`on-comment.ts`・`label-apply.ts`）のテスト |
 | `issue-triage-materials.test.ts` | Jev にラベルを問う材料（`dependencies`・今の `type:*`・`risk:*`・`area:*`・`epic` のラベル・子の数）と、設定の `classification.priorityCriteria` で priority の基準を上書きすること、`label-apply.ts`・`on-issue.ts` が材料を渡すこと（#259） |
 | `scope-check.test.ts` | PR を出す前のローカルの範囲照合（`harness/lib/scope-check.ts`）：ローカルの変更の集め方、App の範囲照合と同じ関数での照合、使える計画が無いときの出力、implement の skill の手順（#290）。サブディレクトリから走らせたときのルートからのパス、`problems` と終了コードの決まり（0・1・3）（#300） |
+| `decision-proceed.test.ts`・`scope-check-proceed.test.ts` | 進める記録（`agent-decision` の `proceed`）：`parseDecision` の書式と `proceedEligibility` の対象の条件（印の窓・編集された計画・停止より前の決定・`acChangeProposed` など）、App の `plan-proceed` の記録があるときのローカルの `scope-check` の委任の照合（#365） |
 | `flow.test.ts`・`flow-queue-fleet.test.ts` | 段階のグラフのデータ（`harness/lib/flow.ts`）の検査（行き止まり・届かないノード・端と理由コード）と、queue と fleet の判断の食い違い（既知のものは `support/flow-divergences.ts`）・コードとデータのつながりの検査（#201） |
 | `step-node.test.ts`・`step-stop.test.ts`・`step-claim.test.ts`・`stage-file.test.ts`・`sync-loop-config.test.ts` | `agent.ts step`（`harness/lib/step.ts`）が状態ごとに返すノードと、stop の理由コード・宣言の投稿と解除、段階のファイル（`harness/lib/stage-file.ts`）の書き読み、`syncLoop.limit` の設定の検査（#306） |
 | `fleet-*.test.ts` | fleet の選び方（重なり・PR 同士の衝突・着手宣言の扱い）と、進め方（入れ子の orca／交互の flat）のテスト |
+| `hq-skill.test.ts`・`hq-stall.test.ts` | hq の skill（`.claude/skills/hq/SKILL.md`）の手順（テーマの承認・fleet の起動と上限・まとめて聞く・起こし直しの条件・片付け・書き換えないこと・印）と、規則・docs・`.gitignore` の記載。進んでいない fleet の判定（`harness/lib/hq-stall.ts` の `hq.staleSnapshotMinutes`・`hq.stuckMinutes` の既定値と不正な値、`fleetStall`、`panes.ts fleets`）（#287） |
 | `usage-*.test.ts` | usage の集計（今のセッションの記録の選び方、入れ子のサブエージェントの記録も含めること）のテスト |
 | `config-limits.test.ts`・`config-limit-keys.test.ts` | 上限の数値のキーの検査（`harness/lib/config.ts` の `limitErrors`：必須・型・範囲、`loadConfig` が誤りで止まること、実物の設定と雛形が通ること）と、コードの定数を設定に出したキー（`classification.issueTriageJevPerRun`・`routine.gateReplyTimeoutMinutes`・`jev.decisionMaxTargets`・`decisionMaxAnswerChars`）で上限が変わり、無ければ今の値で動くこと（#272） |
 | `test-tamper-jev.test.ts` | テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問う材料・問い方・答えのまとめ（`harness/lib/test-tamper-jev.ts`）のテスト |
@@ -36,7 +38,7 @@
 | `auto-mode-state.test.ts`・`auto-mode-danger.test.ts`・`auto-mode-danger-format.test.ts` | auto mode（`harness/lib/auto-mode.ts`）：ダッシュボードのラベルと timeline からの状態（人が付けたもの・App や Bot・停止スイッチ）、`autoMode` の設定の既定・上書き・誤り、雛形と `harness.config.json` の `autoMode` と `delegateMergeExclude`。Jev と Claude の答えから保留するかと理由、Jev への要求の state（PR は diff と変更ファイルだけ）、diff が大きすぎるときの skipped（#342）。Claude の危険の判定の書式（計画の `critique.danger`・判定の `risk.danger` の検査、compose-verdict の写し、plan-critic・Risk Agent の定義と手順の文書。#343） |
 | `harness-drift.test.ts`・`harness-drift-git.test.ts`・`hooks-session-harness-record.test.ts`・`harness-drift-step.test.ts`・`harness-drift-commands.test.ts`・`ship-fleet-handoff.test.ts` | 読み込みの記録（`harness/lib/harness-drift.ts`）：版（CRLF と LF で同じ）・記録のパスと読み書き・3つの版（読み込み・merge-base・origin）で比べる規則・`fleet-status` の表の下の1行・judge を止める文、git の砂場で origin の変更・本体が古いまま始めた場合・ブランチ自身の変更の見分け、SessionStart の hook が記録を書く（上書きしない）こと、`step` の `harness-stale`、`claim`・`fleet-status` の配線、ship・fleet の SKILL.md の交代の手順（#199） |
 | `fleet-watch.test.ts`・`fleet-watch-skill.test.ts` | fleet の待つ間の読み直し（`harness/lib/fleet-watch.ts`）：`fleet.watch` の設定、App 待ちの行の見張りと1回だけの知らせ、Merge 後の見届けが済んでいない行、fleet・ship の SKILL.md の読み直し・呼び直し・終わり方・/clear の後の宣言を1問で聞く手順、`fleet-status --watch` の配線（#199） |
-| その他 | `harness/lib/`・`harness/scripts/` の各ロジックのテスト（`<機能名>.test.ts`。例：`plan.test.ts`・`scope.test.ts`・`mutate.test.ts`・`mutate-check-targets.test.ts`・`api-count.test.ts`） |
+| その他 | `harness/lib/`・`harness/scripts/` の各ロジックのテスト（`<機能名>.test.ts`。例：`plan.test.ts`・`scope.test.ts`・`mutate.test.ts`・`mutate-check-targets.test.ts`・`mutate-related-tests.test.ts`・`api-count.test.ts`） |
 | `support/` | テストが共有する補助（テストとしては動かない） |
 
 新しいテストは既存のファイルの末尾に足さず、機能・ハンドラーごとのファイルに書く。
