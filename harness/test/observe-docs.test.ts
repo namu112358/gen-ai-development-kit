@@ -1,8 +1,12 @@
 // Issue #326：docs の照合（observe-docs）。実在しないサブコマンド・パス・ラベル・設定キー・リンク先・見出しが根拠（ファイル・行・名前）つきで出て、実在するもの・コードブロック・例・導入先のパス・接頭辞だけの書き方・値は出ないことを確かめる。
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { test } from 'node:test';
+import { COMMANDS_DIR, loadCommands } from '../scripts/agent/cli.ts';
 import {
-  agentSubcommands, buildDocsInventory, checkDoc, configKeyPaths, configTypeKeyNames, isDocTarget, markdownAnchors,
+  agentCommandNames, agentSubcommands, buildDocsInventory, checkDoc, configKeyPaths, configTypeKeyNames, isDocTarget, markdownAnchors,
   type DocFinding, type DocsInventory,
 } from '../lib/observe-docs.ts';
 import { config } from './support/gate-fixtures.ts';
@@ -272,6 +276,51 @@ const AGENT_SOURCE = [
 
 test('agentSubcommands：case と cmd === の名前を重複なく読む', () => {
   assert.deepEqual(agentSubcommands(AGENT_SOURCE).sort(), ['claim', 'queue', 'render-plan', 'worktree', 'worktree-remove']);
+});
+
+const COMMANDS_SOURCE = [
+  'export const commands: AgentCommand[] = [',
+  "  { name: 'render-claim', run: (args) => void console.log(1) },",
+  '  {',
+  "    name: 'footer',",
+  '    run: () => {},',
+  '  },',
+  "  { name: 'render-claim', run: () => {} },",
+  '];',
+].join('\n');
+
+test("agentCommandNames：commands/ の `name: 'x'` の定義を重複なく読む", () => {
+  assert.deepEqual(agentCommandNames(COMMANDS_SOURCE), ['footer', 'render-claim']);
+});
+
+test('buildDocsInventory：commands/ の直下の定義もサブコマンドにし、commands/ の外の `name:` は読まない', () => {
+  const texts: Record<string, string> = {
+    'harness/scripts/agent.ts': 'const commands = await loadCommands(COMMANDS_DIR);\n',
+    'harness/scripts/agent/commands/render.ts': COMMANDS_SOURCE,
+    'harness/scripts/agent/cli.ts': "export function writeTemp(name: string) {}\nconst x = { name: 'not-a-command' };\n",
+  };
+  const inv = buildDocsInventory({ files: Object.keys(texts), readText: (p) => texts[p] ?? null, config });
+  assert.ok(inv.subcommands.has('render-claim'));
+  assert.ok(inv.subcommands.has('footer'));
+  assert.ok(!inv.subcommands.has('not-a-command'));
+  const findings = checkDoc('docs/guide.md', '`node harness/scripts/agent.ts render-claim --manual` と `node harness/scripts/agent.ts footer`', inv);
+  assert.deepEqual(findings.filter((f) => f.kind === 'subcommand'), []);
+});
+
+test('buildDocsInventory：実際のリポジトリの commands/ にあるサブコマンドを全部、実在とみなす', async () => {
+  const root = path.resolve(import.meta.dirname, '..', '..');
+  const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
+  const readText = (p: string): string | null => {
+    try {
+      return readFileSync(path.join(root, p), 'utf8');
+    } catch {
+      return null;
+    }
+  };
+  const inv = buildDocsInventory({ files, readText, config });
+  const names = [...(await loadCommands(COMMANDS_DIR)).keys()];
+  assert.ok(names.length > 0);
+  assert.deepEqual(names.filter((n) => !inv.subcommands.has(n)), []);
 });
 
 test('configKeyPaths：ネストを . でつなぎ、途中の道筋も含め、配列の中と $ で始まるキーは見ない', () => {

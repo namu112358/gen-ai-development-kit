@@ -53,6 +53,16 @@ export function agentSubcommands(source: string): string[] {
   return [...names].sort();
 }
 
+/** harness/scripts/agent/commands/ の定義（`{ name: 'x', run }`。#324 で分けた後の形）からサブコマンドの名前を読む */
+export function agentCommandNames(source: string): string[] {
+  const names = new Set<string>();
+  for (const m of source.matchAll(/\bname: '([a-z][a-z0-9-]*)'/g)) names.add(m[1]!);
+  return [...names].sort();
+}
+
+/** サブコマンドの定義を置くファイル（harness/scripts/agent/commands/ の直下の .ts。cli.ts の loadCommands が読むもの） */
+const AGENT_COMMAND_FILE = /^harness\/scripts\/agent\/commands\/[^/]+\.ts$/;
+
 /** JSON のキーの道筋（ネストを . でつなぐ。途中も含む。配列の中と $ で始まるキーは見ない） */
 export function configKeyPaths(json: unknown): string[] {
   const out: string[] = [];
@@ -272,9 +282,12 @@ export function buildDocsInventory(input: { files: string[]; readText(path: stri
   const files = new Set(input.files.map((f) => f.replace(/\\/g, '/')));
   const topLevel = new Set([...files].map((f) => f.split('/')[0]!));
 
-  // サブコマンド：agent.ts と、分けた後の置き場所（harness/scripts/agent/）の .ts
+  // サブコマンド：agent.ts と、分けた後の置き場所（harness/scripts/agent/）の .ts。commands/ の直下は `name: 'x'` の定義も読む
   const agentSources = [...files].filter((f) => f === 'harness/scripts/agent.ts' || /^harness\/scripts\/agent\/.+\.ts$/.test(f));
-  const subcommands = new Set(agentSources.flatMap((f) => agentSubcommands(input.readText(f) ?? '')));
+  const subcommands = new Set(agentSources.flatMap((f) => {
+    const text = input.readText(f) ?? '';
+    return AGENT_COMMAND_FILE.test(f) ? [...agentSubcommands(text), ...agentCommandNames(text)] : agentSubcommands(text);
+  }));
 
   const labels = new Set<string>([
     ...allLabelDefs(input.config).map((l) => l.name),
