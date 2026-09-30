@@ -5,10 +5,11 @@
  *
  *   node harness/scripts/readme.ts render <ディレクトリ>       表を標準出力に出す
  *   node harness/scripts/readme.ts write [<ディレクトリ>...]   README の表を書き換える（省略で対象すべて）
- *   node harness/scripts/readme.ts check                       表が生成結果と一致するか、名前が実在するかを確かめる
+ *   node harness/scripts/readme.ts check                       表が生成結果と一致するか、名前が実在するか、テストがパターンに当たるかを確かめる
  *
  * 対象は14ディレクトリ（`.github` は README.md を持たず、root の README.md の「`.github/`」節を書き換える）。
  * `harness/test`・`harness/test/support` は説明の生成の対象外（Non-goal）で、名前の実在の検査だけかける。
+ * `harness/test` の表はファイル名のパターンで書き、直下の `*.test.ts` がどれかのパターンに当たるかも確かめる（#389）。
  */
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
@@ -404,6 +405,22 @@ export function staleNames(names: string[], children: string[]): string[] {
   return missing;
 }
 
+// ---- harness/test の表のパターン（#389） ----
+
+/** 表をパターンで書くディレクトリ（直下の `*.test.ts` がどれかのパターンに当たるかを確かめる） */
+export const TEST_PATTERN_DIR = 'harness/test';
+
+// `*` と `/` を除くと `.test.ts` しか残らない、全部を覆うパターン（`*.test.ts`・`**.test.ts`・`**/*.test.ts`）か
+function coversAllTests(pattern: string): boolean {
+  return pattern.includes('*') && pattern.replace(/[*/]/g, '') === '.test.ts';
+}
+
+/** 直下の `*.test.ts` のうち、表のどのパターンにも当たらないもの（ディレクトリと `.test.ts` 以外は見ない。全部を覆うパターンは数えない） */
+export function uncoveredTests(patterns: string[], children: string[]): string[] {
+  const matchers = patterns.filter((p) => !coversAllTests(p)).map(globToRegExp);
+  return children.filter((c) => !c.endsWith('/') && c.endsWith('.test.ts') && !matchers.some((m) => m.test(c)));
+}
+
 // ---- overview.html のラベル（AC3） ----
 
 export function labelsInOverview(html: string): string[] {
@@ -456,6 +473,7 @@ export interface CheckResult {
   mismatches: string[];
   staleNames: string[];
   noCommentIssues: string[];
+  uncoveredTests: string[];
 }
 
 function computeNoCommentIssues(root: string): string[] {
@@ -503,7 +521,11 @@ export function checkAll(root: string): CheckResult {
     if (missing.length > 0) staleList.push(`${dir}: ${missing.join(', ')}`);
   }
   const noCommentIssues = computeNoCommentIssues(root);
-  return { mismatches, staleNames: staleList, noCommentIssues };
+  const testReadme = readmeFileFor(root, TEST_PATTERN_DIR);
+  const uncovered = existsSync(testReadme)
+    ? uncoveredTests(namesInTable(readFileSync(testReadme, 'utf8')), directChildren(root, TEST_PATTERN_DIR))
+    : [];
+  return { mismatches, staleNames: staleList, noCommentIssues, uncoveredTests: uncovered };
 }
 
 // ---- CLI（import.meta.main の中だけで動く） ----
@@ -537,6 +559,11 @@ if (import.meta.main) {
       ok = false;
       console.log('先頭のコメントの一覧との食い違い:');
       for (const s of result.noCommentIssues) console.log(`  - ${s}`);
+    }
+    if (result.uncoveredTests.length > 0) {
+      ok = false;
+      console.log(`README の表のどのパターンにも当たらないテストファイル（${TEST_PATTERN_DIR}/README.md に行かパターンを足す）:`);
+      for (const s of result.uncoveredTests) console.log(`  - ${s}`);
     }
     if (ok) console.log('OK');
     process.exit(ok ? 0 : 1);
