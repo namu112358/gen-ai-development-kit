@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import { CLAUDE_MARK, extractBlock, renderBlock } from '../lib/blocks.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { parsePanelRecord, pastPrMaterial, renderPanelRecord, subagentCost, type PanelRecord } from '../lib/review-panel.ts';
+import { composePanel, parsePanelOutputs } from '../lib/review-panel.ts';
 import { prCommentsForJudge, previousVerdict, renderJudgeInput, type JudgeFacts, type PastPr } from '../lib/session-inputs.ts';
 import { estimateCost, summarizeUsage, type PricingTable } from '../lib/usage.ts';
 import { config, HEAD } from './support/gate-fixtures.ts';
@@ -88,6 +89,72 @@ test('記録：ブロックの無い本文・版の違い・off のモードは�
   assert.ok(!parsePanelRecord(`${CLAUDE_MARK}\n${renderBlock('agent-review-panel', { ...record(), version: 2 })}`).ok, 'version 2');
   assert.ok(!parsePanelRecord(`${CLAUDE_MARK}\n${renderBlock('agent-review-panel', { ...record(), mode: 'off' })}`).ok, 'mode off');
   assert.ok(!parsePanelRecord(`${CLAUDE_MARK}\n\`\`\`agent-review-panel\n{壊れた\n\`\`\`\n`).ok, '壊れた JSON');
+});
+
+// ---- ⑨（過剰さ。Issue #325） ----
+
+/** parsePanelOutputs → composePanel で⑨の指摘を組み立てた記録 */
+function overbuildRecord(): PanelRecord {
+  const parsed = parsePanelOutputs({
+    intake: { eligible: true, reason: '対象', claudeMd: [], summary: '要約' },
+    lens1: { lens: 1, findings: [] }, lens2: { lens: 2, findings: [] }, lens3: { lens: 3, findings: [] }, lens4: { lens: 4, findings: [] }, lens5: { lens: 5, findings: [] },
+    'ac-scope': { findings: [], concerns: [], checkPoints: [] }, safety: { findings: [], concerns: [], checkPoints: [] },
+    overbuild: {
+      findings: [
+        { kind: 'over-implementation', file: 'x.ts', line: 4, detail: '使われない設定を足している', planLevel: true },
+        { kind: 'over-testing', file: 'harness/test/x.test.ts', detail: '同じ分岐を3回確かめている' },
+        { kind: 'over-engineering', file: 'y.ts', detail: '1か所でしか使わない抽象', planLevel: false },
+      ],
+    },
+  });
+  assert.ok(parsed.ok, parsed.ok ? '' : parsed.errors.join('\n'));
+  const composed = composePanel({
+    findings: parsed.value.findings, notes: parsed.value.notes, suggestions: parsed.value.suggestions,
+    scores: parsed.value.findings.map((f, i) => ({ id: f.id, score: [0, 75, 100][i]!, reason: '理由' })),
+    check: { headSha: HEAD, exitCode: 0, outputTail: '' }, previous: null, changedLines: null,
+  });
+  assert.ok(composed.ok, composed.ok ? '' : composed.errors.join('\n'));
+  return record({ review: composed.value.review, findings: composed.value.findings });
+}
+
+test('記録：⑨の指摘は findings に source overbuild・⑨の種類・treatment nonBlocking で残り、planLevel は無い（読み戻しても同じ）', () => {
+  const r = overbuildRecord();
+  const body = renderPanelRecord(r);
+  const back = ok(parsePanelRecord(body));
+  assert.deepEqual(back, r);
+  const overbuild = back.findings.filter((f) => f.source === 'overbuild');
+  assert.deepEqual(overbuild.map((f) => [f.id, f.kind, f.treatment, f.score]), [
+    ['overbuild-0', 'over-implementation', 'nonBlocking', 0],
+    ['overbuild-1', 'over-testing', 'nonBlocking', 75],
+    ['overbuild-2', 'over-engineering', 'nonBlocking', 100],
+  ]);
+  for (const f of overbuild) assert.ok(!('planLevel' in f), `${f.id}: 記録の findings は planLevel を持たない`);
+  const b = extractBlock(body, 'agent-review-panel');
+  assert.ok(b.found && b.ok);
+  assert.ok(!JSON.stringify(b.value).includes('planLevel'), '記録のブロックに planLevel が無い');
+  assert.equal(back.review.pass, true);
+  assert.deepEqual(back.review.blocking, []);
+});
+
+test('記録：⑨の指摘は人が読む要約の「ブロッキングでない」の数に入り、本文は要約に出ない', () => {
+  const body = renderPanelRecord(overbuildRecord());
+  const summary = outsideBlock(body);
+  assert.ok(summary.includes('ブロッキングでない 3'), summary);
+  assert.ok(summary.includes('ブロッキング指摘 0 件'), summary);
+  for (const d of ['使われない設定を足している', '同じ分岐を3回確かめている', '1か所でしか使わない抽象']) assert.ok(!summary.includes(d), d);
+});
+
+test('記録：review.blocking の kind に⑨の種類があれば拒否し、findings の kind はブロッキングの種類と⑨の種類を受け付ける', () => {
+  for (const kind of ['over-implementation', 'over-testing', 'over-engineering']) {
+    const bad = record({ review: { ...record().review, blocking: [{ kind, detail: '⑨をブロッキングにした' } as never] } });
+    assert.ok(!parsePanelRecord(`${CLAUDE_MARK}\n${renderBlock('agent-review-panel', bad)}`).ok, `blocking に ${kind}`);
+  }
+  const unknown = record({ findings: [{ id: 'overbuild-0', source: 'overbuild', kind: 'over-building', score: 50, treatment: 'nonBlocking', detail: 'x' } as never] });
+  assert.ok(!parsePanelRecord(`${CLAUDE_MARK}\n${renderBlock('agent-review-panel', unknown)}`).ok, 'findings に知らない種類');
+  const unknownSource = record({ findings: [{ id: 'overbuild9-0', source: 'overbuild9', kind: 'over-testing', score: 50, treatment: 'nonBlocking', detail: 'x' } as never] });
+  assert.ok(!parsePanelRecord(`${CLAUDE_MARK}\n${renderBlock('agent-review-panel', unknownSource)}`).ok, 'findings に知らない source');
+  const mixed = record({ findings: [...record().findings, { id: 'overbuild-0', source: 'overbuild', kind: 'over-testing', score: 50, treatment: 'nonBlocking', detail: 'x' } as never] });
+  assert.deepEqual(ok(parsePanelRecord(renderPanelRecord(mixed))), mixed, 'ブロッキングの種類と⑨の種類が混ざった findings は読める');
 });
 
 // ---- 判定の読み取りに拾われない ----

@@ -5,8 +5,10 @@
  * 書き換えを Issue の worktree の中だけにする（規則「作業は常に worktree で行う」を仕組みで守らせる。人の決定は #281 のコメント 5892608637）。
  * 止めるのは Edit・Write・NotebookEdit の書き先と、作業ツリー・索引を変える git（commit・add・reset など、
  * `--ff-only` も `pull.ff=only` の設定も無い pull、rebase を伴う pull（`--ff-only` があっても））だけ。
- * `git pull --ff-only`・`pull.ff=only` の設定で fast-forward だけになる素の pull（コマンド行・環境で設定を変えていないとき）・
- * `fetch`・`status`・`worktree add/remove/prune` などは通す。OS の一時ディレクトリと `~/.claude` の中は常に通す。
+ * `git pull --ff-only`・`pull.ff=only` の設定で fast-forward だけになる素の pull（同じコマンドの中で git の設定の読み先・設定を
+ * 変えていないとき。前置きの代入・`env X=`・`-c`・`--config-env` に加え、pull より前の文の `export HOME=…` などの代入・`source`・
+ * `git config` の書き込みがあれば、場所で判定する。Issue #331）・`fetch`・`status`・`worktree add/remove/prune` などは通す。
+ * OS の一時ディレクトリと `~/.claude` の中は常に通す。
  *
  * 場所の判定の順：通す置き場所 → 書き先の作業ツリーの一番上（`git rev-parse --show-toplevel --git-dir --git-common-dir`）→
  * 書き先から作業ツリーの一番上までの祖先の印 → 作業ツリーが main の checkout か（git-dir と git-common-dir が同じ作業ツリー。
@@ -15,7 +17,9 @@
  * 判定できないとき（入力が読めない・パスが無い・git が失敗する・git の作業場所が静的に決まらない）は止める。
  *
  * 拾いきれない経路（抜け道。docs/security.md）：Bash のリダイレクト（`>`）・`sed -i`・`rm`・`cp` などの git 以外の書き換え、
- * スクリプトや別のプロセス（`node harness/scripts/agent.ts` など）の中で動く git、xargs・find -exec などで動かす git、印を消すこと。
+ * スクリプトや別のプロセス（`node harness/scripts/agent.ts` など）の中で動く git、xargs・find -exec などで動かす git、印を消すこと、
+ * ヒアストリング（`bash <<< 'git pull'`）の中の git、`export GIT_DIR=…`・`GIT_WORK_TREE` で後の文の作業場所を変える形、
+ * スクリプト・別のプロセスの中で設定や環境を変えてから pull する形、外で定義した alias・関数で git を動かす形。
  * Bash のコマンドは guard.ts の parseScript で字句に分ける（guard.ts が読み込めないと、この hook も動けないときの deny になる）。
  */
 import { spawnSync } from 'node:child_process';
@@ -186,9 +190,61 @@ function classify(target: string, isDir: boolean, ctx: WorkspaceContext): Decisi
 type Segment = ReturnType<typeof parseScript>[number];
 type Word = Segment['words'][number];
 
-/** 作業場所。undefined は静的に決まらない */
+/** コマンドを順に読むときの状態 */
 interface Where {
+  /** 作業場所。undefined は静的に決まらない */
   dir: string | undefined;
+  /** 同じコマンドの中で、git の設定の読み先・設定を変えたかもしれない（hook が読んだ pull の設定と実際が食い違いうる） */
+  configChanged?: boolean;
+}
+
+/** git の設定の読み先に効く環境変数（HOME・XDG_CONFIG_HOME・GIT_CONFIG で始まるもの） */
+const affectsConfig = (name: string): boolean => name === 'HOME' || name === 'XDG_CONFIG_HOME' || name.startsWith('GIT_CONFIG');
+
+/** 語が設定の読み先の変数の名前そのもの（展開の無い `HOME`）か、その代入（`HOME=…`・`HOME+=…`。値は展開されてもよい） */
+function wordAffectsConfig(w: Word): boolean {
+  if (!w.dynamic && affectsConfig(w.text)) return true;
+  const m = /^([A-Za-z_]\w*)\+?=/.exec(w.text);
+  return m !== null && affectsConfig(m[1]!);
+}
+
+/** 変数名の位置の語が展開されると、どの変数に代入するか分からないコマンド */
+const ASSIGNING = new Set(['export', 'declare', 'typeset', 'local', 'readonly', 'unset', 'read', 'mapfile', 'readarray', 'getopts', 'for']);
+/** `-n`（nameref）で名前を別の名前で書き換えられるコマンド */
+const NAMEREF = new Set(['declare', 'typeset', 'local']);
+
+/** 文（頭の名前と引数）が、この後の git の設定の読み先・設定を変えうるか（安全側に倒す） */
+function statementChangesConfig(name: string, args: Word[]): boolean {
+  if (name === 'source' || name === '.') return true;
+  // 変数名が展開される語（`export "$V"`・`export $X=1`）。`名前=` で始まる語は値だけが展開される（`export PATH=/x:$PATH`）。`for` は変数名の位置（最初の語）だけ
+  const nameIsDynamic = (a: Word): boolean => a.dynamic && !/^[A-Za-z_]\w*\+?=/.test(a.text);
+  if (ASSIGNING.has(name) && (name === 'for' ? args[0] !== undefined && nameIsDynamic(args[0]) : args.some(nameIsDynamic))) return true;
+  if (NAMEREF.has(name) && args.some((a) => !a.dynamic && /^-[A-Za-z]*n[A-Za-z]*$/.test(a.text))) return true;
+  if (name === 'printf') {
+    const k = args.findIndex((a) => a.text === '-v');
+    if (k >= 0 && (args[k + 1] === undefined || args[k + 1]!.dynamic)) return true;
+  }
+  if (name === 'git') return gitConfigWrites(args);
+  return false;
+}
+
+/** git のサブコマンドの前に置く、次の語を値に取る大域オプション */
+const GIT_OPTIONS_WITH_VALUE = ['-C', '-c', '--config-env', '--namespace', '--super-prefix', '--attr-source', '--exec-path', '--git-dir', '--work-tree'];
+/** `git config` の読むだけの形 */
+const GIT_CONFIG_READS = new Set(['--get', '--get-all', '--get-regexp', '--get-urlmatch', '--get-color', '--get-colorbool', '--list', '-l']);
+
+/** `git config` の書き込みか（読むだけの形を除く。サブコマンドが展開されるなら書き込みとみなす） */
+function gitConfigWrites(args: Word[]): boolean {
+  let j = 0;
+  while (j < args.length && args[j]!.text.startsWith('-') && !args[j]!.dynamic) j += GIT_OPTIONS_WITH_VALUE.includes(args[j]!.text) ? 2 : 1;
+  const sub = args[j];
+  if (sub === undefined) return false;
+  if (sub.dynamic) return true;
+  if (sub.text !== 'config') return false;
+  const rest = args.slice(j + 1);
+  if (rest.some((a) => !a.dynamic && GIT_CONFIG_READS.has(a.text))) return false;
+  const first = rest.find((a) => !a.text.startsWith('-'));
+  return !(first !== undefined && !first.dynamic && (first.text === 'get' || first.text === 'list'));
 }
 
 const SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'ksh']);
@@ -201,11 +257,11 @@ const WRITES = new Set(['commit', 'add', 'rm', 'mv', 'stash', 'reset', 'checkout
 
 function moveTo(where: Where, arg: Word | undefined, ctx: WorkspaceContext): Where {
   const o = ops(ctx);
-  if (arg === undefined) return { dir: homedir() };
-  if (arg.dynamic || arg.text === '-') return { dir: undefined };
+  if (arg === undefined) return { ...where, dir: homedir() };
+  if (arg.dynamic || arg.text === '-') return { ...where, dir: undefined };
   const t = fromMsys(o, expandHome(o, arg.text));
-  if (o.p.isAbsolute(t)) return { dir: o.p.resolve(t) };
-  return { dir: where.dir !== undefined ? o.p.resolve(where.dir, t) : undefined };
+  if (o.p.isAbsolute(t)) return { ...where, dir: o.p.resolve(t) };
+  return { ...where, dir: where.dir !== undefined ? o.p.resolve(where.dir, t) : undefined };
 }
 
 /** 素の pull（`--ff-only` の無い pull）で通してよい引数（完全一致）。ほかの `-` で始まる引数が1つでもあれば通さない */
@@ -240,12 +296,12 @@ function plainPullIsFastForward(rest: Word[], here: Where, configOverride: boole
 function checkGit(args: Word[], where: Where, assigns: string[], ctx: WorkspaceContext): Decision {
   let here: Where = where;
   let unknownWhy: string | null = null;
-  /** コマンド行・環境で git の設定を変えている（hook が読んだ pull の設定と実際が食い違いうる） */
-  let configOverride = false;
+  /** コマンド行・環境・同じコマンドの前の文で git の設定を変えている（hook が読んだ pull の設定と実際が食い違いうる） */
+  let configOverride = where.configChanged === true;
   for (const a of assigns) {
     const name = a.slice(0, a.indexOf('=')).replace(/\+$/, '');
     if (name === 'GIT_DIR' || name === 'GIT_WORK_TREE') unknownWhy = `前置きの ${name}`;
-    if (name.startsWith('GIT_CONFIG') || name === 'HOME' || name === 'XDG_CONFIG_HOME') configOverride = true;
+    if (affectsConfig(name)) configOverride = true;
   }
   let j = 0;
   while (j < args.length && args[j]!.text.startsWith('-') && !args[j]!.dynamic) {
@@ -310,7 +366,7 @@ function commandStart(words: Word[], where: Where): { start: number; assigns: st
           break;
         }
         if (!t.startsWith('-')) assigns.push(t);
-        else if (t === '-C' || t === '--chdir' || t.startsWith('-C') || t.startsWith('--chdir=')) here = { dir: undefined };
+        else if (t === '-C' || t === '--chdir' || t.startsWith('-C') || t.startsWith('--chdir=')) here = { ...here, dir: undefined };
         else if (t === '-u' || t === '--unset' || t === '-S' || t === '--split-string') i++;
         i++;
       }
@@ -335,14 +391,28 @@ function commandStart(words: Word[], where: Where): { start: number; assigns: st
 function checkSegment(seg: Segment, where: Where, ctx: WorkspaceContext, depth: number): Decision {
   const { start, assigns, here } = commandStart(seg.words, where);
   const head = seg.words[start];
-  if (!head) return ALLOW;
-  const args = seg.words.slice(start + 1);
+  const prefixAffects = assigns.some((a) => affectsConfig(a.slice(0, a.indexOf('=')).replace(/\+$/, '')));
+  if (!head) {
+    // 代入だけの文（`HOME=/x`）は同じシェルの変数を変え、後の文に効く
+    if (prefixAffects) where.configChanged = true;
+    return ALLOW;
+  }
+  // 頭から後の語（前置きの代入を除く）が設定の読み先の変数に触れるなら、後の文にも引き継ぐ（安全側）
+  if (seg.words.slice(start).some(wordAffectsConfig)) where.configChanged = true;
+  let args = seg.words.slice(start + 1);
   if (head.dynamic) {
     // コマンド名が展開しないと分からない：git の書き換えの手がかりがあれば止める
     if (args.some((a) => WRITES.has(a.text))) return unknownDeny(`コマンド名（${head.text}）が展開しないと分からない`);
     return ALLOW;
   }
-  const name = baseName(head.text);
+  let name = baseName(head.text);
+  if (name === 'builtin' && args[0] !== undefined && !args[0].dynamic) {
+    name = args[0].text;
+    args = args.slice(1);
+  }
+  // 中（bash -c・ヒアドキュメント・eval）へは、外の印と、この文の前置きの代入・語の規則の印を持ち込む
+  const inner = (): Where => ({ ...here, configChanged: here.configChanged === true || where.configChanged === true || prefixAffects });
+  if (name !== 'git' && statementChangesConfig(name, args)) where.configChanged = true;
   if (name === 'cd' || name === 'pushd') {
     where.dir = moveTo(where, args.find((a) => !/^-[LPe@]+$/.test(a.text)), ctx).dir;
     return ALLOW;
@@ -364,15 +434,27 @@ function checkSegment(seg: Segment, where: Where, ctx: WorkspaceContext, depth: 
       script = args[k];
       break;
     }
-    if (cflag) return script ? analyze(script.text, { ...here }, ctx, depth + 1) : ALLOW;
+    // 子のシェルの中で立った印は外に戻さない（子の環境は親に戻らない）
+    if (cflag) return script ? analyze(script.text, inner(), ctx, depth + 1) : ALLOW;
     for (const body of seg.heredocs) {
-      const d = analyze(body, { ...here }, ctx, depth + 1);
+      const d = analyze(body, inner(), ctx, depth + 1);
       if (d.deny) return d;
     }
     return ALLOW;
   }
-  if (name === 'eval') return analyze(args.map((a) => a.text).join(' '), { ...here }, ctx, depth + 1);
-  if (name === 'git') return checkGit(args, here, assigns, ctx);
+  if (name === 'eval') {
+    // eval は同じシェルで動くので、中で立った印を外の後の文に引き継ぐ
+    const w = inner();
+    const d = analyze(args.map((a) => a.text).join(' '), w, ctx, depth + 1);
+    if (w.configChanged) where.configChanged = true;
+    return d;
+  }
+  if (name === 'git') {
+    const d = checkGit(args, { ...here, configChanged: here.configChanged === true || where.configChanged === true }, assigns, ctx);
+    // git config の書き込みは、判定した後に印を立てる（git config 自身の判定は変えない）
+    if (gitConfigWrites(args)) where.configChanged = true;
+    return d;
+  }
   return ALLOW;
 }
 
