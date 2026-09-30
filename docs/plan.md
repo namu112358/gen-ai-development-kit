@@ -116,7 +116,7 @@ Issue Forms は `###` 見出しで出力される。フォームの定義とゲ�
     - medium 以上かつ Reviewer 合格 → Draft を外し、人にレビューを依頼（Human Merge）
     - Reviewer のブロッキング指摘 → Draft のまま、変更要求として投稿し修正へ
 11. **修正（Routine）**：変更要求（Reviewer または人）を受けて修正し push。push のたびに App が auto-merge を即解除し、差分が変わっていれば判定をやり直す。
-12. **Close**：Merge で `Closes` により子 Issue が閉じる。Sub-issues がすべて閉じた親 Issue は App が閉じる。
+12. **Close**：Merge で `Closes` により子 Issue が閉じる。Sub-issues がすべて閉じた親 Issue は App が閉じる。Stacked PR の層（本文は `Refs #N`、一番上は `Closes #N`）の Issue は、既定ブランチへの push を見て App が閉じる（`stack-link` の記録）。
 
 **merge-route**：App が書く必須チェック。auto-merge が付いていない PR には success を返し（人が Merge する経路は通す）、auto-merge が付いた PR には、判定が現在の差分に対して有効で、low かつ Reviewer 合格かつ範囲照合 OK かつ `agent:hold` なし、のときだけ success を返す。これで medium の PR に auto-merge が付いても Merge されず、`agent/risk` を Required にしなくても Human Merge は通る。
 
@@ -235,7 +235,7 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
 | 利用上限 | サブスクの利用上限や Routines の1日の実行上限に当たった実行は失敗し、次の定期実行で再試行される。途中で落ちた状態からは冪等性で続きから進める。失敗は修正回数に数えない |
 | 停滞検知 | 定期の Actions が、24 時間動きがない PR・Issue（Actions の失敗、期限切れの claim、main とのコンフリクトで CI が動かない PR など）を一覧化し、見える場所に出す |
 | Draft | Draft＝Agent が作業中。判定が確定した時点で App が Ready 化する |
-| Close | 子 Issue は `Closes` で Merge 時に自動 Close。Sub-issues がすべて閉じた親は App が Close |
+| Close | 子 Issue は `Closes` で Merge 時に自動 Close。Sub-issues がすべて閉じた親は App が Close。Stacked PR の層は、既定ブランチへの push を見て App が閉じる |
 
 **止める仕組み**
 
@@ -504,7 +504,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q101 | 上限の数値の置き場所と検査 | 運用の上限はすべて `harness.config.json` で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（人の決定、2026-09-29。#272）。コードに直書きだった4つ（Jev に分類を問う Issue の数・判定コメントへの App の返答を待つ時間・決定の記録を Jev に問う項目数と文字数）を省略できるキーにし（既定は今の値）、`loadConfig` が上限の数値のキーを型と範囲で検査して、誤りがあればキーと値を示して止まる（上限が効かないまま動かない）。上限でない設定の検査は広げない |
 | Q102 | 合体版のレビューへの切り替え | 付き添いのセッションの judge を合体版の組み立ての出力で判定する（`reviewPanel.mode` を `enforce` に）。人の決定（2026-09-30）：今すぐ切り替え、料金の基準 (5) を超えるのを受け入れる。Q91 の集計（組になった PR 52）は「満たす」だったが、しきい値 80 では合体版の不合格が 80 記録で0件だったので、先にしきい値を 75 にし（Q98、#317）、今の reviewer との差を埋め（Q99、#318）、⑨ 過剰さの提案を足した（Q100、#325）。Merge 後の記録の料金は、#321 が合体版 $0.565 / reviewer $0.218（2.60 倍）、#334 が $0.711 / $0.383（1.86 倍）、#335（⑦ opus、⑨なし）が $1.035 / $0.366（2.83 倍）で、⑨の分を足すと約 3.1 倍の見込み。新しい構成（しきい値 75・⑦ opus・⑨）での shadow の記録は1〜2件しかないまま切り替えた。Routine（`.claude/routine.md`）と導入先の雛形（`harness/templates/harness.config.json` の `shadow`）は変えない。`enforce` では合体版が失敗すると判定しないので、⑨の出力の形の誤りでも判定が止まる。起きたら⑨の誤りを組み立てを止めない扱いにする Issue を立てる（#319） |
 | Q78 | 人の PR の判定 | 計画のある Issue に紐付いた人の PR も Routine が判定し、判定が出るまで `agent/review` を通さない（自動 Merge はしない、修正は人）。例外は人が付ける `review:exempt` |
-| Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt` |
+| Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt`。Stacked PR の層は本文の `Refs #N`／`Closes #N`（1つだけ）で紐付ける |
 | Q76 | 状態ラベルの整理 | `agent:working`・`agent:in-pr` を廃止し、着手宣言コメントと開いた PR から判断する。止めるときは理由コード必須。ラベル定義はコードで一元管理し、文書との一致をテストで検査、定義に無いラベルは `setup.ts` が消す |
 | Q75 | 分類ラベル | PR の `size:*`・`area:*` は App が差分から付ける（area は足すだけ）。Issue の種類・領域・優先度・書き方は Jev が提案コメントだけ出す（シャドー） |
 | Q74 | 優先度 | `priority:*` の5段階（highest・high・medium・low・lowest）のラベルで queue を並べ替える（優先度 → 先着順）。付いていなければ medium、複数付いていれば最も高いもの。フォームには入れない（Q84 で `priority:high` / `priority:low` の2つから5段階に改めた） |
