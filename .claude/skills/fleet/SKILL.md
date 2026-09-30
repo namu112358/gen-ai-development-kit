@@ -16,6 +16,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 
 - 対象：Issue 番号の一覧（任意）。無ければ `agent:ready`・`agent:plan-ok`・`agent:plan-review` の開いた Issue と、`agent:*` の無い、コラボレーター（OWNER・MEMBER・COLLABORATOR）か App（Epic の子課題など）が立てた開いた Issue（作ったまま計画に進んでいないもの）から選ぶ（`harness/lib/fleet.ts` の `fleetTargets`）
 - 複数の Issue を作る依頼（「〜を Issue にして進めて」）なら、ship の入力と同じ書き方で作り、作った番号を対象にして、人が「作るだけ」と言わない限り同じセッションで plan から fleet を続ける
+- 受け持つ Epic（任意）：`--epic <Epic番号>`（`/fleet --epic <Epic番号> <番号…>`。hq がテーマの fleet を起こすときも、交代の1行もこの形で渡す）。無ければ、対象の Issue の本文の子課題の印（`harness/lib/epic.ts` の `parseChildMarker`）の親が全部同じならその Epic にする。印の親が複数・無い Issue があれば、Epic は無いとして扱う（推測しない）。fleet は受け持つ Epic の終了に責任を持つ（節「待つ間の読み直し」の 7）
 - 本数（任意）：衝突しない範囲で本数を制限せずに進める。本数を絞りたいときだけ `--max <n>` を渡す
 - 状態の表：`node harness/scripts/agent.ts fleet-status [--max <n>] [<Issue 番号>...]` の出力（Issue・PR ごとの段階、次にやること、選ぶか・待つ理由、重なり）
 
@@ -32,7 +33,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 ## 手順
 
 1. `node harness/scripts/agent.ts fleet-status`（対象を指定されたら番号も、本数を絞るなら `--max <n>` も渡す）で表を出し、「選ぶ」の Issue を控える。以降は同じ番号を渡して表を読み直す。選べる Issue が無ければ、待つ理由を添えて人に返す。表の末尾の「進め方」の行が入れ子（orca）なら、この手順1の宣言の扱いを守ったまま「入れ子の方式」の節で進め、交互（flat）なら手順2〜5で進める。`fleet-status` が `harness.config.json` の `fleet` の誤りで止まったら、人に返す（方式を推測で選ばない）。
-   - このセッションの着手宣言（宣言の session が今のセッションの ID と同じ）は選ばれ、メモに段階が出る。PR の無い段階は Issue の宣言を、PR の段階は PR の宣言（`claim <PR番号> --stage judge|fix|sync`）を見る（メモには「PR の着手宣言」と出る）。「着手宣言あり」で選ばれない Issue が止まった前のセッションの途中のもの（`/clear` で ID が変わった場合を含む）なら、引き継ぐかを AskUserQuestion で人に確かめてから `node harness/scripts/agent.ts claim <番号> --manual --takeover` で引き継いで読み直す（PR の段階なら `claim <PR番号> --manual --stage judge|fix|sync --takeover`）。
+   - このセッションの着手宣言（宣言の session が今のセッションの ID と同じ）は選ばれ、メモに段階が出る。PR の無い段階は Issue の宣言を、PR の段階は PR の宣言（`claim <PR番号> --stage judge|fix|sync`）を見る（メモには「PR の着手宣言」と出る）。「着手宣言あり」で選ばれない Issue が止まった前のセッションの途中のもの（`/clear` で ID が変わった場合を含む）なら、1件ずつ聞かずに、前のセッションごとに「前のセッション（session <短い ID>）の宣言 #…（N 件）をこのセッションに引き継ぐか」を AskUserQuestion の1問でまとめて聞く（おすすめは引き継ぐ。Orca の worker のときは hq に `ask` の1問）。引き継ぐなら全部を `node harness/scripts/agent.ts claim <番号> --manual --takeover` で出し直して読み直す（PR の段階なら `claim <PR番号> --manual --stage judge|fix|sync --takeover`）。拒まれたら出し直さない。
    - Issue に手を付ける最初に、ship と同じく `claim <番号> --manual --stage <段階>` で宣言する。人の判断待ちで止めてセッションを終えるときは `release <番号>` で解除する。
    - `claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue を飛ばして次の Issue へ進み、最後の一覧に「#番号 は session … が着手中」と載せる（引き継ぐかは人が決める）。
    - 着手宣言（`claim <番号> --manual`）が領域の上限で止まったら、`--force` を付けて宣言する（fleet は領域の上限を見ないため）。
@@ -48,7 +49,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - PR 同士が衝突して待つ Issue は、先の側が Merge された後に sync の skill で main を取り込んでから進める。
    - `--max` の本数で待つ Issue は、ほかが Merge されるまで進めない。
 4. Merge 済みの Issue が出たら、次にやることが sync になった残りの PR に sync の skill をする（判定が引き継がれたかを確かめ、変わっていれば判定し直す）。
-5. 「選ぶ」の Issue が全部、人の Merge 待ち（Ready・人の Merge 待ち、自動 Merge 待ち）か人の判断待ち（plan-review、止まる印あり、各 skill の人に返す条件）になるまで、手順2〜4を繰り返す。
+5. 「選ぶ」の Issue が全部、人の Merge 待ち（Ready・人の Merge 待ち、自動 Merge 待ち）か人の判断待ち（plan-review、止まる印あり、各 skill の人に返す条件）になるまで、手順2〜4を繰り返す。その後、手順6〜8で一覧を出し、人の判断待ちだけが残ったのでなければ、終わらずに節「待つ間の読み直し」へ進む。
 6. ラベル（`priority:*`・`area:*`）は、ship の手順8と同じく、まず Jev に任せ、App の名義の `kind=label-triage` の記録の `notApplied` がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順8の一覧に書かず、人にも聞かない。
 7. `node harness/scripts/agent.ts usage` で、このセッションのトークン数と推定料金を読む（入れ子の方式の ship とその中の担当の記録も、このセッションの `subagents/` に置かれるので集計に入る）。
 8. 人に**人がすること**の一覧を1つにまとめて出す（Issue・PR ごとに ship の手順9と同じ項目）。
@@ -75,7 +76,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - 投稿の前の質問（ship が計画を投稿せずに返した Planner の質問）：ship の宣言が `plan` のまま残っているので、手順8を待たずに、返った質問を複数の Issue の分もまとめて AskUserQuestion で聞く（1回に4問まで。残りは次の回。おすすめを先頭）。答えと、ship が返した書きかけの計画のパスを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかった質問は「答え無し」として渡して呼び直す（ship は申告を残して投稿し、`post-plan` が宣言を解除する。同じ質問を繰り返さない）。聞けないまま、または呼び直せないままセッションを終えるときは、その Issue を `node harness/scripts/agent.ts release <番号>` で解除し、手順8の一覧に「投稿の前の質問に答えが無く、計画は投稿していない（次は plan から）」と書く。
    - 待つ（重なり・PR 同士の衝突・`--max` の本数・領域の上限）：表で「選ぶ」に戻るまで呼び直さない。領域の上限で待つ Issue は、fleet が `claim <番号> --manual --stage implement --force` で宣言し直してから呼び直してよい（fleet は領域の上限を見ないため）。
    - Merge 済みの Issue が出たら、次にやることが sync になった残りの PR の ship を呼び直す。
-3. 「選ぶ」の Issue が全部、人の Merge 待ちか人の判断待ちになるまで、1〜2を繰り返す。その後、手順6〜8に進む（手順8の一覧は、ship が返した人がすることの項目をまとめる）。
+3. 「選ぶ」の Issue が全部、人の Merge 待ちか人の判断待ちになるまで、1〜2を繰り返す。その後、手順6〜8に進み（手順8の一覧は、ship が返した人がすることの項目をまとめる）、人の判断待ちだけが残ったのでなければ、終わらずに節「待つ間の読み直し」へ進む。
 
 ## Orca の worker として動くとき
 
@@ -103,13 +104,39 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - `ask` を待つ間も、ほかの Issue の ship は進めてよい（止めるのは、聞いた Issue だけ）。
    - Orca のコマンドが動かないときは、そのエラーをそのまま示して止める。AskUserQuestion にも、別の実行ファイルにも切り替えない。人の判断待ちで止めるときと同じく、宣言は `release <番号>` で解除する。
 6. **hq からの追加の指示**：段階の切れ目（ship が返ったとき、`fleet-status` を読み直すとき）と `worker_done` の直前に、前置きの `check` のコマンドで hq の追加の指示を読む。前置きが求める間隔で heartbeat を送る（`ask`・`check --wait` の間は送らない）。
-7. **終わるとき**：手順8の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
+7. **終わるとき**：`worker_done` を送るのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（節「待つ間の読み直し」の 7）。それまでは手順8の一覧を scratchpad に書き直し、`check` で hq の指示を読みながら読み直しを続ける。手順8の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
    - 送る前に、手順3で作った表示のペイン（進み具合・あなたがすること・PR と費用）を `ORCA terminal close --terminal <handle>` で閉じる。`ORCA terminal list --worktree current --json` で読み直して、閉じた後に残った空のシェルのペイン（fleet の Claude のターミナルでないもの）も閉じる。
    - ワークスペース（Orca の worktree）そのものは消さない（片付けるのは hq）。`worker_done` の後は、新しい作業を始めない。
 
+## ハーネスが更新されたときの交代
+
+Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始時に読むので、始めた後に main でハーネスが変わっても、このセッションは古いまま動く（#199）。SessionStart の hook が始めたときの読み込みの版を記録し、`node harness/scripts/agent.ts harness-drift`・`fleet-status`・`claim` がそれを origin と比べる。
+
+1. **見る**：手順1・3と節「待つ間の読み直し」で `fleet-status` を読むたびに、表の下の「このセッションの読み込みは古い」の行を見る（無ければ `node harness/scripts/agent.ts harness-drift` の `stale`）。`claim` も古いと標準エラーに一言出す。
+2. **古いとき**：新しい段階・新しい ship を始めない。入れ子の方式では、動いている ship が段階の切れ目で返るのを待つ（ship は「待つ（読み込みが古い）」で返る）。その後、このセッションの着手宣言を `release <番号>` で全部解除し、その後（段階の切れ目）でだけ交代する。段階の途中では交代しない。**judge の段階は、古いセッションでは始めない**（`claim --stage judge` と `step` も止める。止まる理由 `harness-stale`）。
+3. **聞く**：AskUserQuestion で「交代しますか」を聞く（おすすめは「交代する」。Orca の worker のときは節「Orca の worker として動くとき」のとおり hq に `ask`）。拒まれた・答えが無いときは同じ質問を繰り返さず、下の 5 の1行を示して止まる。
+4. **Orca があるとき（承認の後）**：Orca の CLI は orca-cli の skill の「Resolve the CLI for this session」で選ぶ（Windows のほかでは素の `orca` を使わない）。
+   - 本体（`git rev-parse --path-format=absolute --git-common-dir` の親。hq と同じ main の checkout）が既定ブランチで未 commit の変更が無ければ、`git -C <本体> pull --ff-only` で origin に追いつかせる。できなければ起動せず、理由と 5 の1行を示して止まる。
+   - orca-cli の skill の端末の起動（`terminal create`。引数は Orca の `skills get` の案内に従う）で、本体で `claude --permission-mode auto "/fleet --epic <Epic番号> <番号…>"` を起動する（番号は `fleet-status` に渡した集合。受け持つ Epic が無ければ `--epic` を付けない）。権限モードは必ず明示する（人の決定 2026-09-29）。Epic の fleet なら端末の表示名を `fleet: #<Epic番号> <短い名前>` にしてよい（表示のためだけで、着手宣言・usage はセッション ID で見分ける）。
+   - 起動後に画面のモード表示が `auto mode` かを確かめる。bypass（`bypass permissions`）だった・確かめられないときは、新しいセッションに段階を進めさせずに人に返す。
+   - 確かめられたら、引き継ぎの要約（受け持つ Epic、人の判断待ちと待つ理由、進めている Issue・PR）を示して、このセッションは終える（新しい fleet が `fleet-status` を読み直して続きから進め、Epic の終わりまで続ける）。
+5. **Orca が無い・動かないとき**：止まって、人が新しいセッションに渡す1行 `/fleet --epic <Epic番号> <番号…>`（Epic が無ければ `/fleet <番号…>`）と、始め方（本体を `git pull --ff-only` で追いつかせてから `claude --permission-mode auto` で起動し、画面の `auto mode` を確かめる）を示す。
+
+## 待つ間の読み直し
+
+App の計画ゲート・判定の受け付け・自動 Merge・CI を待つ間も、fleet が見る（#199。人の決定 2026-09-30）。
+
+1. **いつ**：選んだ Issue が全部「待つ」（App・CI 待ち）か人の Merge 待ち（`human-merge`・`auto-merge`）になったら、手順8の一覧を出した後も終わらずに、表の下の間隔（`harness.config.json` の `fleet.watch.intervalMinutes`、既定 3 分）ごとに `node harness/scripts/agent.ts fleet-status --watch <番号>...` を読み直す。待ち方は付き添いのセッションの中の道具（Bash の `run_in_background` の until ループ・Monitor など）で、schedule・Actions・クラウドの Routine は使わない。
+2. **交代の行もここで見る**：読み直すたびに、表の下の「このセッションの読み込みは古い」の行も見る（節「ハーネスが更新されたときの交代」）。
+3. **ship を呼び直す**：次にやることが出たら（plan-ok・fix など）、または表の下の「Merge 後の見届けが済んでいない」の行（Issue が開いている・`claude/issue-<番号>-` の worktree が残る。見張りの記録に頼らず事実で見分けるので、最初の読み直しでも交代の後の新しい fleet でも出る）が出たら、その Issue の ship を呼び直す（Merge の後は Epic #281 の決定どおり、ship が Merge 後の確かめ・worktree の片付け・Close の見届けをする）。
+4. **「Close されていない」の扱い**：このセッションで既に呼び直して ship が「Close されていない（理由）」で返した Issue は、人の判断待ちとして手順8の一覧に載せ、同じ行が出続けても呼び直さない。この印はセッションの中で持ち、見張りの記録には残さない。交代の後の新しい fleet は最初の1回だけ呼び直す。終わり方の「人の判断待ちだけが残った」でもこの Issue を人の判断待ちに数える。
+5. **自分の PR の sync**：自分の行（`fleet-status` に渡した Issue の PR）の次にやることが `sync` になったら、`human-merge`・`auto-merge` の段階でも、その Issue の ship をすぐ呼び直して sync させる。fleet 自身は衝突を直さない（直すのは ship）。ほかのセッション・持ち主のいない PR は対象にしない。
+6. **App が動かないとき**：表の下に「App が動いていない」の行（`fleet.watch.appStallMinutes`、既定 20 分以上、計画ゲートの記録が付かない・auto-merge が付いたまま Merge されない）が出たら、人に知らせる（付き添いでは文章で。Orca の worker のときは節「Orca の worker として動くとき」のとおり hq に `escalation`）。同じ行を知らせるのは1回だけで、その後も読み直しを続ける。
+7. **終える**：読み直しを終えるのは、受け持つ Epic が Close したとき（`gh issue view <Epic番号> --json state`。その後に手順6〜8の最後の一覧を出す）と、人の判断待ち（`plan-review`・止まる印・各 skill の人に返す条件・上の 4）だけが残ったとき。受け持つ Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき。
+
 ## 終わりの状態
 
-- 選んだ Issue が全部、人の Merge 待ちか人の判断待ちになっている（`node harness/scripts/agent.ts fleet-status` の表で確かめた）。
+- 受け持つ Epic が Close した（Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになった）か、人の判断待ちだけが残っている（`node harness/scripts/agent.ts fleet-status --watch` の表で確かめた）。人の Merge 待ち・App 待ちが残る間は終わらず、節「待つ間の読み直し」を続ける。
 - 人がすることの一覧（トークン数・推定料金を含む）を出した。
 - 続けて使わない worktree は `node harness/scripts/agent.ts worktree-remove <ブランチ>` で消した。
 
@@ -117,6 +144,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
 
 - ship の「人に返す条件」に当たった（その Issue は止めて人に返し、ほかの Issue は進める。一覧にまとめて返す）
 - 選べる Issue が無い（止まる印・依存・着手宣言・重なり・PR 同士の衝突・`--max` の本数で全部が待つ）
-- 選んだ Issue が全部待つ状態になった
+- 選んだ Issue が全部待つ状態になり、人の判断待ちだけが残った（App・CI 待ち・人の Merge 待ちが残る間は人に返さず、節「待つ間の読み直し」を続ける）
+- 交代を拒まれた、または交代の後に `auto mode` を確かめられない（節「ハーネスが更新されたときの交代」）
 - 操作が deny などで拒否された（別の方法で試さない）
 - やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し

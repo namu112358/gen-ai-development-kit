@@ -189,6 +189,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 | `repeated-finding` | fix：App の直近2つの変更要求レビュー（`kind=fix-request`）に同じ指摘（`kind` と `file` が同じ。`file` の無い指摘は `kind` と `detail` が同じ）がある。批評：前回と同じ必須の指摘が残る `revise` | fix は解除する。批評は解除しない |
 | `critique-limit` | 3回目の批評でも必須の指摘が残る | 解除しない |
 | `other` | plan-critic の判定が `drop` | 解除しない |
+| `harness-stale` | judge の前で、このセッションの読み込みが古い（節「読み込みの記録」。開いた PR があるときだけ比べる。#199） | 解除する |
 
 - 批評の止まり方（`critique-limit`・批評の `repeated-finding`・`drop`）は、Issue の Requirements の「stop のときは自分の宣言だけを解除する」の例外で、宣言を残す。有人セッションで人が「進める」と決めれば `post-plan` で投稿し、`post-plan` は `ensureOwnClaim` でこのセッションの宣言を確かめるため。「やめる」なら skill の手順で `release` する。ほかの stop で `step` が解除した後は、`release` を呼ばなくてよい。
 - 計画の段階は、段階のファイルの中だけで進む：`--plan <file>` は計画を書いた後（`agent.ts check` と同じ検査。通れば宣言を `plan-critique` にして node `plan-critique`、誤りがあれば node `plan` の `inputs` に誤り）、`--critique <file>` は plan-critic の出力を渡すとき（`go`・`split` なら node `plan-critique` の `allowed` に `post-plan`、`revise` は上限と繰り返しを見て node `plan`）。
@@ -207,6 +208,29 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 ```
 
 `critique` は批評の回（判定と必須の指摘の文）で、同じ Issue・同じ計画ゲートの記録の時刻（`gateAt`）の間だけ引き継ぐ（Issue が変わるか、計画ゲートの記録が新しくなれば空に戻す）。読めない・書式が違うファイルは無いものとして扱う。
+
+### 読み込みの記録
+
+付き添いのセッションが始めたときに読み込んだハーネスのファイル（`CLAUDE.md`・`harness/CLAUDE.harness.md`・`.claude/agents/`・`.claude/skills/`・`.claude/settings.json`）の版を、SessionStart の hook（`.claude/hooks/session-env.ts`）が git の共通ディレクトリの下の `agent-harness/loaded/<セッションの ID>.json` に書く（`harness/lib/harness-drift.ts`。#199）。`CLAUDE_PROJECT_DIR` があるときだけ書き、同じ ID の記録が既にあれば書かない（resume・compact で上書きしない）。
+
+```json
+{ "version": 1, "session": "3f2a9c1e-…", "at": "2026-09-30T12:00:00.000Z", "source": "startup", "head": "8339a47…",
+  "files": { "CLAUDE.md": "<sha256>", ".claude/skills/fleet/SKILL.md": "<sha256>" } }
+```
+
+- 版は、改行コードを LF にそろえた中身の sha256。`head` は記録したときの作業ツリーの HEAD（読めなければ null）。
+- `agent.ts harness-drift`（と `claim`・`fleet-status`・`step`）が、記録の版 L・`origin/<既定ブランチ>` の版 O・`head` と origin の merge-base の版 M で比べる。L と O が同じなら古くない。違うとき、L と M が同じ（ブランチが変えていない）なら古い。L と M が違う（ブランチ・未 commit で自分で変えた）なら、O と M が違うときだけ古い。M が求まらなければ L と O だけで比べる。記録が無い・読めなければ判断しない。
+
+### 見張りの記録
+
+fleet の待つ間の読み直し（`agent.ts fleet-status --watch`）が、git の共通ディレクトリの下の `agent-harness/watch/<セッションの ID>.json` に書く（`harness/lib/fleet-watch.ts`。#199）。App を待つ段階（`plan-gate`・`auto-merge`）の行ごとに、その状態を最初に見た時刻と、知らせ済みかを持つ。
+
+```json
+{ "version": 1, "session": "3f2a9c1e-…", "entries": { "199:-:plan-gate": { "since": "2026-09-30T12:00:00.000Z", "notified": false } } }
+```
+
+- 鍵は `<Issue>:<PR か ->:<段階>`。段階や PR が変わった行・App 待ちでなくなった行は消える。`harness.config.json` の `fleet.watch.appStallMinutes` 分以上同じ状態の行を1回だけ知らせる。読めない・書式が違うファイルは無いものとして空から始める。
+- Merge 後の見届けが済んでいない Issue（段階が `merged` で、Issue が開いている、または `claude/issue-<番号>-` の worktree が残る）は、この記録を使わず、毎回の事実だけで決める。
 
 ## 決定の記録（agent-decision）
 

@@ -4,19 +4,21 @@ import { appMarkKind, hasClaudeMark } from '../../../lib/blocks.ts';
 import { describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
 import { fleetConfig, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
 import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../../../lib/fleet-reads.ts';
-import { type FleetIssue, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
+import { type FleetIssue, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
+import { fleetWatchConfig, pendingFollowUps, readWatchRecord, updateWatch, watchRecordPath, writeWatchRecord } from '../../../lib/fleet-watch.ts';
 import { GitHub } from '../../../lib/github.ts';
+import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
 import { fixRequestFindings } from '../../../lib/report.ts';
 import { splitArgs } from '../../../lib/session-inputs.ts';
 import { carriedCritique, type CritiqueRound, readStageFile, stageFilePath, writeStageFile } from '../../../lib/stage-file.ts';
 import { isAppComment, type PullRequest } from '../../../lib/state.ts';
 import { applyStepClaims, decideStep, type StepLocal, type StepResult } from '../../../lib/step.ts';
-import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail, readJson, renderClaim, spawnGit } from '../cli.ts';
+import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail, harnessDrift, readJson, renderClaim, spawnGit } from '../cli.ts';
 
 /**
  * fleet で並行して進める Issue・PR の表（読むだけ）と、Issue ごとに今やってよいノードを1つだけ返す step（同じ事実の集め方を使う）。
  *
- *   node harness/scripts/agent.ts fleet-status [--max <n>] [--json] [<Issue 番号>...]
+ *   node harness/scripts/agent.ts fleet-status [--max <n>] [--json] [--watch] [<Issue 番号>...]
  *                                                           fleet で並行して進める Issue・PR ごとの段階・次にやること・選ぶか（待つ理由）・触るファイルの重なり・
  *                                                           PR 同士の衝突の表（読むだけ）。番号を渡さなければ agent:ready・agent:plan-ok・agent:plan-review の開いた Issue と、agent:* の無い、コラボレーターか App が立てた開いた Issue（harness/lib/fleet.ts の fleetTargets）。
  *                                                           開いた PR 同士は head を fetch して git merge-tree で試し、衝突する組だけ後の側が待つ。
@@ -24,11 +26,17 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           Issue・PR の材料は GraphQL でまとめて読む（harness/lib/fleet-reads.ts。#249）
  *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする。
  *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
+ *                                                           表の下に、このセッションの読み込みが古ければその1行を出す（harness/lib/harness-drift.ts の driftLine。記録が無い・古くなければ出さない。#199）。
+ *                                                           --watch（fleet の待つ間の読み直し。#199）なら、見張りの記録（git の共通ディレクトリの下の agent-harness/watch/<セッションの ID>.json）を
+ *                                                           読み書きし、App が fleet.watch.appStallMinutes 分以上動いていない行（1回だけ）と、Merge 後の見届けが済んでいない Issue
+ *                                                           （Issue が開いている・claude/issue-<番号>- の worktree が残る）と、読み直しの間隔（fleet.watch.intervalMinutes）を表の下に足す
+ *                                                           （--json と一緒なら JSON の watch に入れる。harness/lib/fleet-watch.ts）
  *   node harness/scripts/agent.ts step <番号> [--plan <file> | --critique <file>] [--proceed]
  *                                                           今やってよいノードを1つだけ返す（JSON。harness/lib/step.ts、書式は docs/formats.md の「agent.ts step の出力」。#306）。
  *                                                           段階は fleet-status と同じ事実と判断（fleet.ts の issueNode）で決め、セッションの ID・担当・着手宣言・ループの上限
  *                                                           （sync は harness.config.json の syncLoop.limit、批評は 3 回）・同じ指摘の繰り返しを確かめる。node なら宣言を出し
  *                                                           （同じ段階の自分の宣言があれば出さない）、stop ならこのセッションの宣言を解除する（批評の止まり方と claimed は解除しない）。
+ *                                                           開いた PR があるときだけ読み込みを比べ（harness-drift）、古ければ judge のノードを出さずに stop（harness-stale）を返す（#199）。
  *                                                           結果を段階のファイル（git の共通ディレクトリの下の agent-harness/stage/<セッションの ID>.json）に書く。
  *                                                           --plan は計画を書いた後（書式を検査して plan-critique へ）、--critique は plan-critic の出力を渡すとき、
  *                                                           --proceed は人が agent:plan-review の計画を進めると決めたとき。終了コードは node・wait が 0、stop が 2
@@ -60,10 +68,11 @@ function prConflicts(issues: FleetIssue[]): PrConflict[] {
 
 /** fleet の事実を GitHub から読み（書き込みはしない）、段階・選び方の表を返す。判断は harness/lib/fleet.ts の純粋関数 */
 async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
-  const usage = 'fleet-status [--max <n>] [--json] [<Issue 番号>...]';
-  // --json は値を取らないので、splitArgs（値を取るオプションだけを扱う）の前に取り除く
+  const usage = 'fleet-status [--max <n>] [--json] [--watch] [<Issue 番号>...]';
+  // --json・--watch は値を取らないので、splitArgs（値を取るオプションだけを扱う）の前に取り除く
   const json = args.includes('--json');
-  const a = splitArgs(args.filter((x) => x !== '--json'), ['--max']);
+  const watch = args.includes('--watch');
+  const a = splitArgs(args.filter((x) => x !== '--json' && x !== '--watch'), ['--max']);
   if (!a.ok) fail([...a.errors, usage]);
   const maxArg = a.value.options['--max'];
   if ((maxArg !== undefined && !/^[1-9]\d*$/.test(maxArg)) || a.value.positional.some((p) => !/^\d+$/.test(p))) fail([usage]);
@@ -74,6 +83,14 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
     mode = fleetConfig(config);
   } catch (e) {
     fail([`harness.config.json: ${(e as Error).message}`]);
+  }
+  let watchCfg: ReturnType<typeof fleetWatchConfig> | null = null;
+  if (watch) {
+    try {
+      watchCfg = fleetWatchConfig(config);
+    } catch (e) {
+      fail([`harness.config.json: ${(e as Error).message}`]);
+    }
   }
   const items: FleetIssueItem[] = a.value.positional.length > 0
     ? await Promise.all(a.value.positional.map((n) => gh.get<FleetIssueItem>(`/issues/${n}`)))
@@ -91,7 +108,35 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const me = requireAssignee(config) ? (await gh.get<{ login: string }>('/user')).login : null;
   const session = currentSession();
   const sel = selectFleet(config, facts, rows, max, session, me);
-  return json ? JSON.stringify(fleetStatusData(facts, rows, sel, max, session, mode), null, 2) : renderFleetStatus(rows, sel, max, mode);
+  const drift = driftLine(harnessDrift());
+  const watched = watchCfg ? watchNotes(rows, items, session, watchCfg) : null;
+  if (json) {
+    const data = fleetStatusData(facts, rows, sel, max, session, mode);
+    return JSON.stringify(watched ? { ...data, watch: watched } : data, null, 2);
+  }
+  const extra = [drift, ...(watched ? watched.lines : [])].filter((x) => x !== '');
+  const table = renderFleetStatus(rows, sel, max, mode);
+  return extra.length > 0 ? `${table}\n${extra.join('\n')}` : table;
+}
+
+/**
+ * fleet-status --watch の表の下の行（Issue #199）：見張りの記録を今の行で更新して書き、App が動いていない行の知らせ（1回だけ）と、
+ * Merge 後の見届けが済んでいない Issue と、読み直しの間隔を返す。判断は harness/lib/fleet-watch.ts の純粋関数
+ */
+function watchNotes(rows: FleetRow[], items: FleetIssueItem[], session: string | null, cfg: { intervalMinutes: number; appStallMinutes: number }) {
+  const commonDir = spawnGit(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const path = commonDir ? watchRecordPath(commonDir, session) : null;
+  const { record, stalls } = updateWatch(path ? readWatchRecord(path) : null, rows, new Date(), cfg, session ?? '');
+  if (path) writeWatchRecord(path, record);
+  const worktreeBranches = spawnGit(['worktree', 'list', '--porcelain']).split('\n').filter((l) => l.startsWith('branch ')).map((l) => l.slice('branch '.length));
+  const openIssues = items.filter((i) => i.state === 'open').map((i) => i.number);
+  const followUps = pendingFollowUps(rows, { openIssues, worktreeBranches });
+  const lines = [
+    ...stalls.map((s) => `App が動いていない：${s.text}（人に知らせる）`),
+    ...(followUps.length > 0 ? [`Merge 後の見届けが済んでいない：${followUps.map((n) => `#${n}`).join(' ')}（その Issue の ship を呼び直す）`] : []),
+    `待つ間の読み直しは ${cfg.intervalMinutes} 分おき（harness.config.json の fleet.watch.intervalMinutes）`,
+  ];
+  return { stalls, followUps, intervalMinutes: cfg.intervalMinutes, recorded: path !== null, lines };
 }
 
 /** step --critique の plan-critic の出力（verdict と必須の fixes の文）。読めなければ止める */
@@ -172,6 +217,8 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
   const path = commonDir ? stageFilePath(commonDir, session) : null;
   const gateAt = issue.facts.gate?.at ?? null;
   const full = issue.planFiles !== null ? fullAreas(config, issue.planFiles, openPrLabels) : [];
+  // 読み込みの比べ（fetch を伴う）は、judge になりうる開いた PR があるときだけ（#199）
+  const harnessStale = open ? judgeBlock('judge', harnessDrift()) : null;
   const decision = decideStep({
     issue,
     session,
@@ -187,6 +234,7 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
     proceed,
     now: new Date(),
     humanClaimStaleHours: config.routine.humanClaimStaleHours,
+    harnessStale,
   });
 
   // no-session の stop は宣言も解除もしない（decideStep が claim・release を空にする）
