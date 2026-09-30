@@ -23,6 +23,7 @@
     "harness/lib/**",
     "harness/scripts/setup.ts",
     "harness/scripts/agent.ts",
+    "harness/scripts/agent/**",
     ".claude/skills/judge/SKILL.md",
     ".claude/skills/plan/SKILL.md",
     ".claude/routine.md",
