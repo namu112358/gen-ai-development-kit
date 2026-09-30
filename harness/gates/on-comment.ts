@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { autoModeConfig, autoModeDanger, type AutoModeJevRecord, type AutoModeState } from '../lib/auto-mode.ts';
 import { extractBlock } from '../lib/blocks.ts';
 import { AREA_PREFIX } from '../lib/classify.ts';
 import { answeredPlan } from '../lib/decision.ts';
@@ -14,7 +15,9 @@ import { evaluateCritiqueGate, evaluatePlanGate, parsePlan, planReviewOrigin, PR
 import { checkScope } from '../lib/scope.ts';
 import { classifyBase, type BaseKind } from '../lib/stack.ts';
 import {
+  acceptanceForPatch,
   changedFiles,
+  findDashboard,
   fixRequestCount,
   hasLabel,
   isAgentPr,
@@ -26,6 +29,8 @@ import {
   plannedFilesForDelegate,
   plannedFilesForPr,
   prDiff,
+  type DashboardIssue,
+  type PlanAutoMode,
   type PlanGateRecord,
   type TimelineEvent,
 } from '../lib/state.ts';
@@ -36,6 +41,7 @@ import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
 import { delegationFor } from './delegation.ts';
 import { bypassEligibility } from './bypass.ts';
+import { askPlanJev, askPrJev, autoModeEligibility, autoModeFor, autoModePlanSkips, autoModeRequired, reusablePlanJev, reusablePrJev } from './auto-mode.ts';
 import { onDecision } from './plan-decision.ts';
 import { planAreaLabels, riskLabelChanges, singleAreaLabel } from './label-apply.ts';
 
@@ -78,6 +84,8 @@ async function onPlan(
   decision?: { commentId: number; url: string },
   /** 委任承認の状態を読み終えているとき（reviewDelegatedPlans）。無ければ要るときだけ読む */
   known?: DelegateState,
+  /** auto mode の状態と Jev の記録を読み終えているとき（reviewAutoModePlans）。無ければ要るときだけ読む・問う */
+  autoKnown?: { state: AutoModeState; jev: AutoModeJevRecord },
 ): Promise<void> {
   if (issue.state !== 'open') return;
   const errors = !block.found ? [] : !block.ok ? [block.error] : [];
@@ -97,30 +105,52 @@ async function onPlan(
   const judged = decision ? answeredPlan(plan) : plan;
   let gate = evaluatePlanGate(judged, issue.number, ctx.config);
   // 委任承認：止めた理由に飛ばせるもの（ガードレール・Risk）があるときだけ委任の状態を読む（ほかの停止では API を増やさない）。
-  // 人が付けた agent:plan-review の検査はこの後なので、人の印があれば委任でも止まる
-  if (!gate.pass && (gate.skippable?.length ?? 0) > 0) gate = delegatePlanGate(gate, judged, ctx.config, known ?? (await delegationFor(ctx, new Date())));
+  // 人が付けた agent:plan-review の検査はこの後なので、人の印があれば委任でも止まる。ダッシュボードは委任と auto mode で1回だけ読む
+  let dashboard: DashboardIssue | null | undefined;
+  const getDashboard = async () => (dashboard === undefined ? (dashboard = await findDashboard(ctx.gh, ctx.config)) : dashboard);
+  const original = gate;
+  if (!gate.pass && (gate.skippable?.length ?? 0) > 0) gate = delegatePlanGate(gate, judged, ctx.config, known ?? (await delegationFor(ctx, new Date(), await getDashboard())));
+  // auto mode：委任で通らず、止めた理由が auto mode で飛ばせる理由（ガードレール・Risk・delegateMergeExclude・harness.config.json）だけのときだけ状態を読む。
+  // 順番は 通常のゲート → 委任 → auto mode。人の印・分け直し・批評の関所はこの後に見て、当たれば auto mode でも止める
+  const autoSkips = gate.pass ? null : autoModePlanSkips(original, judged, ctx.config);
+  const autoState = autoSkips ? (autoKnown?.state ?? (await autoModeFor(ctx, await getDashboard()))) : null;
+  let autoCandidate = autoSkips !== null && autoState?.active === true;
   const labelled = hasLabel(issue, LABELS.planReview);
   // 前の印が App のゲートの停止なら、それを理由に止めず新しい計画だけで判定する（Planner の申告・人の印は人が外すまで残す）
   // 決定の記録で判定し直すときは、印は答えた Planner の申告のもの（plan-decision.ts が確かめた）なので理由にしない
   const released = labelled && (decision ? true : await releasesPriorPlanReview(ctx, issue.number));
-  if (labelled && !released && gate.pass) {
+  if (labelled && !released && (gate.pass || autoCandidate)) {
     gate.pass = false;
     gate.reasons.push(`${PRIOR_PLAN_REVIEW_REASON_PREFIX}（Planner の申告か人が付けた印です。人が外すまで止めます）`);
+    autoCandidate = false;
   }
   // 別の計画で既に分けていれば分け直さない（同じ計画コメントの再実行は続きから作る）
-  const epic: EpicState | null = gate.pass && plan.split ? await inspectEpic(ctx, issue.number, comment.id) : null;
+  const epic: EpicState | null = (gate.pass || autoCandidate) && plan.split ? await inspectEpic(ctx, issue.number, comment.id) : null;
   if (epic?.resplit) {
     gate.pass = false;
     gate.reasons.push(epic.resplit);
+    autoCandidate = false;
   }
-  // 批評の関所：critique が無い、または計画より前に段階 plan-critique の着手宣言が無い計画は止める（split の計画も同じ）
-  gate = withCritiqueGate(gate, evaluateCritiqueGate(judged, critiqueClaimedBefore(await ctx.gh.listComments(issue.number), comment.id)));
+  // 批評の関所：critique が無い、または計画より前に段階 plan-critique の着手宣言が無い計画は止める（split の計画も同じ。auto mode でも止める）
+  const comments = await ctx.gh.listComments(issue.number);
+  const critique = evaluateCritiqueGate(judged, critiqueClaimedBefore(comments, comment.id));
+  if (critique.reasons.length > 0) autoCandidate = false;
+  gate = withCritiqueGate(gate, critique);
+  // auto mode の危険の判定：ほかに止める理由が無いときだけ Jev に問う（同じ計画コメント・同じ本文の ok の記録は使い回す）
+  let autoMode: PlanAutoMode | undefined;
+  if (autoCandidate && autoSkips && autoState) {
+    const jev = autoKnown?.jev ?? reusablePlanJev(latestPlanGate(ctx.config, comments)?.value, comment.id, sha256(comment.body)) ?? (await askPlanJev(ctx, comment.body, plan.files));
+    const danger = autoModeDanger(ctx.config, { jev });
+    autoMode = { skipped: autoSkips, label: autoModeConfig(ctx.config).label, by: autoState.by, since: autoState.since, jev, hold: danger.hold, reasons: danger.reasons };
+    if (!danger.hold) gate = { pass: true, reasons: [], ...(gate.critiqueProceeded ? { critiqueProceeded: gate.critiqueProceeded } : {}) };
+  }
   const record = { version: 1, planCommentId: comment.id, planBodySha256: sha256(comment.body), pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan; planBodySha256: string };
   if (decision) record.decisionCommentId = decision.commentId;
   if (gate.pass && gate.critiqueProceeded) record.critiqueProceeded = gate.critiqueProceeded;
   if (!gate.pass) record.planReviewOrigin = planReviewOrigin(judged, labelled && !released);
   const delegated = gate.pass ? gate.delegated : undefined;
   if (delegated) record.delegated = delegated;
+  if (autoMode) record.autoMode = autoMode;
   // 通るときは、前のゲートの停止の印を外してから今までの処理をする
   if (gate.pass && released) await ctx.gh.removeLabel(issue.number, LABELS.planReview);
   const releasedNote = !(gate.pass && released)
@@ -138,7 +168,9 @@ async function onPlan(
     if (areas.length > 0) await ctx.gh.addLabels(issue.number, areas);
     const text = delegated
       ? renderDelegatedPass(comment.html_url, delegated, `${releasedNote}${proceededNote}`)
-      : `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。${releasedNote}${proceededNote}`;
+      : autoMode
+        ? renderAutoModePass(comment.html_url, autoMode, `${releasedNote}${proceededNote}`)
+        : `計画ゲートを通過しました（[計画](${comment.html_url})）。次の Routine の実行で実装します。${releasedNote}${proceededNote}`;
     await appComment(ctx, issue.number, 'plan-gate', text, record);
   } else {
     // 止まった計画でも、files がすべて1つの領域に収まれば App が area:* を付ける（split の計画と、既に area:* がある Issue は除く）
@@ -154,6 +186,7 @@ async function onPlan(
         `計画ゲートで停止しました（[計画](${comment.html_url})）。人が手元でセッションを立てて実装してください。`,
         '',
         ...gate.reasons.map((r) => `- ${r}`),
+        ...(autoMode?.hold ? ['', `auto mode（\`${autoMode.label}\`）の危険の判定で保留にしました。`, ...autoMode.reasons.map((r) => `- ${r}`)] : []),
         ...(area ? ['', `計画の files が1つの領域に収まるので \`${area}\` を付けました。`] : []),
       ].join('\n'),
       record,
@@ -203,6 +236,18 @@ function renderDelegatedPass(planUrl: string, d: NonNullable<GateResult['delegat
   ].join('\n');
 }
 
+/** auto mode で通したときの計画ゲートのコメント（ラベル・付けた人・付けた時刻と、飛ばした理由・Jev の1行） */
+function renderAutoModePass(planUrl: string, a: PlanAutoMode, releasedNote: string): string {
+  return [
+    `auto mode（\`${a.label}\`、@${a.by}、${a.since} から）で次の理由を飛ばして計画ゲートを通しました（[計画](${planUrl})）。${releasedNote}`,
+    '',
+    ...a.skipped.map((r) => `- ${r}`),
+    '',
+    '危険の判定:',
+    ...a.reasons.map((r) => `- ${r}`),
+  ].join('\n');
+}
+
 type OpenIssue = { number: number; labels: { name: string }[]; state: string; pull_request?: unknown };
 
 /**
@@ -243,6 +288,51 @@ async function reviewDelegatedPlan(ctx: GateContext, issue: OpenIssue, state: De
   if (!planComment || !isTrustedComment(planComment) || sha256(planComment.body) !== record.planBodySha256) return;
   const block = extractBlock(planComment.body, 'agent-plan');
   await onPlan(ctx, issue, planComment, block, decisionComment ? { commentId: decisionComment.id, url: decisionComment.html_url } : undefined, state);
+  await refreshPlanLinks(ctx, issue.number);
+}
+
+/**
+ * auto mode で、App のゲートの停止で止まっている Issue を判定し直す（呼び出しは auto mode のラベルを付けたとき（#346）と定期実行（#347）が足す）。
+ * 対象は reviewDelegatedPlans と同じ形で、agent:plan-review の付いた開いた Issue のうち、最新の plan-gate の記録が pass:false・planReviewOrigin:gate で
+ * 記録に計画と sha256 があり、批評の関所を通り、止めた理由が auto mode で飛ばせる理由だけで、最後に agent:plan-review を付けたのが App で、
+ * 計画コメントが信頼できる作成者のまま本文も変わっていないもの。
+ * Jev に問い（同じ計画コメント・同じ本文の ok の記録は使い回す）、保留でなくなったときだけ計画ゲートを走らせ直す。
+ * 保留のままなら何も書かない（auto mode の記録の無い古い停止も同じ。判定し直しのたびに保留のコメントを増やさない）。
+ * auto mode が無効なら何もしない。1件の失敗はログに残して次へ進む。
+ */
+export async function reviewAutoModePlans(ctx: GateContext, now: Date, state?: AutoModeState): Promise<void> {
+  void now;
+  const current = state ?? (await autoModeFor(ctx));
+  if (!current.active) return;
+  const items = await ctx.gh.paginate<OpenIssue>(`/issues?state=open&labels=${encodeURIComponent(LABELS.planReview)}`, 5);
+  for (const item of items) {
+    if (item.pull_request || item.state !== 'open' || !hasLabel(item, LABELS.planReview)) continue;
+    try {
+      await reviewAutoModePlan(ctx, item, current);
+    } catch (e) {
+      ctx.log(`#${item.number} の auto mode での判定し直しに失敗しました: ${(e as Error).message}`);
+    }
+  }
+}
+
+async function reviewAutoModePlan(ctx: GateContext, issue: OpenIssue, state: AutoModeState): Promise<void> {
+  const comments = await ctx.gh.listComments(issue.number);
+  const record = latestPlanGate(ctx.config, comments)?.value as (PlanGateRecord & { plan?: Plan; planBodySha256?: string }) | undefined;
+  if (!record || record.pass !== false || record.planReviewOrigin !== 'gate' || !record.plan || !record.planBodySha256) return;
+  const decisionComment = record.decisionCommentId === undefined ? null : comments.find((c) => c.id === record.decisionCommentId);
+  if (record.decisionCommentId !== undefined && !decisionComment) return;
+  const judged = decisionComment ? answeredPlan(record.plan) : record.plan;
+  // 批評の関所は auto mode でも飛ばさない（批評の無い計画を判定し直しても、また止まって停止のコメントが増えるだけ）
+  if (evaluateCritiqueGate(judged, critiqueClaimedBefore(comments, record.planCommentId)).reasons.length > 0) return;
+  if (!autoModePlanSkips(evaluatePlanGate(judged, issue.number, ctx.config), judged, ctx.config)) return;
+  const events = await ctx.gh.paginate<TimelineEvent>(`/issues/${issue.number}/events`);
+  if (lastLabeled(events, LABELS.planReview)?.actor?.login !== appLogin(ctx.config)) return;
+  const planComment = comments.find((c) => c.id === record.planCommentId);
+  if (!planComment || !isTrustedComment(planComment) || sha256(planComment.body) !== record.planBodySha256) return;
+  const jev = reusablePlanJev(record, planComment.id, record.planBodySha256) ?? (await askPlanJev(ctx, planComment.body, record.plan.files));
+  if (autoModeDanger(ctx.config, { jev }).hold) return;
+  const block = extractBlock(planComment.body, 'agent-plan');
+  await onPlan(ctx, issue, planComment, block, decisionComment ? { commentId: decisionComment.id, url: decisionComment.html_url } : undefined, undefined, { state, jev });
   await refreshPlanLinks(ctx, issue.number);
 }
 
@@ -357,6 +447,16 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
   });
   // bypass モード：委任と同じ計画と照らし、Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev を飛ばす理由として記録する（harness/gates/bypass.ts）
   const bypass = bypassEligibility({ reviewPass: verdict.review.pass, scopeOk: delegateScope.ok, outside: delegateScope.outside, humanMerge, exclude, jevGate, agent, base, guardrail, risk });
+  // auto mode：bypass と同じ計画と照らし、必須の条件をすべて満たし自動 Merge の対象でないときだけ Jev に PR の危険を問う（harness/gates/auto-mode.ts）。
+  // auto mode の今の状態は見ない（後からラベルを付けても、この受け付けの記録で乗れるように）。同じ patch-id の ok の記録は使い回す
+  const required = autoModeRequired({ agent, base, reviewPass: verdict.review.pass, scopeOk: delegateScope.ok, outside: delegateScope.outside });
+  let autoJev: AutoModeJevRecord | undefined;
+  if (!elig.autoEligible && required.length === 0) {
+    // 鍵が無ければ問えないので、前の記録も読まない（API を増やさない）
+    const reused = ctx.secrets.jevApiKey ? reusablePrJev(acceptanceForPatch(ctx.config, await ctx.gh.listComments(prNumber), currentPatch)) : null;
+    autoJev = reused ?? (await askPrJev(ctx, diff, files));
+  }
+  const autoMode = autoModeEligibility({ required, danger: autoJev ? autoModeDanger(ctx.config, { jev: autoJev }) : null, jev: autoJev, humanMerge, exclude, jevGate, guardrail, risk });
   return {
     version: 1,
     verdictCommentId,
@@ -376,6 +476,7 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     riskRationale: verdict.risk.rationale,
     delegate,
     bypass,
+    autoMode,
   };
 }
 
@@ -408,6 +509,15 @@ function renderBypass(a: Acceptance): string {
   return b.eligible ? `可（飛ばす理由: ${cell(b.skipped)}）` : `不可: ${cell(b.reasons)}`;
 }
 
+/** 受け付けの表の「auto mode」の欄：自動 Merge の対象なら要らない。auto mode なら乗せられるか（飛ばす理由）、乗せられない理由（保留なら Jev の1行） */
+function renderAutoMode(a: Acceptance): string {
+  if (a.autoEligible) return '不要（自動 Merge の対象）';
+  const m = a.autoMode;
+  if (!m) return '-';
+  const cell = (items: string[]) => items.join('／').replaceAll('|', '\\|');
+  return m.eligible ? `可（飛ばす理由: ${cell(m.skipped)}）` : `不可: ${cell(m.reasons)}`;
+}
+
 function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string {
   const route = !a.reviewPass ? '修正へ（Draft のまま）' : a.autoEligible ? '自動 Merge（auto-merge を設定）' : 'Human Merge（人のレビュー待ち）';
   return [
@@ -423,6 +533,7 @@ function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string
     `| 人が Merge するパス | ${a.humanMerge?.length ? `触れる（Human Merge）: ${a.humanMerge.join(', ')}` : '触れない'} |`,
     `| Jev | ${a.jev?.status ?? '-'}${a.jev?.allows === undefined ? '' : a.jev.allows ? '（可）' : '（不可）'} |`,
     `| 委任承認（計画＋Merge） | ${renderDelegate(a)} |`,
+    `| auto mode | ${renderAutoMode(a)} |`,
     `| bypass | ${renderBypass(a)} |`,
     ...(a.reasons.length > 0 ? ['', '自動 Merge しない理由:', ...a.reasons.map((r) => `- ${r}`)] : []),
   ].join('\n');
