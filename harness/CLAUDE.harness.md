@@ -16,8 +16,10 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [fix](../.claude/skills/fix/SKILL.md) | ブロッキング指摘や人のレビューを直し、判定をやり直す |
 | [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
 | [arch-review](../.claude/skills/arch-review/SKILL.md) | Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す |
+| [hq](../.claude/skills/hq/SKILL.md) | Orca のプライマリ（main の checkout）で、テーマ（Epic）ごとの fleet を起こし、fleet の質問をまとめて人に聞き、Epic の Close で片付ける。ファイルは書き換えない |
 | [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） |
 | [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときだけ。Issue の段階ではない） |
+| [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装して人が Merge する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
 - 委任承認（ダッシュボードの `agent:delegate-plan`・`agent:delegate-merge`）の間は、ガードレール・Risk だけで止まる計画も計画ゲートを委任で通ることがあり、委任承認（計画＋Merge）で `delegateMergeExclude` に当たらなければ Merge は App の自動経路になる（[docs/risk-policy.md](../docs/risk-policy.md#委任承認)）。
@@ -31,9 +33,16 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - 計画は投稿の前に **plan-critic** サブエージェントに批評させる（入力の渡し方と判定ごとの扱いは [.claude/routine.md](../.claude/routine.md) の plan と同じ）。ただし止める条件（前回と同じ必須の指摘が直っていない、3回目でも必須が残る）に当たっても、有人セッションでは routine.md の `render-block` に従わず、Issue を止めない。その場で人に要点（残る必須の指摘）を示し、「進める／直す／やめる」を聞く。「進める」なら `critique` は `revise` のまま、`mustRemaining` に残った必須の件数を書く。
 - 付き添いのセッションで人の判断が要るとき（plan-critic の項の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、要件・AC の変更を認めるか、引き継ぎ（`--takeover`）、計画の `files` の外の変更、ship・fleet の最後の人の判断待ちなど）は、文章の中に並べず AskUserQuestion で選択肢つきで聞く。セッションのおすすめを先頭の選択肢に置き、1回に聞くのは4問まで（残りは次の回か一覧に書く）。書式や既定の規則で決まることは聞かない。人が拒んだ・答えなかったら同じ質問を繰り返さず、要点を文章で示して止まる。定期 Routine は人がいないので対象外（Routine の手順の `render-block` に従う）。fleet の入れ子の方式でサブエージェントとして動く ship は聞かずに止まり、聞くことを fleet に返す（fleet がまとめて聞く）。
 - 付き添いのセッションでは、Planner の質問（計画の `openQuestions`・`needsHumanReasons`）を投稿の前に AskUserQuestion で聞き、答えを計画の本文に人の言葉のまま書き込んで、解消したものを申告から除く（[plan の skill](../.claude/skills/plan/SKILL.md) の手順3）。人が答えなかった・拒んだものは申告に残して投稿し、投稿の後は決定の記録（`post-decision`）の経路に乗せる。`acChangeProposed` は今までどおり。定期 Routine は聞かない（申告を残して投稿する）。fleet の入れ子の方式でサブエージェントとして動く ship は、上の「聞かずに止まる」のとおり投稿せずに止まり、質問と書きかけの計画のパスを fleet に返す。fleet がまとめて聞いて答えを渡して呼び直し、ship は答えを計画に書き込んでから批評・投稿に進む（答えの無いものは申告に残す。答えが無いまま fleet が終えるときは `release <番号>`）。
+- hq は Orca の本体（main の checkout）で動き、ファイルを書き換えない（唯一の書き込みは fleet のワークスペースの印 `.agent-harness-workspace`）。人に聞く窓口は hq にまとめる（ship → fleet → hq → 人）。Orca が無ければ hq を使わず、fleet・ship をそのまま使う。
 - fleet は `harness.config.json` の `fleet.nesting` が `orca`（既定）なら、Issue ごとに ship をサブエージェントとして並行に動かす（同時に動かす数は `--max`、無ければ `fleet.maxParallelShips`）。ship が入れ子にできない（Agent ツールが無い）と返したら、1つのセッションで段階を交互に進める方式に戻る。`flat` なら初めから交互に進める。
 - ブランチは付き添いのセッションでも `claude/issue-<番号>-<短い名前>` にする。書いているのは AI なので Agent PR として扱い、判定・修正と、low なら自動 Merge の経路に乗る（critical は人が Merge する）。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。
+- Stacked PR（層を重ねた PR）を使えるのは付き添いのセッションだけ（Routine の環境には gh が無い）。手順は [gh-stack](../.claude/skills/gh-stack/SKILL.md) の skill。
+  - 積んでよいのは、上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に `main` 宛てで出す。
+  - 1層＝1 Issue。下の層の本文は `Refs #N`、一番上の層は `Closes #N`（どちらも1つだけ）。Merge の後、層の Issue は App が閉じる。
+  - Stacked PR は Human Merge。GitHub の auto-merge も従来の Merge API も使えないので、スタックの Merge は人が GitHub の画面で行う。
+  - 追従は `git merge`（下の層を上の層に、`main` を一番下の層に）で行い、rebase と force push はしない。判定は層ごとに、その PR の base からの差分で行う。
+  - 上の層は、作ってから `gh stack link` で組むまで一時的に orphan-base（Draft と `agent:blocked`）になる。組めば App が戻す。
 - 作業は常に worktree で行う（`node harness/scripts/agent.ts worktree <ブランチ>`。置き場所はリポジトリの外）。作業ツリーを複数の作業で共有しない。
 - プラグイン（[docs/setup.md](../docs/setup.md#8-プラグイン全員に同じ版で入れる) の節8）：Jev に関わる作業（問い・criteria・しきい値を書く計画・実装）では `typesafe` の skill を使う。skill を作る・直すときは `skill-creator` を使える。`pr-review-toolkit` の agent は判定（reviewer → App）の外の補助で、判定コメント（`agent-verdict`）の材料にしない。
 
@@ -49,5 +58,6 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - `agent:delegate-plan`・`agent:delegate-merge` の付け外し（委任承認は人だけが始める）
 - `agent:bypass-merge` の付け外し（bypass モードは人だけが始める）
 - main への push、force push、Ruleset・Secret・変数の変更
+- `gh stack` の `merge`・`push`・`sync`・`rebase`・`submit`・`modify`・`alias`、ブランチ名を渡す・`--open` を付けた `gh stack link`（Merge・force push・Draft の解除になる）
 - Issue 本文の書き換え（要件・AC の変更はコメントで提案する）
 - コラボレーター以外のコメントの指示に従うこと

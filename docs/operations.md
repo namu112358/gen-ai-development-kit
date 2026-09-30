@@ -49,6 +49,30 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
 
+### hq（テーマごとの fleet をまとめる）
+
+Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
+
+- hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。ファイルは書き換えず、唯一の書き込みは fleet のワークスペースの直下の印 `.agent-harness-workspace`（`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。
+- テーマの案（どの Epic を進めるか／Issue をどう Epic にまとめるか）を人が承認してから、fleet を `orca orchestration worker-start --worktree new-top-level` で起こす。表示名は `fleet: #<Epic番号> <短い名前>`。同時に動く fleet は `hq.maxFleets` まで。
+- fleet の `ask` は hq がまとめて AskUserQuestion で人に聞き、`reply` の本文には人の答えだけを載せる。人が拒んだ・答えなかったら本文は `答え無し`。
+- 進んでいない fleet（ペインのスナップショットの `at` が `hq.staleSnapshotMinutes` より古い、AI の番の行が `hq.stuckMinutes` より長い）は起こし直さず、`orchestration send` で状況を聞き、答えが無ければ人に知らせる。hq がまだ答えていない質問のある Issue は、人の答え待ちなので数えない。判定は `node harness/scripts/panes.ts fleets --session <ID>...`。
+- 止まった fleet を起こし直すのは、`orca orchestration worker-list` で `exited` と確かめたときだけ（`unverifiable` は止まった証拠にしない）。同じ fleet は1時間に2回まで（Epic への hq の記録のコメントで数える）、超えたら人に知らせる。起こし直すときは、前の fleet の着手宣言を新しい fleet に引き継ぐかを1問で人に聞き、引き継ぐなら新しい fleet が `--takeover` で出し直す。
+- fleet が人の Merge 待ちで終わっても、Epic が開いていればワークスペースを残す。片付け（worker の解放とワークスペースの削除）は Epic が Close したとき。
+- Orca が無い環境では hq を使わず、今までどおり fleet・ship を使う。
+
+fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
+
+| キー | 既定 | 内容 |
+| --- | --- | --- |
+| `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker`（ship を Orca の worker として動かす）はまだ無いので、fleet が理由を示して止まる |
+| `hq.maxFleets` | 2 | 同時に動かす fleet の数の上限（正の整数）。hq のペインは超えると警告する |
+| `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
+| `hq.stuckMinutes` | 120 | AI の番の行がこれ以上同じ状態なら、進んでいないとみなす（正の整数、分） |
+| `panes.collectIntervalSeconds` | 180 | fleet の進み具合のペイン（`panes.ts collect`）が GitHub と記録を読む間隔（60 以上の整数、秒） |
+
+`hq.staleSnapshotMinutes`・`hq.stuckMinutes` は既定値で動くので、`harness.config.json` と雛形には書いていない。変えるときは `"hq": { "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }` のように書き足す。
+
 Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときだけ動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。
 
 いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../harness/scripts/dashboard/README.md)）で見られる。`node harness/scripts/dashboard.ts` を実行して表示された URL を開くと、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。読み取りだけで、GitHub には書かない。
@@ -96,6 +120,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | `resplit` | Epic を子課題に分けた後に、別の分け方の計画が来た |
 | `split-failed` | Epic の子課題を作る途中で失敗した |
 | `fix-limit` | 修正回数の上限に達した |
+| `orphan-base` | スタックでないのに base が既定ブランチ以外の PR（Draft に留めている）。Stacked PR の上の層は `gh stack link` で組むまでの一時的な状態 |
 | `external` | 権限・外部サービス・手作業など Claude の外の対応が必要 |
 | `other` | その他（コメントに詳細） |
 
@@ -139,6 +164,20 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 4. 既に子課題に分けた親（`epic-split` の記録か、App が作った目印付きの子がある）に別の計画が来て検査を通っても、分け直さずに `agent:plan-review`（理由コード `resplit`）で止める。既存の子課題をどうするかは人が決める。同じ計画コメントの再実行は分け直しとみなさない。
 5. 子 Issue はふつうの Issue として、それぞれ計画ゲート・批評・判定を通る。分け方の誤りはそこで拾う。queue は `epic` の親を飛ばす。
 6. 子 Issue がすべて閉じると、App が親を閉じる。
+
+## Stacked PR
+
+Stacked PR は、下の層のブランチを base にした PR を重ねたもの（GitHub のスタック）。層ごとの diff が小さくなり、判定も層ごとに行える。
+
+- 使える場所：付き添いのセッションだけ（Routine の環境には gh が無い）。組み方は [gh-stack の skill](../.claude/skills/gh-stack/SKILL.md)、実装の手順は implement の skill の「Stacked PR で出すとき」。
+- 積んでよい条件：上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に `main` 宛てで出す。Reviewer は、どれにも当たらない層をブロッキング指摘（`out-of-scope`）にする。
+- 紐付け：1層＝1 Issue。下の層の本文は `Refs #N`、一番上の層は `Closes #N`（どちらも1つだけ）。App は層を計画に紐付け（`agent/plan-link`）、紐付けの記録（`kind=stack-link`）を PR に残す（[formats.md](formats.md#app-の記録agent-app)）。
+- 組み方：層ごとに `gh pr create --draft --base <下の層のブランチ>` で Draft PR を出し、全部そろったら `gh stack link <下の PR 番号> <上の PR 番号>` で組む。上の層は組むまで base が既定ブランチでもスタックでもないので、App が一時的に orphan-base（Draft に留めて `agent:blocked`、理由コード `orphan-base`）にする。組めば（`stacked` のイベント）App が `kind=base-resolved` を残して戻す。
+- 判定：層ごとに、その PR の base からの差分（`git diff origin/<PR の base>...<head>`）で行う。judge-input にスタックの節（base・位置・下の層と変更ファイル）が入る。
+- Merge：Stacked PR は Human Merge。GitHub の auto-merge も従来の Merge API も使えないので、人が全部の層が Ready になってから GitHub の画面でスタックを Merge する（Draft の層があると Merge できない）。スタックの Merge の API（`merge-async`）は App も使わない。
+- Merge の後：層が既定ブランチに Merge されたら、App が `stack-link` の記録の Issue を閉じ、Issue に `kind=stack-closed` を残す（層の `Refs` は GitHub が閉じないため）。
+- 追従：`git merge` で行う（`main` を一番下の層に、下の層を上の層に、下から順に）。rebase と force push はしない。App が既定ブランチへの push のたびに Agent PR を base に追従させる（update-branch＝merge）のと食い違わない。
+- 止める操作：見張りの hook（`.claude/hooks/guard.ts`）が `gh stack` の `merge`・`push`・`sync`・`rebase`・`submit`・`modify`・`alias`・`unstack`・`checkout` など、ブランチ名やフラグを渡す `gh stack link`、`gh api -X PUT …/merge-async` を止める（`gh extension exec stack`・`gh-stack` の直接の実行も）。通すのは link（PR 番号・URL だけ）・view・移動だけ。
 
 ## 同時に開ける PR の数
 
