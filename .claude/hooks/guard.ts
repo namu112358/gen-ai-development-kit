@@ -913,9 +913,18 @@ function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | 
   const s = sub?.text;
   const rest = args.slice(si + 1);
   if ((g === 'extension' || g === 'extensions' || g === 'ext') && s === 'exec') {
-    const ext = rest[0];
-    if (ext?.dynamic) return unknown(`gh extension exec の拡張の名前（${ext.text}）`);
-    if (ext && (ext.text === 'stack' || ext.text === 'gh-stack')) return checkStack(rest.slice(1));
+    // 拡張の名前の前のフラグ（`--`・`--help`・`-R o/r` など）を飛ばす。値を取るか分からないフラグの後は、次の語も名前の候補にする
+    let k = 0;
+    let flagged = false;
+    for (; k < rest.length && !rest[k]!.dynamic && rest[k]!.text.startsWith('-'); k++) {
+      flagged = true;
+      if (rest[k]!.text === '-R' || rest[k]!.text === '--repo') k++;
+    }
+    for (const j of flagged ? [k, k + 1] : [k]) {
+      const ext = rest[j];
+      if (ext?.dynamic) return unknown(`gh extension exec の拡張の名前（${ext.text}）`);
+      if (ext && (ext.text === 'stack' || ext.text === 'gh-stack')) return checkStack(rest.slice(j + 1));
+    }
     return null;
   }
   if (g === 'pr' && s === 'merge') return role('PR の Merge（gh pr merge）');

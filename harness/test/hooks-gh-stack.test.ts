@@ -74,6 +74,22 @@ test('gh のグローバルな指定・extension exec・直接の実行ファイ
   }
 });
 
+test('extension exec の拡張の名前の前にフラグがあっても gh stack として読んで止める', () => {
+  for (const cmd of [
+    'gh extension exec -- stack merge',
+    'gh ext exec --help stack push',
+    'gh extension exec -R o/r stack merge',
+    'gh extensions exec --repo o/r gh-stack sync',
+    'gh ext exec --foo bar stack merge',
+    'gh ext exec -- $EXT merge',
+  ]) {
+    assertDeny(cmd);
+  }
+  for (const cmd of ['gh extension exec -- stack view', 'gh ext exec -R o/r stack link 10 20', 'gh ext exec -- other merge']) {
+    assertAllow(cmd);
+  }
+});
+
 test('連結・bash -c の中の gh stack も止める', () => {
   for (const cmd of ['true && gh stack merge', 'bash -c "gh stack push"']) assertDeny(cmd);
 });
