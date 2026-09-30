@@ -3,6 +3,8 @@ import { parseSplit, validateSplit, type SplitChild } from './epic.ts';
 import { guardrailPatterns, type GuardrailConfig } from './guardrail.ts';
 import { validateScopePattern } from './scope.ts';
 import { Checker } from './validate.ts';
+import { parseClaudeDanger } from './verdict.ts';
+import type { ClaudeDanger } from './auto-mode.ts';
 
 /**
  * 計画コメントの構造化出力（```agent-plan）。書式は docs/formats.md を参照。
@@ -20,7 +22,7 @@ export interface Plan {
   /** Epic として子課題に分けるとき（2件以上）。あれば files は空でよく、Risk では止めない */
   split?: SplitChild[];
   /** 投稿前の批評の結果。無い計画は計画ゲートで止める（evaluateCritiqueGate。verdict の値そのものでは止めない） */
-  critique?: { verdict: CritiqueVerdict; rounds: number; mustRemaining?: number };
+  critique?: { verdict: CritiqueVerdict; rounds: number; mustRemaining?: number; danger?: ClaudeDanger };
 }
 
 export const CRITIQUE_VERDICTS = ['go', 'revise', 'split', 'drop'] as const;
@@ -57,6 +59,8 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
         if (Number.isInteger(k.mustRemaining) && must < 0) c.errors.push('plan.critique.mustRemaining: 0 以上ではありません');
         plan.critique.mustRemaining = must;
       }
+      // auto mode の危険の判定（最後の回の plan-critic の答え。任意。記録するだけで、計画ゲートの判断には使わない）
+      if (k.danger !== undefined) plan.critique.danger = parseClaudeDanger(c, k.danger, 'plan.critique.danger');
     }
   }
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: plan };

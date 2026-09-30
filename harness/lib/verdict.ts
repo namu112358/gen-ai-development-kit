@@ -1,3 +1,4 @@
+import type { ClaudeDanger } from './auto-mode.ts';
 import { RISK_LEVELS, type RiskLevel } from './config.ts';
 import type { Parsed } from './plan.ts';
 import { Checker } from './validate.ts';
@@ -9,6 +10,17 @@ import { Checker } from './validate.ts';
 
 export const NOUL = ['yes', 'no', 'unsure'] as const;
 export type Noul = (typeof NOUL)[number];
+
+/**
+ * auto mode の Claude の危険の判定（計画は plan-critic が答えて critique.danger、PR は Risk Agent が答えて risk.danger）を検査する。
+ * 形は harness/lib/auto-mode.ts の ClaudeDanger（answer が yes / no / unsure、reason は空でない文字列）。未知のキーは拒否する。
+ * 記録するだけで、8問・Risk のレベル・自動 Merge の条件には使わない（読むのは auto mode の判断 autoModeDanger）
+ */
+export function parseClaudeDanger(c: Checker, raw: unknown, path: string): ClaudeDanger {
+  const o = c.object(raw, path) ?? {};
+  for (const k of Object.keys(o)) if (k !== 'answer' && k !== 'reason') c.errors.push(`${path}.${k}: 未知のキーです`);
+  return { answer: c.oneOf(o.answer, NOUL, `${path}.answer`), reason: c.string(o.reason, `${path}.reason`, { nonEmpty: true }) };
+}
 
 /** 質問2〜8。safe は自動 Merge を止めない答え */
 export const RISK_QUESTIONS = [
@@ -68,6 +80,8 @@ export interface Verdict {
     /** 記録のみ。判定には使わない */
     probabilities?: Record<string, number>;
     rationale: string;
+    /** auto mode の危険の判定（Risk Agent の答え）。記録のみで、level・8問・自動 Merge の条件には使わない。無い古い判定も読む */
+    danger?: ClaudeDanger;
   };
   /** 記録用の事実（Jev には渡さない。Claude の判定は含めない） */
   facts: {
@@ -137,6 +151,7 @@ export function parseVerdict(raw: unknown): Parsed<Verdict> {
       Object.entries(probs).map(([k, v]) => [k, c.number(v, `verdict.risk.probabilities.${k}`, 0, 1)]),
     );
   }
+  if (risk.danger !== undefined) verdict.risk.danger = parseClaudeDanger(c, risk.danger, 'verdict.risk.danger');
   if (o.metrics !== undefined) {
     const m = c.object(o.metrics, 'verdict.metrics') ?? {};
     verdict.metrics = Object.fromEntries(
