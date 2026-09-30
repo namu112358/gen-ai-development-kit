@@ -8,18 +8,18 @@
 # - 全 PR で起動する（自動 Merge の経路に乗る PR だけに絞らない）。実装の .ts・.js を変えていない PR では
 #   `mutate.ts --check-targets` だけが動き、npm ci と本体を省く（Summary に理由を出す）。
 # - 壊す箇所の数（--max-mutants）と時間（--max-minutes）に上限を置く。上限で打ち切っても失敗にせず、打ち切った旨を出す。
+#
+# main への push では動かさない。Ruleset の必須チェックは strict（main に追いついていないと Merge できない）なので、
+# Merge 後の main は PR の実行で試したマージコミットと同じ内容になる（harness/lib/ruleset.ts）。
 name: ci
 
 on:
   pull_request:
-  push:
-    branches: [main]
 
-# 同じ PR に続けて push したら、古い head の実行を取り消す（必須チェックは head ごとなので、新しい head の ci が結果になる）。
-# main への push は取り消さない。同じグループで待つ実行は cancel-in-progress が偽でも取り消されるので、push は実行ごとに別のグループにする
+# 同じ PR に続けて push したら、古い head の実行を取り消す（必須チェックは head ごとなので、新しい head の ci が結果になる）
 concurrency:
-  group: ci-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || format('run-{0}', github.run_id) }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -40,7 +40,6 @@ jobs:
       - run: npm run check
 
   mutation:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # npm ci・ベースライン込みの 15 分・最後の1回のテスト（90 秒）が収まる長さ
     timeout-minutes: 25
