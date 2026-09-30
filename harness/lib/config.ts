@@ -71,7 +71,7 @@ export interface HarnessConfig {
    */
   bypassMerge?: { label: string };
   /**
-   * auto mode（計画ゲートと Merge を App に任せ、Jev と Claude のどちらかが危険と答えたものだけを保留する。Epic #339）。
+   * auto mode（計画ゲートと Merge を App に任せ、Jev が危険と答えたもの（答えが無い・読めないものも）だけを保留する。危険の判定は Jev だけ（#382）。Epic #339）。
    * ダッシュボードに人が label を付けている間だけ有効（期限なし）。jev は危険の問い（計画用・PR 用）と、安全側の確率の下限。
    * 無い項目は既定値（harness/lib/auto-mode.ts の autoModeConfig）
    */

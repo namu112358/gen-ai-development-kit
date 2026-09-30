@@ -108,7 +108,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | `agent:delegate-plan` | 人のみ | ダッシュボード専用。計画ゲートの承認だけを App に委ねる「委任承認（計画）」のスイッチ（`harness.config.json` の `delegate.planLabel`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けている間、ガードレール・想定 Risk だけで止まる計画に App が `agent:plan-ok` を付け、付けたときと定期実行で、その理由だけで止まっている Issue を判定し直す（[risk-policy.md](risk-policy.md#委任承認)）。期限は無い。外すと計画の委任が終わるだけで、委任で付けた `agent:plan-ok` は外さない |
 | `agent:delegate-merge` | 人のみ | ダッシュボード専用。計画ゲートの承認と Merge の判断を App に委ねる「委任承認（計画＋Merge）」のスイッチ（`harness.config.json` の `delegate.mergeLabel`・`delegateMergeExclude`）。セッションは付け外ししない（hook と deny で止める）。付けている間、`agent:delegate-plan` と同じく計画を通し、条件を満たす Agent PR にガードレール・Risk の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#委任承認)）。期限は無い。外すと、委任で付けた auto-merge を外して人にレビューを依頼する（委任で付けた `agent:plan-ok` は外さない） |
 | `agent:bypass-merge` | 人のみ | ダッシュボード専用。ブロッキング指摘の無い Agent PR の Merge を App に任せる「bypass モード」のスイッチ（`harness.config.json` の `bypassMerge`）。セッションは付け外ししない（hook と deny で止める）。付けている間（期限なし）、ブロッキング指摘が無く範囲照合と `agent/tests` を通る Agent PR に、Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#bypass-モード)）。外す・停止スイッチで、bypass で付けた auto-merge を外して人にレビューを依頼する |
-| `agent:auto-mode` | 人のみ | ダッシュボード専用。計画ゲートと Merge の両方を App に任せ、危険なものだけを人の判断に保留する「auto mode」のスイッチ（`harness.config.json` の `autoMode`）。セッションは付け外ししない。有効な条件は bypass と同じ（人が付けたもの、期限なし、停止スイッチが優先）。危険の判定は Jev（`autoMode.jev` の問いと下限）と Claude の両方に問い、どちらかが危険・判断できない、記録が無い・読めないときは保留する。今はラベルと判断の lib（`harness/lib/auto-mode.ts`）だけで、App の計画ゲート・Merge の経路はまだ auto mode を見ない（Epic #339 の子課題で足す） |
+| `agent:auto-mode` | 人のみ | ダッシュボード専用。計画ゲートと Merge の両方を App に任せ、危険なものだけを人の判断に保留する「auto mode」のスイッチ（`harness.config.json` の `autoMode`）。セッションは付け外ししない。有効な条件は bypass と同じ（人が付けたもの、期限なし、停止スイッチが優先）。危険の判定は Jev だけに問い（`autoMode.jev` の問いと下限。Claude には問わない、#382）、Jev が危険と答えた、記録が無い・読めないときは保留する。今はラベルと判断の lib（`harness/lib/auto-mode.ts`）だけで、App の計画ゲート・Merge の経路はまだ auto mode を見ない（Epic #339 の子課題で足す） |
 
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。queue は定期実行（1時間ごと）と手動の起動のときだけ公開し直すので、宣言の変化もそのときに queue へ出る（今すぐ出したいときは gate の手動実行。下の「ゲートの失敗」）。今の宣言は `claim`・`fleet-status` がコメントから直接読む。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
 
@@ -311,8 +311,8 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | 委任承認を見返す | ダッシュボードの委任承認の状態の行（計画のみ・計画＋Merge・無効と、付けた人）、「委任承認で Merge された PR」（直近 `staleHours` 時間）、PR の App の記録（`kind=delegated-merge`）、Issue の計画ゲートの記録（`kind=plan-gate` の `delegated`）を見る |
 | bypass モードを始める | ダッシュボードに `agent:bypass-merge` を付ける（外すまで続く）。ブロッキング指摘の無い Agent PR は、ハーネス自身の変更も含めて自動 Merge される（[risk-policy.md](risk-policy.md#bypass-モード)） |
 | bypass モードを見返す | ダッシュボードの「bypass で Merge された PR」（直近 `staleHours` 時間）と、PR の App の記録（`kind=bypass-merge`）を見る |
-| auto mode を始める | ダッシュボードに `agent:auto-mode` を付ける（外すまで続く）。中核に触れる計画・PR も、Jev と Claude のどちらも危険と答えなければ App が通す（Epic #339 の子課題で App の経路に足す。それまではラベルを付けても動きは変わらない） |
-| auto mode を見返す | ダッシュボードの auto mode の状態・通した計画と Merge した PR・保留にしたものと理由（Epic #339 の子課題で足す）と、計画・PR の保留の理由のコメント（Jev の確率と Claude の答え）を見る |
+| auto mode を始める | ダッシュボードに `agent:auto-mode` を付ける（外すまで続く）。中核に触れる計画・PR も、Jev が危険と答えなければ App が通す（Epic #339 の子課題で App の経路に足す。それまではラベルを付けても動きは変わらない） |
+| auto mode を見返す | ダッシュボードの auto mode の状態・通した計画と Merge した PR・保留にしたものと理由（Epic #339 の子課題で足す）と、計画・PR の保留の理由のコメント（Jev の確率）を見る |
 
 ## 止める仕組み
 

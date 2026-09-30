@@ -1,89 +1,46 @@
-// auto mode の危険の判定（autoModeDanger）と、Jev への要求・記録（autoModePlanJevRequest・autoModePrJevRequest・autoModeJevRecord）を確かめる（Issue #342）
+// auto mode の危険の判定（autoModeDanger。Jev の記録だけで決まる。Issue #382）と、Jev への要求・記録（autoModePlanJevRequest・autoModePrJevRequest・autoModeJevRecord）を確かめる（Issue #342）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { HarnessConfig } from '../lib/config.ts';
 import {
   AUTO_MODE_JEV_QUESTION_SET, autoModeConfig, autoModeDanger, autoModeJevRecord, autoModePlanJevRequest, autoModePrJevRequest,
-  type AutoModeJevRecord, type ClaudeDanger,
+  type AutoModeJevRecord,
 } from '../lib/auto-mode.ts';
 import { config, DIFF } from './support/gate-fixtures.ts';
 
 const jevOk = (yes: number): AutoModeJevRecord => ({ status: 'ok', detail: 'm', yes, questionSet: 1 });
-const claude = (answer: ClaudeDanger['answer'], reason = `理由-${answer}`): ClaudeDanger => ({ answer, reason });
 
-// ---- autoModeDanger の組み合わせ ----
+// ---- autoModeDanger は Jev の記録だけで決まる ----
 
-const JEV: [string, AutoModeJevRecord | null | undefined, boolean][] = [
-  ['安全', jevOk(0.05), false],
-  ['危険', jevOk(0.3), true],
-  ['無い（undefined）', undefined, true],
-  ['無い（null）', null, true],
-  ['skipped', { status: 'skipped', detail: 'diff が大きい', questionSet: 1 }, true],
-  ['error', { status: 'error', detail: 'HTTP 500', questionSet: 1 }, true],
-  ['yes が NaN', jevOk(Number.NaN), true],
-  ['yes が無い', { status: 'ok', detail: 'm', questionSet: 1 }, true],
-];
-const CLAUDE: [string, ClaudeDanger | null | undefined, boolean][] = [
-  ['no', claude('no'), false],
-  ['yes', claude('yes'), true],
-  ['unsure', claude('unsure'), true],
-  ['無い', undefined, true],
-  ['3つのどれでもない', { answer: 'maybe', reason: 'x' } as unknown as ClaudeDanger, true],
+const JEV: [string, AutoModeJevRecord | null | undefined, boolean, string][] = [
+  ['安全', jevOk(0.05), false, 'Jev：危険の確率 5%（安全側の下限 90%）（安全）'],
+  ['危険', jevOk(0.3), true, 'Jev：危険の確率 30%（安全側の下限 90%）（危険。保留）'],
+  ['無い（undefined）', undefined, true, 'Jev：記録が無い（保留）'],
+  ['無い（null）', null, true, 'Jev：記録が無い（保留）'],
+  ['skipped', { status: 'skipped', detail: 'diff が大きい', questionSet: 1 }, true, 'Jev：skipped（diff が大きい）（保留）'],
+  ['error', { status: 'error', detail: 'HTTP 500', questionSet: 1 }, true, 'Jev：error（HTTP 500）（保留）'],
+  ['yes が NaN', jevOk(Number.NaN), true, 'Jev：危険の確率が読めない（保留）'],
+  ['yes が無い', { status: 'ok', detail: 'm', questionSet: 1 }, true, 'Jev：危険の確率が読めない（保留）'],
 ];
 
-test('autoModeDanger：どちらかが危険・分からないなら保留、両方が安全なら保留しない', () => {
-  for (const [jn, jev, jHold] of JEV) {
-    for (const [cn, c, cHold] of CLAUDE) {
-      const r = autoModeDanger({}, { jev, claude: c });
-      assert.equal(r.hold, jHold || cHold, `Jev ${jn} × Claude ${cn}: ${r.reasons.join(' / ')}`);
-    }
+test('autoModeDanger：Jev の記録だけで保留が決まり、理由は Jev の1行だけ', () => {
+  for (const [name, jev, hold, reason] of JEV) {
+    assert.deepEqual(autoModeDanger({}, { jev }), { hold, reasons: [reason] }, name);
   }
-});
-
-// ---- 理由の中身 ----
-
-const lines = (r: { reasons: string[] }) => ({
-  jev: r.reasons.find((s) => s.includes('Jev')),
-  claude: r.reasons.find((s) => s.includes('Claude')),
-});
-
-test('autoModeDanger：保留しないときも理由に Jev の確率と Claude の答えが入る', () => {
-  const r = autoModeDanger({}, { jev: jevOk(0.05), claude: claude('no', '文書だけの変更') });
-  assert.equal(r.hold, false);
-  const { jev, claude: c } = lines(r);
-  assert.ok(jev?.includes('5%'), r.reasons.join('\n'));
-  assert.ok(c?.includes('no') && c.includes('文書だけの変更'), r.reasons.join('\n'));
-});
-
-test('autoModeDanger：危険の確率は百分率、Claude の答えと理由はそのまま', () => {
-  const r = autoModeDanger({}, { jev: jevOk(0.3), claude: claude('unsure', 'データの削除があるかもしれない') });
-  const { jev, claude: c } = lines(r);
-  assert.ok(jev?.includes('30%'), r.reasons.join('\n'));
-  assert.ok(c?.includes('unsure') && c.includes('データの削除があるかもしれない'), r.reasons.join('\n'));
-});
-
-test('autoModeDanger：skipped・error は status と detail、記録・答えが無ければ「無い」が理由に入る', () => {
-  for (const status of ['skipped', 'error'] as const) {
-    const r = autoModeDanger({}, { jev: { status, detail: `詳細-${status}`, questionSet: 1 }, claude: claude('no') });
-    const { jev } = lines(r);
-    assert.ok(jev?.includes(status) && jev.includes(`詳細-${status}`), r.reasons.join('\n'));
-  }
-  const r = autoModeDanger({}, {});
-  const { jev, claude: c } = lines(r);
-  assert.ok(jev?.includes('無い'), r.reasons.join('\n'));
-  assert.ok(c?.includes('無い'), r.reasons.join('\n'));
+  assert.deepEqual(autoModeDanger({}, {}), { hold: true, reasons: ['Jev：記録が無い（保留）'] }, 'jev を渡さない');
 });
 
 // ---- 境界・上書き ----
 
 test('autoModeDanger：dangerSafe 0.9 で yes 0.1 は保留しない、0.1001 は保留', () => {
-  assert.equal(autoModeDanger({}, { jev: jevOk(0.1), claude: claude('no') }).hold, false);
-  assert.equal(autoModeDanger({}, { jev: jevOk(0.1001), claude: claude('no') }).hold, true);
+  assert.equal(autoModeDanger({}, { jev: jevOk(0.1) }).hold, false);
+  assert.equal(autoModeDanger({}, { jev: jevOk(0.1001) }).hold, true);
 });
 
 test('autoModeDanger：autoMode.jev.dangerSafe の上書きが効く', () => {
   const c = { autoMode: { jev: { dangerSafe: 0.5 } } };
-  assert.equal(autoModeDanger(c, { jev: jevOk(0.3), claude: claude('no') }).hold, false);
+  assert.equal(autoModeDanger(c, { jev: jevOk(0.3) }).hold, false);
+  assert.equal(autoModeDanger(c, { jev: jevOk(0.6) }).hold, true);
 });
 
 // ---- Jev への要求 ----

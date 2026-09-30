@@ -2,7 +2,7 @@
  * auto mode（Epic #339）の設定・今の状態・Jev の危険の問い・保留するかの判断。GitHub も Jev も呼ばない（読むだけ・判断だけ）。
  * 状態の規則は bypass モード（harness/gates/bypass.ts の bypassState）と同じ：ダッシュボードに人が付けたラベルで有効、App・Bot が付けたもの・読めないものは無効、期限なし、停止スイッチが優先。
  * 危険の問いは jev.mode とは独立（jev.testTamper と同じ）。PR の要求には App が集めた diff・変更ファイルだけを渡し、セッションが書いたもの（facts など）は渡さない。
- * Jev の記録か Claude の答えのどちらかが危険・unsure・無い・読めないなら保留にする（安全側）。ゲートからの呼び出しは #345 以降。
+ * 危険の判定は Jev だけ（人の決定、#382）。Jev の記録が危険・無い・読めない・skipped・error なら保留にする（安全側）。ゲートからの呼び出しは #345 以降。
  */
 import { AUTO_MODE_LABEL_DEFAULT, appLogin, type AutoModeJevQuestion, type HarnessConfig } from './config.ts';
 import type { askJev } from './jev.ts';
@@ -131,12 +131,6 @@ export function autoModeJevRecord(result: Awaited<ReturnType<typeof askJev>>): A
   return { status: 'ok', detail: result.model, ...(typeof yes === 'number' && Number.isFinite(yes) ? { yes } : {}), questionSet: AUTO_MODE_JEV_QUESTION_SET };
 }
 
-/** Claude の危険の答え（yes が危険）。書式の検査は #343 */
-export interface ClaudeDanger {
-  answer: 'yes' | 'no' | 'unsure';
-  reason: string;
-}
-
 const pct = (p: number) => `${Math.round(p * 1000) / 10}%`;
 
 function jevLine(jev: AutoModeJevRecord | null | undefined, dangerSafe: number): { hold: boolean; text: string } {
@@ -148,22 +142,12 @@ function jevLine(jev: AutoModeJevRecord | null | undefined, dangerSafe: number):
   return { hold, text: `Jev：危険の確率 ${pct(yes)}（安全側の下限 ${pct(dangerSafe)}）${hold ? '（危険。保留）' : '（安全）'}` };
 }
 
-function claudeLine(claude: ClaudeDanger | null | undefined): { hold: boolean; text: string } {
-  if (!claude) return { hold: true, text: 'Claude：答えが無い（保留）' };
-  const answer: unknown = claude.answer;
-  const reason = typeof claude.reason === 'string' ? claude.reason : '';
-  if (answer !== 'yes' && answer !== 'no' && answer !== 'unsure') return { hold: true, text: `Claude：答えが読めない（${String(answer)}）（保留）` };
-  const verdict = answer === 'no' ? '（安全）' : answer === 'yes' ? '（危険。保留）' : '（判断できない。保留）';
-  return { hold: answer !== 'no', text: `Claude：${answer}：${reason}${verdict}` };
-}
-
 /**
- * Jev の記録と Claude の答えから、保留するかと理由を決める。jev.mode は見ない（jev.testTamper と同じく独立）。
- * どちらかが危険・unsure・無い・読めない、Jev が skipped・error なら保留。reasons は保留しないときも Jev と Claude の答えを1行ずつ残す
+ * Jev の記録だけから、保留するかと理由を決める（Claude の答えは使わない。#382）。jev.mode は見ない（jev.testTamper と同じく独立）。
+ * 記録が無い・確率が読めない・危険、skipped・error なら保留。reasons は保留しないときも Jev の1行を残す
  */
-export function autoModeDanger(config: Pick<HarnessConfig, 'autoMode'>, input: { jev?: AutoModeJevRecord | null; claude?: ClaudeDanger | null }): { hold: boolean; reasons: string[] } {
+export function autoModeDanger(config: Pick<HarnessConfig, 'autoMode'>, input: { jev?: AutoModeJevRecord | null }): { hold: boolean; reasons: string[] } {
   const { dangerSafe } = autoModeConfig(config);
   const jev = jevLine(input.jev, dangerSafe);
-  const claude = claudeLine(input.claude);
-  return { hold: jev.hold || claude.hold, reasons: [jev.text, claude.text] };
+  return { hold: jev.hold, reasons: [jev.text] };
 }
