@@ -4,6 +4,7 @@
 
 | 名前 | 内容 |
 | --- | --- |
+| `agent-source.ts` | `harness/scripts/agent.ts` とサブコマンド（`harness/scripts/agent/` の下）のソースをつないで読み、使い方のコメントに書かれたコマンド名を集める（ソースの文字列を確かめるテストが共有する。#313） |
 | `dashboard-fixtures.ts` | ダッシュボードの読み直しのテスト用の見本（1つの見本を、REST の応答と、まとめた GraphQL の問い合わせの応答の両方で返す偽の GitHub）と、内側に流れた呼び出しの短い形 |
 | `gate-fixtures.ts` | ゲートのテスト用の偽の GitHub（呼び出しを記録し、決めた応答を返す）と、ゲートの実行コンテキスト・PR・判定・イベントの見本 |
 | `flow-divergences.ts` | queue（`decideIssue`・`decidePr`）と fleet（`fleetStatus`）が次にやることで食い違うと分かっている組み合わせの一覧（述語と理由。`flow-queue-fleet.test.ts` が使う。#201） |
