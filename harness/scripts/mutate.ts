@@ -18,11 +18,18 @@
  *   打ち切っても、落ちなかった箇所があっても、ベースラインのテストが落ちても終了コードは 0（テストの失敗は ci ジョブが出す）。
  * - 行単位の単純な置き換えなので、型だけの誤り・等価な変更（壊しても意味が変わらないもの）・複数行にまたがる式は見ない。
  *   文字列・テンプレートリテラル・コメントの中は壊さないが、正規表現リテラルは見分けない。
+ * - 1か所ごとに流すのは、壊したファイルに関係するテストだけ（relatedTestFiles）。静的な相対 import をたどるのと、
+ *   テストの本文でのパス・引用符で囲んだファイル名への言及だけを見る。ディレクトリを読み込んで動的に import するもの
+ *   （agent.ts が harness/scripts/agent/commands/ を読む形）は、本文で触れていなければ拾えず、survived が増えることがある。
+ *   パスを join('harness', 'scripts', 'x.ts') のように分けて書くテストは、'x.ts' が本文にあれば拾える。
+ *   よくある名前（'config.ts' など）では関係するテストが多めに出て、時間があまり縮まないことがある（多めに流す側に倒れる）。
+ *   関係するテストが見つからないファイルは、テスト全体で試す。
  *
  * CLI の部分は `import.meta.main` の中だけで動く（テストが import しても何も動かない）。
  */
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
+import { posix } from 'node:path';
 import { loadConfig } from '../lib/config.ts';
 import { DEFAULT_TEST_PATTERNS, isTestFile } from '../lib/test-tamper.ts';
 
@@ -230,13 +237,17 @@ const code = (s: string): string => '`' + s.trim().replace(/`/g, "'") + '`';
 export const REPORT_TITLE = '## mutation（テストが効いているか）';
 const REPORT_NOTE = '> 情報のためだけの結果です（PR 側のコードが決めるので偽れます）。自動 Merge の条件や `agent/*` のチェックには使いません。';
 
-/** 結果を Markdown にする */
-export function renderReport(plan: MutantPlan, run: RunResult): string {
+/** 結果を Markdown にする。narrowing は、関係するテストだけで試したファイルと、全体で試したファイルの数 */
+export function renderReport(plan: MutantPlan, run: RunResult, narrowing?: { narrowed: number; fullSuite: number }): string {
   const tried = run.caught.length + run.survived.length;
   const lines = [REPORT_TITLE, '', REPORT_NOTE, ''];
   lines.push(`- 試した数：${tried}（壊し方の候補 ${plan.total}）`);
   lines.push(`- テストが落ちた（caught）：${run.caught.length}`);
   lines.push(`- テストが落ちなかった（survived）：${run.survived.length}`);
+  if (narrowing) {
+    lines.push(`- 関係するテストだけで試したファイル：${narrowing.narrowed}`);
+    lines.push(`- 関係するテストが見つからず全体で試したファイル：${narrowing.fullSuite}`);
+  }
   const remaining = plan.total - tried;
   if (plan.truncated === 'count') lines.push(`- 打ち切り：壊す箇所の数の上限（${plan.mutants.length}）に達しました。`);
   if (run.truncated === 'time') lines.push(`- 打ち切り：時間の上限に達しました（上限の中で ${run.notRun} 件を試していません）。`);
@@ -274,9 +285,67 @@ export function hasTargetsSafely(count: () => number): boolean {
   }
 }
 
-// ---- CLI（import.meta.main の中だけで動く） ----
+/** 相対 import（`from '…'`・`import '…'`・`import('…')`）の指定。`.` で始まるものだけ */
+const RELATIVE_IMPORT = /\b(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g;
 
-const TEST_ARGS = ['--test', 'harness/test/**/*.test.ts'];
+/** file の本文にある相対 import を、リポジトリからの相対パス（`/` 区切り）にして返す */
+function importsOf(file: string, body: string): string[] {
+  const out: string[] = [];
+  for (const m of body.matchAll(RELATIVE_IMPORT)) out.push(posix.normalize(posix.join(posix.dirname(file), m[1]!)));
+  return out;
+}
+
+/**
+ * target（壊したファイル）に関係するテストファイルをパスの昇順で返す。
+ * テストファイルから相対 import を推移的にたどって target に届くか、テストの本文に target のパスか
+ * 引用符で囲んだファイル名があれば関係する（子プロセスで動かすテストを拾うため）。
+ */
+export function relatedTestFiles(target: string, sources: Map<string, string>, testFiles: string[]): string[] {
+  const name = posix.basename(target);
+  const mentions = (body: string) => body.includes(target) || body.includes(`'${name}'`) || body.includes(`"${name}"`);
+  const out: string[] = [];
+  for (const test of testFiles) {
+    const body = sources.get(test) ?? '';
+    if (mentions(body)) {
+      out.push(test);
+      continue;
+    }
+    const seen = new Set<string>([test]);
+    const stack = importsOf(test, body);
+    let found = false;
+    while (stack.length > 0 && !found) {
+      const file = stack.pop()!;
+      if (seen.has(file)) continue;
+      seen.add(file);
+      if (file === target) found = true;
+      else stack.push(...importsOf(file, sources.get(file) ?? ''));
+    }
+    if (found) out.push(test);
+  }
+  return out.sort();
+}
+
+const ALL_TESTS = 'harness/test/**/*.test.ts';
+/** これを超える数のテストファイルは並べず全体で流す（コマンドラインの長さの上限を避ける） */
+const MAX_LISTED_TESTS = 100;
+
+/** node に渡す引数。関係するテストが無い・多すぎるときは全体 */
+export function testArgsFor(related: string[]): string[] {
+  if (related.length === 0 || related.length > MAX_LISTED_TESTS) return ['--test', ALL_TESTS];
+  return ['--test', ...related];
+}
+
+/** ベースラインで流すテスト。どれかのファイルが全体で試すなら []（全体）、そうでなければ和集合 */
+export function baselineTests(perFile: Map<string, string[]>): string[] {
+  const all = new Set<string>();
+  for (const related of perFile.values()) {
+    if (related.length === 0) return [];
+    for (const t of related) all.add(t);
+  }
+  return [...all].sort();
+}
+
+// ---- CLI（import.meta.main の中だけで動く） ----
 
 function parseArgs(argv: string[]): { base: string; maxMutants: number; maxMinutes: number; testTimeoutSeconds: number; checkTargets: boolean } {
   const opts = { base: 'HEAD^1', maxMutants: 30, maxMinutes: 15, testTimeoutSeconds: 90, checkTargets: false };
@@ -315,9 +384,9 @@ function killRunning(): void {
 }
 
 /** テストを動かし、通ったら true。timeoutMs を過ぎたら止めて false */
-function runTests(timeoutMs: number, inherit: boolean): Promise<boolean> {
+function runTests(args: string[], timeoutMs: number, inherit: boolean): Promise<boolean> {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, TEST_ARGS, { stdio: inherit ? 'inherit' : 'ignore', detached: true });
+    const child = spawn(process.execPath, args, { stdio: inherit ? 'inherit' : 'ignore', detached: true });
     running = child;
     const timer = setTimeout(killRunning, Math.max(1, timeoutMs));
     child.on('error', () => {
@@ -360,6 +429,23 @@ function changedTargets(diff: string): ChangedLine[] {
       return false;
     }
   });
+}
+
+/** 壊すファイルごとに関係するテストを1回だけ求める（リポジトリの .ts・.js・.mjs を読む） */
+function relatedTestsByFile(mutants: Mutant[]): Map<string, string[]> {
+  const listed = execFileSync('git', ['ls-files', '*.ts', '*.js', '*.mjs'], { encoding: 'utf8' }).split('\n').filter(Boolean);
+  const sources = new Map<string, string>();
+  for (const f of listed) {
+    try {
+      sources.set(f, readFileSync(f, 'utf8'));
+    } catch {
+      // 消えたファイルは読まない
+    }
+  }
+  const tests = listed.filter((f) => /^harness\/test\/.*\.test\.ts$/.test(f));
+  const perFile = new Map<string, string[]>();
+  for (const m of mutants) if (!perFile.has(m.file)) perFile.set(m.file, relatedTestFiles(m.file, sources, tests));
+  return perFile;
 }
 
 /** --check-targets：候補があるかを GITHUB_OUTPUT に書く。数えられなければ true（本体の実行に任せる） */
@@ -407,8 +493,12 @@ async function main(): Promise<void> {
     return;
   }
 
+  const perFile = relatedTestsByFile(plan.mutants);
+  const fullSuite = [...perFile.values()].filter((r) => testArgsFor(r)[1] === ALL_TESTS).length;
+  const narrowing = { narrowed: perFile.size - fullSuite, fullSuite };
+
   console.log(`ベースラインのテストを動かします（候補 ${plan.total}、試す上限 ${plan.mutants.length}）`);
-  if (!(await runTests(deadline - Date.now(), true))) {
+  if (!(await runTests(testArgsFor(baselineTests(perFile)), deadline - Date.now(), true))) {
     report(renderSkipped('変更前のテスト（ベースライン）が通りませんでした（時間の上限を超えた場合を含む）。テストの失敗は ci ジョブを見てください。'));
     return;
   }
@@ -422,7 +512,7 @@ async function main(): Promise<void> {
       pending = { path: m.file, content };
       try {
         writeFileSync(m.file, lines.join('\n'));
-        const passed = await runTests(opts.testTimeoutSeconds * 1000, false);
+        const passed = await runTests(testArgsFor(perFile.get(m.file) ?? []), opts.testTimeoutSeconds * 1000, false);
         const outcome: Outcome = passed ? 'survived' : 'caught';
         console.log(`${outcome}\t${m.file}:${m.line}\t${m.operator}`);
         return outcome;
@@ -432,7 +522,7 @@ async function main(): Promise<void> {
     },
     { deadline, now: Date.now },
   );
-  report(renderReport(plan, run));
+  report(renderReport(plan, run, narrowing));
 }
 
 if (import.meta.main) {
