@@ -197,7 +197,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
   </nav>
 
   <h2 id="flow">流れ：Issue から Merge まで</h2>
-  <p>人は Issue を書いて「着手してよい」の印を付けるだけで、あとは次の順に進みます。人が付き添う Claude のセッションに「#番号 を ship して」と頼むと、この流れを人の Merge 待ちか人の判断待ちまで進めます。</p>
+  <p>人は Issue を書いて「着手してよい」の印を付けるだけで、あとは次の順に進みます。人が付き添う Claude のセッションに「#番号 を ship して」と頼むと、この流れを人の Merge 待ちか人の判断待ちまで進めます。複数の Issue は fleet が進め、<code>fleet.shipMode</code> が <code>worker</code> で Orca があれば Issue ごとに ship を Orca の worker で起こし、無ければ1つのセッションの fleet で進めます。</p>
 
   <ol class="flow">
     <li class="step">
@@ -273,6 +273,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <li>テストを書き（test-designer）、実装して Draft PR を出す</li>
         <li>判定する（Reviewer・Risk Agent）</li>
         <li>指摘を直す、main を取り込む</li>
+        <li>複数の Issue は fleet で進める。<code>fleet.shipMode</code> が <code>worker</code> で Orca があれば、Issue ごとに ship を Orca の worker（独立したセッション）で起こし、無ければ1つのセッションの中（サブエージェントか、段階を交互に）で進める</li>
       </ul>
       <p class="not">しないこと：Merge、Draft の解除、main への push、保護ラベルの付け外し（見張りの hook が止める）</p>
     </section>
@@ -315,7 +316,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     <section class="dir">
       <h3><code>.claude/</code> Claude への指示</h3>
       <ul>
-        <li><code>skills/</code> 付き添いのセッションの手順（ship・plan・implement・judge・fix・sync・fleet・hq・review-panel・arch-review・qa-retro・test-prune・gh-stack・patrol）。fleet は入れ子にできる環境なら Issue ごとに ship をサブエージェントで並行に動かし、できなければ段階を交互に進める。hq に Orca の worker として起こされたときは、人に聞くことを hq に ask で上げ、答えで続ける。hq は Orca の本体で動き、テーマ（Epic）ごとに fleet を起こして人の判断をまとめて聞き、Epic の Close でワークスペースを片付ける（人に聞く窓口は hq → fleet → ship の順にまとまる）</li>
+        <li><code>skills/</code> 付き添いのセッションの手順（ship・plan・implement・judge・fix・sync・fleet・hq・review-panel・arch-review・qa-retro・test-prune・gh-stack・patrol）。fleet は入れ子にできる環境なら Issue ごとに ship をサブエージェントで並行に動かし、できなければ段階を交互に進める。<code>fleet.shipMode</code> が <code>worker</code> で Orca があれば、ship を Issue ごとに Orca の worker で起こして worker_done を待つ（Orca が無い・起動に失敗したら今の fleet の手順に戻る）。hq に Orca の worker として起こされたときは、人に聞くことを hq に ask で上げ、答えで続ける。hq は Orca の本体で動き、テーマ（Epic）ごとに fleet を起こして人の判断をまとめて聞き、Epic の Close でワークスペースを片付ける（人に聞く窓口は hq → fleet → ship の順にまとまる）</li>
         <li><code>agents/</code> サブエージェント（Reviewer・Risk Agent・plan-critic・test-designer・合体版のレビューの担当（review-*）・arch-review の担当（arch-reviewer））</li>
         <li><code>hooks/</code> 見張りの hook <span class="guard">ガードレール</span></li>
         <li><code>settings.json</code> させない操作の一覧 <span class="guard">ガードレール</span></li>
