@@ -21,6 +21,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときだけ。Issue の段階ではない） |
 | [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） |
 | [patrol](../.claude/skills/patrol/SKILL.md) | /loop から観測を回し、今回まわす見直し（arch-review・qa-retro。test-prune は勧めるだけ）を選んで動かし、下書きを集める（人が /loop で呼んだときだけ。Issue の段階ではない） |
+| [intel](../.claude/skills/intel/SKILL.md) | hq・fleet・人から届く気づきを控えて既存の Issue と照らし、直す Issue の下書きを人に示し、人の質問に根拠つきで答える（何も動かさない。Orca の本体のタブで待つ。Issue の段階ではない） |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装して人が Merge する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
 - 委任承認（ダッシュボードの `agent:delegate-plan`・`agent:delegate-merge`）の間は、ガードレール・Risk だけで止まる計画も計画ゲートを委任で通ることがあり、委任承認（計画＋Merge）で `delegateMergeExclude` に当たらなければ Merge は App の自動経路になる（[docs/risk-policy.md](../docs/risk-policy.md#委任承認)）。
