@@ -15,6 +15,8 @@ function hookEnv(envFile: string | null): NodeJS.ProcessEnv {
   delete env.AGENT_HARNESS_SESSION;
   delete env.CLAUDE_CODE_REMOTE_SESSION_ID;
   delete env.CLAUDE_ENV_FILE;
+  // hook は CLAUDE_PROJECT_DIR があると読み込みの記録を書くので、実物のリポジトリに書かないように消す（#199）
+  delete env.CLAUDE_PROJECT_DIR;
   if (envFile !== null) env.CLAUDE_ENV_FILE = envFile;
   return env;
 }

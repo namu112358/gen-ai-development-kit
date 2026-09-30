@@ -37,6 +37,13 @@ test('uncoveredTests：全部を覆うパターン（*.test.ts・**.test.ts・**
   }
 });
 
+test('uncoveredTests：* を含まないファイル名もパターンとして扱い、同じ名前だけに当たる', () => {
+  const patterns = ['arch-review-skill.test.ts'];
+  // `.` は文字どおりに比べる（任意の1文字にならない）
+  assert.deepEqual(uncoveredTests(['a.b.test.ts'], ['a.b.test.ts', 'aXb.test.ts']), ['aXb.test.ts']);
+  assert.deepEqual(uncoveredTests(patterns, ['arch-review-skill.test.ts', 'arch-review.test.ts']), ['arch-review.test.ts']);
+});
+
 test('uncoveredTests：既にあるパターンに当たる新しいファイルを足しても空のまま（Validation の代わり）', () => {
   const patterns = ['gates-*.test.ts', 'dashboard-*.test.ts', 'support/'];
   const before = ['gates-plan.test.ts', 'dashboard-cards.test.ts', 'support/'];
@@ -100,25 +107,28 @@ test('checkAll：すべてがパターンに当たれば uncoveredTests は空',
 
 const readmeText = (): string => readFileSync(join(root, 'harness', 'test', 'README.md'), 'utf8');
 
+// ほかのテスト（arch-review-skill.test.ts）が README の本文にファイル名を求めるので、この行だけファイル名で書く（人の決定、PR #393）
+const LITERAL_ROW_NAMES = ['arch-review-skill.test.ts', 'arch-review.test.ts', 'arch-review-loop.test.ts'];
+
 test('実リポジトリ：harness/test のテストファイルはすべて README の表のどれかのパターンに当たる（AC3）', () => {
   assert.deepEqual(checkAll(root).uncoveredTests, []);
 });
 
-test('実リポジトリ：README の表の1列目は、* を含むパターンか support/ だけ（AC1）', () => {
+test('実リポジトリ：README の表の1列目は、* を含むパターンか support/ と、ファイル名で書く arch-review の行だけ（AC1）', () => {
   const names = namesInTable(readmeText());
   assert.ok(names.length > 0, '表の1列目に名前が無い');
-  const bad = names.filter((n) => !n.includes('*') && n !== 'support/');
+  const bad = names.filter((n) => !n.includes('*') && n !== 'support/' && !LITERAL_ROW_NAMES.includes(n));
   assert.deepEqual(bad, [], `パターンでない名前がある: ${bad.join(', ')}`);
 });
 
-test('実リポジトリ：README の表のどの列にも、* を含まない個々のテストファイル名が無い（AC1）', () => {
+test('実リポジトリ：README の表のどの列にも、* を含まない個々のテストファイル名が無い（ファイル名で書く arch-review の行を除く。AC1）', () => {
   const found: string[] = [];
   for (const line of readmeText().split('\n')) {
     if (!line.trim().startsWith('|')) continue;
     for (const m of line.matchAll(/`([^`]+)`/g)) {
       const name = m[1]!;
       // 実在しうるファイル名の形（英数字・-・_・.）だけを数える。`<機能名>.test.ts` のような書き方の例は数えない
-      if (/^[\w.-]+\.test\.ts$/.test(name) && !name.includes('*')) found.push(name);
+      if (/^[\w.-]+\.test\.ts$/.test(name) && !name.includes('*') && !LITERAL_ROW_NAMES.includes(name)) found.push(name);
     }
   }
   assert.deepEqual(found, [], `表に個々のテストファイル名がある: ${found.join(', ')}`);

@@ -1,6 +1,6 @@
 import { worktreeClaimIssue } from '../../../lib/queue.ts';
 import { type PullRequest } from '../../../lib/state.ts';
-import { addWorktree, ensureNodeModules, labelOrcaWorktree, removeWorktree, worktreeOptions } from '../../../lib/worktree.ts';
+import { addWorktree, ensureNodeModules, labelOrcaWorktree, parseWorktreeArgs, removeWorktree, worktreeOptions } from '../../../lib/worktree.ts';
 import { type AgentCommand, type CommandContext, config, ensureOwnClaim } from '../cli.ts';
 
 /**
@@ -13,6 +13,12 @@ import { type AgentCommand, type CommandContext, config, ensureOwnClaim } from '
  *                                                           定期 Routine は --routine を付けて確かめない（Routine の環境には gh が無い）
  *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *
+ * ref（ブランチか SHA）は先頭に書き、フラグはその後ろに書く。ref が無い・`-` で始まるときは、着手宣言の確かめより前に
+ * 使い方を出して終了コード 1 で止まる（`worktree --detach` で `--detach` の worktree を作らないように）。
+ * 消し残した空のディレクトリ：worktree は、登録されていない空のディレクトリがあれば消して作り直す（消せなければ、ほかの
+ * プロセスが使っていると分かる文で止まる。空でなければ中身を消さずに止まる）。worktree-remove は、空のディレクトリだけが
+ * 残っていればそれを消して成功とみなし、消せずに残れば警告を出す。
+ *
  * 置き場所は worktreeOptions（環境変数 AGENT_HARNESS_WORKTREE_ROOT → 設定の worktreeRoot → ../<リポジトリ名>.worktrees）で決め、
  * リポジトリの中になる値なら終了コード 1 で止まる。worktree は、--detach でも --routine でもなければ、Orca があれば
  * 表示名「#番号 短い名前」と Issue を付ける（親子は付けない。Orca が無い・失敗しても止めない）。
@@ -20,26 +26,32 @@ import { type AgentCommand, type CommandContext, config, ensureOwnClaim } from '
 
 /** worktree・worktree-remove。claude/issue-<番号>- のブランチなら、作る前にこのセッションの着手宣言を確かめる */
 async function worktreeCommand(cmd: 'worktree' | 'worktree-remove', args: string[], ctx: CommandContext): Promise<void> {
+  let parsed: ReturnType<typeof parseWorktreeArgs>;
+  try {
+    parsed = parseWorktreeArgs(cmd, args);
+  } catch (e) {
+    console.error((e as Error).message);
+    process.exit(1);
+  }
+  const { ref, detach, routine } = parsed;
   if (cmd === 'worktree') {
-    const detach = args.includes('--detach');
-    const target = worktreeClaimIssue(args[0] ?? '', detach, args.includes('--routine'));
+    const target = worktreeClaimIssue(ref, detach, args.includes('--routine'));
     if (target !== null) {
       const gh = ctx.gh();
       // fix・sync は PR 番号に宣言するので、そのブランチの開いた PR があれば PR の宣言を見る
-      const open = await gh.get<PullRequest[]>(`/pulls?state=open&head=${encodeURIComponent(`${gh.owner}:${args[0]}`)}`);
+      const open = await gh.get<PullRequest[]>(`/pulls?state=open&head=${encodeURIComponent(`${gh.owner}:${ref}`)}`);
       await ensureOwnClaim(gh, open[0]?.number ?? target);
     }
   }
   try {
     const opts = worktreeOptions(config);
     if (cmd === 'worktree') {
-      const detach = args.includes('--detach');
-      const path = addWorktree(args[0]!, detach, opts);
+      const path = addWorktree(ref, detach, opts);
       ensureNodeModules(path);
-      if (!detach && !args.includes('--routine')) labelOrcaWorktree(path, args[0]!);
+      if (!detach && !routine) labelOrcaWorktree(path, ref);
       return void console.log(path);
     }
-    return removeWorktree(args[0]!, opts);
+    return removeWorktree(ref, opts);
   } catch (e) {
     console.error((e as Error).message);
     process.exit(1);

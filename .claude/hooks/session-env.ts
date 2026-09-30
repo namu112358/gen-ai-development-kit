@@ -13,7 +13,13 @@
  * 読み上げソフトを起動しうるので、Windows のほかでは探さない。Routine（CLAUDE_CODE_REMOTE_SESSION_ID がある）では知らせない。
  * bypass permissions で始まったことは知らせない（SessionStart の入力に permission_mode が渡る保証が無い。bypass は
  * .claude/settings.json の permissions.disableBypassPermissionsMode で拒む）。
+ *
+ * 読み込みの記録（Issue #199）：CLAUDE_PROJECT_DIR があるときだけ、そこで読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の
+ * ディスクの中身の版と HEAD を、git の共通ディレクトリの下の agent-harness/loaded/<セッションの ID>.json に書く（harness/lib/harness-drift.ts）。
+ * 同じ ID の記録が既にあれば書かない（resume・compact で上書きしない。/clear は ID が変わるので新しい記録）。CLAUDE_PROJECT_DIR が無い・
+ * ID が不正・git が失敗するときは書かない。どの場合もセッションの開始を止めない。agent.ts harness-drift・fleet-status・claim・step がこれを origin と比べる。
  */
+import { spawnSync } from 'node:child_process';
 import { accessSync, appendFileSync, constants } from 'node:fs';
 
 /** ID の形（harness/lib/session.ts）。lib が欠けていても exit 0 で終わるよう、try の中で読む */
@@ -22,6 +28,14 @@ try {
   ({ TRANSCRIPT_SESSION_ID: idShape } = await import('../../harness/lib/session.ts'));
 } catch {
   idShape = null;
+}
+
+/** 読み込みの記録（harness/lib/harness-drift.ts）。lib が欠けていても exit 0 で終わるよう、try の中で読む */
+let drift: typeof import('../../harness/lib/harness-drift.ts') | null = null;
+try {
+  drift = await import('../../harness/lib/harness-drift.ts');
+} catch {
+  drift = null;
 }
 
 /** CLAUDE_ENV_FILE に書く行（書かないなら null）。シェルに渡すので、ID は英数字と - _ だけを受け付ける */
@@ -120,6 +134,38 @@ export function orcaNotice(
   };
 }
 
+/**
+ * 読み込みの記録を書く（Issue #199）。書いたパスを返す。CLAUDE_PROJECT_DIR が無い・session_id が形に合わない・git が失敗する・
+ * 同じ ID の記録が既にある・lib が読み込めないときは null。例外を投げない
+ */
+export function recordLoaded(raw: string, env: Record<string, string | undefined>, now: Date = new Date()): string | null {
+  try {
+    const dir = env.CLAUDE_PROJECT_DIR;
+    if (!dir) return null;
+    const input = JSON.parse(raw) as { session_id?: unknown; source?: unknown };
+    const session = typeof input.session_id === 'string' ? input.session_id : null;
+    if (!drift) return null;
+    const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' });
+    if (common.status !== 0) return null;
+    const path = drift.loadedRecordPath((common.stdout ?? '').trim(), session);
+    if (!path || !session) return null;
+    const files = drift.harnessVersionsOnDisk(dir);
+    if (files === null) return null;
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' });
+    const record = {
+      version: 1 as const,
+      session,
+      at: now.toISOString(),
+      source: typeof input.source === 'string' ? input.source : null,
+      head: head.status === 0 ? (head.stdout ?? '').trim() || null : null,
+      files,
+    };
+    return drift.writeLoadedRecordOnce(path, record) ? path : null;
+  } catch {
+    return null;
+  }
+}
+
 /** 実行できるファイルがあるか（実行はしない） */
 function executable(path: string): boolean {
   try {
@@ -141,6 +187,8 @@ export async function main(): Promise<void> {
   } catch {
     // セッションの開始を止めない
   }
+  // 読み込みの記録（失敗しても開始を止めない。recordLoaded は例外を投げない）
+  recordLoaded(raw, process.env);
   try {
     const notice = orcaNotice(raw, process.env, executable);
     if (notice) process.stdout.write(`${JSON.stringify(notice)}\n`);

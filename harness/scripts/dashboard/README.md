@@ -25,7 +25,7 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 ## 更新の仕組み
 
 - GitHub の見張り：`/issues?state=all&sort=updated` を条件付きリクエスト（`If-None-Match`）で `--interval` 秒ごとに問い合わせる。304（変化なし）は API の上限に数えられず、組み直しもしない。
-- GitHub の読み直し：`updated_at` が変わった Issue / PR（と、それを Closes する側・される側）だけ facts を取り直す。その材料は、変わった番号をまとめた GraphQL の問い合わせ1回で読む（`github.ts` の `DashboardData` の `refresh`。すべて読み直す `loadAll` も、開いた Issue と開いた PR を1回の問い合わせで読む）。1回で読めないのは次の2つだけ。
+- GitHub の読み直し：`updated_at` が変わった Issue / PR（と、それを Closes する側・される側）だけ facts を取り直す。その材料は、変わった番号をまとめた GraphQL の問い合わせ1回で読む（`github.ts` の `DashboardData` の `refresh`。すべて読み直す `loadAll` も、開いた Issue と開いた PR を1回の問い合わせで読む）。先読みの仕組み（まとめた問い合わせ・REST の形への変換・`PrefetchTransport`）は `harness/lib/graphql-prefetch.ts` にあり、`agent.ts fleet-status`・`step` も同じものを使う。1回で読めないのは次の2つだけ。
   - 接続のページ送り（`pageInfo` の続き）。その接続だけの問い合わせで読み足し、REST には流さない。
   - 新しく開いた PR（紐付けが変わった PR）が、その回に読んでいない Issue に紐付くときの2回目の問い合わせ。
 - REST に残るもの：見張りの条件付きリクエスト（上の項）、PR の差分（head ごとに覚え、同じ head では読み直さない）、Stacked PR の層の `/pulls/{n}`（`stack` の欄が GraphQL に無いため。読み直しの回の中だけ、PR ごと（同じ `updated_at`）に1回。`mergeable_state` が main の動きで変わるので、回をまたいでは使わない）。

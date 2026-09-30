@@ -93,10 +93,10 @@ export const FLOW_STOP_LABELS: readonly FlowStopLabel[] = ['hold', 'blocked', 'w
 /**
  * agent.ts step（harness/lib/step.ts）だけが返す止まる理由（Issue #306）。人に返す理由で、agent:blocked のコメントの理由コード（REASON_CODES）ではない。
  * no-session＝セッションの ID が得られない、assignee＝担当の食い違い、claimed＝ほかのセッションの宣言、plan-review＝計画ゲートの人の判断待ち、
- * sync-limit＝sync ⇄ judge の上限、repeated-finding＝同じ指摘の繰り返し、critique-limit＝批評の3回目でも必須が残る
+ * sync-limit＝sync ⇄ judge の上限、repeated-finding＝同じ指摘の繰り返し、critique-limit＝批評の3回目でも必須が残る、harness-stale＝このセッションの読み込みが古いので judge を始めない（#199）
  */
-export type FlowStepStopReason = 'no-session' | 'assignee' | 'claimed' | 'plan-review' | 'sync-limit' | 'repeated-finding' | 'critique-limit';
-export const FLOW_STEP_STOP_REASONS: readonly FlowStepStopReason[] = ['no-session', 'assignee', 'claimed', 'plan-review', 'sync-limit', 'repeated-finding', 'critique-limit'];
+export type FlowStepStopReason = 'no-session' | 'assignee' | 'claimed' | 'plan-review' | 'sync-limit' | 'repeated-finding' | 'critique-limit' | 'harness-stale';
+export const FLOW_STEP_STOP_REASONS: readonly FlowStepStopReason[] = ['no-session', 'assignee', 'claimed', 'plan-review', 'sync-limit', 'repeated-finding', 'critique-limit', 'harness-stale'];
 
 export type FlowStopReason = FlowStopLabel | ReasonCode | FlowStepStopReason;
 

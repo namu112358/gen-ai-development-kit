@@ -32,6 +32,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { isAbsolute, resolve } from 'node:path';
+import type { HarnessConfig } from '../../harness/lib/config.ts';
 
 export interface HookInput {
   tool_name?: unknown;
@@ -53,7 +54,21 @@ export interface GuardContext {
 export type Decision = { deny: false } | { deny: true; reason: string };
 
 /** 設定が読めないときに使う保護ラベル */
-const FALLBACK_LABELS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-plan', 'agent:delegate-merge', 'agent:bypass-merge'];
+const FALLBACK_LABELS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-plan', 'agent:delegate-merge', 'agent:bypass-merge', 'agent:auto-mode'];
+
+/**
+ * 設定から保護ラベルを作る（main が使う）。lib は main が動的 import した harness/lib/config.ts。
+ * auto mode のラベルは設定の名前（autoMode.label）と既定の名前の両方を守る（setup が作るのは既定の名前のため）。
+ * autoMode は label だけを読む（autoModeConfig は呼ばない。autoMode.jev の書式の誤りで guard 全体を厳しい判定に落とさない）。
+ * label が文字列でない・空なら throw する（main では ctx が null になり FALLBACK_LABELS の判定に落ちる）
+ */
+export function protectedLabelsOf(config: HarnessConfig, lib: typeof import('../../harness/lib/config.ts')): string[] {
+  const autoModeLabel = config.autoMode?.label ?? lib.AUTO_MODE_LABEL_DEFAULT;
+  if (typeof autoModeLabel !== 'string' || autoModeLabel === '') throw new Error('autoMode.label');
+  const delegate = lib.delegateConfig(config);
+  const labels = [lib.LABELS.planOk, lib.LABELS.hold, config.autoMergeStopLabel, delegate.planLabel, delegate.mergeLabel, lib.bypassMergeConfig(config).label, autoModeLabel, lib.AUTO_MODE_LABEL_DEFAULT];
+  return [...new Set(labels)];
+}
 const MAX_DEPTH = 8;
 const ALLOW: Decision = { deny: false };
 
@@ -1160,8 +1175,8 @@ export async function main(): Promise<void> {
     for await (const chunk of process.stdin) raw += String(chunk);
     let ctx: GuardContext | null = null;
     try {
-      const { loadConfig, LABELS, delegateConfig, bypassMergeConfig } = await import('../../harness/lib/config.ts');
-      const config = loadConfig();
+      const lib = await import('../../harness/lib/config.ts');
+      const config = lib.loadConfig();
       if (typeof config.defaultBranch !== 'string' || config.defaultBranch === '' || typeof config.autoMergeStopLabel !== 'string') throw new Error('config');
       let cwd = process.cwd();
       try {
@@ -1172,7 +1187,7 @@ export async function main(): Promise<void> {
       }
       ctx = {
         defaultBranch: config.defaultBranch,
-        protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateConfig(config).planLabel, delegateConfig(config).mergeLabel, bypassMergeConfig(config).label],
+        protectedLabels: protectedLabelsOf(config, lib),
         currentBranch: gitBranch(cwd),
         branchAt: gitBranch,
       };

@@ -17,10 +17,12 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 
 ## 手順
 
-1. 状態を読み、次の段階を決める。PR があれば手順4から、計画ゲートを通った計画があれば手順3から始める。
+1. 状態を読み、次の段階を決める。PR があれば手順4から、計画ゲートを通った計画があれば手順3から始める。Merge 済みの PR があれば、下の「Merge 済みで呼び直されたとき」だけを行う。
+   - Merge 済みで呼び直されたとき（Epic #281 の決定。ship は Issue と PR の Close に責任を持つ）：手順7の `worktree-remove` で worktree を片付け（消すのは Merge 済みの PR の head のブランチの worktree だけ。既に無ければ消さない。消す前に `git -C <worktree> status --porcelain` と未 push の commit（`git -C <worktree> log @{u}..`）を確かめ、残っていれば消さずに人に返す。`worktree-remove` は未 commit の変更があっても消すため）、Issue が Close されたか（`gh issue view <番号> --json state`）を見届ける。Validation Requirements のうちセッションで確かめられるもの（main で `npm run check` を流すなど、コマンドを流すだけのもの）は ship が行って結果を返し、人にしかできないものだけを人がすることの項目にする。何度呼ばれても同じ結果になるようにする。コードは変えず、着手宣言もしない。
+   - ハーネスが更新されたとき：各段階の `claim` の前に、`node harness/scripts/agent.ts harness-drift`（か `claim` の標準エラーの一言）で、このセッションの読み込みが古いかを見る。古ければ進めている段階を終えてから `release <番号>` し、fleet の節「ハーネスが更新されたときの交代」と同じ手順で交代する（渡す1行は `/fleet <自分の Issue 番号>`。Epic の子課題なら `/fleet --epic <Epic番号> <自分の Issue 番号>`）。judge は古いセッションで始めない（`claim --stage judge` も止まる）。
    - 着手宣言：Issue に手を付ける最初に、その段階の skill の手順どおり `claim <番号> --manual --stage <段階>` で宣言する（計画・批評の前も）。宣言にはこのセッションの ID が入り、ほかのセッションとダッシュボードに段階が見える。ほかのセッションの宣言があれば `claim` は止まるので、引き継ぐかを AskUserQuestion で人に聞く（引き継ぐのは人が決めたときだけ `--takeover`）。
    - 最初の宣言が持ち主。`claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue は進めず、作業を始めずに、手順9の一覧に「#番号 は session …（エラーに出た短い ID）が着手中」と書いて終える。引き継ぐかは人が決める（この場では聞かない）。
-   - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`post-plan` はゲートを通らない見込みなら自分で解除する。`/clear` などでセッション ID が変わったら、自分の古い宣言は人に確かめて `claim --takeover` で出し直す。
+   - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`post-plan` はゲートを通らない見込みなら自分で解除する。`/clear` などでセッション ID が変わったら、前のセッションの宣言を1件ずつ聞かずに、「前のセッション（session <短い ID>）の宣言 #…（N 件）をこのセッションに引き継ぐか」を AskUserQuestion の1問でまとめて聞き、引き継ぐなら全部を `claim --takeover` で出し直す（拒まれたら出し直さない）。
    - `claim` が Assignee で止まった（`harness.config.json` の `requireAssignee` が有効で、誰もアサインされていない・ほかの人・2人以上）：自分をアサインせずに進めず、人に返す（質問にはせず、止まった理由を手順9の一覧に書いて終える。アサインするかは人が決める。[docs/operations.md](../../../docs/operations.md) の担当）。途中の段階の確かめ（`critic-input`・`post-plan`・`worktree`・`ensure-claim`）で止まったときも同じ。
    - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。ただし Stacked PR の上の層が `gh stack link` の前に付いた orphan-base（App の `kind=orphan-base`）は例外で、[gh-stack](../gh-stack/SKILL.md) の skill で組めば App が戻す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
@@ -57,8 +59,10 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 - 投稿の前の質問への答えを渡されて呼び直されたら、先に `claim <番号> --manual --stage plan` で宣言を確かめ直し（fleet が `release` した後なら宣言し直す）、渡されたパスの計画に、答えを人の答えとして plan の skill の手順3どおり書き込み（節「人の決定（投稿の前に聞いたこと）」）、解消したものを `openQuestions`・`needsHumanReasons` から除いてから、批評（plan の手順5）と投稿（plan の手順8）に進む。「答え無し」（人が拒んだ・答えなかった）の質問は申告に残して投稿する（投稿の後は plan の手順9の経路。答えが無いので `post-decision` はしない）。書きかけの計画のファイルが無ければ plan の手順2から書き直し、渡された答えをそのまま書き込む（同じ質問を fleet に返し直さない）。
 - implement の前と sync の前に、fleet から渡された Issue 番号の集合と `--max` で `node harness/scripts/agent.ts fleet-status [--max <n>] <番号>...` を読み、自分の行が「待つ」なら進めずに、その理由を返す（自分の番号だけで読むと、ほかの Issue との重なり・PR 同士の衝突・本数が数えられない）。
 - `claim <番号> --manual --stage implement` が領域の上限（`areaConcurrency`）で止まったら、`--force` を付けずに「待つ（領域の上限）」として返す（`--force` を付けるかは fleet が決める）。
+- ハーネスが更新されたとき：ship は fleet と同じセッション ID なので、自分では交代しない。段階を始める前に `harness-drift` で古いと分かったら、進めずに「待つ（読み込みが古い）」として fleet に返す（宣言の扱いは人の判断待ちで止めるときと同じ。必要なら `release <番号>`）。交代は fleet が行う。
+- Merge 済みの PR で呼び直されたら、手順1の「Merge 済みで呼び直されたとき」を行い、Close の見届けの結果を返す。
 - 手順9の一覧は人に出さず、その項目（Merge・例外ラベル・setup の要否・Merge 後の確かめ）を返す。fleet がまとめて人に出す。
-- 返すもの：Issue 番号、PR 番号（あれば）、終わった状態（人の Merge 待ち・人の判断待ち・待つ・入れ子不可・人に返す条件に当たった）、人に聞くこと、人がすることの項目、待つ理由。
+- 返すもの：Issue 番号、PR 番号（あれば）、終わった状態（人の Merge 待ち・人の判断待ち・待つ・入れ子不可・人に返す条件に当たった・Merge 後の見届け済み（Close 済み）・Close されていない（理由。`Closes` の無い PR など））、人に聞くこと、人がすることの項目、待つ理由。
 
 ## 終わりの状態
 
@@ -78,4 +82,5 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 - Ready になっても、App が auto-merge も `kind=human-review` も付けない
 - 各 skill の「人に返す条件」に当たった
 - 操作が deny などで拒否された（別の方法で試さない）
-- やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し
+- このセッションの読み込みが古いのに judge に当たった（`claim --stage judge` が止まった）、または交代を拒まれた（fleet の節「ハーネスが更新されたときの交代」）
+- やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し

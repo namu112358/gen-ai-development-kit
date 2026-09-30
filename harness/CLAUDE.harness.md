@@ -20,6 +20,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） |
 | [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときだけ。Issue の段階ではない） |
 | [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） |
+| [patrol](../.claude/skills/patrol/SKILL.md) | /loop から観測を回し、今回まわす見直し（arch-review・qa-retro。test-prune は勧めるだけ）を選んで動かし、下書きを集める（人が /loop で呼んだときだけ。Issue の段階ではない） |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装して人が Merge する）。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
 - 委任承認（ダッシュボードの `agent:delegate-plan`・`agent:delegate-merge`）の間は、ガードレール・Risk だけで止まる計画も計画ゲートを委任で通ることがあり、委任承認（計画＋Merge）で `delegateMergeExclude` に当たらなければ Merge は App の自動経路になる（[docs/risk-policy.md](../docs/risk-policy.md#委任承認)）。
@@ -58,6 +59,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - `agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped` の付け外し
 - `agent:delegate-plan`・`agent:delegate-merge` の付け外し（委任承認は人だけが始める）
 - `agent:bypass-merge` の付け外し（bypass モードは人だけが始める）
+- auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）の付け外し（auto mode は人だけが始める）
 - main への push、force push、Ruleset・Secret・変数の変更
 - `gh stack` の `merge`・`push`・`sync`・`rebase`・`submit`・`modify`・`alias`、ブランチ名を渡す・`--open` を付けた `gh stack link`（Merge・force push・Draft の解除になる）
 - Issue 本文の書き換え（要件・AC の変更はコメントで提案する）

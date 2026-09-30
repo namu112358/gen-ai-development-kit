@@ -72,7 +72,8 @@ function hookEnv(sb: Sandbox): NodeJS.ProcessEnv {
     if (/^path$/i.test(k) || /^pathext$/i.test(k)) continue;
     if (k.startsWith('ORCA_')) continue;
     if (k === 'WSL_DISTRO_NAME' || k === 'WSL_INTEROP') continue;
-    if (k === 'CLAUDE_CODE_REMOTE_SESSION_ID' || k === 'AGENT_HARNESS_SESSION' || k === 'CLAUDE_ENV_FILE') continue;
+    // CLAUDE_PROJECT_DIR があると hook が読み込みの記録を書くので、実物のリポジトリに書かないように消す（#199）
+    if (k === 'CLAUDE_CODE_REMOTE_SESSION_ID' || k === 'AGENT_HARNESS_SESSION' || k === 'CLAUDE_ENV_FILE' || k === 'CLAUDE_PROJECT_DIR') continue;
     env[k] = v;
   }
   env.PATH = sb.bin;

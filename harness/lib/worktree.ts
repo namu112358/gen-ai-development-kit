@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readdirSync, realpathSync, rmdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { HarnessConfig } from './config.ts';
@@ -78,6 +78,37 @@ export interface WorktreeOptions {
   worktreeRoot?: string;
   /** 警告の出力先（既定は標準エラー） */
   warn?: (message: string) => void;
+  /** 空のディレクトリを消す（既定は rmdirSync。空でなければ消えない。テストで「消せない」を作るために差し替える） */
+  removeEmptyDir?: (path: string) => void;
+}
+
+/** worktree・worktree-remove の使い方 */
+export const WORKTREE_USAGE = {
+  worktree: 'worktree <ブランチ|SHA> [--detach] [--routine]',
+  'worktree-remove': 'worktree-remove <ブランチ|SHA>',
+} as const;
+
+/**
+ * worktree・worktree-remove の引数を読む。ref は先頭の引数で、フラグはその後ろに書く。
+ * ref が無い、または `-` で始まる（`--detach` を ref として受け取らないように）ときは使い方を含めて投げる
+ */
+export function parseWorktreeArgs(cmd: 'worktree' | 'worktree-remove', args: string[]): { ref: string; detach: boolean; routine: boolean } {
+  const ref = args[0];
+  if (ref === undefined || ref.trim() === '' || ref.startsWith('-')) {
+    const why = ref === undefined || ref.trim() === '' ? 'ブランチか SHA を渡してください' : `先頭の引数 ${ref} はフラグです。ブランチか SHA を先に書き、フラグはその後ろに書いてください`;
+    throw new Error(`${why}。使い方: node harness/scripts/agent.ts ${WORKTREE_USAGE[cmd]}`);
+  }
+  const rest = args.slice(1);
+  return { ref, detach: rest.includes('--detach'), routine: rest.includes('--routine') };
+}
+
+/** パスが中身の無いディレクトリか */
+function isEmptyDir(path: string): boolean {
+  try {
+    return readdirSync(path).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 /** 呼び出し元（worktree コマンド・合体版のレビューの⑧）が渡す設定。どこから呼んでも同じ置き場所になる */
@@ -177,18 +208,37 @@ function findWorktree(root: string, path: string): { head: string; branch: strin
  * 作業用の worktree を作り、パスを返す。ブランチがリモートにあればそれを、無ければ origin/<既定ブランチ> から新しく作る。
  * detach は判定のテスト実行用（head SHA をそのまま取り出す）。
  * 既にパスがあれば、同じブランチ（detach なら同じコミット）の worktree のときだけそのパスを返し、違えば止める。
+ * 登録されていない空のディレクトリは消して作り直し、消せなければほかのプロセスが使っていると分かる文で止める
+ * （空でないディレクトリは中身を消さずに止める）。
+ * detach でない ref がリモートに無く、コミットの SHA（40 桁の16進、または 7〜39 桁でコミットに解決できる）なら、
+ * SHA の名前のブランチを作らずに --detach を促して止める。
  * fetch の失敗は警告だけ出して手元の ref で続ける。
  */
 export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions): string {
-  const { root, defaultBranch, warn = console.error } = opts;
+  const { root, defaultBranch, warn = console.error, removeEmptyDir = rmdirSync } = opts;
   const path = worktreePath(root, ref, opts.worktreeRoot);
+  if (existsSync(path) && isEmptyDir(path) && !findWorktree(root, path)) {
+    // 消し残した空のディレクトリ（Windows でほかのプロセスが掴んでいた残りなど）は消して作り直す
+    run(root, ['worktree', 'prune']);
+    try {
+      removeEmptyDir(path);
+    } catch (e) {
+      throw new Error(
+        `${path} に空のディレクトリが残っていて、ほかのプロセスが使っているため消せません。そのプロセス（エディタ・端末・Orca など）を閉じてから消してください: ${(e as Error).message}`,
+      );
+    }
+  }
   if (existsSync(path)) {
     const wt = findWorktree(root, path);
     if (!wt) throw new Error(`${path} は既にありますが、worktree として登録されていません`);
     if (detach) {
       const r = run(root, ['rev-parse', '--verify', '-q', `${ref}^{commit}`]);
       const sha = r.status === 0 ? r.stdout.trim() : null;
-      if (sha === null || wt.head !== sha) throw new Error(`${path} の worktree は ${wt.branch ?? wt.head} を指していて、${ref} ではありません`);
+      if (sha === null || wt.head !== sha) {
+        // SHA と同じ名前のブランチの worktree もあるので、ブランチなら名前とコミットを分けて示す
+        const at = wt.branch ? `ブランチ ${wt.branch}（コミット ${wt.head}）` : wt.head;
+        throw new Error(`${path} の worktree は ${at} を指していて、${ref} ではありません`);
+      }
     } else if (wt.branch !== ref) {
       throw new Error(`${path} の worktree は ${wt.branch ?? `${wt.head}（detach）`} を指していて、${ref} ではありません`);
     }
@@ -216,6 +266,10 @@ export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions)
   } else if (run(root, ['rev-parse', '--verify', '-q', `refs/remotes/origin/${ref}`]).status === 0) {
     git(root, 'worktree', 'add', '-q', '-B', ref, path, `origin/${ref}`);
   } else {
+    // --detach を付け忘れた SHA から、SHA の名前のブランチを既定ブランチの先に作らない（後の --detach がそのブランチで止まる）
+    if (/^[0-9a-f]{40}$/i.test(ref) || (/^[0-9a-f]{7,39}$/i.test(ref) && run(root, ['rev-parse', '--verify', '-q', `${ref}^{commit}`]).status === 0)) {
+      throw new Error(`${ref} はコミットの SHA です。SHA を取り出すときは --detach を付けてください。使い方: node harness/scripts/agent.ts ${WORKTREE_USAGE.worktree}`);
+    }
     git(root, 'worktree', 'add', '-q', '-b', ref, path, `origin/${defaultBranch}`);
   }
   return path;
@@ -262,10 +316,25 @@ export function ensureNodeModules(path: string, runNpmCi: (cwd: string) => NpmCi
   return 'installed';
 }
 
-/** worktree を削除する。削除に失敗したら理由付きで投げる（prune の失敗は無視する） */
-export function removeWorktree(ref: string, opts: Pick<WorktreeOptions, 'root' | 'worktreeRoot'>): void {
-  const { root } = opts;
-  const r = run(root, ['worktree', 'remove', '--force', worktreePath(root, ref, opts.worktreeRoot)]);
+/**
+ * worktree を削除する。git の削除と prune の後にパスが空のディレクトリで残っていれば消してみて、それでも残れば警告を出す。
+ * git の削除が失敗しても、パスが空のディレクトリだけでそれを消せたら成功とみなす（登録の無い残りの片付け）。
+ * それ以外の git の失敗は理由付きで投げる（prune の失敗は無視する）
+ */
+export function removeWorktree(ref: string, opts: Pick<WorktreeOptions, 'root' | 'worktreeRoot' | 'warn' | 'removeEmptyDir'>): void {
+  const { root, warn = console.error, removeEmptyDir = rmdirSync } = opts;
+  const path = worktreePath(root, ref, opts.worktreeRoot);
+  const r = run(root, ['worktree', 'remove', '--force', path]);
   run(root, ['worktree', 'prune']);
-  if (r.status !== 0) throw new Error(`worktree を削除できませんでした: ${r.stderr.trim()}`);
+  let cleared = false;
+  if (existsSync(path) && isEmptyDir(path) && !findWorktree(root, path)) {
+    try {
+      removeEmptyDir(path);
+      cleared = !existsSync(path);
+    } catch {
+      // 残ったことは下の警告で知らせる
+    }
+  }
+  if (existsSync(path)) warn(`警告: ${path} が残りました（ほかのプロセスが使っている可能性があります。閉じてから手で消してください）`);
+  if (r.status !== 0 && !cleared) throw new Error(`worktree を削除できませんでした: ${r.stderr.trim()}`);
 }

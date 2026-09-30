@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { test } from 'node:test';
 import { addWorktree, removeWorktree, worktreePath } from '../lib/worktree.ts';
@@ -95,6 +95,7 @@ test('既にあるパスが別ブランチの worktree や、登録されてい�
 
   const plain = worktreePath(s.root, 'claude/plain');
   mkdirSync(plain, { recursive: true });
+  writeFileSync(join(plain, 'keep.txt'), 'keep\n');
   assert.throws(() => addWorktree('claude/plain', false, s.opts), /worktree として登録されていません/);
 });
 
@@ -105,4 +106,19 @@ test('worktree-remove：削除できれば消え、失敗すれば理由付き�
   removeWorktree('claude/r', s.opts);
   assert.equal(existsSync(path), false);
   assert.throws(() => removeWorktree('claude/r', s.opts), /worktree を削除できませんでした/);
+});
+
+test('--detach を付け忘れた SHA からは、SHA の名前のブランチを作らずに止まり、後の --detach が通る（#373 の報告の3）', (t) => {
+  const s = sandbox();
+  t.after(s.cleanup);
+  const old = s.git(s.root, 'rev-parse', 'HEAD');
+  s.commit(s.seed, 'b.txt');
+  s.git(s.seed, 'push', '-q', 'origin', 'main');
+
+  for (const ref of [old, old.slice(0, 10)]) {
+    assert.throws(() => addWorktree(ref, false, s.opts), /コミットの SHA です。SHA を取り出すときは --detach を付けてください/);
+    assert.equal(existsSync(worktreePath(s.root, ref)), false);
+  }
+  assert.equal(s.git(s.root, 'branch', '--list', `${old.slice(0, 7)}*`), '', 'SHA の名前のブランチを作らない');
+  assert.equal(s.git(addWorktree(old, true, s.opts), 'rev-parse', 'HEAD'), old);
 });
