@@ -39,11 +39,18 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
 5. **印を置く**：fleet のワークスペースを作った直後に、Write で `<ワークスペースの絶対パス>/.agent-harness-workspace` を置く（中身はテーマの名前1行）。まだ印が無いので hook（`.claude/hooks/workspace-guard.ts`）に止められない。書き先は main の checkout の外（fleet のワークスペースの中）の絶対パスにする。印は `.gitignore` に入っているので、ワークスペースの `git status` に出ない。これ以降、ワークスペースの中の書き換えは hook が止める。
 6. **ペイン**：hq の Claude のターミナルを `ORCA terminal split --terminal <hq の handle> --json` で分け、`ORCA terminal send --terminal <新しい handle> --text "node harness/scripts/panes.ts hq --session <ID> --session <ID>" --enter` を送る（テーマごとの要約と、全 fleet の「あなたがすること」）。`--session` には控えの今動いている fleet のセッション ID だけを渡す。fleet が増えた・減った・起こし直したら、そのペインを閉じて作り直し、ペインの handle を控えの `paneHandles` に書いて `hq-state.ts ledger-save` で置く。
    - **自分の端末を閉じない**（#409）：`ORCA terminal close` を使う前に、閉じる handle が hq 自身の Claude の端末（控えの `hqHandle` と、`ORCA terminal list --worktree current --json` の hq の Claude の端末）でないことを確かめる。閉じるのは `--terminal <ペインの handle>` だけで、本体に `--tab`・`--worktree … --all` を使わない（hq の Claude まで閉じるため）。
-7. **人の判断をまとめて聞く**：`ORCA orchestration check --wait --types "worker_done,escalation,question" --timeout-ms 900000 --json` で待つ。
+7. **人の判断をまとめて聞く**：`ORCA orchestration check --wait --types "worker_done,escalation,question,status" --timeout-ms 900000 --json` で待つ。
+   - heartbeat を先に ack する：`check` は Run の一番古い Delivery を ack されるまで同じ束で返し続け、`--types` は待ちが起きる条件で、古い便りを飛ばす許しではない。束の中の heartbeat は、ほかの行と同じ束でも、それだけの束でも、読んだらすぐ `--ack <delivery_id>` して待ちに戻る（`check --ack <delivery_id> --wait ...` で ack と次の待ちを1回で）。heartbeat のために人への質問・`worker_done` の処理を後回しにしない。ack の後に続けて届いている question・escalation・worker_done を先に処理する。
    - `question`：ほかの fleet の分もまとめて AskUserQuestion で聞く（1回に4問まで。fleet の選択肢の順（おすすめが先頭）を変えず、質問にテーマの名前を添える）。答えは `ORCA orchestration reply --id <message_id> --body "<人の答え>" --json` で返す。本文は人の答え（選んだ項目と書き添えた文、人の言葉のまま）だけで、hq の説明や要約を足さない。人が拒んだ・答えなかったら、本文を `答え無し` にして返す（fleet は各 skill の「人が答えなかった」の扱いにする）。同じ質問を人に繰り返さない。
    - `escalation`：理由を人に示し、手順12の一覧に書く。
    - `worker_done`：手順9。
-   - 届いたものを全部処理してから `--ack <delivery_id>` する。
+   - `status`（fleet の skill の「Orca の worker として動くとき」の 8 の途中の報告・連絡）の振り分け：
+     - 人にすぐ伝える（文章で。AskUserQuestion ではない）：`ready-<PR>`（人の Merge 待ち。Human Merge か自動 Merge かも添える）と、人の判断が要ると書かれた `notice`。
+     - 手順12の一覧にためる：`merged-<PR>`・`verdict-<PR>`・`wait-<Issue>`・そのほかの `notice`。
+     - `status` は知らせるだけで、判断の正は GitHub とラベル。
+   - 仮の見張りは要らない：人の Merge 待ちは `ready-<PR>` で届くので、hq は `gh pr list` を定期的に読む仮の見張りを置かない。
+   - 返せなくなった答え：`reply` が `dispatch_inactive` などで返せない（fleet が settle した）ときは、人の答えを控えの `hq-fleets.json`（キー `undeliveredAnswers`。`hq-state.ts ledger-save` で置く）に残し、手順9で同じワークスペースに新しい fleet を起こすときの指示に「人の決定：#<Issue> の質問への答え」として人の言葉のまま渡す。手順12の一覧にも書く。人に聞き直さない。
+   - heartbeat はすぐ ack し、question・escalation・worker_done・status は処理してから `--ack <delivery_id>` する。
 8. **進んでいない fleet を見つける**：`check --wait` が空で返るたび（15分ごと）に、`node harness/scripts/panes.ts fleets --session <今動いている fleet のセッション ID>...` を読む。`--session` なしで読まない（終わった・解放した・起こし直す前の fleet のスナップショットも OS の一時ディレクトリに残るため）。
    - `stalled` が true の fleet：`staleSnapshot`（スナップショットの `at` が `hq.staleSnapshotMinutes` より古い＝collect が止まっている）、`missing`（スナップショットが無い）、`stuck`（AI の番の行の `since` が `hq.stuckMinutes` より長い＝進んでいない）。
    - hq がまだ答えていない `question` のある Issue の行は、人の答え待ちなので `stuck` から外して数える。
@@ -78,7 +85,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
     - 引き継ぐなら、新しい fleet の指示に「人の決定：前の宣言を引き継ぐ」と、Issue の段階は `node harness/scripts/agent.ts claim <番号> --manual --stage <段階> --takeover`、PR の段階は `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge|fix|sync --takeover` で出し直すことを書く。fleet が `ask` で引き継ぎを聞いてきたら、人の同じ答えを `reply` で返し、人に聞き直さない。引き継がないなら、その Issue を指示から外し、手順12の一覧に書く。
     - 止め方と新しい Dispatch（`worker-stop`・`worker-abandon`、`worker-start --task <task_id> --retry-of <dispatch_id>`、同じワークスペース）は `references/recovery-and-cleanup.md` に従う。起こし直したら控えとペインを直す（ペインを閉じるときは手順6の「自分の端末を閉じない」の確かめをする。控えは `hq-state.ts ledger-save` で置く）。
 11. **片付け**：Epic が Close した（`gh issue view <Epic番号> --json state` が `CLOSED`）テーマだけを片付ける。fleet の worker を `worker-release` で解放し、控えから外して `hq-state.ts ledger-save` で置き、ペインを作り直し（閉じる handle が hq 自身の端末（控えの `hqHandle`）でないことを、`ORCA terminal close` の前に確かめる。手順6の「自分の端末を閉じない」）、`ORCA worktree rm --worktree path:<ワークスペースの絶対パス> --json` でワークスペースを消す。人の判断待ちだけが残るとき（Epic が開いている）は残す。
-12. **人がすることの一覧**：各 fleet の `worker_done` のレポートと `panes.ts hq` の一覧を1つにまとめて人に出す（Merge・例外ラベル・`setup.ts` の要否・Merge 後の確かめ・人の判断待ち・進んでいない fleet・起こし直しの上限を超えた fleet・引き継がなかった宣言）。手順8の止まったタスクの見回しからは、割り振ったもの（どの fleet に渡したか）・案として聞いたもの（Epic の案・引き継ぎの問い）・人が決めなかったもの（答え無し・拒まれた・空き待ち）と、patrol の未採用の下書きの数を足す。費用は手順8の `panes.ts fleets --session` の各行の `totalUsd` と、hq 自身の `node harness/scripts/agent.ts usage` をまとめる。
+12. **人がすることの一覧**：各 fleet の `worker_done` のレポートと `panes.ts hq` の一覧を1つにまとめて人に出す（Merge・例外ラベル・`setup.ts` の要否・Merge 後の確かめ・人の判断待ち・進んでいない fleet・起こし直しの上限を超えた fleet・引き継がなかった宣言・手順7でためた fleet の報告・連絡（`merged`・`verdict`・`wait`・`notice`）・返せなくなった答え）。手順8の止まったタスクの見回しからは、割り振ったもの（どの fleet に渡したか）・案として聞いたもの（Epic の案・引き継ぎの問い）・人が決めなかったもの（答え無し・拒まれた・空き待ち）と、patrol の未採用の下書きの数を足す。費用は手順8の `panes.ts fleets --session` の各行の `totalUsd` と、hq 自身の `node harness/scripts/agent.ts usage` をまとめる。
 
 ## 相談・アイデアを intel に回す
 
