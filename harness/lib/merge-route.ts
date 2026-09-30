@@ -6,7 +6,11 @@
  * （ガードレール・Risk だけを飛ばす。harness/lib/delegate.ts）。
  * bypass モードが有効（bypassMode）なら、自動 Merge の対象でも委任でも通らない受け付けのうち、bypass.eligible が真のものを判定由来の理由では止めない
  * （Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev を飛ばす。harness/gates/bypass.ts）。
+ * auto mode が有効（autoModeMode）なら、自動 Merge の対象でも委任でも通らない受け付けのうち、autoMode.eligible が真のものを判定由来の理由では止めない
+ * （Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev の自動 Merge の許可を飛ばす。Jev の危険の判定で保留なら eligible は偽。harness/gates/auto-mode.ts）。
+ * 順番は 自動 Merge の対象 → 委任 → auto mode → bypass。
  */
+import type { AutoModeJevRecord } from './auto-mode.ts';
 
 /** 受け付け時にまとめる、委任承認（計画＋Merge）なら自動経路に乗せてよいか（harness/lib/delegate.ts の delegateEligibility） */
 export interface DelegateRecord {
@@ -29,6 +33,17 @@ export interface BypassRecord {
   reasons: string[];
   /** bypass なら飛ばす理由（Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev） */
   skipped: string[];
+}
+
+/** 受け付け時にまとめる、auto mode なら自動経路に乗せてよいか（harness/gates/auto-mode.ts の autoModeEligibility） */
+export interface AutoModeRecord {
+  eligible: boolean;
+  /** auto mode でも自動経路に乗せない理由（必須の条件と、Jev の危険の判定での保留） */
+  reasons: string[];
+  /** auto mode なら飛ばす理由（Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev の自動 Merge の許可） */
+  skipped: string[];
+  /** Jev の危険の問いの記録（問わなかったときは無い。同じ patch-id なら使い回す） */
+  jev?: AutoModeJevRecord;
 }
 
 export interface Acceptance {
@@ -56,6 +71,8 @@ export interface Acceptance {
   delegate?: DelegateRecord;
   /** bypass モードなら自動経路に乗せてよいか（無い古い記録は bypass の対象外） */
   bypass?: BypassRecord;
+  /** auto mode なら自動経路に乗せてよいか（無い古い記録は auto mode の対象外） */
+  autoMode?: AutoModeRecord;
 }
 
 export interface JevRecord {
@@ -87,6 +104,8 @@ export interface MergeRouteInput {
   delegateMode?: boolean;
   /** bypass モードが今有効か（harness/gates/bypass.ts の bypassState。省略時は偽） */
   bypassMode?: boolean;
+  /** auto mode が今有効か（harness/gates/auto-mode.ts の autoModeFor。省略時は偽） */
+  autoModeMode?: boolean;
 }
 
 export interface CheckOutcome {
@@ -105,12 +124,14 @@ export function evaluateMergeRoute(input: MergeRouteInput): CheckOutcome {
   if (!input.autoMergeMode) reasons.push('自動 Merge モードが無効です');
   if (input.stacked) reasons.push('base が既定ブランチではありません（Stacked PR は Human Merge）');
   const delegated = input.delegateMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.delegate?.eligible === true;
-  const bypassed = !delegated && input.bypassMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.bypass?.eligible === true;
+  const autoModed = !delegated && input.autoModeMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.autoMode?.eligible === true;
+  const bypassed = !delegated && !autoModed && input.bypassMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.bypass?.eligible === true;
   if (!input.acceptance) {
     reasons.push('現在の差分に対して有効な判定がありません');
-  } else if (!input.acceptance.autoEligible && !delegated && !bypassed) {
+  } else if (!input.acceptance.autoEligible && !delegated && !autoModed && !bypassed) {
     reasons.push(...input.acceptance.reasons);
     if (input.delegateMode && input.acceptance.delegate) reasons.push(...input.acceptance.delegate.reasons.map((r) => `委任承認でも不可: ${r}`));
+    if (input.autoModeMode && input.acceptance.autoMode) reasons.push(...input.acceptance.autoMode.reasons.map((r) => `auto mode でも不可: ${r}`));
     if (input.bypassMode && input.acceptance.bypass) reasons.push(...input.acceptance.bypass.reasons.map((r) => `bypass でも不可: ${r}`));
   }
   if (reasons.length === 0 && delegated) {
@@ -118,6 +139,13 @@ export function evaluateMergeRoute(input: MergeRouteInput): CheckOutcome {
       conclusion: 'success',
       title: '委任承認（計画＋Merge）の条件を満たしています',
       summary: ['委任承認（計画＋Merge）が有効なため、次の理由を飛ばして自動経路に乗せます。', '', ...input.acceptance!.delegate!.skipped.map((r) => `- ${r}`)].join('\n'),
+    };
+  }
+  if (reasons.length === 0 && autoModed) {
+    return {
+      conclusion: 'success',
+      title: 'auto mode の条件を満たしています',
+      summary: ['auto mode が有効で、Jev の危険の判定で保留にならなかったため、次の理由を飛ばして自動経路に乗せます。', '', ...input.acceptance!.autoMode!.skipped.map((r) => `- ${r}`)].join('\n'),
     };
   }
   if (reasons.length === 0 && bypassed) {

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import type { AutoModeJevRecord } from './auto-mode.ts';
 import { appMarkKind, extractBlock } from './blocks.ts';
 import { appLogin, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
@@ -101,6 +102,24 @@ export interface PlanGateRecord {
   delegated?: PlanDelegation;
   /** 批評で必須の指摘が残ったまま、人が進めると決めて通った計画（critique が revise で mustRemaining が1以上）。古い記録には無い */
   critiqueProceeded?: { verdict: 'revise'; mustRemaining: number };
+  /** auto mode の危険の判定をかけたとき（通した・保留にした）。harness/gates/auto-mode.ts と on-comment.ts の onPlan。古い記録には無い */
+  autoMode?: PlanAutoMode;
+}
+
+/** 計画ゲートで auto mode の危険の判定をかけた記録（plan-gate の記録の autoMode） */
+export interface PlanAutoMode {
+  /** auto mode で飛ばした（保留なら飛ばそうとした）理由 */
+  skipped: string[];
+  /** 効いていた auto mode のラベル */
+  label: string;
+  by: string | null;
+  since: string | null;
+  /** Jev の危険の問いの記録（同じ計画コメント・同じ本文なら使い回す） */
+  jev: AutoModeJevRecord;
+  /** 危険の判定で保留にしたか */
+  hold: boolean;
+  /** 危険の判定の理由（Jev の1行） */
+  reasons: string[];
 }
 
 export function latestPlanGate(config: HarnessConfig, comments: IssueComment[]): { comment: IssueComment; value: PlanGateRecord } | null {
