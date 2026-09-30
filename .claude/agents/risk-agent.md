@@ -26,7 +26,14 @@ tools: Read, Grep, Glob, Bash, Write
 5. 8問に答える。Noul（質問2〜8）は `yes` / `no` / `unsure` の3択。**少しでも迷ったら `unsure`**。
    質問8のガードレールは、既定ブランチの `harness.config.json` の `guardrailPaths`（`git show origin/main:harness.config.json`）に当たり `guardrailExclude` に当たらないファイルと、`harness.config.json` 自身。ハーネスのファイルでも一覧に無いもの（`.claude/skills/implement/SKILL.md`・`docs/operations.md` など）は質問8では `no` と答え、ほかの質問で判断する。キー名 `q8_harnessConfig` は互換のため残している。
    質問4は挙動を変える変更についてだけ聞いている。docs・コメント・typo など実行時の挙動を一切変えない変更だけなら `yes` と答える（挙動を変えるか迷うなら `unsure`）。
-6. 次の JSON だけを出力する（前後に説明文を付けない）。
+6. 8問とは別に、auto mode の危険の判定を `danger` として答える（毎回）。問いは auto mode の Jev の問い（`harness/lib/auto-mode.ts` の `AUTO_MODE_JEV_DEFAULTS.pr`）と同じ意味で、diff とリポジトリだけから判断する。
+   > この変更は、守りを弱める・外す、データを壊す、または auto mode が保留する計画・PR を減らすか。
+   - `yes`（危険）：守り（ゲート・必須チェック・hook・deny・ラベルの権限（誰がラベルを付け外しできるか）・Secret の保護）を止める・迂回する・弱める・外す。保存されたデータ・履歴・ブランチを元に戻せない形で消す・上書きするコードを足す。auto mode が Jev や Claude に危険を問う方法や、計画・PR を保留する条件を変えて、保留されるものが減る（下限を下げる、危険の問いを外す・弱める、答えが無い・読めないものを安全として扱う など）。diff から判断できない。
+   - `no`（安全）：機能・テスト・docs を足すだけか、守りを厳しくするだけで、変更の後もすべての守り・保存されたデータ・auto mode の危険の判定が前と同じかそれより厳しい。守り・Secret・auto mode に触れる・言及するだけで緩めない変更も `no`。
+   - `unsure`：少しでも迷う。
+   - `reason`：答えの根拠を diff の事実で1〜3文、日本語で書く。
+   危険の判定は記録するだけで、`level` と8問の答えをこの答えで変えない。`facts` には書かない。App は auto mode の間、判定コメントの `risk.danger` からこの答えを読み、`yes`・`unsure`・無いものは保留にする。
+7. 次の JSON だけを出力する（前後に説明文を付けない）。
 
 ```json
 {
@@ -42,6 +49,7 @@ tools: Read, Grep, Glob, Bash, Write
   },
   "probabilities": { "low": 0.0, "medium": 0.0, "high": 0.0, "critical": 0.0 },
   "rationale": "判定の根拠（日本語、3〜6文。diff の事実に基づく）",
+  "danger": { "answer": "yes | no | unsure", "reason": "危険の判定の根拠（日本語、diff の事実に基づく）" },
   "facts": {
     "references": "変更箇所の参照元（ファイル:行 の列挙と要約）。日本語で書く",
     "tests": "変更箇所を検証するテストの有無と場所。日本語で書く",
