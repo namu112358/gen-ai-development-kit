@@ -203,6 +203,15 @@ test('detectPinned：読むだけでアサーションが無ければ assertions
   assert.deepEqual(detectPinned("assert.ok('a.md'.includes('a'));"), { targets: [], assertions: 0 });
 });
 
+test('detectPinned：パスを変数や join の部品で渡して読むもの（readFileSync(skillPath)）も拾う', () => {
+  const src = [
+    "const skillPath = join(root, '.claude', 'skills', 'qa-retro', 'SKILL.md');",
+    "const skill = () => readFileSync(skillPath, 'utf8');",
+    "test('a', () => { assert.ok(skill().includes('付けない')); });",
+  ].join('\n');
+  assert.deepEqual(detectPinned(src), { targets: ['SKILL.md'], assertions: 1 });
+});
+
 // --- countTests ---
 
 test('countTests：test( と it( の数を数え、describe や submit( は数えない', () => {

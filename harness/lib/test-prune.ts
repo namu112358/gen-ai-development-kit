@@ -112,12 +112,17 @@ export function overlapByFile(covered: Map<string, Set<string>>): Map<string, Ov
   return out;
 }
 
-const PINNED_TARGET = /readFileSync\([^)\n]*?['"`]([^'"`\n]*\.(?:md|ya?ml|html|json|txt))['"`]/g;
+/** コード以外のファイルの名前の文字列リテラル（readFileSync に直接渡さず、変数や join を通して読むものも拾う） */
+const PINNED_TARGET = /['"`]([^'"`\n$]*\.(?:md|ya?ml|html|json|txt))['"`]/g;
 const PINNED_ASSERTION = /\.includes\(|assert\.(?:match|doesNotMatch)\(/;
 
-/** readFileSync で読むコード以外のファイルと、文言を確かめる行の数（読むファイルが無ければ 0） */
+/**
+ * readFileSync で読むコード以外のファイルと、文言を確かめる行の数（読むファイルが無ければ 0）。
+ * readFileSync のある本文で、.md・.yml・.html・.json・.txt で終わる文字列リテラルを読むファイルとみなす（目安。判断は skill が本文を読んで行う）
+ */
 export function detectPinned(source: string): { targets: string[]; assertions: number } {
   const targets: string[] = [];
+  if (!/\breadFileSync\b/.test(source)) return { targets, assertions: 0 };
   for (const m of source.matchAll(PINNED_TARGET)) if (!targets.includes(m[1]!)) targets.push(m[1]!);
   if (targets.length === 0) return { targets, assertions: 0 };
   const assertions = source.split(/\r?\n/).filter((l) => PINNED_ASSERTION.test(l)).length;

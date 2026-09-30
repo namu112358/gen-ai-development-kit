@@ -19,6 +19,7 @@ description: 人が付き添うセッションで、減らせるテスト（ほ�
    - `files`：テストファイルごとの `tests`（定義の数）・`durationMs`・`exitCode`・`coveredLines`（本体の実行された行）・`uniqueLines`（ほかのどのテストファイルも実行しない行）・`bestOverlap`（行が最も多く含まれる相手と割合）・`pinned`（読むコード以外のファイルと文言を確かめる行の数）・`spawnsChild`・`health`
    - `candidates`：`contained`（`uniqueLines` が 0 で、ほかの1ファイルに行の大半が含まれる）・`pinned`（本体の行を実行せず、ファイルの文言を確かめる）・`no-coverage`（本体の行を実行せず、`pinned` でもない）と、その根拠（`reasons`）
    - `notes`：失敗したテストファイル、読めなかったカバレッジ、`--health` を読めなかった・渡されなかったこと、候補を上限で切った数。報告にそのまま書く
+3. 候補は種類の順（`contained` → `pinned` → `no-coverage`）に並べてから `--limit`（既定 30）で切るので、切った数が `notes` にあり、後ろの種類が1件も無ければ、`--limit` を上げて（例 `--limit 200`）実行し直す。
 
 ## 判断
 
