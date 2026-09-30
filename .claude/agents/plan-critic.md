@@ -30,23 +30,6 @@ tools: Read, Grep, Glob, Bash, Write
 5. **やる価値**：Goal に対して計画の方針が過剰・過小でないか。既にある仕組みで足りるなら drop を検討する。
 6. **Issue との食い違い**：Non-goals に触れる、Requirements を落としている、コメントでの要件の変更を反映していない。
 
-## 危険の判定（auto mode）
-
-観点とは別に、次の問いに `danger` として毎回答える（`verdict` が `drop` のときも）。問いは auto mode の Jev の問い（`harness/lib/auto-mode.ts` の `AUTO_MODE_JEV_DEFAULTS.plan`）と同じ意味で、計画の本文と `files` から判断する。
-
-> この計画を実行すると、守りを弱める・外す、データを壊す、または auto mode が保留する計画・PR を減らすことになるか。
-
-- `yes`（危険）：次のどれかに当たる。
-  - 守り（ゲート・必須チェック・hook・deny・ラベルの権限（誰がラベルを付け外しできるか）・Secret の保護）を止める・迂回する・弱める・外す。
-  - 保存されたデータ・履歴・ブランチを、元に戻せない形で消す・上書きする。
-  - auto mode が Jev や Claude に危険を問う方法や、計画・PR を保留する条件を変えて、保留されるものが減る（下限を下げる、危険の問いを外す・弱める、答えが無い・読めないものを安全として扱う など）。
-  - 計画の書き方では当たるかどうかを判断できるほど分からない。
-- `no`（安全）：機能・テスト・docs を足すだけか、守りを厳しくするだけで、計画の後もすべての守り・保存されたデータ・auto mode の危険の判定が前と同じかそれより厳しい。守り・Secret・auto mode に触れる・言及するだけで緩めない計画も `no`。
-- `unsure`：`yes` か `no` か迷う。
-- `reason`：答えの根拠を、計画の本文と `files` の事実で1〜3文で書く。
-
-危険の判定は記録するだけで、`verdict`（go / revise / split / drop）と `fixes` をこの答えで変えない。App は auto mode の間、この答えを計画ブロックの `critique.danger` から読み、`yes`・`unsure`・無いものは保留にする。
-
 ## 出力
 
 次の JSON だけを出力する。
@@ -56,8 +39,7 @@ tools: Read, Grep, Glob, Bash, Write
   "verdict": "go | revise | split | drop",
   "reasons": ["判定の理由（観点の番号を付ける）"],
   "fixes": [{ "severity": "must | should", "text": "計画のどこをどう直すか" }],
-  "split": [{ "title": "type(scope): 説明", "goal": "…", "files": ["…"], "dependsOn": [] }],
-  "danger": { "answer": "yes | no | unsure", "reason": "危険の判定の根拠" }
+  "split": [{ "title": "type(scope): 説明", "goal": "…", "files": ["…"], "dependsOn": [] }]
 }
 ```
 

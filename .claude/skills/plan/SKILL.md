@@ -36,7 +36,6 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
      - ファイルがあって JSON として読めないときは、呼び直さずに人に返す。
      - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、批評を使わず人に返す（plan-critic が出力のパスの外を書いた恐れがある）。付き添いの作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
 7. 判定はファイルの中身で決める。返事の本文とファイルの中身が食い違ったら、ファイルの中身を使う。判定ごとの扱いと止める条件は、[.claude/routine.md](../../routine.md) の plan の手順4と [.claude/agents/plan-critic.md](../../agents/plan-critic.md) の出力の節に従う（ここに写さない）。
-   - 危険の判定（auto mode）：どの判定でも `critique` を書くときは、最後の回の plan-critic の出力のファイルの `danger`（`answer` と `reason`）を、そのまま計画ブロックの `critique.danger` に写す（書き換えない。自分で答えない。出力に `danger` が無ければ書かない。App は auto mode の間、無いものを保留にする）。危険の答えで `verdict` の扱いは変えない。
    - `go`：計画ブロックに `critique`（`verdict` と `rounds`）を書いて次へ。
    - `revise`：指摘を反映して直し、手順5からやり直す。
    - `split`：分け方の案に従い、`split` 付きの計画にして、`critique` の `verdict` を `split` にする。
