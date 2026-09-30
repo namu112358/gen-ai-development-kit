@@ -24,3 +24,18 @@ claude-plugins-official（code-review プラグイン）
 
   出どころと更新の手順は docs/upstream/README.md、合体版のレビューは docs/review-panel.md を参照。
 ----------------------------------------------------------------------
+stablyai/orca（Orca のスキルの入口）
+
+  出どころ：https://github.com/stablyai/orca
+  コミット：083f583a53e4c74a65acf420eee4ca2e0efa9df1（タグ v1.4.215）
+  パス    ：skills/orca-cli/SKILL.md、skills/orchestration/SKILL.md
+  ライセンス：MIT License（Copyright (c) 2026 Lovecast Inc.）
+              （同じコミットの LICENSE を docs/upstream/orca/LICENSE に写しています）
+  NOTICE  ：同じコミットのリポジトリの root に NOTICE はありません。
+
+  写したファイル（書き換えていません）：
+    .claude/skills/orca-cli/SKILL.md
+    .claude/skills/orchestration/SKILL.md
+
+  出どころと更新の手順は docs/upstream/README.md、Orca の入れ方は docs/setup.md の節11を参照。
+----------------------------------------------------------------------

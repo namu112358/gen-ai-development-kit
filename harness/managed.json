@@ -25,6 +25,7 @@
   ],
   "settingsKeys": [
     "permissions.deny",
+    "permissions.disableBypassPermissionsMode",
     "hooks"
   ]
 }

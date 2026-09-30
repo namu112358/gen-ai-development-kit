@@ -1,8 +1,9 @@
-// PR を作る前に、手元の変更を計画の files と照らすコマンド（scope-check）の中身を確かめる（Issue #290）。
+// PR を作る前に、手元の変更を計画の files と照らすコマンド（scope-check）の中身を確かめる（Issue #290・#300）。
+// 終了コードは 0（両方の照合に計画があり範囲の外が無い）・1（範囲の外がある）・3（外は無いが照合できる計画が無い）で、2 は使わない。
 // 照合は App の範囲照合と同じ関数（issuePlannedFiles・issueDelegateFiles と checkScope）で行い、
 // 手元の変更の集め方（localChangedFiles）は merge-base からの差分と未追跡のファイルを拾う。
 import assert from 'node:assert/strict';
-import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { appMark, renderBlock } from '../lib/blocks.ts';
@@ -54,6 +55,7 @@ test('範囲内: ゲートを通った計画の files に収まる変更は ok �
   assert.deepEqual(r.delegate, { usable: true, ok: true, outside: [] });
   assert.deepEqual(r.changed, ['docs/a.md', 'harness/lib/scope-check.ts', 'harness/lib/state.ts'], 'changed は追跡・未追跡を合わせてソートしたもの');
   assert.deepEqual(r.untracked, ['harness/lib/scope-check.ts']);
+  assert.deepEqual(r.problems, [], '問題は無い');
   assert.deepEqual(fake.writes(), [], 'GitHub には書き込まない');
   assert.ok(fake.calls.every((c) => c.method === 'GET'), 'GET だけを呼ぶ');
 });
@@ -65,6 +67,10 @@ test('範囲外: 計画の外のファイル（未追跡のファイルも）を
   assert.equal(r.exitCode, 1);
   assert.deepEqual(r.scope, { ok: false, outside: ['harness/gates/run.ts', 'notes.txt'] });
   assert.deepEqual(r.delegate, { usable: true, ok: false, outside: ['harness/gates/run.ts', 'notes.txt'] });
+  assert.deepEqual(r.problems, [
+    { check: 'scope', kind: 'outside', files: ['harness/gates/run.ts', 'notes.txt'] },
+    { check: 'delegate', kind: 'outside', files: ['harness/gates/run.ts', 'notes.txt'] },
+  ]);
   assert.deepEqual(fake.writes(), []);
 });
 
@@ -72,6 +78,10 @@ test('範囲外: 未追跡のファイルだけが外れていても 0 以外で
   const r = await run([gateRecord({ pass: true })], { changed: ['docs/a.md'], untracked: ['scratch.ts'] }).report;
   assert.equal(r.exitCode, 1);
   assert.deepEqual(r.delegate, { usable: true, ok: false, outside: ['scratch.ts'] });
+  assert.deepEqual(r.problems, [
+    { check: 'scope', kind: 'outside', files: ['scratch.ts'] },
+    { check: 'delegate', kind: 'outside', files: ['scratch.ts'] },
+  ]);
 });
 
 test('Planner の申告で止まった計画: 照合できる計画が無いことを出し、最新の計画に照らした範囲の外も出す', async () => {
@@ -81,21 +91,36 @@ test('Planner の申告で止まった計画: 照合できる計画が無いこ�
   assert.deepEqual(r.scope, { missing: GATE_MISSING }, '最新の記録（停止）で判断する');
   assert.deepEqual(r.delegate, { usable: false, reason: DELEGATE_MISSING, latestPlanOutside: ['harness/lib/state.ts'] });
   assert.equal(r.ok, false);
-  assert.equal(r.exitCode, 1);
+  assert.equal(r.exitCode, 1, '範囲の外があれば、計画が無くても終了コード 1');
+  assert.deepEqual(r.problems, [
+    { check: 'scope', kind: 'no-plan', reason: GATE_MISSING },
+    { check: 'delegate', kind: 'no-plan', reason: DELEGATE_MISSING },
+    { check: 'delegate', kind: 'outside', files: ['harness/lib/state.ts'] },
+  ], 'scope → delegate の順、各照合の中は no-plan → outside');
   assert.deepEqual(fake.writes(), []);
 });
 
-test('Planner の申告で止まった計画: 範囲に収まっていても照合できないので終了コード 1', async () => {
+test('Planner の申告で止まった計画: 範囲に収まっていれば、照合できる計画が無いことを終了コード 3 で示す', async () => {
   const r = await run([gateRecord({ pass: false, planReviewOrigin: 'planner' })], { changed: ['docs/a.md'], untracked: [] }).report;
   assert.deepEqual(r.delegate, { usable: false, reason: DELEGATE_MISSING, latestPlanOutside: [] });
-  assert.equal(r.exitCode, 1);
+  assert.equal(r.ok, false);
+  assert.equal(r.exitCode, 3);
+  assert.deepEqual(r.problems, [
+    { check: 'scope', kind: 'no-plan', reason: GATE_MISSING },
+    { check: 'delegate', kind: 'no-plan', reason: DELEGATE_MISSING },
+  ], 'latestPlanOutside が空なら delegate の outside は出さない');
 });
 
-test('出どころの欄が無い古い停止の記録は、委任承認で照合できない', async () => {
+test('出どころの欄が無い古い停止の記録は、委任承認で照合できない（範囲内なら終了コード 3）', async () => {
   const r = await run([gateRecord({ pass: false })], { changed: ['docs/a.md'], untracked: [] }).report;
   assert.deepEqual(r.scope, { missing: GATE_MISSING });
   assert.equal(r.delegate.usable, false);
-  assert.equal(r.exitCode, 1);
+  assert.equal(r.ok, false);
+  assert.equal(r.exitCode, 3);
+  assert.deepEqual(r.problems, [
+    { check: 'scope', kind: 'no-plan', reason: GATE_MISSING },
+    { check: 'delegate', kind: 'no-plan', reason: DELEGATE_MISSING },
+  ]);
 });
 
 test('計画ゲートの記録が無い: 照合できないことを出し、latestPlanOutside は null', async () => {
@@ -104,7 +129,11 @@ test('計画ゲートの記録が無い: 照合できないことを出し、lat
   assert.deepEqual(r.scope, { missing: GATE_MISSING });
   assert.deepEqual(r.delegate, { usable: false, reason: DELEGATE_MISSING, latestPlanOutside: null });
   assert.equal(r.ok, false);
-  assert.equal(r.exitCode, 1);
+  assert.equal(r.exitCode, 3);
+  assert.deepEqual(r.problems, [
+    { check: 'scope', kind: 'no-plan', reason: GATE_MISSING },
+    { check: 'delegate', kind: 'no-plan', reason: DELEGATE_MISSING },
+  ], 'latestPlanOutside が null でも delegate の no-plan を出す');
 });
 
 test('App 以外が書いた plan-gate の記録は使わない', async () => {
@@ -112,21 +141,56 @@ test('App 以外が書いた plan-gate の記録は使わない', async () => {
   const r = await run([forged], { changed: ['docs/a.md'], untracked: [] }).report;
   assert.deepEqual(r.scope, { missing: GATE_MISSING });
   assert.deepEqual(r.delegate, { usable: false, reason: DELEGATE_MISSING, latestPlanOutside: null });
-  assert.equal(r.exitCode, 1);
+  assert.equal(r.ok, false);
+  assert.equal(r.exitCode, 3);
+  assert.deepEqual(r.problems, [
+    { check: 'scope', kind: 'no-plan', reason: GATE_MISSING },
+    { check: 'delegate', kind: 'no-plan', reason: DELEGATE_MISSING },
+  ]);
 });
 
-test('ゲートの停止（planReviewOrigin: gate）で止まった計画: scope は missing、委任承認の照合には使える', async () => {
+test('ゲートの停止（planReviewOrigin: gate）で止まった計画: 委任承認の照合には使えるが、agent/scope では計画なしなので終了コード 3', async () => {
   const r = await run([gateRecord({ pass: false, planReviewOrigin: 'gate' })], { changed: ['docs/a.md', 'harness/lib/state.ts'], untracked: [] }).report;
   assert.deepEqual(r.scope, { missing: GATE_MISSING });
   assert.deepEqual(r.delegate, { usable: true, ok: true, outside: [] });
-  assert.equal(r.ok, true);
-  assert.equal(r.exitCode, 0);
+  assert.equal(r.ok, false, 'agent/scope で計画なしになるので ok ではない');
+  assert.equal(r.exitCode, 3);
+  assert.deepEqual(r.problems, [{ check: 'scope', kind: 'no-plan', reason: GATE_MISSING }], 'delegate は使えるので scope の no-plan だけ');
 });
 
 test('ゲートの停止で止まった計画でも、範囲の外があれば終了コード 1', async () => {
   const r = await run([gateRecord({ pass: false, planReviewOrigin: 'gate' })], { changed: ['README.md'], untracked: [] }).report;
   assert.deepEqual(r.delegate, { usable: true, ok: false, outside: ['README.md'] });
+  assert.equal(r.ok, false);
   assert.equal(r.exitCode, 1);
+  assert.deepEqual(r.problems, [
+    { check: 'scope', kind: 'no-plan', reason: GATE_MISSING },
+    { check: 'delegate', kind: 'outside', files: ['README.md'] },
+  ]);
+});
+
+test('終了コードは 0・1・3 のどれかで、2（引数・git のエラーの fail()）にはならない', async () => {
+  const human = { id: 2, created_at: '', updated_at: '', html_url: 'h', author_association: 'OWNER', user: { login: 'me', type: 'User' }, body: 'x' };
+  const cases: [unknown[], { changed: string[]; untracked: string[] }, number][] = [
+    [[gateRecord({ pass: true })], { changed: ['docs/a.md'], untracked: [] }, 0],
+    [[gateRecord({ pass: true })], { changed: [], untracked: [] }, 0],
+    [[gateRecord({ pass: true })], { changed: ['x.ts'], untracked: [] }, 1],
+    [[gateRecord({ pass: false, planReviewOrigin: 'gate' })], { changed: ['docs/a.md'], untracked: [] }, 3],
+    [[gateRecord({ pass: false, planReviewOrigin: 'gate' })], { changed: ['x.ts'], untracked: [] }, 1],
+    [[gateRecord({ pass: false, planReviewOrigin: 'planner' })], { changed: [], untracked: [] }, 3],
+    [[gateRecord({ pass: false, planReviewOrigin: 'planner' })], { changed: [], untracked: ['x.ts'] }, 1],
+    [[human], { changed: ['x.ts'], untracked: [] }, 3],
+    [[], { changed: [], untracked: [] }, 3],
+  ];
+  for (const [comments, files, want] of cases) {
+    const r = await run(comments, files).report;
+    assert.ok([0, 1, 3].includes(r.exitCode), `終了コードは 0・1・3 のどれか（${r.exitCode}）`);
+    assert.notEqual(r.exitCode, 2);
+    assert.equal(r.exitCode, want, JSON.stringify(files));
+    assert.equal(r.ok, r.exitCode === 0, 'ok は終了コード 0 のときだけ true');
+    assert.equal(r.problems.length === 0, r.exitCode === 0, 'problems が空なのは終了コード 0 のときだけ');
+    assert.equal(r.problems.some((p) => p.kind === 'outside'), r.exitCode === 1, 'outside があるのは終了コード 1 のときだけ');
+  }
 });
 
 // --- App の範囲照合と同じ関数 ---
@@ -226,6 +290,55 @@ test('localChangedFiles: 変更が無ければどちらも空', () => {
   }
 });
 
+test('localChangedFiles: worktree のサブディレクトリから呼んでも、ルートからのパスで、サブディレクトリの外の未追跡のファイルも拾う', () => {
+  const sb = sandbox();
+  try {
+    const { root, git, commit } = sb;
+    mkdirSync(join(root, 'sub'));
+    commit(root, 'sub/t.txt');
+    git(root, 'push', '-q', 'origin', 'main');
+    git(root, 'checkout', '-qb', 'claude/issue-300-x');
+    commit(root, 'b.txt'); // commit 済みの追加（ルート）
+    writeFileSync(join(root, 'sub', 't.txt'), 'changed\n'); // 未 commit の変更（サブディレクトリ）
+    writeFileSync(join(root, 'sub', 'n.txt'), 'n\n'); // 未追跡（サブディレクトリ）
+    writeFileSync(join(root, 'u.txt'), 'u\n'); // 未追跡（ルート）
+    mkdirSync(join(root, 'other'));
+    writeFileSync(join(root, 'other', 'o.txt'), 'o\n'); // 未追跡（別のディレクトリ）
+
+    const fromSub = localChangedFiles(join(root, 'sub'), 'origin/main');
+    assert.deepEqual(fromSub.changed, ['b.txt', 'sub/t.txt']);
+    assert.deepEqual(fromSub.untracked, ['other/o.txt', 'sub/n.txt', 'u.txt']);
+    assert.deepEqual(fromSub, localChangedFiles(root, 'origin/main'), 'ルートから呼んだときと同じ');
+  } finally {
+    sb.cleanup();
+  }
+});
+
+test('scope-check: サブディレクトリで集めた変更でも、計画の files にある未追跡のファイルを範囲内と判定する（終了コード 0）', async () => {
+  const sb = sandbox();
+  try {
+    const { root, git, commit } = sb;
+    mkdirSync(join(root, 'sub'));
+    commit(root, 'sub/t.txt');
+    git(root, 'push', '-q', 'origin', 'main');
+    git(root, 'checkout', '-qb', 'claude/issue-300-y');
+    writeFileSync(join(root, 'sub', 't.txt'), 'changed\n');
+    writeFileSync(join(root, 'sub', 'n.txt'), 'n\n');
+    writeFileSync(join(root, 'u.txt'), 'u\n');
+
+    const files = localChangedFiles(join(root, 'sub'), 'origin/main');
+    const r = await run([gateRecord({ pass: true, files: ['sub/t.txt', 'sub/n.txt', 'u.txt'] })], files).report;
+    assert.deepEqual(r.untracked, ['sub/n.txt', 'u.txt']);
+    assert.deepEqual(r.scope, { ok: true, outside: [] });
+    assert.deepEqual(r.delegate, { usable: true, ok: true, outside: [] });
+    assert.deepEqual(r.problems, []);
+    assert.equal(r.ok, true);
+    assert.equal(r.exitCode, 0);
+  } finally {
+    sb.cleanup();
+  }
+});
+
 // --- implement の skill ---
 
 test('implement の skill: PR を作る前に scope-check を走らせ、外れていれば AskUserQuestion で聞く', () => {
@@ -241,4 +354,39 @@ test('implement の skill: PR を作る前に scope-check を走らせ、外れ�
   const next = lines.findIndex((l, i) => i > checkLine && /^\d+\.\s/.test(l));
   const step = lines.slice(checkLine, next < 0 ? undefined : next).join('\n');
   assert.match(step, /AskUserQuestion/, 'scope-check の手順に、外れたら AskUserQuestion で聞くことが書いてある');
+});
+
+/** implement の skill の scope-check の手順（番号付きの行から次の番号付きの行の前まで）の行 */
+function scopeCheckStepLines(): string[] {
+  const root = join(import.meta.dirname, '..', '..');
+  const lines = readFileSync(join(root, '.claude/skills/implement/SKILL.md'), 'utf8').replace(/\r\n/g, '\n').split('\n');
+  const start = lines.findIndex((l) => /^\d+\.\s/.test(l) && l.includes('scope-check'));
+  assert.ok(start >= 0, 'scope-check の番号付きの手順がある');
+  const next = lines.findIndex((l, i) => i > start && /^\d+\.\s/.test(l));
+  return lines.slice(start, next < 0 ? undefined : next);
+}
+
+/** 終了コード n に触れている行（「終了コード 1」「終了コード `1`」「終了コードが 1」など） */
+function exitCodeLines(lines: string[], n: number): string[] {
+  const re = new RegExp(`終了コード[がはの]?\\s*\`?${n}\`?(?!\\d)`);
+  return lines.filter((l) => re.test(l));
+}
+
+test('implement の skill: scope-check の手順に、終了コード 0・1・3 のそれぞれの扱いが書いてある', () => {
+  const lines = scopeCheckStepLines();
+  const step = lines.join('\n');
+  assert.doesNotMatch(step, /終了コードではなく/, '終了コードで分けないという古い書き方は残さない');
+  assert.ok(exitCodeLines(lines, 0).length > 0, '終了コード 0 の扱いが書いてある');
+  const one = exitCodeLines(lines, 1);
+  assert.ok(one.some((l) => l.includes('AskUserQuestion')), '終了コード 1 は AskUserQuestion で聞く');
+  assert.ok(one.some((l) => /PR を作らず/.test(l)), '終了コード 1 は PR を作らない');
+  const three = exitCodeLines(lines, 3);
+  assert.ok(three.some((l) => l.includes('人に見てほしい点')), '終了コード 3 は PR 本文の「人に見てほしい点」に書く');
+  assert.ok(three.some((l) => /聞かずに進め/.test(l)), '終了コード 3 は聞かずに進める');
+});
+
+test('implement の skill: scope-check が JSON を出さずに終わったら、PR を作らずに人に返すことが書いてある', () => {
+  const lines = scopeCheckStepLines();
+  const line = lines.find((l) => l.includes('JSON') && /PR を作らず/.test(l) && /人に返す/.test(l));
+  assert.ok(line, 'JSON が出ずに終わったら PR を作らずに人に返す行がある');
 });

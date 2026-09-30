@@ -24,6 +24,7 @@
     "pr-review-toolkit@claude-plugins-official": true
   },
   "permissions": {
+    "disableBypassPermissionsMode": "disable",
     "deny": [
       "Bash(gh pr merge)",
       "Bash(gh pr merge *)",

@@ -81,9 +81,11 @@ import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '..
  *   node harness/scripts/agent.ts scope-check <issue> [--base <ref>]
  *                                                           PR を出す前に、今のディレクトリ（worktree）の変更が計画の files に収まるかを、App の範囲照合と同じ関数で確かめる（読むだけ。#290）。
  *                                                           先に git fetch origin <既定ブランチ> をし、base（既定は origin/<既定ブランチ>）との merge-base から作業ツリーまでの変更
- *                                                           （リネームは旧・新の両方）と未追跡のファイル（untracked に分けて示す）を照らす。出力は JSON：scope（agent/scope と同じ、ゲートを通った計画）、
- *                                                           delegate（委任・bypass の範囲照合に使える計画か。使えなければ reason と、最新の計画と照らした latestPlanOutside）。
- *                                                           使える計画があって範囲の外が無ければ終了コード 0、そうでなければ 1
+ *                                                           （リネームは旧・新の両方）と未追跡のファイル（untracked に分けて示す）を照らす。サブディレクトリから走らせても、git はルートで走らせてルートからのパスで照らす。
+ *                                                           出力は JSON：scope（agent/scope と同じ、ゲートを通った計画）、delegate（委任・bypass の範囲照合に使える計画か。使えなければ reason と、
+ *                                                           最新の計画と照らした latestPlanOutside）、problems（どちらの照合で outside（範囲の外）か no-plan（使える計画が無い）か。#300）。
+ *                                                           終了コード：0＝両方の照合に計画があり範囲の外が無い、1＝どちらかで範囲の外がある、3＝範囲の外は無いがどちらかの照合に計画が無い。
+ *                                                           2 は引数・git のエラー（JSON を出さない。照合できていない）
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）。
  *                                                           見込みは批評の関所を含む（critique が無い、またはこの Issue に段階 plan-critique の宣言が無ければ止まる見込み）
  *   node harness/scripts/agent.ts post-decision <issue> <file>  決定の記録（agent-decision）を検査して投稿（App の最新の計画ゲートの記録の計画コメントと、答えの無い項目が無いことを確かめる。ラベルは変えない）
@@ -391,7 +393,13 @@ async function scopeCheckCommand(gh: GitHub, n: number, args: string[]): Promise
   } catch (e) {
     fail([(e as Error).message]);
   }
-  const report = await scopeCheck(gh, config, n, files);
+  // GitHub の読み取りの失敗も fail()（終了コード 2、JSON を出さない）にし、範囲の外（1）と取り違えないようにする
+  let report;
+  try {
+    report = await scopeCheck(gh, config, n, files);
+  } catch (e) {
+    fail([(e as Error).message]);
+  }
   console.log(JSON.stringify({ base, ...report, note }, null, 2));
   process.exitCode = report.exitCode;
 }
