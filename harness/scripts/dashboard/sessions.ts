@@ -2,9 +2,11 @@
  * 手元の Claude Code のセッション記録（`~/.claude/projects/<ディレクトリ>/<セッション ID>.jsonl`）を読み、
  * セッションごとの最後に動いた時刻・ブランチ・サブエージェント（`<ID>/subagents/agent-*.meta.json`）を返す。
  * 会話の中身は返さない。読めない・形の違うファイルは飛ばし、例外を投げない（Claude Code の版の違いで全体を落とさない）。
+ * worktree の置き場所は harness/lib/worktree.ts の worktreeRoot で決める（呼び出し元が worktreesDir で渡す。無ければ既定の置き場所）。
  */
 import { closeSync, existsSync, openSync, readdirSync, readFileSync, readSync, statSync, watch, type FSWatcher } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { worktreeRoot } from '../../lib/worktree.ts';
 
 export interface SubagentInfo {
   id: string;
@@ -34,6 +36,8 @@ export interface ReadOptions {
   activeWindowMs?: number;
   /** これより古いセッションは返さない（既定 12 時間） */
   maxAgeMs?: number;
+  /** worktree の置き場所（worktreeRoot で決めたもの。無ければ既定の `<親>/<名前>.worktrees`） */
+  worktreesDir?: string;
 }
 
 const TAIL_BYTES = 64 * 1024;
@@ -43,15 +47,9 @@ export function projectDirName(path: string): string {
   return path.replace(/[^A-Za-z0-9]/g, '-');
 }
 
-/** worktree の置き場所（harness/lib/worktree.ts の worktreePath と同じ `<親>/<名前>.worktrees`） */
-function worktreesDir(repoRoot: string): string {
-  const root = resolve(repoRoot);
-  return join(dirname(root), `${basename(root)}.worktrees`);
-}
-
-/** リポジトリそのものか、その worktree の置き場所の下のディレクトリ名か */
-export function isRepoProjectDir(dirName: string, repoRoot: string): boolean {
-  return dirName === projectDirName(resolve(repoRoot)) || dirName.startsWith(`${projectDirName(worktreesDir(repoRoot))}-`);
+/** リポジトリそのものか、その worktree の置き場所（既定は harness/lib/worktree.ts の worktreeRoot の既定）の下のディレクトリ名か */
+export function isRepoProjectDir(dirName: string, repoRoot: string, worktreesDir: string = worktreeRoot(repoRoot)): boolean {
+  return dirName === projectDirName(resolve(repoRoot)) || dirName.startsWith(`${projectDirName(resolve(worktreesDir))}-`);
 }
 
 export function issueFromBranch(branchOrCwd: string | null): number | null {
@@ -140,7 +138,7 @@ export function readSessions(opts: ReadOptions): SessionInfo[] {
   const isRunning = (at: string | null) => at !== null && now - Date.parse(at) <= active;
   const out: SessionInfo[] = [];
   for (const dirName of listDir(opts.projectsDir)) {
-    if (!isRepoProjectDir(dirName, opts.repoRoot)) continue;
+    if (!isRepoProjectDir(dirName, opts.repoRoot, opts.worktreesDir)) continue;
     const dir = join(opts.projectsDir, dirName);
     for (const name of listDir(dir)) {
       if (!name.endsWith('.jsonl')) continue;

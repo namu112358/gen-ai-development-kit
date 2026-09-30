@@ -20,7 +20,7 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 - **タスクの層（辺）**：依存（Issue Dependencies）、Epic → 子 Issue、Stacked PR（base が別の開いた PR の head。PR が入ったカードどうしをつなぐ）、タスク → セッション（着手宣言の `session`、または手元のセッションのブランチ）。凡例のチェックで辺の種類ごとに隠せる。
 - **カードのセッション**：「N セッション」の折りたたみ。閉じていても、動いているセッションかサブエージェントがあれば点滅する。開くとセッションごとの行とサブエージェント。
 - **人がすること**：画面の一番上の一覧。Human Merge の PR、計画ゲートで止まった Issue、止まる印（hold・blocked・waiting）の Issue、`priority:*` の無い Issue（label-audit と同じく `agent:*` か `epic` の付いたものだけ）。自動 Merge 待ちは出さない。
-- **手元のセッション**：`~/.claude/projects/` のうち、このリポジトリと worktree（`<親>/<名前>.worktrees/`）のセッション記録。最後に動いた時刻と、サブエージェント（plan-critic・reviewer など）の種類と最後に動いた時刻。90 秒以内に動いていれば点滅する。右の列には動いているセッションだけを出し、残りは「ほか N 件」に畳む。会話の中身は読まない・送らない。
+- **手元のセッション**：`~/.claude/projects/` のうち、このリポジトリと worktree の置き場所（既定は `<親>/<名前>.worktrees/`。`harness.config.json` の `worktreeRoot` か環境変数 `AGENT_HARNESS_WORKTREE_ROOT` で変えたときはその場所。サーバーの起動時に1回決める）のセッション記録。最後に動いた時刻と、サブエージェント（plan-critic・reviewer など）の種類と最後に動いた時刻。90 秒以内に動いていれば点滅する。右の列には動いているセッションだけを出し、残りは「ほか N 件」に畳む。会話の中身は読まない・送らない。
 
 ## 更新の仕組み
 

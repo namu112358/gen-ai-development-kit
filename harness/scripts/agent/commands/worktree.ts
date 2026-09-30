@@ -1,6 +1,6 @@
 import { worktreeClaimIssue } from '../../../lib/queue.ts';
 import { type PullRequest } from '../../../lib/state.ts';
-import { addWorktree, ensureNodeModules, mainRepoRoot, removeWorktree } from '../../../lib/worktree.ts';
+import { addWorktree, ensureNodeModules, labelOrcaWorktree, removeWorktree, worktreeOptions } from '../../../lib/worktree.ts';
 import { type AgentCommand, type CommandContext, config, ensureOwnClaim } from '../cli.ts';
 
 /**
@@ -12,6 +12,10 @@ import { type AgentCommand, type CommandContext, config, ensureOwnClaim } from '
  *                                                           （そのブランチの開いた PR があれば PR の宣言、無ければ Issue の宣言）を確かめる。
  *                                                           定期 Routine は --routine を付けて確かめない（Routine の環境には gh が無い）
  *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
+ *
+ * 置き場所は worktreeOptions（環境変数 AGENT_HARNESS_WORKTREE_ROOT → 設定の worktreeRoot → ../<リポジトリ名>.worktrees）で決め、
+ * リポジトリの中になる値なら終了コード 1 で止まる。worktree は、--detach でも --routine でもなければ、Orca があれば
+ * 表示名「#番号 短い名前」と Issue を付ける（親子は付けない。Orca が無い・失敗しても止めない）。
  */
 
 /** worktree・worktree-remove。claude/issue-<番号>- のブランチなら、作る前にこのセッションの着手宣言を確かめる */
@@ -27,10 +31,12 @@ async function worktreeCommand(cmd: 'worktree' | 'worktree-remove', args: string
     }
   }
   try {
-    const opts = { root: mainRepoRoot(), defaultBranch: config.defaultBranch };
+    const opts = worktreeOptions(config);
     if (cmd === 'worktree') {
-      const path = addWorktree(args[0]!, args.includes('--detach'), opts);
+      const detach = args.includes('--detach');
+      const path = addWorktree(args[0]!, detach, opts);
       ensureNodeModules(path);
+      if (!detach && !args.includes('--routine')) labelOrcaWorktree(path, args[0]!);
       return void console.log(path);
     }
     return removeWorktree(args[0]!, opts);
