@@ -54,6 +54,7 @@ jobs:
         github.event.label.name == 'agent:delegate-plan' ||
         github.event.label.name == 'agent:delegate-merge' ||
         github.event.label.name == 'agent:bypass-merge' ||
+        github.event.label.name == 'agent:auto-mode' ||
         startsWith(github.event.label.name, 'priority:')) &&
       (github.event_name != 'pull_request_target' ||
         (github.event.action != 'labeled' && github.event.action != 'unlabeled' &&

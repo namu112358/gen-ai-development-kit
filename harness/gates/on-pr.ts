@@ -10,6 +10,7 @@ import type { IssueComment } from '../lib/github.ts';
 import { acceptanceForPatch, hasLabel, isAgentPr, isSameRepoPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, enforceBase, refreshMergeRoute, resumeFromOrphan, writeScopeCheck } from './apply.ts';
 import { appComment, convertToDraft, disableAutoMerge, getPr, writeCheck, type GateContext } from './context.ts';
+import { autoModeFor, autoModeRoute } from './auto-mode.ts';
 import { bypassFor, bypassRoute } from './bypass.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
 import { applyAppLabels } from './label-apply.ts';
@@ -133,15 +134,18 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
 
   if (action === 'unlabeled' && ctx.event.label?.name === LABELS.hold) {
     await appComment(ctx, number, 'hold-removed', `\`agent:hold\` が @${ctx.event.sender?.login} により外されました（記録）。`);
-    // 自動 Merge の条件を満たす判定（委任が有効なら委任で乗る判定、bypass が有効なら bypass で乗る判定も）があれば、auto-merge を付け直す（hold 中は付けていないため）
+    // 自動 Merge の条件を満たす判定（委任が有効なら委任で乗る判定、auto mode が有効なら auto mode で乗る判定、bypass が有効なら bypass で乗る判定も）があれば、
+    // auto-merge を付け直す（hold 中は付けていないため）。順番は 委任 → auto mode → bypass
     const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(number), patchId(await getDiff()));
     const now = new Date();
     const delegation = acceptance?.reviewPass && !acceptance.autoEligible && acceptance.delegate?.eligible ? await delegationFor(ctx, now) : undefined;
     const delegated = Boolean(acceptance && delegation && delegatedRoute(delegation, acceptance).ok);
-    const bypass = !delegated && acceptance?.reviewPass && !acceptance.autoEligible && acceptance.bypass?.eligible ? await bypassFor(ctx) : undefined;
+    const autoMode = !delegated && acceptance?.reviewPass && !acceptance.autoEligible && acceptance.autoMode?.eligible ? await autoModeFor(ctx) : undefined;
+    const autoModed = Boolean(autoMode && autoModeRoute(autoMode, acceptance).ok);
+    const bypass = !delegated && !autoModed && acceptance?.reviewPass && !acceptance.autoEligible && acceptance.bypass?.eligible ? await bypassFor(ctx) : undefined;
     const bypassed = Boolean(bypass && bypassRoute(bypass, acceptance).ok);
-    if (acceptance && (acceptance.autoEligible || delegated || bypassed)) {
-      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff(), ...(delegation ? { delegation } : {}), ...(bypass ? { bypass } : {}) });
+    if (acceptance && (acceptance.autoEligible || delegated || autoModed || bypassed)) {
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff(), ...(delegation ? { delegation } : {}), ...(autoMode ? { autoMode } : {}), ...(bypass ? { bypass } : {}) });
       return;
     }
   }
