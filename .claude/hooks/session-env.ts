@@ -7,9 +7,10 @@
  * session_id が無い・CLAUDE_ENV_FILE が無い・JSON が読めない・ID に英数字と - _ 以外が入るときは何も書かない。どの場合も exit 0。
  * ID の形の規則は harness/lib/session.ts の TRANSCRIPT_SESSION_ID だけにある（記録の選択と同じもの）。読めなければ何も書かない。
  *
- * startup のとき、Orca の CLI（ORCA_CLI_COMMAND か PATH の orca-ide）が無ければ、JSON の systemMessage と additionalContext で
- * 一言知らせる（Issue #195。docs/setup.md の節11）。CLI は実行せず、ファイルがあるかだけを見る。素の orca は Linux で読み上げソフトを
- * 起動しうるので探さない。Routine（CLAUDE_CODE_REMOTE_SESSION_ID がある）では知らせない。
+ * startup のとき、Orca の CLI が無ければ、JSON の systemMessage と additionalContext で一言知らせる（Issue #195。docs/setup.md の節11）。
+ * 探し方と文面は環境で変える（Issue #311）。Windows ネイティブは `;` 区切りの PATH の orca（PATHEXT の拡張子付き）、WSL・Linux は
+ * ORCA_CLI_COMMAND か `:` 区切りの PATH の orca-ide を探す。CLI は実行せず、ファイルがあるかだけを見る。素の orca は Linux で
+ * 読み上げソフトを起動しうるので、Windows のほかでは探さない。Routine（CLAUDE_CODE_REMOTE_SESSION_ID がある）では知らせない。
  * bypass permissions で始まったことは知らせない（SessionStart の入力に permission_mode が渡る保証が無い。bypass は
  * .claude/settings.json の permissions.disableBypassPermissionsMode で拒む）。
  */
@@ -40,19 +41,60 @@ export interface OrcaNotice {
   hookSpecificOutput: { hookEventName: 'SessionStart'; additionalContext: string };
 }
 
-const ORCA_SYSTEM_MESSAGE =
-  'Orca の CLI（ORCA_CLI_COMMAND・orca-ide）が見つかりません。今の手順（ship・1セッションの fleet）で進めます。導入は docs/setup.md の節11';
-const ORCA_CONTEXT =
-  'Orca の CLI（ORCA_CLI_COMMAND・orca-ide）が見つかりません。Orca の skill（orca-cli・orchestration）は使わず、今の手順（ship・1セッションの fleet・node harness/scripts/agent.ts worktree）で進めてください。素の orca は実行しないでください。導入は docs/setup.md の節11';
+/** Orca の CLI を探す環境。other（macOS など）は Linux と同じ探し方で、文面に環境の名前を入れない */
+export type OrcaEnvironment = 'windows' | 'wsl' | 'linux' | 'other';
+
+/** 環境の判定。WSL は Linux のうち、WSL が入れる環境変数（WSL_DISTRO_NAME・WSL_INTEROP）があるもの */
+export function orcaEnvironment(platform: string, env: Record<string, string | undefined>): OrcaEnvironment {
+  if (platform === 'win32') return 'windows';
+  if (platform !== 'linux') return 'other';
+  return env.WSL_DISTRO_NAME || env.WSL_INTEROP ? 'wsl' : 'linux';
+}
+
+/** 環境ごとの「見つからない」の一文（systemMessage と additionalContext の頭） */
+const ORCA_MISSING: Record<OrcaEnvironment, string> = {
+  windows: 'Windows で Orca の CLI（PATH の orca）が見つかりません。',
+  wsl: 'WSL で Orca の CLI（ORCA_CLI_COMMAND・PATH の orca-ide）が見つかりません。Orca が管理する WSL の端末では ORCA_CLI_COMMAND が入ります。',
+  linux: 'Linux で Orca の CLI（ORCA_CLI_COMMAND・PATH の orca-ide）が見つかりません。',
+  other: 'Orca の CLI（ORCA_CLI_COMMAND・orca-ide）が見つかりません。',
+};
+const ORCA_REF = '導入は docs/setup.md の節11';
+const ORCA_FALLBACK =
+  'Orca の skill（orca-cli・orchestration）は使わず、今の手順（ship・1セッションの fleet・node harness/scripts/agent.ts worktree）で進めてください。';
+/** Windows のほかでは、素の orca は読み上げソフトなどの別のものになりうる */
+const ORCA_NO_BARE = '素の orca は実行しないでください。';
+
+/** Windows で PATHEXT が無い・空のときの拡張子 */
+const DEFAULT_PATHEXT = '.COM;.EXE;.BAT;.CMD';
+
+/** isExecutable に渡すパス。Windows は PATH の各ディレクトリの orca に PATHEXT の拡張子を付けたもの、ほかは各ディレクトリの orca-ide */
+function orcaCandidates(where: OrcaEnvironment, env: Record<string, string | undefined>): string[] {
+  if (where !== 'windows') {
+    return (env.PATH ?? '')
+      .split(':')
+      .filter((dir) => dir !== '')
+      .map((dir) => `${dir.replace(/\/+$/, '')}/orca-ide`);
+  }
+  const exts = (env.PATHEXT || DEFAULT_PATHEXT).split(';').filter((ext) => ext !== '');
+  const out: string[] = [];
+  for (const entry of (env.PATH ?? '').split(';')) {
+    const dir = entry.replace(/^"|"$/g, '').replace(/[\\/]+$/, '');
+    if (dir === '') continue;
+    for (const ext of exts) out.push(`${dir}\\orca${ext}`);
+  }
+  return out;
+}
 
 /**
- * Orca の CLI が無いときの知らせ（知らせないなら null）。raw は stdin の JSON。
- * PATH は `:` 区切り（Linux・WSL・macOS）だけを扱い、Windows ネイティブの PATHEXT は扱わない。isExecutable には orca-ide のパスだけを渡す。
+ * Orca の CLI が無いときの知らせ（知らせないなら null）。raw は stdin の JSON。platform は process.platform の形（テストで差し替える）。
+ * env.PATH・env.PATHEXT は大文字のキーで読む（Windows の process.env は大文字小文字を区別しないので Path でも読める）。
+ * isExecutable には、Windows では orca に PATHEXT の拡張子を付けたパス、ほかでは orca-ide のパスだけを渡す。
  */
 export function orcaNotice(
   raw: string,
   env: Record<string, string | undefined>,
   isExecutable: (path: string) => boolean,
+  platform: string = process.platform,
 ): OrcaNotice | null {
   if (env.CLAUDE_CODE_REMOTE_SESSION_ID) return null;
   let source: unknown;
@@ -63,14 +105,15 @@ export function orcaNotice(
   }
   if (source !== 'startup') return null;
   if (env.ORCA_CLI_COMMAND) return null;
-  for (const dir of (env.PATH ?? '').split(':')) {
-    if (dir === '') continue;
-    const path = `${dir.replace(/\/+$/, '')}/orca-ide`;
+  const where = orcaEnvironment(platform, env);
+  for (const path of orcaCandidates(where, env)) {
     if (isExecutable(path)) return null;
   }
+  const missing = ORCA_MISSING[where];
+  const noBare = where === 'windows' ? '' : ORCA_NO_BARE;
   return {
-    systemMessage: ORCA_SYSTEM_MESSAGE,
-    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: ORCA_CONTEXT },
+    systemMessage: `${missing}今の手順（ship・1セッションの fleet）で進めます。${ORCA_REF}`,
+    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `${missing}${ORCA_FALLBACK}${noBare}${ORCA_REF}` },
   };
 }
 
