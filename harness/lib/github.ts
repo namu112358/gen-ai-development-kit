@@ -83,12 +83,17 @@ export class FetchTransport implements Transport {
   }
 }
 
+/** raw の応答（ジョブのログなど）に含まれる端末の制御文字で gh（2.97.0 以降）が止まらないようにするフラグ */
+export const GH_ALLOW_ESCAPE_FLAG = '--allow-escape-sequences';
+
 /**
  * `gh api` の引数。include が偽なら --include を付けない（今までと同じ引数）。
+ * raw の要求だけ --allow-escape-sequences を付ける（応答は文字列として受け取り、端末にそのまま出さない。制御文字は使う側が取り除く）。
  * 本文は --input - で標準入力から渡す（呼び出し元が JSON.stringify(opts.body) を渡す）
  */
 export function ghApiArgs(method: string, path: string, opts: RequestOptions, include: boolean): string[] {
   const args = ['api', '--method', method, path.replace(/^\//, ''), '-H', `Accept: ${opts.accept ?? 'application/vnd.github+json'}`];
+  if (opts.raw) args.push(GH_ALLOW_ESCAPE_FLAG);
   if (include) args.push('--include');
   if (opts.body !== undefined) args.push('--input', '-');
   return args;
@@ -113,24 +118,53 @@ export function parseGhInclude(stdout: string): { info: ResponseInfo | null; bod
   return { info: { status: Number(statusLine.match(/^HTTP\/\S+\s+(\d{3})/)?.[1] ?? 0), headers }, body };
 }
 
+/** 古い gh（--allow-escape-sequences を知らない版）がこのフラグで止まったか。ほかの未知のフラグや制御文字で止まったエラーは偽 */
+export function isUnknownEscapeFlagError(stderr: string): boolean {
+  return stderr.includes(`unknown flag: ${GH_ALLOW_ESCAPE_FLAG}`);
+}
+
+/** --allow-escape-sequences を除いた引数（元の配列は変えない） */
+export function withoutEscapeFlag(args: string[]): string[] {
+  return args.filter((a) => a !== GH_ALLOW_ESCAPE_FLAG);
+}
+
+/** gh を1回動かした結果 */
+export interface GhRunResult {
+  status: number | null;
+  stdout: string;
+  stderr: string;
+}
+
+/** gh を動かす部分（テストで差し替える） */
+export type GhRunner = (args: string[], input: string | undefined) => GhRunResult;
+
+const spawnGh: GhRunner = (args, input) => {
+  const res = spawnSync('gh', args, { input, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+  return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
+};
+
 export class GhTransport implements Transport {
   private readonly onResponse: ResponseObserver | undefined;
-  constructor(opts: TransportOptions = {}) {
+  private readonly run: GhRunner;
+  constructor(opts: TransportOptions = {}, run: GhRunner = spawnGh) {
     this.onResponse = opts.onResponse;
+    this.run = run;
   }
 
   async request(method: string, path: string, opts: RequestOptions = {}): Promise<unknown> {
     const args = ghApiArgs(method, path, opts, this.onResponse !== undefined);
     const input = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
-    const res = spawnSync('gh', args, { input, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
-    let stdout = res.stdout ?? '';
+    let res = this.run(args, input);
+    // 古い gh はこのフラグを知らずに止まる（制御文字でも止めない版なので、除いて1回だけやり直せば今までどおり読める）
+    if (res.status !== 0 && opts.raw && isUnknownEscapeFlagError(res.stderr)) res = this.run(withoutEscapeFlag(args), input);
+    let stdout = res.stdout;
     if (this.onResponse) {
       const parsed = parseGhInclude(stdout);
       if (parsed.info) this.onResponse(parsed.info);
       stdout = parsed.body;
     }
     if (res.status !== 0) {
-      const stderr = res.stderr ?? '';
+      const stderr = res.stderr;
       const status = Number(stderr.match(/HTTP (\d{3})/)?.[1] ?? 0);
       if (status === 404 && opts.allow404) return null;
       throw new HttpError(status, `gh api ${method} ${path} failed: ${stderr.slice(0, 500)}`);
