@@ -14,7 +14,7 @@ import { checkJudgeInput, judgedHeadOf, judgedPrOf, splitArgs } from '../lib/ses
 import { sessionFromEnv, transcriptSessionId } from '../lib/session.ts';
 import type { PullRequest } from '../lib/state.ts';
 import { findSessionTranscripts } from '../lib/usage.ts';
-import { addWorktree, mainRepoRoot, npmCommand, removeWorktree } from '../lib/worktree.ts';
+import { addWorktree, npmCommand, removeWorktree, worktreeOptions } from '../lib/worktree.ts';
 
 /**
  * 合体版のレビュー（.claude/skills/review-panel/SKILL.md）の CLI。判断は harness/lib/review-panel.ts の純粋関数で行い、ここは git・npm・API を呼ぶだけ。
@@ -100,7 +100,7 @@ function check(inputFile: string): string {
   if (!head || pr === null) fail([`${inputFile}: judge-input の先頭2行（headSha と PR）を読めません`]);
   const fetched = git(['fetch', '-q', 'origin']);
   if (fetched.status !== 0) console.error(`警告: git fetch origin が失敗しました。手元の ref で続けます: ${fetched.stderr.trim()}`);
-  const opts = { root: mainRepoRoot(), defaultBranch: config.defaultBranch };
+  const opts = worktreeOptions(config);
   const path = addWorktree(head, true, opts);
   try {
     const npm = (script: 'ci' | 'check') => {

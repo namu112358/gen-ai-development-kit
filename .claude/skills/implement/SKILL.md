@@ -33,6 +33,18 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 11. `node harness/scripts/agent.ts release <番号>` で着手を解除する。
 12. `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` は、続けて judge・fix をしないときだけ行う。
 
+手順10の `--base main` は通常の PR の出し方。Stacked PR で出すときは次の節に従う。
+
+### Stacked PR で出すとき
+
+使えるのは付き添いのセッションだけ（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。組み方は [gh-stack](../gh-stack/SKILL.md) の skill。
+
+1. 積む条件を確かめる：上の層が、下の層と同じファイルを触る・下の層が足したもの（関数・型・設定・ファイル）を使う・PR 本文に `Stack: 理由` を書く、のどれかに当たるときだけ積む。当たらなければ別々に `main` 宛てで出す。
+2. 1層＝1 Issue。層ごとに手順1・2で claim と worktree を用意する。
+3. 上の層の worktree は、作った直後に `git merge --ff-only origin/<下の層のブランチ>` で下の層に合わせる（`node harness/scripts/agent.ts worktree` は新しいブランチを `origin/main` から作るため）。下の層を作った後に main が進んでいて `--ff-only` が失敗したら、先に下の層へ sync の skill で main を取り込んで push し、その後に上の層で `git fetch origin` して `--ff-only` をやり直す。それでも失敗したら上の層を出さずに人に返す。`--ff-only` の代わりに通常の `git merge` をしてはいけない（上の層に新しい main が入り、base（下の層）からの diff に main の変更が混ざって範囲照合と判定を壊す）。
+4. 層ごとに手順3〜9を行い、手順10の代わりに `gh pr create --draft --base <下の層のブランチ（一番下の層は main）>` で出す。本文は `Refs #<番号>`（一番上の層は `Closes #<番号>`、どちらも1つだけ）と、条件の3つ目で積むなら `Stack: 理由` の行。
+5. 全部の層を出したら、gh-stack の skill の `gh stack link <下の PR 番号> <上の PR 番号>` で組む。上の層は組むまで一時的に orphan-base（Draft と `agent:blocked`）になり、組めば App が戻す。
+
 ## 終わりの状態
 
 - `claude/issue-<番号>-<短い名前>` のブランチが push され、`Closes #<番号>` 付きの Draft PR がある。

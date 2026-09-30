@@ -3,8 +3,10 @@ import { bypassMergeConfig, delegateConfig, LABELS, reasonOf, REASON_CODES } fro
 import type { DelegateState } from '../lib/delegate.ts';
 import { labelAuditRows, renderAuditLines } from '../lib/label-rules.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, prDiff, type DashboardIssue, type PullRequest } from '../lib/state.ts';
+import { claimOf } from '../lib/facts.ts';
+import { acceptanceForPatch, autoMergeMode, findDashboard, hasLabel, isAgentPr, linkedIssues, prDiff, type DashboardIssue, type PullRequest } from '../lib/state.ts';
 import { classifyBase } from '../lib/stack.ts';
+import { renderUnownedConflictLine, unownedConflicts, type UnownedConflictInput } from '../lib/unowned-conflict.ts';
 import { enforceBase, refreshMergeRoute, resumeFromOrphan } from './apply.ts';
 import { bypassArm, bypassFor, type BypassState } from './bypass.ts';
 import { appComment, disableAutoMerge, getPr, judgingHold, updateBranchIfBehind, type GateContext } from './context.ts';
@@ -18,6 +20,8 @@ import { reviewDelegatedPlans } from './on-comment.ts';
  * 計画の委任（委任承認）が有効なら、ゲートの停止で止まっている計画を最初に判定し直し（on-comment.ts の reviewDelegatedPlans）、
  * 委任承認の状態と委任で Merge された PR も書く。委任承認に期限は無いので、定期実行はラベルも auto-merge も外さない。
  * bypass モードの状態と、bypass で Merge された PR も書く。
+ * 衝突している Agent PR のうち持ち主のいないもの（PR と Close する Issue の着手宣言が期限切れか無い）は、人の対応待ちに
+ * 「引き継ぐか決める」の行でも出す（判定は lib/unowned-conflict.ts。引き継ぐかは人が決める）。
  */
 
 interface IssueItem {
@@ -195,6 +199,22 @@ async function delegatedMerged(ctx: GateContext, now: Date, staleMs: number): Pr
   }
 }
 
+/** 衝突している PR ごとに、PR と Close する Issue の着手宣言を読む。読めなかった PR はログに残して飛ばす（ダッシュボードの更新は止めない） */
+async function conflictClaims(ctx: GateContext, conflicts: PullRequest[]): Promise<UnownedConflictInput[]> {
+  const inputs: UnownedConflictInput[] = [];
+  for (const pr of conflicts) {
+    try {
+      const issues = await linkedIssues(ctx.gh, ctx.config, pr);
+      const claims = [claimOf(await ctx.gh.listComments(pr.number))];
+      for (const n of issues) claims.push(claimOf(await ctx.gh.listComments(n)));
+      inputs.push({ pr: { number: pr.number, title: pr.title, html_url: pr.html_url }, issues, claims });
+    } catch (e) {
+      ctx.log(`#${pr.number} の着手宣言を読めませんでした（引き継ぐか決めるの行に出しません）: ${(e as Error).message}`);
+    }
+  }
+  return inputs;
+}
+
 export async function onSchedule(ctx: GateContext, now: Date = new Date()): Promise<void> {
   // 計画の委任が有効なら、ゲートの停止で止まっている計画を判定し直す。失敗してもダッシュボードの更新は止めない
   const delegation = await readDelegation(ctx, await findDashboard(ctx.gh, ctx.config), now);
@@ -232,6 +252,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     else if (age(pr.updated_at) > staleMs) stalePrs.push(pr);
     await followOnSchedule(ctx, pr, now);
   }
+  const unowned = unownedConflicts(await conflictClaims(ctx, conflicts), now, ctx.config.routine).map(renderUnownedConflictLine);
   const labelProblems = renderAuditLines(labelAuditRows(ctx.config, ctx.repository, issues, prs));
   const delegatedRows = await delegatedMerged(ctx, now, staleMs);
   const bypassRows = await bypassMerged(ctx, now, staleMs);
@@ -242,7 +263,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     appMark('dashboard'),
     `最終更新: ${now.toISOString()}（${ctx.config.staleHours} 時間動きがないものを停滞とみなします）`,
     '',
-    ...section('人の対応待ち（blocked / plan-review）', byReason.map((i) => line(i, ` — ${reasons.get(i.number)}`))),
+    ...section('人の対応待ち（blocked / plan-review / 引き継ぐか決める）', [...byReason.map((i) => line(i, ` — ${reasons.get(i.number)}`)), ...unowned]),
     ...section('コンフリクトしている Agent PR（CI が動きません）', conflicts.map((p) => line(p))),
     ...section('停滞している Agent PR', stalePrs.map((p) => line(p))),
     ...section('停滞している Issue', stale.map((i) => line(i))),
@@ -268,5 +289,5 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
   const kept = queueStart >= 0 ? `${withMode}\n\n${existing.slice(queueStart)}` : withMode;
   await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: kept } });
-  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} stalePRs=${stalePrs.length} staleIssues=${stale.length} labelProblems=${labelProblems.length}`);
+  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} unowned=${unowned.length} stalePRs=${stalePrs.length} staleIssues=${stale.length} labelProblems=${labelProblems.length}`);
 }

@@ -49,6 +49,8 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
 
+worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <ブランチ>` が作る worktree の置き場所は、既定では本体の隣の `../<リポジトリ名>.worktrees/<ブランチ名を安全にした名前>`。全員で変えるなら `harness.config.json` の `worktreeRoot`、そのパソコンだけ変えるなら環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（例：WSL の中の FS。環境変数が設定より優先）。書き方は、`~/` はホーム、相対パスは本体のルートから、`{repo}` はリポジトリ名に置き換える（複数のリポジトリで同じ場所を使うなら `{repo}` を入れる。入れないと、ダッシュボードがほかのリポジトリの worktree のセッションも拾いうる）。リポジトリの中になる値と、本体を含む祖先（`..` など）は拒む（`worktree`・`worktree-remove`・合体版のレビューの⑧・ダッシュボードが同じ関数（`harness/lib/worktree.ts` の `worktreeRoot`）で決め、同じく止まる）。本体の `.git` は元の場所に残るので、速くなるのは作業ツリーの分だけ。置き場所を変える前に作った worktree は `worktree-remove` が見つけられないので、先に消しておくか `git worktree remove <パス>` で消す。Orca があっても worktree は `agent.ts worktree` で作り、Orca はその worktree での起動と監視に使う（規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md)）。Orca があれば `worktree` が Issue のブランチ（`claude/issue-<番号>-<短い名前>`）の worktree に表示名「#番号 短い名前」と Issue を付ける（親子は付けない。表示のためだけ）。Orca が無ければ何もせず、失敗したときは警告だけで続ける（Orca のアプリは起動しない）。
+
 ### hq（テーマごとの fleet をまとめる）
 
 Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
@@ -103,9 +105,9 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | `agent:bypass-merge` | 人のみ | ダッシュボード専用。ブロッキング指摘の無い Agent PR の Merge を App に任せる「bypass モード」のスイッチ（`harness.config.json` の `bypassMerge`）。セッションは付け外ししない（hook と deny で止める）。付けている間（期限なし）、ブロッキング指摘が無く範囲照合と `agent/tests` を通る Agent PR に、Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#bypass-モード)）。外す・停止スイッチで、bypass で付けた auto-merge を外して人にレビューを依頼する |
 | `agent:auto-mode` | 人のみ | ダッシュボード専用。計画ゲートと Merge の両方を App に任せ、危険なものだけを人の判断に保留する「auto mode」のスイッチ（`harness.config.json` の `autoMode`）。セッションは付け外ししない。有効な条件は bypass と同じ（人が付けたもの、期限なし、停止スイッチが優先）。危険の判定は Jev（`autoMode.jev` の問いと下限）と Claude の両方に問い、どちらかが危険・判断できない、記録が無い・読めないときは保留する。今はラベルと判断の lib（`harness/lib/auto-mode.ts`）だけで、App の計画ゲート・Merge の経路はまだ auto mode を見ない（Epic #339 の子課題で足す） |
 
-着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
+着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。queue は定期実行（1時間ごと）と手動の起動のときだけ公開し直すので、宣言の変化もそのときに queue へ出る（今すぐ出したいときは gate の手動実行。下の「ゲートの失敗」）。今の宣言は `claim`・`fleet-status` がコメントから直接読む。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
 
-止めた理由は、`agent:blocked` / `agent:plan-review` を付けるコメントに理由コード（`<!-- agent-harness:reason code=… -->`）で残す。ダッシュボードの「人の対応待ち」は理由別に並び、理由が無いものは「要確認」になる。
+止めた理由は、`agent:blocked` / `agent:plan-review` を付けるコメントに理由コード（`<!-- agent-harness:reason code=… -->`）で残す。ダッシュボードの「人の対応待ち」は理由別に並び、理由が無いものは「要確認」になる。main と衝突していて持ち主のいない Agent PR（PR と Close する Issue の着手宣言が期限切れ（`routine.humanClaimStaleHours`）か、宣言が無い）も「引き継ぐか決める」の1行で出る（PR・Issue・宣言のセッションの短い ID と時刻）。引き継ぐかは人が決め、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う（hq・fleet は拾いに行かない。#371）。
 
 計画ゲートで止まった Issue に計画を出し直すとき、App は自分の計画ゲートの記録で前の印の出どころを見る。ゲートの停止（critical・ガードレールなど）で、最後に印を付けたのが App なら、新しい計画だけで判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。`acChangeProposed` や人が付けた印は、人が外すまで止める。出どころの無い古い記録は、記録の計画に Planner の申告・`acChangeProposed` が無く、前の印で止めた停止でもなければゲートの停止とみなし、そう読めないものは人が外すまで止める（[formats.md](formats.md#計画)）。付き添いのセッションは、Planner の質問（`openQuestions`・`needsHumanReasons`）を計画の投稿の前に人に聞いて計画に書き込み、答えで解消したものを申告から除く（plan の skill の手順3。定期 Routine は聞かない。fleet の入れ子の方式では ship が投稿せずに質問を fleet に返し、fleet がまとめて聞いて呼び直す）。申告として残るのは答えの無かったものだけで、委任承認・bypass の範囲照合に使えない計画（Planner の申告で止まった計画）を減らす。残った Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが人の答えを決定の記録（```` ```agent-decision ````、`agent.ts post-decision`）で残すと、App が Jev に答え済みかを問い、`plan-decision` の記録を付ける。`jev.decisionRelease` が `shadow`（既定）なら記録だけ、`enforce` でしきい値（`jev.thresholds.decisionProbability`）以上なら答え済みとして判定し直す（通れば App が印を外し、ガードレール・critical などに当たれば `gate` の停止として残る）。人が付けた印は、ラベルの時刻（計画コメントの投稿の 60 秒前から、その計画ゲートの記録まで）の外で付いたものとして見分ける。`agent:plan-review` で止まった計画を人が「進める」と決めたときは、付き添いのセッションがその言葉を進める記録（`agent-decision` の `proceed`、`post-decision`）で残す。App は `plan-proceed` の記録を付け、計画コメントの本文が変わらない間、委任承認の Merge と bypass の範囲照合にその計画を使う（ラベルは変えない。[formats.md](formats.md#進める記録proceed)）。そのため Planner の申告の印を外さないまま申告付きの計画を出し直すと、2回目以降は印が窓より前から付いているので対象外になる（人が外す今までの運用に戻るだけ）。ゲートの停止の印は出し直しで外れうるので、計画を出し直しても止めておきたいときは `agent:hold` を付ける。書式は [formats.md](formats.md#計画)。
 
@@ -120,6 +122,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | `resplit` | Epic を子課題に分けた後に、別の分け方の計画が来た |
 | `split-failed` | Epic の子課題を作る途中で失敗した |
 | `fix-limit` | 修正回数の上限に達した |
+| `orphan-base` | スタックでないのに base が既定ブランチ以外の PR（Draft に留めている）。Stacked PR の上の層は `gh stack link` で組むまでの一時的な状態 |
 | `external` | 権限・外部サービス・手作業など Claude の外の対応が必要 |
 | `other` | その他（コメントに詳細） |
 
@@ -163,6 +166,20 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 4. 既に子課題に分けた親（`epic-split` の記録か、App が作った目印付きの子がある）に別の計画が来て検査を通っても、分け直さずに `agent:plan-review`（理由コード `resplit`）で止める。既存の子課題をどうするかは人が決める。同じ計画コメントの再実行は分け直しとみなさない。
 5. 子 Issue はふつうの Issue として、それぞれ計画ゲート・批評・判定を通る。分け方の誤りはそこで拾う。queue は `epic` の親を飛ばす。
 6. 子 Issue がすべて閉じると、App が親を閉じる。
+
+## Stacked PR
+
+Stacked PR は、下の層のブランチを base にした PR を重ねたもの（GitHub のスタック）。層ごとの diff が小さくなり、判定も層ごとに行える。
+
+- 使える場所：付き添いのセッションだけ（Routine の環境には gh が無い）。組み方は [gh-stack の skill](../.claude/skills/gh-stack/SKILL.md)、実装の手順は implement の skill の「Stacked PR で出すとき」。
+- 積んでよい条件：上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に `main` 宛てで出す。Reviewer は、どれにも当たらない層をブロッキング指摘（`out-of-scope`）にする。
+- 紐付け：1層＝1 Issue。下の層の本文は `Refs #N`、一番上の層は `Closes #N`（どちらも1つだけ）。App は層を計画に紐付け（`agent/plan-link`）、紐付けの記録（`kind=stack-link`）を PR に残す（[formats.md](formats.md#app-の記録agent-app)）。
+- 組み方：層ごとに `gh pr create --draft --base <下の層のブランチ>` で Draft PR を出し、全部そろったら `gh stack link <下の PR 番号> <上の PR 番号>` で組む。上の層は組むまで base が既定ブランチでもスタックでもないので、App が一時的に orphan-base（Draft に留めて `agent:blocked`、理由コード `orphan-base`）にする。組めば（`stacked` のイベント）App が `kind=base-resolved` を残して戻す。
+- 判定：層ごとに、その PR の base からの差分（`git diff origin/<PR の base>...<head>`）で行う。judge-input にスタックの節（base・位置・下の層と変更ファイル）が入る。
+- Merge：Stacked PR は Human Merge。GitHub の auto-merge も従来の Merge API も使えないので、人が全部の層が Ready になってから GitHub の画面でスタックを Merge する（Draft の層があると Merge できない）。スタックの Merge の API（`merge-async`）は App も使わない。
+- Merge の後：層が既定ブランチに Merge されたら、App が `stack-link` の記録の Issue を閉じ、Issue に `kind=stack-closed` を残す（層の `Refs` は GitHub が閉じないため）。
+- 追従：`git merge` で行う（`main` を一番下の層に、下の層を上の層に、下から順に）。rebase と force push はしない。App が既定ブランチへの push のたびに Agent PR を base に追従させる（update-branch＝merge）のと食い違わない。
+- 止める操作：見張りの hook（`.claude/hooks/guard.ts`）が `gh stack` の `merge`・`push`・`sync`・`rebase`・`submit`・`modify`・`alias`・`unstack`・`checkout` など、ブランチ名やフラグを渡す `gh stack link`、`gh api -X PUT …/merge-async` を止める（`gh extension exec stack`・`gh-stack` の直接の実行も）。通すのは link（PR 番号・URL だけ）・view・移動だけ。
 
 ## 同時に開ける PR の数
 
@@ -228,6 +245,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
   - `off`：問わない（今までどおり）。
 - Human Merge の PR にも問って記録する（一致率の材料を増やすため。結論は neutral のまま）。経路の判断（Human Merge か、委任・bypass か）は変えない。
 - enforce への切り替えは、`node harness/scripts/report.ts` の「テストの改ざん：Jev と人の判断」の行（一致率と、Jev は通す・人は直させた件数）を見て人が決める（[security.md](security.md#テストの改ざん)）。
+- このリポジトリは 2026-09-30 に `enforce` にした（持ち主の決定、#364。docs/plan.md の Q104）。上の一般の手順と違い、一致率は見ずに切り替えた（`report.ts` が5分で終わらず読めなかった）。Jev と Claude で妥当かを確かめる仕組み（#349、Epic #339）より先に、`test:exempt` を付ける手間を早く減らすため。`report.ts` は enforce で Jev が通した記録を一致率に数えないので、切り替えの後は一致率の材料が減る。導入先の雛形（`harness/templates/harness.config.json`）の既定は `shadow` のまま。
 
 ### 分かっている限界
 
@@ -312,7 +330,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 | Issue 本文が読めない | `agent:blocked`＋App の `form-error` | 本文を Issue Form の見出しに直してラベルを外す |
 | 修正回数の上限 | PR に `agent:blocked` | 指摘を確認して人が直すか Close |
 | 判定が古い | App の `verdict-rejected` | 何もしない（次の実行で判定し直す） |
-| コンフリクト・停滞 | ダッシュボードの各一覧 | 人が解消する |
+| コンフリクト・停滞 | ダッシュボードの各一覧。持ち主のいない衝突した Agent PR は「人の対応待ち」に「引き継ぐか決める」で出る | 人が解消する。持ち主のいない衝突した PR は、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う |
 | ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | セッションは聞かない（Jev が下限未満で付けなかった `priority:*`・`area:*` はセッションが決めて付け、理由をコメントに残す）。それでも足りないものと違反は、人がダッシュボードを見て、足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す）。セッションが付けたラベルを直すのも人 |
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる |
 

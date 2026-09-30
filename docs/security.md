@@ -9,25 +9,26 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 観点 | 実装 |
 | --- | --- |
 | 起動 | Claude は付き添いのセッションと定期 Routine だけ。`gate.yml` は Claude を動かさない |
-| 信頼の根 | App の名義で書かれたラベルイベント・コメント・Check Run だけを信頼する（`harness/lib/state.ts`） |
+| 信頼の根 | App の名義で書かれたラベルイベント・コメント・Check Run だけを信頼する（`harness/lib/state.ts`）。GraphQL で読んだ作者（Bot の `login` に `[bot]` が無い）・関係（`authorAssociation`）・コメントの ID（`fullDatabaseId`）も、`harness/lib/graphql-prefetch.ts` の変換（`restUser` など）で REST の形にそろえてから同じ判定をする（ダッシュボード・`fleet-status`・`step`・`judge-input` の過去の PR の節） |
 | 次にやること | App が Actions で queue を計算し、ダッシュボード Issue に公開する。Routine はそれに従う。「`agent:plan-ok` を付けたのが App か」「判定が現在の差分に有効か」は App 側で判断する |
 | Routine の GitHub 操作 | Routine に組み込みの GitHub MCP ツールのみ（`gh` と API 用トークンは環境にない）。push は `git` |
-| ゲートの起動 | `issue_comment` / `issues` / `pull_request_target` / `push`（既定ブランチ）/ `schedule`。いずれも既定ブランチの workflow が動く |
+| ゲートの起動 | `issue_comment` / `issues` / `pull_request_target`（`ready_for_review` は App 自身のものを除く。Stacked PR に組まれた `stacked` も）/ `push`（既定ブランチ）/ `schedule`。いずれも既定ブランチの workflow が動く |
 | PR のコード | ゲートは既定ブランチを checkout し、PR の head は checkout も実行もしない。diff は API で読む |
 | 埋め込み | イベントの中身は `GITHUB_EVENT_PATH` から読み、`${{ }}` で run に埋め込まない |
 | コメントの作成者 | ゲートは `author_association` が OWNER / MEMBER / COLLABORATOR のコメントだけ受け付ける |
 | 秘密 | App と Jev の鍵は Environment `gate` の Secret。`gate` は既定ブランチからの実行に限定。ログ・コメントは伏せ字にする |
 | 必須チェック | `agent/review`・`merge-route` は App の `integration_id` に固定。本人名義で同名のステータスを書いても通らない。bypass なし |
 | 段階ゲート | `agent:plan-ok` は App だけ。App 以外が付けたら App が外す |
-| 計画の紐付け | すべての PR（付き添いのセッションの Agent PR も、人の PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録） |
+| 計画の紐付け | すべての PR（付き添いのセッションの Agent PR も、人の PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録）。Stacked PR の層は本文の `Refs #N`（一番上は `Closes #N`）で紐付け、App が `stack-link` を記録して、層が Merge されたら Issue を閉じる |
 | 計画の写し | ゲート通過時の計画を App の記録に写す。後で計画コメントが編集されても写しを使う |
 | テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。人が Merge する PR（ガードレール・`humanMergePaths`・自動 Merge の対象外の判定）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の Merge の判断にまとめる（テストを弱めた PR が自動で Merge されるのを防ぐ目的は変わらない。経路が自動 Merge に変わると止める側に戻る）。`jev.testTamper` が enforce なら、アサーションの書き換えだけの差分は Jev の確率が下限以上で通る（下記「Jev」の「テストの改ざん」） |
 | ガードレール | `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）に触れる PR は、Risk Agent の答えに関わらず自動 Merge せず理由を受け付けのコメントに書く（変更ファイルはリネームの旧パスも）。触れる計画は想定 Risk に関わらず計画ゲートで止める（`harness/lib/guardrail.ts`）。委任承認の間の例外は [risk-policy.md](risk-policy.md#委任承認) |
 | 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を照合する。最初の階層にワイルドカードがあるパターンは拒否。全件取得できなければ不可 |
 | 判定の鮮度 | 判定時と現在の head で、PR 自身の差分の `git patch-id --verbatim` が同じときだけ受け付ける（`--stable` は空白を無視するため使わない） |
 | 順序 | push を検知したら最初に auto-merge を解除する。受け付け時は auto-merge → merge-route（直前に PR を取り直す）→ agent/risk → agent/review の順に書き、書き終えた後に auto-merge が変わっていれば merge-route を書き直す |
-| 定期照合 | 3時間ごとに、条件を満たさない auto-merge を外す（`GITHUB_TOKEN` による操作はゲートを起動しないため） |
+| 定期照合 | 1時間ごとに、条件を満たさない auto-merge を外す（`GITHUB_TOKEN` による操作はゲートを起動しないため） |
 | 直接マージ | `.claude/settings.json` の deny（`gh pr merge`、merge API、MCP の merge / PR 編集、auto-merge、`gh pr ready`、Secret・変数・Ruleset、main への push、信頼ラベル）。文字列のパターンなので完全ではない |
+| gh stack | 見張りの hook（`.claude/hooks/guard.ts`）が `gh stack` の `merge`・`push`・`sync`・`rebase`・`submit`・`modify`・`alias` など許す一覧の外の操作、ブランチ名やフラグを渡す `link`、スタックの Merge の API（`gh api -X PUT …/pulls/<番号>/merge-async`）を止める（`gh extension exec stack`・`gh-stack` の直接の実行も）。通すのは link（PR 番号・URL だけ）・view・移動だけ |
 | 判定の対象 | 同じリポジトリの PR は、計画のある Issue に紐付いていればブランチに関係なく判定する。人の PR は判定が出るまで `agent/review` を通さない。例外は人が付ける `review:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。fork からの PR は判定せず、例外でのみ通る |
 | Agent PR | 同じリポジトリの `claude/` ブランチからの PR。自動 Merge の経路に乗るのはこれだけ |
 | 停止スイッチ | ダッシュボードの `agent:auto-merge-stopped`。ダッシュボードが無い・読めない場合は停止扱い |
@@ -44,10 +45,12 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | ガードレールの外のハーネス | implement・fleet の skill・テストなど、ガードレールに入れないハーネスの変更は low なら自動 Merge され得る | Risk の判定、`agent/tests`、一覧は人が PR で決める |
 | 本人名義の操作 | 直接マージ、`agent:hold` の解除、偽の判定コメントは GitHub 側では防げない | deny、App による記録、段階を別の実行に分けること、将来は Jev を Actions から呼ぶ |
 | auto-merge 付与と CI 完了の競合 | 本人名義で medium の PR に auto-merge を付け、ゲートが merge-route を書き換える前に CI が終わると Merge され得る（数秒） | deny |
-| `GITHUB_TOKEN` による auto-merge | PR 側の workflow が `GITHUB_TOKEN` で別の PR に auto-merge を付けるとゲートが起動しない | 定期照合（最大3時間） |
+| `GITHUB_TOKEN` による auto-merge | PR 側の workflow が `GITHUB_TOKEN` で別の PR に auto-merge を付けるとゲートが起動しない | 定期照合（最大1時間） |
 | 委任承認の外し忘れ | 委任承認に期限は無く、ダッシュボードのラベルを外すまで続く。外し忘れると、人が見ていない間もガードレール・Risk だけで止まる計画が通り、委任承認（計画＋Merge）なら同じ理由の PR が自動 Merge されうる | ラベルは人だけが付け、停止スイッチが優先する。`delegateMergeExclude`（`harness.config.json` は常に）は委ねない。ダッシュボードの状態の行に委任承認の段階と付けた人が出て、委任で Merge された PR は節「委任承認で Merge された PR」と記録（`delegated-merge`）で見返せる。`agent:delegate-merge` を外すと委任で付けた auto-merge を外す |
 | bypass モードの間のハーネス自身の変更 | bypass モードの間は、ハーネス自身の守り（ゲート・ガードレールの一覧・hook・deny・workflow・`harness.config.json`）を変える Agent PR も、ブロッキング指摘が無く範囲照合と `agent/tests` を通れば、人を通らずに Merge される（持ち主の決定、#245） | 見ていないときはラベルを外す、停止スイッチ、`agent:hold`。ダッシュボードの「bypass で Merge された PR」と PR の記録（`bypass-merge`）で見返す |
 | 書き換えの場所の抜け道 | `workspace-guard.ts` は Edit・Write・NotebookEdit と git だけを見る。Bash のリダイレクト（`>`）・`sed -i`・`rm`・`cp` など git 以外の書き換え、スクリプトや別のプロセス（`node harness/scripts/agent.ts` など）の中の git、xargs・find -exec で動かす git、印のファイルを消すこと、ヒアストリング（`bash <<< 'git pull'`）の中の git、`export GIT_DIR=…`・`GIT_WORK_TREE` で後の文の作業場所を変える形、スクリプト・別のプロセスの中で設定や環境を変えてから pull する形、外で定義した alias・関数で git を動かす形は止めない（字句から書き先・効く設定を決めきれない） | 規則「作業は常に worktree で行う」（`harness/CLAUDE.harness.md`）、main への push は `guard.ts`・deny・Ruleset が止める、変更は PR と App の判定を通る |
+| 既定ブランチ以外が base の PR | base が既定ブランチ以外の PR（Stacked PR の層など）は既定ブランチの Ruleset の外なので、必須チェックでは Merge を止められない | App が orphan-base を Draft に留め、Stacked PR は Human Merge。人が Ready にしてからゲートが Draft に戻すまでの短い間は防げない |
+| gh の別名 | `gh alias set` で作った gh の別名、`gh stack alias` で前に作った別名（`gs` など）は hook で中身を追えない | 規則の「やってはいけないこと」、`gh stack alias` は hook が止める、Merge は Ruleset と App の判定を通る |
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |
 | 合体版の記録の偽り | 合体版のレビューの記録（`agent-review-panel`）はセッションが書くので偽れる。判定コメントより前の記録だけを数えることで防げるのは、App の受け付け・変更要求を見てから記録を合わせることだけで、shadow ではセッションが今の reviewer の出力を見てから記録を合わせることは防げない | 判定コメントより前・未編集・head の一致・コラボレーターの記録だけ数える、集計の表で事実の列と申告の列を分ける、本物・誤検知は事実の裏付けで数える、切り替えの前に人が全件を確かめる（裏付けのうち人のレビューコメントは、セッションも本人の名義で書くので Claude の目印の有無でしか人のものと分けられず、目印の無いセッションのコメントは人のものとして数えてしまう）、担当の定義と組み立て（`.claude/agents/review-*.md`・review-panel の skill・`harness/scripts/review-panel.ts`・`harness/lib/**`）はガードレール（[plan.md](plan.md) の Q91） |
@@ -94,6 +97,7 @@ Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材
 - **問わないもの**：fork の PR（自動 Merge の経路に乗らず、外部の中身を Jev に送らない）。削除系（テストファイルの削除・リネーム、テスト定義の削除、skip / only / todo の追加）と対にならないアサーションの削除を含む差分は、問わずに今までどおり止める。
 - **Agent が書いた行を問う**：変更前・変更後の行そのものは Agent が書く。行の中に Jev への指示を書き込めば確率を上げられるおそれがあるので、`enforce` にする前に、shadow の記録で人の判断との一致率と「Jev は通す・人は直させた」件数を見る。
 - **集計の見方**：`node harness/scripts/report.ts` の指標の表に「テストの改ざん：Jev と人の判断（件数 / 一致率）」「Jev は通す・人は直させた」「Jev は止める・人は通した」が出る。PR ごとに最後の `test-tamper-jev` の記録を使い、人の判断は、同じ差分に `test:exempt` を付けたか同じ差分のまま Merge したら「通した」、違う差分で Merge したら「直させた」（未 Merge は数えない。enforce で Jev が通した記録も、自分で自分を数えないので数えない）。Jev の「通す」は確率が `jev.thresholds.testTamperProbability` 以上（下限が未設定なら0件）。「Jev は通す・人は直させた」が enforce で危険側に外れる件数。enforce の基準は決めておらず、表を見て人が決める。
+- **このリポジトリの切り替え**：2026-09-30 に `enforce` にした（持ち主の決定、#364。docs/plan.md の Q104）。上の「`enforce` にする前に一致率を見る」は導入先向けの一般の説明で、このリポジトリでは一致率を見ずに持ち主が切り替えた（`report.ts` が読めなかった。受け入れているリスク：行の中の指示で Jev の確率を上げられるおそれを、一致率で確かめる前に受け入れる）。enforce で Jev が通した記録は一致率に数えないので、切り替えの後は一致率の材料が減る。雛形の既定は `shadow` のまま。
 
 ### 日本語の材料の実験
 

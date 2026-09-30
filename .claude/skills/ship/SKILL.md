@@ -13,7 +13,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 - Issue がまだ無い依頼（「〜を Issue にして進めて」）なら、Issue Form（`.github/ISSUE_TEMPLATE/agent-task.yml`）の見出しと、タイトルの書式（`harness/lib/title.ts` の `parseTitle`、Conventional Commits）に合わせて `gh issue create` で作り、その番号で手順1から進める。人が「作るだけ」と言わない限り、作った Issue は同じセッションで plan まで進める
 - Issue の状態：ラベル（`agent:plan-ok`・`agent:plan-review`・`epic`・`agent:waiting`・`agent:blocked`・`agent:hold`）と、`gh issue view <番号> --comments` の本文・コメント
 - 計画ゲートの記録：`node harness/scripts/agent.ts show-plan <番号>`
-- Issue を Closes する開いた PR：`gh issue view <番号> --json closedByPullRequestsReferences`
+- Issue を Closes する開いた PR：`gh issue view <番号> --json closedByPullRequestsReferences`。Stacked PR の下の層は本文が `Refs #N` で Closes にならないので、`gh pr list --state open --json number,body,baseRefName` から本文で `Refs #<番号>` を探す
 
 ## 手順
 
@@ -22,7 +22,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - 最初の宣言が持ち主。`claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue は進めず、作業を始めずに、手順9の一覧に「#番号 は session …（エラーに出た短い ID）が着手中」と書いて終える。引き継ぐかは人が決める（この場では聞かない）。
    - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`post-plan` はゲートを通らない見込みなら自分で解除する。`/clear` などでセッション ID が変わったら、自分の古い宣言は人に確かめて `claim --takeover` で出し直す。
    - `claim` が Assignee で止まった（`harness.config.json` の `requireAssignee` が有効で、誰もアサインされていない・ほかの人・2人以上）：自分をアサインせずに進めず、人に返す（質問にはせず、止まった理由を手順9の一覧に書いて終える。アサインするかは人が決める。[docs/operations.md](../../../docs/operations.md) の担当）。途中の段階の確かめ（`critic-input`・`post-plan`・`worktree`・`ensure-claim`）で止まったときも同じ。
-   - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。
+   - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。ただし Stacked PR の上の層が `gh stack link` の前に付いた orphan-base（App の `kind=orphan-base`）は例外で、[gh-stack](../gh-stack/SKILL.md) の skill で組めば App が戻す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
 2. 計画が無ければ plan の skill で計画を書いて投稿する。Planner の質問（`openQuestions`・`needsHumanReasons`）は plan の skill の手順3どおり投稿の前に AskUserQuestion で聞いて計画に書き込むので、投稿の後に申告が残るのは答えの無かったものだけになる（fleet の入れ子の方式で動く ship は聞かずに fleet に返す。下の「サブエージェントの ship として動くとき」）。批評の止める条件や `drop` に当たったら、plan の skill どおり「進める／直す／やめる」を AskUserQuestion で聞く。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
    - `agent:plan-ok`：次へ。委任承認（ダッシュボードの `agent:delegate-plan` か `agent:delegate-merge`）の間は、`post-plan` が通らない見込みとして宣言を解除していても App が `agent:plan-ok` を付けることがある。そのときも implement の `claim --stage implement` で宣言し直す。
@@ -36,10 +36,11 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - 自動 Merge：App が auto-merge を付けたこと（`gh pr view <PR番号> --json autoMergeRequest` が null でない）。
    - Human Merge：App のコメント（本文に `kind=human-review`、作成者が App）が PR に付いたこと（[docs/operations.md](../../../docs/operations.md) の「Human Merge の依頼」）。
    - 数分待ってもどちらも無ければ、App の記録（`kind=acceptance` の `autoEligible` と `reasons`）を読んで人に返す。
+   - Stacked PR の層はいつも Human Merge（auto-merge も従来の Merge API も使えない）。
 7. 続けて使わなければ `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` で worktree を消す。
 8. ラベル（`priority:*`・`area:*`）は、まず Jev に任せる（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。扱った Issue（Epic なら親と子課題）に、App の名義（`appSlug` の App が書いたコメント）の `kind=label-triage` の記録があり、その `notApplied`（下限未満で付けなかったもの）がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順9の一覧に書かず、人にも聞かない。
 9. 人に**人がすること**の一覧を出す。
-   - Merge：Human Merge なら PR を確認して Merge する。自動 Merge なら何もしない（止めたければ `agent:hold`）。
+   - Merge：Human Merge なら PR を確認して Merge する。自動 Merge なら何もしない（止めたければ `agent:hold`）。Stacked PR は、スタックの全部の層が Ready になってから、人が GitHub の画面でスタックを Merge する（Draft の層があると Merge できない）。
    - 例外ラベル：`test:exempt` は自動 Merge の対象の PR で `agent/tests` が failure のときだけ（Human Merge の PR では付けず、依頼のコメントに載ったテストの変更を Merge の前に確かめる、を「Merge」の項に書く）。`review:exempt` は付けるかの判断。どちらも、その理由を書いた場所（Issue か PR のコメント）
    - `node harness/scripts/setup.ts` の実行が要る変更か（ラベル・Ruleset・Environment・App の設定を変えた）
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）

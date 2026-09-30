@@ -19,9 +19,11 @@
 | `epic.ts` | Epic：計画の `split` で大きな課題を子課題に分ける。 | ○ |
 | `exempt.ts` | 人が付ける例外ラベル（review:exempt・test:exempt）は、付けた時点の PR の差分にだけ効く。 | ○ |
 | `facts.ts` | queue の材料（事実）を GitHub から集める。 | ○ |
+| `fleet-reads.ts` | fleet-status と step の事実集め（Issue ごとの Closes する PR・Issue と PR の事実・main との差・human-review・計画の files）。 | ○ |
 | `fleet.ts` | fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。 | ○ |
 | `flow.ts` | 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。 | ○ |
 | `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |
+| `graphql-prefetch.ts` | まとめた GraphQL の問い合わせで Issue・PR の材料を先に読み、REST の形に直す先読みの仕組み（ダッシュボードと fleet-status・step が使う）。 | ○ |
 | `guardrail.ts` | ガードレール：Agent が自分を縛る仕組み（App が機械的に強制している部分）。 | ○ |
 | `hotspot.ts` | 保守の観測（harness/scripts/observe.ts）のホットスポット：直近の期間に変更の多い大きなファイル。 | ○ |
 | `hq-stall.ts` | hq が、動いてはいるが進んでいない fleet を見つける判定（Issue #287、人の決定はコメント 5905221457）。 | ○ |
@@ -33,6 +35,7 @@
 | `observe-docs.ts` | 保守の観測（harness/scripts/observe.ts）の docs の照合。 | ○ |
 | `observe.ts` | 保守の観測（harness/scripts/observe.ts）のまとめ。 | ○ |
 | `panes.ts` | fleet と hq のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。 | ○ |
+| `past-pr-reads.ts` | judge-input の過去の PR の節の材料（変更ファイルを触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント）を GraphQL でまとめて読む。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
@@ -55,8 +58,9 @@
 | `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えを Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
 | `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |
+| `unowned-conflict.ts` | 持ち主のいない衝突した Agent PR の判定（ダッシュボードの「引き継ぐか決める」の行）。 | ○ |
 | `usage.ts` | Claude Code のセッション記録（jsonl）からトークン数を集計し、API で動かした場合の料金を見積もる。 | 対象外 |
 | `validate.ts` | 依存なしの小さな検証ヘルパー。 | ○ |
 | `verdict.ts` | 判定コメントの構造化出力（````agent-verdict````）。 | ○ |
-| `worktree.ts` | 作業用の git worktree（リポジトリの外の作業場所）の作成（`node_modules` が無ければ `npm ci` まで）と削除。 | 対象外 |
+| `worktree.ts` | 作業用の git worktree（リポジトリの外の作業場所）の作成（`node_modules` が無ければ `npm ci` まで）と削除、置き場所の決め方、Orca の表示名。 | 対象外 |
 <!-- readme:generated end -->
