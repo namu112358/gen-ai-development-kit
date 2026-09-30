@@ -16,12 +16,12 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
 - 進めたい Epic・Issue（任意）。無ければ開いた Epic（`epic` のラベル。子課題は App の記録 `kind=epic-split`）と、Epic に入っていない開いた Issue から案を作る
 - 同時に動かす fleet の上限：`node harness/scripts/panes.ts config` の `maxFleets`（`hq.maxFleets`、既定 2）
 - 進んでいない fleet のしきい値：`hq.staleSnapshotMinutes`（既定 30 分）・`hq.stuckMinutes`（既定 120 分）。`node harness/scripts/panes.ts fleets --session <ID>...` が使う
-- fleet の対応の控え：scratchpad の `hq-fleets.json`（テーマ・Dispatch ID・fleet のセッション ID・ワークスペースのパス。今動いている fleet だけ）
+- fleet の対応の控え：scratchpad の `hq-fleets.json`（テーマ・Dispatch ID・fleet のセッション ID・ワークスペースのパス・fleet ごとの Issue 番号の集合。今動いている fleet だけ。手順8の止まったタスクの見回しで聞いたものと、読んだ Epic の子の一覧も残す）
 
 ## 手順
 
 1. **本体で動く**：`ORCA worktree current --json` の `isMainWorktree` が true であることを確かめる（hq は Orca のプライマリ＝main の checkout で動かす。専用の worktree だとブランチが main から遅れ、古いハーネスで動くため）。false なら止めて人に返す。表示名を `ORCA worktree set --worktree path:<本体の絶対パス> --display-name hq` で `hq` にする。始める前に `git pull --ff-only` で最新にする。
-2. **hq は書き換えない**：hq はリポジトリのファイル（本体・fleet のワークスペース・Issue の worktree）を書き換えない。するのは、読むこと（`gh`・`node harness/scripts/agent.ts fleet-status`・`panes.ts`・`node harness/scripts/agent.ts usage`・Orca の読むコマンド）、指揮（Orca の orchestration）、GitHub への記録（コメント・着手宣言）だけ。一時ファイルは scratchpad にだけ書く。唯一の書き込みは、手順5の印のファイル。fleet も書き換えない（fleet の skill の「Orca の worker として動くとき」の4）。コードや docs を書き換えるのは、Issue の worktree の中の ship だけ。
+2. **hq は書き換えない**：hq はリポジトリのファイル（本体・fleet のワークスペース・Issue の worktree）を書き換えない。するのは、読むこと（`gh`・`node harness/scripts/agent.ts fleet-status`・`panes.ts`・`node harness/scripts/agent.ts usage`・Orca の読むコマンド）、指揮（Orca の orchestration）、GitHub への記録（コメント・着手宣言）と、人が承認した案だけの Epic の Issue の作成と sub-issues への付け足し（手順8の止まったタスクの見回し）だけ。一時ファイルは scratchpad にだけ書く。唯一の書き込みは、手順5の印のファイル。fleet も書き換えない（fleet の skill の「Orca の worker として動くとき」の4）。コードや docs を書き換えるのは、Issue の worktree の中の ship だけ。
 3. **テーマの案 → 人の承認**：テーマは Epic（fleet のワークスペースは Epic ごとに1つ）。開いた Epic と子課題を `node harness/scripts/agent.ts fleet-status <子課題の番号>...` で読み、依存の鎖・`area:*`・計画の `files` の重なりから、「どの Epic を進めるか／Epic に入っていない Issue をどう Epic にまとめるか」の案を作る。テーマどうしで `files` が重なる組は、同時に起こさない案にする。案は AskUserQuestion で人に聞き、承認をもらう（おすすめを先頭、1回に4問まで。聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。Epic にまとめるために Issue を新しく作るかは人が決める。人が承認しなかったテーマは起こさない。
 4. **fleet の起動**：`ORCA status --json` で Orca を確かめ、`ORCA orchestration run-create --objective "<承認されたテーマ>" --json` で Run を1つ作る（hq の Run。Run ID を控えの `hq-fleets.json` にも書く）。テーマごとに次で fleet を起こす。
    ```text
@@ -43,6 +43,27 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - hq がまだ答えていない `question` のある Issue の行は、人の答え待ちなので `stuck` から外して数える。
    - 起こし直さず、`ORCA orchestration send --to dispatch:<Dispatch ID> --subject "状況の確認" --body "<何が古い・長いか>。今の状況を hq に返してください" --json` で状況を聞く（Orca の `ask` は worker から coordinator への問いなので、hq から聞くのは `send`。fleet は段階の切れ目の `check` で読む）。同じ fleet に同じ理由で聞くのは、状況が変わるまで1回。
    - 次の待ち（15分）の間にその fleet から何も届かなければ、人に知らせる（テーマ・何が古い／長いか・経った時間）。窓口は hq。
+   - **止まったタスクの見回し**（同じ回に、fleet の外で止まっているものを見つけて割り振る。#407）：
+     - 読むもの（GitHub の API を使いすぎないため、この3つだけ。Issue・PR を1件ずつ `gh` で読みに行かない）：
+       - ダッシュボードの節：ダッシュボード Issue（`harness.config.json` の `dashboardIssueTitle`）の本文を1回読む。使うのは「人の対応待ち」の「引き継ぐか決める」（#371）・「停滞している Agent PR」・「停滞している Issue」と、止まった着手宣言の節（#391。まだ無ければ読まない）。
+       - patrol の結果（#370）：`node harness/scripts/agent.ts arch-review-pending` と `node harness/scripts/qa-retro-loop.ts pending` の未採用の下書きの数。hq は割り振らず、数を手順12の一覧に出すだけ（Issue にするかは今までどおり人が「〜の下書きを選ぶ」で決める）。
+       - `fleet-status` の結果：番号を渡さない `node harness/scripts/agent.ts fleet-status --json` と、控えの各 fleet の Issue 番号の集合。番号なしの対象は `fleetTargets`（`agent:ready`・`agent:plan-ok`・`agent:plan-review` と、`agent:*` の無い開いた Issue）だけで、`agent:blocked`・`agent:hold`・`agent:waiting` などの Issue は入らない（下の「どの fleet にも入っていない開いた Issue」はこの範囲。止まった宣言・担当のいない PR はダッシュボードの節で拾う）。
+       - 上の3つの外の読み取りは、開いた Epic の子の一覧（App の記録 `kind=epic-split` と GitHub の sub-issues）だけ。「Epic に入っていない単発の Issue」を見つけるのに要る。`fleet-status` の行に「どの fleet にも入っていない」候補があるときだけ、開いた Epic ごとに1回読み、控えに残して、次の回は Epic の数か更新が変わったときだけ読み直す。
+     - 見つけるもの4つ：
+       - **担当のいない PR**：着手宣言が無い・解除された・古い開いた Agent PR（ダッシュボードの「引き継ぐか決める」「停滞している Agent PR」と、`fleet-status` の行の PR の着手宣言）
+       - **止まった宣言**：ダッシュボードの止まった宣言の節（#391）と、`fleet-status` のメモの着手宣言のうち、控えのどの fleet のセッションでもないもの
+       - **どの fleet にも入っていない開いた Issue**：`fleet-status --json` の行のうち、控えのどの fleet の Issue 番号の集合にも無いもの
+       - **Epic に入っていない単発の Issue**：開いた Epic の子（`kind=epic-split` と sub-issues）に無いもの。fleet で進んでいても sub-issues に無いもの（#373 の例）も含む
+     - 前の回と同じものは数え直すだけにし、人に同じことを繰り返し聞かない（控えに聞いたものを残す）。
+     - 割り振り（hq が決めて、手順12の一覧でまとめて知らせる）：
+       - 今の fleet の Epic に入るもの（その Epic の子課題）：その fleet に `ORCA orchestration send --to dispatch:<Dispatch ID> --subject "Issue の追加" --body "fleet-status に渡す集合に #<番号> を足してください" --json` で渡し、控えの Issue 番号の集合にも足す（fleet は fleet の skill の「hq からの追加の指示」で読む）。
+       - 入らないもの：`hq.maxFleets` に空きがあれば、新しい fleet（テーマ）の案にする。起こすのは今までどおり手順3の人の承認の後。空きが無ければ、手順12の一覧に「空き待ち」として出す。
+       - 止まった宣言・担当のいない PR：引き継ぐかは人が決める。hq は自分で引き継がず、見つけたものを1回にまとめて AskUserQuestion で聞く（引き継ぐなら、手順10と同じく受け持つ fleet の指示に `--takeover` での出し直しを書く）。
+     - Epic の案（hq は案まで、決めるのは人）：
+       - 「単発の #… を Epic #… に」「この3件で新しい Epic を」の案を作り、引き継ぎの問いと一緒に AskUserQuestion で1回に聞く（おすすめを先頭、1回に4問まで、残りは次の回か手順12の一覧に。手順3の「Epic にまとめるために Issue を新しく作るかは人が決める」と同じ）。
+       - 承認されたら、新しい Epic の Issue は intel（#396）がいれば intel に作らせ、いなければ hq が `gh issue create` で作る（作るだけ。計画・fleet の起動は手順3・4の承認のとおり）。
+       - 子課題としての付け足し（GitHub の sub-issues）は、人が承認した案だけ hq が足す（人の決定：「承認した案だけ hq が足す」）。承認されていない Issue は足さない。
+       - 承認されなかった案は、次の回に同じ案を繰り返さない。
 9. **fleet が終わっても Epic は終わりではない**：`worker_done` は、控えの Dispatch と同じかを確かめてから受け取り、`--report-path` のファイルを読む。fleet が人の Merge 待ちで返っても、終わったとみなさない。Epic が開いていれば（人の Merge 待ち・人の判断待ちが残る）、ワークスペースを残す。worker は `ORCA orchestration worker-release --dispatch <Dispatch ID> --json` で解放し、控えから外す。Merge などで進められる子課題が出たら（`fleet-status` に「選ぶ」がある）、同じワークスペース（`--worktree path:<ワークスペースの絶対パス>`）に新しい fleet を起こす。新しい fleet はセッション ID が変わるので、手順10の引き継ぎの問いと同じく聞く。
 10. **止まった fleet の起こし直し**：
     - 起こし直すのは、`ORCA orchestration worker-list --include-remote --run <hq の Run ID> --json` の `projection.liveness` が `exited` のときだけ。`unverifiable`（absence を含む）は止まった証拠にしない（待ち続けるか、読んで確かめる）。
@@ -51,7 +72,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
     - 引き継ぐなら、新しい fleet の指示に「人の決定：前の宣言を引き継ぐ」と、Issue の段階は `node harness/scripts/agent.ts claim <番号> --manual --stage <段階> --takeover`、PR の段階は `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge|fix|sync --takeover` で出し直すことを書く。fleet が `ask` で引き継ぎを聞いてきたら、人の同じ答えを `reply` で返し、人に聞き直さない。引き継がないなら、その Issue を指示から外し、手順12の一覧に書く。
     - 止め方と新しい Dispatch（`worker-stop`・`worker-abandon`、`worker-start --task <task_id> --retry-of <dispatch_id>`、同じワークスペース）は `references/recovery-and-cleanup.md` に従う。起こし直したら控えとペインを直す。
 11. **片付け**：Epic が Close した（`gh issue view <Epic番号> --json state` が `CLOSED`）テーマだけを片付ける。fleet の worker を `worker-release` で解放し、控えから外してペインを作り直し、`ORCA worktree rm --worktree path:<ワークスペースの絶対パス> --json` でワークスペースを消す。人の判断待ちだけが残るとき（Epic が開いている）は残す。
-12. **人がすることの一覧**：各 fleet の `worker_done` のレポートと `panes.ts hq` の一覧を1つにまとめて人に出す（Merge・例外ラベル・`setup.ts` の要否・Merge 後の確かめ・人の判断待ち・進んでいない fleet・起こし直しの上限を超えた fleet・引き継がなかった宣言）。費用は手順8の `panes.ts fleets --session` の各行の `totalUsd` と、hq 自身の `node harness/scripts/agent.ts usage` をまとめる。
+12. **人がすることの一覧**：各 fleet の `worker_done` のレポートと `panes.ts hq` の一覧を1つにまとめて人に出す（Merge・例外ラベル・`setup.ts` の要否・Merge 後の確かめ・人の判断待ち・進んでいない fleet・起こし直しの上限を超えた fleet・引き継がなかった宣言）。手順8の止まったタスクの見回しからは、割り振ったもの（どの fleet に渡したか）・案として聞いたもの（Epic の案・引き継ぎの問い）・人が決めなかったもの（答え無し・拒まれた・空き待ち）と、patrol の未採用の下書きの数を足す。費用は手順8の `panes.ts fleets --session` の各行の `totalUsd` と、hq 自身の `node harness/scripts/agent.ts usage` をまとめる。
 
 ## 終わりの状態
 
