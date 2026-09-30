@@ -292,6 +292,26 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 
 PR に残る実行メトリクスのトークン数と推定料金（`harness.config.json` の `pricing` で計算）はセッションの累計による目安で、実際の請求額ではない。手元では `node harness/scripts/agent.ts usage` で確認できる。
 
+## 保守の観測
+
+PR ごとの判定は1つの diff しか見ないので、リポジトリ全体に積み重なるずれは、人が指示したときに `node harness/scripts/observe.ts` で1回分だけ観測する。LLM を呼ばない決まる集計で、判断（直すか・Issue にするか）は人が行う。
+
+```
+node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run-tests] [--previous <前回の JSON>] [--offline]
+```
+
+| 節 | 出るもの（根拠） |
+| --- | --- |
+| docs の照合 | docs（`docs/upstream/` を除く）・skill・agent の定義・`.claude/routine.md`・CLAUDE.md・`harness/CLAUDE.harness.md`・README に書かれた、実在しない `agent.ts` のサブコマンド・リポジトリ内のパス・ラベル名・設定キー（「`harness.config.json` の `キー`」の形で書いたもの）と、リンク切れ・無い見出しへのリンク（ファイルと行、名前）。コードブロックの中、`<…>` を含む例、導入先のパス（リポジトリの最上位に無い名前で始まるもの）は見ない |
+| ホットスポット | 直近 `--days` 日（既定 30）の変更回数 × 今の行数の大きい順（変更回数、追加・削除行数、行数）。消えたファイルと `classification.sizeExclude` に当たるものは除く |
+| 遅いテスト | テストごと・ファイルごとの時間の上位。`--junit` に Node の junit の出力を渡すか、`--run-tests` でこのリポジトリのテストを動かす（導入先には `harness/test` が無いので `--junit` を渡す）。どちらも無ければ読めない旨を出す |
+| 不安定なテスト | 同じ head で失敗の後に成功した CI の実行のテスト名ごとの回数と、失敗した実行の URL（qa-retro と同じ集め方） |
+| 生き残ったミュータント | ci ワークフローの mutation ジョブのログの `survived` の行（ファイル・行・壊し方・PR・実行の URL）。同じ箇所は新しい実行だけ残し、今は無いファイルは除く。行番号はその PR のもので、今の main とずれることがある。ログが読めなかった実行は数と理由を出す |
+
+- 標準出力に人が読む要約を出し、最後の行に JSON のパスを出す。JSON は OS の一時ディレクトリに書く。リポジトリにも GitHub にも書かない（GitHub は gh の認証で読むだけ）。
+- 各節は `--top`（既定 20）件までで、切った数を出す。GitHub が読めない（`--offline`、認証が無い）ときは、不安定なテストと生き残ったミュータントの節を読めない旨にして、ほかの節は出す。
+- `--previous` に前回の JSON を渡すと、節ごとに「新しく出たもの」「消えたもの」（上位の中での比較）を足す。次の段階で `/loop` から呼ぶときの材料にする（前回の JSON をどこに置くかは呼び出す側が決める）。集計のロジックは `harness/lib/observe.ts`・`observe-docs.ts`・`hotspot.ts`・`test-health.ts`。
+
 ## よくある質問
 
 ### Q. 急ぎの Issue を先に進めたいときはどうするか

@@ -285,8 +285,9 @@ export function summarizeQaRetro(prs: QaRetroPr[]): QaRetroByRisk {
 
 type ClosedPr = PullRequest & { author_association?: string };
 type MergedBy = { merged_by: { login: string } | null };
-interface Run { id: number; name: string; workflow_id: number; head_sha: string; run_attempt: number; status: string; conclusion: string | null; html_url: string; created_at: string }
-interface Job { id: number; name: string; conclusion: string | null }
+/** Actions の実行（観測の harness/lib/test-health.ts も使う。event・pull_requests は一覧の応答にあるときだけ） */
+export interface Run { id: number; name: string; workflow_id: number; head_sha: string; run_attempt: number; status: string; conclusion: string | null; html_url: string; created_at: string; event?: string; pull_requests?: { number: number }[] }
+export interface Job { id: number; name: string; conclusion: string | null }
 
 const isoSeconds = (d: Date): string => d.toISOString().replace(/\.\d{3}Z$/, 'Z');
 const within = (t: string | null | undefined, from: number, to: number): boolean => {
@@ -417,7 +418,7 @@ export async function collectQaRetro(gh: GitHub, config: HarnessConfig, period: 
  * 期間内の実行をワークフローごとに読む（リポジトリ全体の一覧は絞り込みで 1000 件までしか返らず、
  * 実行の多いワークフロー（gate など）に CI の実行が埋もれるため）。打ち切ったワークフローは truncated に書く
  */
-async function workflowRuns(gh: GitHub, period: { since: Date; until: Date }): Promise<{ runs: Run[]; truncated: string[] }> {
+export async function workflowRuns(gh: GitHub, period: { since: Date; until: Date }): Promise<{ runs: Run[]; truncated: string[] }> {
   const runs: Run[] = [];
   const truncated: string[] = [];
   const workflows = (await gh.get<{ workflows?: { id: number; name: string }[] }>('/actions/workflows?per_page=100'))?.workflows ?? [];
@@ -440,15 +441,23 @@ async function workflowRuns(gh: GitHub, period: { since: Date; until: Date }): P
   return { runs, truncated };
 }
 
-async function jobsOf(gh: GitHub, path: string): Promise<Job[]> {
+export async function jobsOf(gh: GitHub, path: string): Promise<Job[]> {
   const res = await gh.get<{ jobs?: Job[] }>(path);
   return res?.jobs ?? [];
 }
 
-/** 同じ head で失敗の後に成功した CI の実行（再試行・別の実行）。対象のジョブは projectChecks の context と名前が一致するもの */
-async function collectFlakyCi(gh: GitHub, config: HarnessConfig, period: { since: Date; until: Date }): Promise<{ flaky: FlakyCiRun[]; unreadableLogs: number; runsTruncated: string[] }> {
+/**
+ * 同じ head で失敗の後に成功した CI の実行（再試行・別の実行）。対象のジョブは projectChecks の context と名前が一致するもの。
+ * listed に workflowRuns の結果を渡すと、実行の一覧を取り直さない（観測の harness/lib/test-health.ts が一覧を1回だけ取るため）。渡さなければ自分で取る
+ */
+export async function collectFlakyCi(
+  gh: GitHub,
+  config: HarnessConfig,
+  period: { since: Date; until: Date },
+  listed?: { runs: Run[]; truncated: string[] },
+): Promise<{ flaky: FlakyCiRun[]; unreadableLogs: number; runsTruncated: string[] }> {
   const contexts = new Set(projectChecks(config).map((c) => c.context));
-  const { runs, truncated } = await workflowRuns(gh, period);
+  const { runs, truncated } = listed ?? (await workflowRuns(gh, period));
   const flaky: FlakyCiRun[] = [];
   let unreadableLogs = 0;
 
