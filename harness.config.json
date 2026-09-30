@@ -69,7 +69,7 @@
   },
   "staleHours": 24,
   "dashboardIssueTitle": "Agent ダッシュボード",
-  "reviewPanel": { "mode": "shadow" },
+  "reviewPanel": { "mode": "enforce" },
   "fleet": {
     "nesting": "orca",
     "maxParallelShips": 3,
