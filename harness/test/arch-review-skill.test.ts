@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { NO_OVERWRITE_RULE, WRITE_RULES } from './support/output-file-rules.ts';
 import { documentedAgentCommands } from './support/agent-source.ts';
+import { namesInTable, uncoveredTests } from '../scripts/readme.ts';
 
 // Issue #184：arch-review の skill と arch-reviewer の定義、一覧への掲載
 
@@ -214,7 +215,8 @@ test('.claude/skills/README.md と .claude/agents/README.md の表に載って�
   assert.ok(read('.claude/agents/README.md').split('\n').some((l) => l.startsWith('| `arch-reviewer.md` |')), '.claude/agents/README.md に arch-reviewer.md の行がありません');
 });
 
-test('harness/test/README.md に arch-review のテストが載っている', () => {
-  const text = read('harness/test/README.md');
-  assert.ok(text.includes('arch-review-skill.test.ts'), 'arch-review-skill.test.ts がありません');
+// #389：harness/test/README.md はファイル名を並べずパターンで書くので、パターンに当たるかで確かめる
+test('harness/test/README.md の表のパターンに arch-review のテストが当たる', () => {
+  const patterns = namesInTable(read('harness/test/README.md'));
+  assert.deepEqual(uncoveredTests(patterns, ['arch-review-skill.test.ts', 'arch-review.test.ts']), []);
 });
