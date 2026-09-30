@@ -61,6 +61,7 @@ Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.cla
 
 - hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。ファイルは書き換えず、唯一の書き込みは fleet のワークスペースの直下の印 `.agent-harness-workspace`（`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`harness/scripts/hq-state.ts` の控え）は作業ツリーの外で、書き換えに数えない。
 - テーマの案（どの Epic を進めるか／Issue をどう Epic にまとめるか）を人が承認してから、fleet を `orca orchestration worker-start --worktree new-top-level` で起こす。表示名は `fleet: #<Epic番号> <短い名前>`。同時に動く fleet は `hq.maxFleets` まで。
+- fleet のワークスペースのペインは、左に fleet の Claude（縦いっぱい）、右に上から あなたがすること（`panes.ts todo`）→ 進み具合（`panes.ts collect`）→ PR と費用（`panes.ts prs`）。終わるときは表示のペインだけを閉じ、fleet 自身の Claude の端末は閉じない（閉じる前に、閉じる handle が自分の端末の handle でないことを確かめる）。手順は fleet の SKILL.md の「Orca の worker として動くとき」の3・7。
 - fleet の `ask` は hq がまとめて AskUserQuestion で人に聞き、`reply` の本文には人の答えだけを載せる。人が拒んだ・答えなかったら本文は `答え無し`。
 - 進んでいない fleet（ペインのスナップショットの `at` が `hq.staleSnapshotMinutes` より古い、AI の番の行が `hq.stuckMinutes` より長い）は起こし直さず、`orchestration send` で状況を聞き、答えが無ければ人に知らせる。hq がまだ答えていない質問のある Issue は、人の答え待ちなので数えない。判定は `node harness/scripts/panes.ts fleets --session <ID>...`。
 - 止まった fleet を起こし直すのは、`orca orchestration worker-list` で `exited` と確かめたときだけ（`unverifiable` は止まった証拠にしない）。同じ fleet は1時間に2回まで（Epic への hq の記録のコメントで数える）、超えたら人に知らせる。起こし直すときは、前の fleet の着手宣言を新しい fleet に引き継ぐかを1問で人に聞き、引き継ぐなら新しい fleet が `--takeover` で出し直す。
