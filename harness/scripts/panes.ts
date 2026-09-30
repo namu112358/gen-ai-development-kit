@@ -16,7 +16,7 @@
  * - fleets：渡した fleet のスナップショットを1回読み、進んでいないかの判定（harness/lib/hq-stall.ts の fleetStall。しきい値は
  *   hq.staleSnapshotMinutes・hq.stuckMinutes）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
  *   終わった fleet の古いスナップショットも一時ディレクトリに残るので、--session は必ず渡す（無ければ終了コード 1）。
- * - config：fleet.shipMode・hq・panes の設定を JSON で出す。fleet.shipMode が worker なら理由を標準エラーに出して終了コード 1。
+ * - config：fleet.shipMode・hq・panes の設定を JSON で出す。shipModeConfig が止める理由（stopReason）を返したときだけ、理由を標準エラーに出して終了コード 1（今は subagent・worker とも null）。
  * - スナップショットの既定の置き場所は OS の一時ディレクトリの agent-harness-panes/<セッション ID>.json。
  * 段階の読み替えと描き方は harness/lib/panes.ts。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */

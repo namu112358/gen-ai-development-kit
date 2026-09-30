@@ -86,6 +86,23 @@ test('hq の skill：「## 手順」の中の順番が テーマの案 < worker-
   }
 });
 
+// ---- Issue #197：hq の Run で数え、fleet の Run にいる ship の worker を混ぜない ----
+
+test('hq の skill：fleet を起こす worker-start（```text のブロック）に hq の Run の --run がある', () => {
+  const blocks = [...skill().matchAll(/```text\r?\n([\s\S]*?)```/g)].flatMap((m) => m[1]!.split(/\r?\n/)).map((l) => l.trim());
+  const starts = blocks.filter((l) => l.includes('orchestration worker-start'));
+  assert.ok(starts.length > 0, '```text のブロックに worker-start のコマンドがありません');
+  const noRun = starts.filter((l) => !l.includes('--run '));
+  assert.deepEqual(noRun, [], `--run の無い worker-start があります：${noRun.join('、')}`);
+});
+
+test('hq の skill：worker-list を含むコードの全部に --run がある', () => {
+  const spans = [...skill().matchAll(/`([^`\n]+)`/g)].map((m) => m[1]!).filter((s) => /\bworker-list\b/.test(s) && s.includes(' '));
+  assert.ok(spans.length > 0, 'worker-list のコマンドがありません');
+  const noRun = spans.filter((s) => !s.includes('--run '));
+  assert.deepEqual(noRun, [], `--run の無い worker-list があります：${noRun.join('、')}`);
+});
+
 // ---- AC2：同時に動く fleet の上限と、起こし直しの条件 ----
 
 test('hq の skill：同時に動く fleet を hq.maxFleets までにする', () => {
