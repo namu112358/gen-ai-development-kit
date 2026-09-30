@@ -51,6 +51,30 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <ブランチ>` が作る worktree の置き場所は、既定では本体の隣の `../<リポジトリ名>.worktrees/<ブランチ名を安全にした名前>`。全員で変えるなら `harness.config.json` の `worktreeRoot`、そのパソコンだけ変えるなら環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（例：WSL の中の FS。環境変数が設定より優先）。書き方は、`~/` はホーム、相対パスは本体のルートから、`{repo}` はリポジトリ名に置き換える（複数のリポジトリで同じ場所を使うなら `{repo}` を入れる。入れないと、ダッシュボードがほかのリポジトリの worktree のセッションも拾いうる）。リポジトリの中になる値と、本体を含む祖先（`..` など）は拒む（`worktree`・`worktree-remove`・合体版のレビューの⑧・ダッシュボードが同じ関数（`harness/lib/worktree.ts` の `worktreeRoot`）で決め、同じく止まる）。本体の `.git` は元の場所に残るので、速くなるのは作業ツリーの分だけ。置き場所を変える前に作った worktree は `worktree-remove` が見つけられないので、先に消しておくか `git worktree remove <パス>` で消す。Orca があっても worktree は `agent.ts worktree` で作り、Orca はその worktree での起動と監視に使う（規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md)）。Orca があれば `worktree` が Issue のブランチ（`claude/issue-<番号>-<短い名前>`）の worktree に表示名「#番号 短い名前」と Issue を付ける（親子は付けない。表示のためだけ）。Orca が無ければ何もせず、失敗したときは警告だけで続ける（Orca のアプリは起動しない）。
 
+### hq（テーマごとの fleet をまとめる）
+
+Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
+
+- hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。ファイルは書き換えず、唯一の書き込みは fleet のワークスペースの直下の印 `.agent-harness-workspace`（`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。
+- テーマの案（どの Epic を進めるか／Issue をどう Epic にまとめるか）を人が承認してから、fleet を `orca orchestration worker-start --worktree new-top-level` で起こす。表示名は `fleet: #<Epic番号> <短い名前>`。同時に動く fleet は `hq.maxFleets` まで。
+- fleet の `ask` は hq がまとめて AskUserQuestion で人に聞き、`reply` の本文には人の答えだけを載せる。人が拒んだ・答えなかったら本文は `答え無し`。
+- 進んでいない fleet（ペインのスナップショットの `at` が `hq.staleSnapshotMinutes` より古い、AI の番の行が `hq.stuckMinutes` より長い）は起こし直さず、`orchestration send` で状況を聞き、答えが無ければ人に知らせる。hq がまだ答えていない質問のある Issue は、人の答え待ちなので数えない。判定は `node harness/scripts/panes.ts fleets --session <ID>...`。
+- 止まった fleet を起こし直すのは、`orca orchestration worker-list` で `exited` と確かめたときだけ（`unverifiable` は止まった証拠にしない）。同じ fleet は1時間に2回まで（Epic への hq の記録のコメントで数える）、超えたら人に知らせる。起こし直すときは、前の fleet の着手宣言を新しい fleet に引き継ぐかを1問で人に聞き、引き継ぐなら新しい fleet が `--takeover` で出し直す。
+- fleet が人の Merge 待ちで終わっても、Epic が開いていればワークスペースを残す。片付け（worker の解放とワークスペースの削除）は Epic が Close したとき。
+- Orca が無い環境では hq を使わず、今までどおり fleet・ship を使う。
+
+fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
+
+| キー | 既定 | 内容 |
+| --- | --- | --- |
+| `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker`（ship を Orca の worker として動かす）はまだ無いので、fleet が理由を示して止まる |
+| `hq.maxFleets` | 2 | 同時に動かす fleet の数の上限（正の整数）。hq のペインは超えると警告する |
+| `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
+| `hq.stuckMinutes` | 120 | AI の番の行がこれ以上同じ状態なら、進んでいないとみなす（正の整数、分） |
+| `panes.collectIntervalSeconds` | 180 | fleet の進み具合のペイン（`panes.ts collect`）が GitHub と記録を読む間隔（60 以上の整数、秒） |
+
+`hq.staleSnapshotMinutes`・`hq.stuckMinutes` は既定値で動くので、`harness.config.json` と雛形には書いていない。変えるときは `"hq": { "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }` のように書き足す。
+
 Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときだけ動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。
 
 いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../harness/scripts/dashboard/README.md)）で見られる。`node harness/scripts/dashboard.ts` を実行して表示された URL を開くと、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。読み取りだけで、GitHub には書かない。

@@ -8,6 +8,7 @@
 | `arch-review/` | 人が付き添うセッションで、Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれ（重複・置き場所・docs との食い違い・コードの書き方）を見つけて、直す Issue の下書きを人に示す。 |  |
 | `fix/` | 人が付き添うセッションで、Agent PR のブロッキング指摘（App の変更要求レビュー）や人のレビューを直して push し、判定をやり直す。 | ○ |
 | `fleet/` | 人が付き添うセッションで、複数の Issue を選び、ship を Issue ごとにサブエージェントで並行に動かして（入れ子にできなければ ship の各段階を交互に進めて）、全部を人の Merge 待ちか人の判断待ちまで進める。 |  |
+| `hq/` | 人が付き添う Orca のプライマリ（main の checkout）のセッションで、テーマ（Epic）の案を人に承認してもらってから fleet を Orca の worker として起こし、fleet の質問をまとめて人に聞いて返し、進んでいない・止まった fleet を扱い、Epic が Close したらワークスペースを片付ける。 |  |
 | `implement/` | 人が付き添うセッションで、計画ゲートを通った（または agent:plan-review で人が進めると決めた）Issue を実装し、Draft PR を出す。 |  |
 | `judge/` | 人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。 | ○ |
 | `orca-cli/` | Operate Orca-managed worktrees, folder contexts, terminals, repos, automations, artifacts, skill sharing, worktree comments, and Orca's embedded browser through the `orca` CLI. Use when the user says "$orca-cli", "Orca worktree", "child worktree", "spawn codex/claude in a worktree", "read/wait/send Orca terminal", "handoff" / "handover" / "give this to another agent", "Orca browser", "orca artifacts", or "share skills". Prefer it over raw git worktree, ad hoc PTYs, or Computer Use when Orca state is involved. Use Computer Use only when a visible window needs GUI control that a CLI, filesystem, or API cannot do. |  |
