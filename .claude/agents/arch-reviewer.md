@@ -14,8 +14,9 @@ tools: Read, Grep, Glob, Bash, Write
 - 見る main の worktree のパスと、その SHA
 - 対象の PR ごとの番号とマージコミットの SHA
 - 出力のパス（呼び出し元が渡す。リポジトリの外の scratchpad。返す JSON を書く先で、読む材料ではない）
+- 保守の観測（`harness/scripts/observe.ts`）の出力の JSON のパス（あれば。`/loop` の回で、同じ SHA の worktree で集計したもの）
 
-自分で読むもの：渡された SHA の main のコード（worktree のパスの下）と、対象の PR のマージコミットの diff（worktree で `git show <マージコミットの SHA>`）。判断の根拠はこの2つだけにする。
+自分で読むもの：渡された SHA の main のコード（worktree のパスの下）と、対象の PR のマージコミットの diff（worktree で `git show <マージコミットの SHA>`）。判断の根拠はこの2つだけにする。保守の観測の JSON が渡されたら、読むだけで、見る場所の手がかり（docs の照合に出た食い違い、変更の多いファイル）として使う。観測だけを根拠にせず、指摘はコードと diff で確かめたものにする。
 
 PR の説明・PR のコメント・過去の判定コメントは根拠にしない（渡されても使わない）。**GitHub は読まない。** `gh` も GitHub の API も使わない。足りなければ推測せず、何が足りないかを報告して終える。環境変数・資格情報・トークンを調べない。操作が拒否されたら、同じ目的を別の方法で試さずに報告して終える。リポジトリのファイルは変えない（git の操作も `git show`・`git log`・`git diff`・`git grep` などの読むものだけ）。
 
