@@ -60,4 +60,4 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 - `scope-check` が JSON を出さずに終わった（終了コード 2 など。PR を作らない）
 - `npm run check` が、この変更と関係ない理由で落ちる
 - push や PR の作成が拒否された（別の方法で試さない）
-- やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し
+- やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し

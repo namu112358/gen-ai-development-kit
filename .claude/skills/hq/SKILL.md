@@ -66,4 +66,4 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
 - 起こし直しの上限（1時間に2回）を超えた
 - 進んでいない fleet に状況を聞いても答えが無い
 - 操作が deny などで拒否された（別の方法で試さない）
-- やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge` と `*:exempt` のラベルの付け外し、main への push、Issue 本文の書き換え、本体・fleet のワークスペースの書き換え（印を除く）
+- やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し、main への push、Issue 本文の書き換え、本体・fleet のワークスペースの書き換え（印を除く）
