@@ -18,6 +18,7 @@
 | `epic.ts` | Epic：計画の `split` で大きな課題を子課題に分ける。 | ○ |
 | `exempt.ts` | 人が付ける例外ラベル（review:exempt・test:exempt）は、付けた時点の PR の差分にだけ効く。 | ○ |
 | `facts.ts` | queue の材料（事実）を GitHub から集める。 | ○ |
+| `fleet-reads.ts` | fleet-status と step の事実集め（Issue ごとの Closes する PR・Issue と PR の事実・main との差・human-review・計画の files）。 | ○ |
 | `fleet.ts` | fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。 | ○ |
 | `flow.ts` | 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。 | ○ |
 | `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |
