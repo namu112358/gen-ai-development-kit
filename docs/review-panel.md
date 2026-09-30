@@ -41,8 +41,8 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 | `reviewPanel.mode` | 動き |
 | --- | --- |
 | `off`（キーが無いときも） | 今までどおり。合体版は動かさない |
-| `shadow`（このリポジトリ） | 判定は今の reviewer のまま。合体版を並行に動かし、結果を判定コメントとは別の記録のコメントに残す。合体版が失敗しても判定は止めない |
-| `enforce` | reviewer を呼ばず、合体版の組み立ての出力で判定する。合体版が失敗したら判定せず人に返す。対象外（closed、同じ head）なら判定しない |
+| `shadow` | 判定は今の reviewer のまま。合体版を並行に動かし、結果を判定コメントとは別の記録のコメントに残す。合体版が失敗しても判定は止めない |
+| `enforce`（このリポジトリ。2026-09-30 から、#319） | reviewer を呼ばず、合体版の組み立ての出力で判定する。合体版が失敗したら判定せず人に返す。対象外（closed、同じ head）なら判定しない |
 
 `reviewPanel.mode` を見るのは付き添いのセッションの judge の skill だけ。Routine（[.claude/routine.md](../.claude/routine.md)）は対象外で、今の reviewer で判定する。
 
@@ -68,7 +68,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 ④の材料は judge-input の「=== 過去の PR のコメント」の節（変更ファイルを触った Merge 済みの過去の PR の、コラボレーターのコメント。App・Claude の目印のものを除く）。このリポジトリのコメントの大半は App か Claude の目印付きなので、今は「(コラボレーターのコメントなし)」の PR が多く、④の材料は少ない。
 
 - Claude の目印付きのコメントは、計画・判定・着手宣言がほとんどで、過去の PR の AC に対する今の reviewer の指摘の写しになる。④に入れると「前の reviewer の指摘の再掲」になり、合体版と今の reviewer の比較が独立でなくなるので、入れない。
-- 選別を変えると、同じ judge-input を読む今の reviewer の入力も変わり、記録だけの期間の途中で比べる条件が動くので、この期間は変えない。
+- 選別を変えると、同じ judge-input を読む今の reviewer の入力も変わり、記録だけの期間の途中で比べる条件が動くので、shadow の期間は変えなかった。このリポジトリは `enforce` に切り替えた（#319）ので、④の選別は別の Issue で変えてよい。
 - 記録の `material` に、節の過去の PR の数（`pastPrs`）とコメントの無い PR の数（`pastPrsWithoutComments`）を残す。20 件の比較のときに④が効いたかを人が見て、④を広げる（Claude の目印付きのレビューコメントを含める）か外すかを、切り替えの判断の Issue で決める。
 
 ## 記録の書式
@@ -111,3 +111,5 @@ shadow の期間の「前回の判定」と⑥⑦の `unfixedPrevious` は、今
 2. 集計の組が 20 件に達したら、人が集計（`node harness/scripts/report.ts <owner>/<repo> [日数]`）を回し、「合体版のレビュー（記録だけの期間の比較）」の節で基準（[plan.md](plan.md) の決定ログの Q91）を見る。
 3. 合体版だけが出した指摘と、誤検知の疑い（今の reviewer が出さず、合体版がブロッキングにしたもの）の全件を、人が diff と照らして確かめる。④の材料の量（`material`）も見る。
 4. 切り替えてよいと決めたら、人が `reviewPanel.mode` を `enforce` にする Issue を立てる（`agent:ready` は人が決めてから付ける）。変更は `harness.config.json` の1行。
+
+このリポジトリは 2026-09-30 に `enforce` に切り替えた（#319。決定ログの Q102）。集計の基準は「満たす」だったが、しきい値 80 では合体版が一度もブロックしていなかったので、先に #317（PR #321、しきい値 75）・#318（PR #334、今の reviewer との差を埋める）・#325（PR #335、⑨ 過剰さの提案）を入れた。料金の基準 (5)（今の reviewer の3倍以下）は約 3.1 倍の見込みで超えるが、人の決定で受け入れた。
