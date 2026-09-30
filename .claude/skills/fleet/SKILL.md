@@ -153,7 +153,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - セッション ID は fleet 自身のもの（`AGENT_HARNESS_SESSION`）。表示用のペインは Claude のセッションではないので、渡さないと fleet の宣言が「ほかのセッション」と表示される。テーマは hq の指示の名前（`fleet: #<Epic番号> <短い名前>` の名前）。名前は表示のためだけで、宣言・usage・`fleet-status` はセッション ID で見分ける。Issue 番号は `fleet-status` に渡す番号の集合と同じにする。
    - 作ったペインの handle を、どれがどのペインか（あなたがすること・進み具合・PR と費用）と一緒に控える（片付けで使う）。fleet 自身の Claude の端末の handle も「閉じないもの」として控える。比べる自分の handle は `ORCA terminal list --worktree current --json` から控えた自分のターミナルの handle にする（前置きの worker の handle は、`terminal list` の handle と同じ種類と確かめられたときだけ使う。種類が違うと比べても一致しないため）。
    - 対象の Issue が変わったら、進み具合のペインを閉じ（閉じる前の確かめは手順7と同じ）、あなたがすること のペインを `--direction horizontal` で分けて作り直す（並びの順を保つ）。
-4. **fleet は指揮と読むことだけ**：fleet はリポジトリのファイル（ワークスペースの checkout と Issue の worktree）を書き換えない。コードや docs の書き換え・commit・push は、ship が Issue の worktree の中でだけ行う。fleet がするのは、`fleet-status`・`panes.ts`・`usage`・`gh` で読むこと、ship を呼ぶこと、着手宣言（`claim`・`release`）、hq とのやり取り、ship を worker で動かすとき（節「Orca の worker で ship を動かすとき」）の `node harness/scripts/agent.ts worktree`（リポジトリの外に Issue の worktree を作るだけ）と、ship の worker の `terminal create`・`terminal send`・`worker-start`・`worker-release`、hq がいない間の質問の控え（`node harness/scripts/hq-state.ts pending`・`pending-add`・`pending-answer`・`pending-remove`。git の共通ディレクトリの下に書くだけで、作業ツリーの外。下の 5 の「hq がいないとき」）だけ。一時ファイルは scratchpad にだけ書く。
+4. **fleet は指揮と読むことだけ**：fleet はリポジトリのファイル（ワークスペースの checkout と Issue の worktree）を書き換えない。コードや docs の書き換え・commit・push は、ship が Issue の worktree の中でだけ行う。fleet がするのは、`fleet-status`・`panes.ts`・`usage`・`gh` で読むこと、ship を呼ぶこと、着手宣言（`claim`・`release`）、hq とのやり取り、intel への送信（下の 9）、ship を worker で動かすとき（節「Orca の worker で ship を動かすとき」）の `node harness/scripts/agent.ts worktree`（リポジトリの外に Issue の worktree を作るだけ）と、ship の worker の `terminal create`・`terminal send`・`worker-start`・`worker-release`、hq がいない間の質問の控え（`node harness/scripts/hq-state.ts pending`・`pending-add`・`pending-answer`・`pending-remove`。git の共通ディレクトリの下に書くだけで、作業ツリーの外。下の 5 の「hq がいないとき」）だけ。一時ファイルは scratchpad にだけ書く。
 5. **人に聞く（ask）**：ship と fleet の手順が AskUserQuestion で聞くところでは、AskUserQuestion を使わず、前置きの `ask` のコマンドで hq に聞く。手順1の引き継ぎ、手順2と入れ子の方式の手順2の投稿の前の質問、`agent:plan-review` で進めてよいか、「進める／直す／やめる」、手順8の人の判断待ちなどがこれに当たる。前置きに無ければ、形は `ORCA orchestration ask --from <handle> --dispatch-capability <capability> --question "<質問>" --options "<おすすめ>,<ほかの選択肢>" --timeout-ms <ミリ秒>`。
    - 1回の `ask` に1問。質問には、Issue 番号・段階・なぜ人が要るかを1行で入れる。選択肢はおすすめを先頭に置く。聞き方の決まりは [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方と同じで、書式や既定の規則で決まることは聞かない。
    - 待つ間に時間切れや切断になっても、新しく聞き直さない。同じ質問の ID を `--resume <message_id>` に渡して待ち直す（同じ質問を二重にしない）。
@@ -185,6 +185,9 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - 相談：今の `ask`（この節の 5）のまま。人の判断が要るものは `status` で送らない。
    - 二重に送らない：送った件名と状態を scratchpad の `fleet-hq-sent.json` に控え、読み直しで同じ状態なら送らない（状態が変わったら送り直す）。
    - `status` は知らせるだけで、判断の正は GitHub（`fleet-status`）とラベル。
+9. **範囲の外の気づき**（#396）：ship・fleet が進める中で見つけた、今の Issue の範囲の外の気づき（仕組みの問題・改善案・Issue の種。今すぐの判断が要らないもの）は、hq を通さずに `SendMessage` の `to: intel` で intel（[intel](../intel/SKILL.md)。本体のタブで待つ）に送る。本文は出どころ（テーマ・Issue 番号）・要点・根拠。返事は待たない。
+   - 人の判断が要るもの（今の進め方を決めるもの）は、今までどおり 5 の `ask` で hq に上げる。
+   - intel がいない（`ListAgents` に無い・`SendMessage` が失敗した）ときは送らずに、手順8の一覧（`worker_done` のレポート）に「intel に回せなかった気づき」として書く。
 
 ## ハーネスが更新されたときの交代
 
