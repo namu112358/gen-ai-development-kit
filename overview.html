@@ -314,7 +314,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     <section class="dir">
       <h3><code>.claude/</code> Claude への指示</h3>
       <ul>
-        <li><code>skills/</code> 付き添いのセッションの手順（ship・plan・implement・judge・fix・sync・fleet・review-panel・arch-review・qa-retro）。fleet は入れ子にできる環境なら Issue ごとに ship をサブエージェントで並行に動かし、できなければ段階を交互に進める。hq に Orca の worker として起こされたときは、人に聞くことを hq に ask で上げ、答えで続ける</li>
+        <li><code>skills/</code> 付き添いのセッションの手順（ship・plan・implement・judge・fix・sync・fleet・review-panel・arch-review・qa-retro・test-prune）。fleet は入れ子にできる環境なら Issue ごとに ship をサブエージェントで並行に動かし、できなければ段階を交互に進める。hq に Orca の worker として起こされたときは、人に聞くことを hq に ask で上げ、答えで続ける</li>
         <li><code>agents/</code> サブエージェント（Reviewer・Risk Agent・plan-critic・test-designer・合体版のレビューの担当（review-*）・arch-review の担当（arch-reviewer））</li>
         <li><code>hooks/</code> 見張りの hook <span class="guard">ガードレール</span></li>
         <li><code>settings.json</code> させない操作の一覧 <span class="guard">ガードレール</span></li>
