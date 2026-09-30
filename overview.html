@@ -247,7 +247,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
           <li>App が人に Merge を依頼する</li>
           <li>人が PR を確かめて Merge する</li>
         </ul>
-        <p class="aside">当たるもの：ガードレールに触れる、計画の範囲の外を変えた、<code>humanMergePaths</code>（人が Merge するパス）に触れる、停止スイッチが入っている など</p>
+        <p class="aside">当たるもの：ガードレールに触れる、計画の範囲の外を変えた、<code>humanMergePaths</code>（人が Merge するパス）に触れる、Stacked PR の層（base が main 以外）、停止スイッチが入っている など</p>
       </section>
     </div>
     <figcaption>自動 Merge の条件：CI の成功、<code>agent/review</code> の合格、Risk が low で8問すべて安全側、範囲照合 OK、<code>agent:hold</code> が無い、停止スイッチが入っていない。まとめて必須チェック merge-route が確かめます。ダッシュボードの <code>agent:delegate-merge</code>（委任承認（計画＋Merge））と <code>agent:bypass-merge</code>（bypass モード）が付いている間は、Human Merge の理由の一部を飛ばして自動 Merge に回します（詳しくは <a href="docs/risk-policy.md">docs/risk-policy.md</a>）。</figcaption>
@@ -283,6 +283,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <li>判定の受け付け、Ready 化、auto-merge を付ける</li>
         <li>必須チェック（merge-route・<code>agent/tests</code>・<code>agent/plan-link</code> など）</li>
         <li>足りないラベルを付け、ダッシュボードに一覧を出す</li>
+        <li>Stacked PR の層の Issue を、Merge の後に閉じる</li>
       </ul>
       <p class="not">GitHub Actions の数秒のジョブで動く。Claude は動かさず、PR のコードも実行しない</p>
     </section>
@@ -314,7 +315,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     <section class="dir">
       <h3><code>.claude/</code> Claude への指示</h3>
       <ul>
-        <li><code>skills/</code> 付き添いのセッションの手順（ship・plan・implement・judge・fix・sync・fleet・review-panel・arch-review・qa-retro）。fleet は入れ子にできる環境なら Issue ごとに ship をサブエージェントで並行に動かし、できなければ段階を交互に進める</li>
+        <li><code>skills/</code> 付き添いのセッションの手順（ship・plan・implement・judge・fix・sync・fleet・review-panel・arch-review・qa-retro・gh-stack）。fleet は入れ子にできる環境なら Issue ごとに ship をサブエージェントで並行に動かし、できなければ段階を交互に進める</li>
         <li><code>agents/</code> サブエージェント（Reviewer・Risk Agent・plan-critic・test-designer・合体版のレビューの担当（review-*）・arch-review の担当（arch-reviewer））</li>
         <li><code>hooks/</code> 見張りの hook <span class="guard">ガードレール</span></li>
         <li><code>settings.json</code> させない操作の一覧 <span class="guard">ガードレール</span></li>

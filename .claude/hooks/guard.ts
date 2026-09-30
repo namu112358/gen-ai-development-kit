@@ -6,6 +6,10 @@
  * Bash のコマンドは字句に分けて展開し（`&&`・`;`・`|`・`bash -c`・`eval`・`$(...)` など）、MCP は GitHub のツールの入力を見る。
  * `gh api --input -` は本文を標準入力から読むので、ヒアドキュメント・ヒアストリングの中身（無ければコマンド全体）の保護ラベルの名前も見る。
  * permissions.deny のラベルの規則は `gh` のラベル操作の形だけに絞った二重の守りで、本当の守りはこの hook。
+ * `gh stack`（github/gh-stack。`gh extension exec stack`・`gh-stack` の直接の実行も）は許す操作だけを通す：
+ * view・移動（up・down・top・bottom・switch・trunk）・version・help と、引数がすべて PR 番号か PR の URL の link。
+ * それ以外（merge、force push を含みうる push・sync・rebase・submit・modify、別名を作る alias、unstack・checkout・init・add、
+ * ブランチ名やフラグを渡す link など）は止める。スタックの Merge の API（`gh api -X PUT …/pulls/<番号>/merge-async`）も止める。
  *
  * 入出力（https://code.claude.com/docs/en/hooks.md）：stdin の JSON（tool_name・tool_input・cwd）を読み、
  * 止めるときは hookSpecificOutput.permissionDecision = "deny" と理由を stdout に出して exit 0。
@@ -16,6 +20,7 @@
  *
  * 拾いきれない経路があるので、最後の砦は GitHub の Ruleset：
  * - スクリプトファイルの中身、シェルの関数・別名（alias）
+ * - `gh alias set` で作った gh の別名、`gh stack alias` で前に作った別名（`gs` など）
  * - 引数としてコマンドを実行するもの（xargs・find -exec・parallel・flock・chrt・taskset・watch など。
  *   sudo・doas・env・nice・timeout・stdbuf・setsid・ionice・command・nohup・time・exec は外して読む）
  * - ファイルやすでにある git の設定（remote.*.push・remote.*.mirror・push.default・branch.*.merge・git の alias・include）
@@ -839,6 +844,8 @@ function checkGhApi(args: Word[], ctx: GuardContext, stdin: StdinSource): string
     }
   }
   if (/(^|\/)pulls\/[^/\s]+\/merge(?![\w-])/i.test(all)) return role('PR の Merge（gh api …/pulls/<番号>/merge）');
+  // スタックの Merge（非同期の Merge API）。取った結果を読む GET …/merge-async/<uuid> は通す
+  if (m !== 'GET' && /(^|\/)pulls\/[^/\s]+\/merge-async(?![\w/-])/i.test(all)) return role(`スタックの Merge（gh api -X ${m} …/pulls/<番号>/merge-async）`);
   const mutation = all.match(/\b(mergePullRequest|enablePullRequestAutoMerge|enqueuePullRequest|mergeBranch)\b/i);
   if (mutation) return role(`GraphQL の ${mutation[1]}`);
   const mainToken = new RegExp(`(^|[^\\w./-])(refs/heads/)?${main.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w./-])`, 'i');
@@ -858,6 +865,30 @@ function checkGhApi(args: Word[], ctx: GuardContext, stdin: StdinSource): string
   return null;
 }
 
+/** gh stack で通すサブコマンド（link は引数を別に見る）。checkout は対話でリモートのスタックを unstack しうるので入れない */
+const STACK_ALLOWED = new Set(['view', 'up', 'down', 'top', 'bottom', 'switch', 'trunk', 'version', 'help', '--help', '-h', '--version']);
+const PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+\/?$/i;
+
+const stackReason = (what: string): string =>
+  `hook が止めました：${what}。付き添いのセッションで使える gh stack の操作は link（PR 番号・URL だけ）・view・移動だけです（gh-stack の skill）。` +
+  'Merge・force push・Draft の解除は CLAUDE.md の「やってはいけないこと」なので、別の方法で試さず人に返してください。';
+
+/** `gh stack …`・`gh extension exec stack …`・`gh-stack …` のサブコマンド以降（args）を判定する。許す一覧の外は止める */
+function checkStack(args: Word[]): string | null {
+  const sub = args[0];
+  if (!sub) return null; // 引数なしは使い方の表示
+  if (sub.dynamic) return unknown(`gh stack のサブコマンド（${sub.text}）`);
+  const s = sub.text;
+  if (STACK_ALLOWED.has(s)) return null;
+  if (s !== 'link') return stackReason(`gh stack ${s}`);
+  for (const a of args.slice(1)) {
+    if (a.dynamic) return unknown(`gh stack link の引数（${a.text}）`);
+    if (a.text.startsWith('-')) return stackReason(`フラグを付けた gh stack link（${a.text}。--open は Draft の解除、--base・--remote は送り先を変える）`);
+    if (!/^\d+$/.test(a.text) && !PR_URL.test(a.text)) return stackReason(`ブランチ名を渡す gh stack link（${a.text}。ブランチを push して PR を作る）`);
+  }
+  return null;
+}
+
 function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
   // グループ・サブコマンドの前のフラグ（gh -R o/r issue edit …・gh issue -R o/r edit … など）を読み飛ばす。-R・--repo は次の語が値
   const nextWord = (from: number): number => {
@@ -873,12 +904,20 @@ function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | 
   if (group.dynamic) return unknown(`gh のサブコマンド（${group.text}）`);
   // gh api はサブコマンドを持たない：フラグの値をサブコマンドとして読まない
   if (group.text === 'api') return checkGhApi(args.slice(gi + 1), ctx, stdin);
+  // gh stack はサブコマンドの前のフラグ（--help など）も判定に使う
+  if (group.text === 'stack') return checkStack(args.slice(gi + 1));
   const si = nextWord(gi + 1);
   const sub = args[si];
   if (sub?.dynamic) return unknown(`gh のサブコマンド（${group.text} ${sub.text}）`);
   const g = group.text;
   const s = sub?.text;
   const rest = args.slice(si + 1);
+  if ((g === 'extension' || g === 'extensions' || g === 'ext') && s === 'exec') {
+    const ext = rest[0];
+    if (ext?.dynamic) return unknown(`gh extension exec の拡張の名前（${ext.text}）`);
+    if (ext && (ext.text === 'stack' || ext.text === 'gh-stack')) return checkStack(rest.slice(1));
+    return null;
+  }
   if (g === 'pr' && s === 'merge') return role('PR の Merge（gh pr merge）');
   if (g === 'pr' && s === 'ready' && !args.some((a) => a.text === '--undo')) return role('Draft の解除（gh pr ready）');
   if ((g === 'issue' || g === 'pr') && (s === 'edit' || s === 'create')) {
@@ -950,6 +989,9 @@ function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: numb
   if (name === 'eval') return analyze(args.map((a) => a.text).join(' '), { ...here }, ctx, depth + 1);
   if (name === 'git') return checkGit(args, here, ctx, assigns);
   if (name === 'gh') return checkGh(args, ctx, { bodies: [...seg.heredocs, ...seg.herestrings], script });
+  // gh-stack の直接の実行（Windows の `\` 区切りのパスも）
+  const file = head.text.slice(Math.max(head.text.lastIndexOf('/'), head.text.lastIndexOf('\\')) + 1);
+  if (/^gh-stack(\.exe)?$/i.test(file)) return checkStack(args);
   return null;
 }
 

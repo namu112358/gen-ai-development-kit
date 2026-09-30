@@ -37,6 +37,7 @@
 5. `agent:hold` なし
 6. 自動 Merge モードが有効（ダッシュボードに `agent:auto-merge-stopped` がない）
 7. `jev.mode` が `enforce` のときは Jev も許可
+8. base が既定ブランチ（Stacked PR の層は Human Merge。GitHub の auto-merge も従来の Merge API も使えない。[operations.md](operations.md#stacked-pr)）
 
 merge-route（必須チェック）が 3〜7 をまとめて検査する。`agent/risk` は必須にせず、結果をサマリーに書く。PR の大きさに上限は置かない。
 

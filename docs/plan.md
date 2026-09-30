@@ -116,7 +116,7 @@ Issue Forms は `###` 見出しで出力される。フォームの定義とゲ�
     - medium 以上かつ Reviewer 合格 → Draft を外し、人にレビューを依頼（Human Merge）
     - Reviewer のブロッキング指摘 → Draft のまま、変更要求として投稿し修正へ
 11. **修正（Routine）**：変更要求（Reviewer または人）を受けて修正し push。push のたびに App が auto-merge を即解除し、差分が変わっていれば判定をやり直す。
-12. **Close**：Merge で `Closes` により子 Issue が閉じる。Sub-issues がすべて閉じた親 Issue は App が閉じる。
+12. **Close**：Merge で `Closes` により子 Issue が閉じる。Sub-issues がすべて閉じた親 Issue は App が閉じる。Stacked PR の層（本文は `Refs #N`、一番上は `Closes #N`）の Issue は、既定ブランチへの push を見て App が閉じる（`stack-link` の記録）。
 
 **merge-route**：App が書く必須チェック。auto-merge が付いていない PR には success を返し（人が Merge する経路は通す）、auto-merge が付いた PR には、判定が現在の差分に対して有効で、low かつ Reviewer 合格かつ範囲照合 OK かつ `agent:hold` なし、のときだけ success を返す。これで medium の PR に auto-merge が付いても Merge されず、`agent/risk` を Required にしなくても Human Merge は通る。
 
@@ -235,7 +235,7 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
 | 利用上限 | サブスクの利用上限や Routines の1日の実行上限に当たった実行は失敗し、次の定期実行で再試行される。途中で落ちた状態からは冪等性で続きから進める。失敗は修正回数に数えない |
 | 停滞検知 | 定期の Actions が、24 時間動きがない PR・Issue（Actions の失敗、期限切れの claim、main とのコンフリクトで CI が動かない PR など）を一覧化し、見える場所に出す |
 | Draft | Draft＝Agent が作業中。判定が確定した時点で App が Ready 化する |
-| Close | 子 Issue は `Closes` で Merge 時に自動 Close。Sub-issues がすべて閉じた親は App が Close |
+| Close | 子 Issue は `Closes` で Merge 時に自動 Close。Sub-issues がすべて閉じた親は App が Close。Stacked PR の層は、既定ブランチへの push を見て App が閉じる |
 
 **止める仕組み**
 
@@ -499,7 +499,7 @@ Actions の費用が問題にならなくなった場合の移行先として、
 | Q96 | Jev に渡す材料を英訳するか | 英訳しない（人の決定、2026-09-30）。`harness/scripts/jev-language.ts` で、Merge 済みの PR 30 件（diff の長さで短・中・長の3層に各10件、`skipped` なし）と Issue Form の Issue 24 件を、日本語版と英訳版（セッションが下書きし人が確かめた）で各2回、本番と同じ問いで Jev（jev-1.13.0）に投げた（216 回、見積もり約 168 万トークン・約 $0.07）。PR の正解（Risk の8問）は埋めない決定のため、Brier score・一致率は判断に使わず、対の差・回ごとのぶれ・input_tokens の比で見た。PR の問いは、対の差（日本語 − 英訳、2回の平均どうし）の平均が q2〜q8 で ±0.011 以内、|差|平均が 0.0015〜0.037 で、回ごとのぶれ（0.002〜0.042）と同程度。q1_risk（正解が無いので総変動距離）は 0.042 で、ぶれ（日本語 0.036・英訳 0.042）と同じ。確率最大の選択肢が入れ替わったのは medium と critical が拮抗した3件だけ。input_tokens の比（日本語 ÷ 英訳）は合計 1.120・項目ごとの中央値 1.144。言語による差がぶれと同程度で、トークンも1割ほどしか変わらず、英訳には #104 の守り（Jev に渡すのは App が API と設定から集めたものだけ）を保つ仕組みとゲートの変更が要るため、見合わないと判断した。注意として、Issue の問いには偏りが残る：priority の |差|平均 0.071（ぶれ約 0.018）、requirements_clear は英訳のほうが高い（平均 −0.035、英訳が上回り 18 件・日本語 6 件）、ac_verifiable は日本語のほうが高い（平均 +0.022、17 件・6 件）。ラベルの付く・付かないが変わったのは priority の2件。長さの3層では短い層ほど差が大きい（|差|平均の平均 0.044・0.031・0.024。短い層は Issue が多い）。Issue のラベルや計画ゲートの判断でこの偏りが問題になれば、別の Issue で問いの言い回しかしきい値を見直す（#137、Epic #130） |
 | Q97 | Jev にラベルを問う材料 | Q94 で見たとおり Jev の priority の答えは medium の 65〜79% に集まり、high・low の確信度が低かった。材料に、本文の Dependencies 節、Issue に付いている `type:*`・`risk:*`・`area:*`・`epic`、子の数を足し、priority の基準を `classification.priorityCriteria` で導入先ごとに書き換えられるようにした（このリポジトリ向けの基準を入れた）。どれも App が API と設定から集めたもの（#104 の守り）。較正の例（few-shot）は例ごとに events を読む費用がかかるため、計画の後の問い直しは「一度だけ問う」規則と計画（セッションが書いたもの）を材料にすることになるため、見送った。材料の言語は英訳しない（Q96）。`dependencies` が増えたので、`jev-language.ts` の実験を走らせ直すと Issue の要求はこの版から変わる（Q96 の結果とは同じ材料で比べられない）。材料を足す前と後で #216・#218・#219・#229 を各2回問うた（前・基準だけ・全部の3列、24 回、入力 約3.6万トークン。表は #295 の本文）。priority の最も高い選択肢の確率は、medium のままの3件で 79→81%・68→87%・68→81%（基準だけでも 75〜87%）に上がり、#218（`risk:critical`・`type:fix`）は全部を足すと high 60% に変わった。high・low が 0.8 に届いた Issue は無く、area は前後とも harness 100%。`priority:high`・`low`・`area:*` の下限（0.8）は変えない：下げると、1件だけ・2回とも 57〜63% の high で並び順を変えることになり、根拠が足りない（Issue #259） |
 | Q78 | 人の PR の判定 | 計画のある Issue に紐付いた人の PR も Routine が判定し、判定が出るまで `agent/review` を通さない（自動 Merge はしない、修正は人）。例外は人が付ける `review:exempt` |
-| Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt` |
+| Q77 | 計画の紐付け | すべての PR に計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める（人のセッションの PR も）。例外は人が付ける `plan:exempt`。Stacked PR の層は本文の `Refs #N`／`Closes #N`（1つだけ）で紐付ける |
 | Q76 | 状態ラベルの整理 | `agent:working`・`agent:in-pr` を廃止し、着手宣言コメントと開いた PR から判断する。止めるときは理由コード必須。ラベル定義はコードで一元管理し、文書との一致をテストで検査、定義に無いラベルは `setup.ts` が消す |
 | Q75 | 分類ラベル | PR の `size:*`・`area:*` は App が差分から付ける（area は足すだけ）。Issue の種類・領域・優先度・書き方は Jev が提案コメントだけ出す（シャドー） |
 | Q74 | 優先度 | `priority:*` の5段階（highest・high・medium・low・lowest）のラベルで queue を並べ替える（優先度 → 先着順）。付いていなければ medium、複数付いていれば最も高いもの。フォームには入れない（Q84 で `priority:high` / `priority:low` の2つから5段階に改めた） |

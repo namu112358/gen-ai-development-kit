@@ -8,9 +8,9 @@ tools: Read, Grep, Glob, Bash, Write
 
 ## 入力（これ以外は読まない）
 
-- 呼び出し元が渡す PR 番号と head SHA
+- 呼び出し元が渡す PR 番号と head SHA、PR の base のブランチ名（渡されなければ `main`）
 - 呼び出し元が渡す出力のパス（リポジトリの外の一時ディレクトリ。返す JSON を書く先で、読む材料ではない）
-- diff：`git fetch origin && git diff origin/main...<headSha>`
+- diff：`git fetch origin && git diff origin/<PR の base>...<headSha>`（Stacked PR の層は下の層のブランチからの差分。既定ブランチ宛ての PR は `origin/main...`）
 - リポジトリのファイル（Read / Grep / Glob）
 - ポリシー：`docs/risk-policy.md`
 
