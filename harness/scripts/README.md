@@ -12,6 +12,7 @@
 | `jev-language.ts` | 日本語の材料と英訳した材料を同じ問いで Jev（TypeSafe AI）に投げ比べる、手で実行する実験用スクリプト。 |  |
 | `mutate.ts` | テストが効いているかを確かめる（mutation）。 |  |
 | `observe.ts` | 保守の観測（docs の照合・ホットスポット・テストの健康）を、人が指示したときに1回分だけ出す（LLM を呼ばない決まる集計）。 |  |
+| `panes.ts` | fleet と hq のワークスペースのペイン表示（進み具合・人がすること・PR と費用）。 |  |
 | `readme.ts` | README の表（名前・内容・ガードレール）を、各ディレクトリの直下の名前と先頭のコメントから作る。 |  |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）。 | ○ |
 | `review-panel.ts` | 合体版のレビュー（.claude/skills/review-panel/SKILL.md）の CLI。 | ○ |
