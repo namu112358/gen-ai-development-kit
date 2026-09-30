@@ -73,8 +73,11 @@
   "fleet": {
     "nesting": "orca",
     "maxParallelShips": 3,
-    "sharedFiles": ["docs/plan.md", "docs/formats.md", "docs/operations.md", "docs/security.md", "docs/glossary.md", "**/README.md"]
+    "sharedFiles": ["docs/plan.md", "docs/formats.md", "docs/operations.md", "docs/security.md", "docs/glossary.md", "**/README.md"],
+    "shipMode": "subagent"
   },
+  "hq": { "maxFleets": 2 },
+  "panes": { "collectIntervalSeconds": 180 },
   "jev": {
     "mode": "shadow",
     "model": "jev-1.13.0",

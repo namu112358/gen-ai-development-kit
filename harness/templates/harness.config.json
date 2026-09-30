@@ -64,7 +64,14 @@
   },
   "fleet": {
     "nesting": "orca",
-    "maxParallelShips": 3
+    "maxParallelShips": 3,
+    "shipMode": "subagent"
+  },
+  "hq": {
+    "maxFleets": 2
+  },
+  "panes": {
+    "collectIntervalSeconds": 180
   },
   "jev": {
     "mode": "shadow",
