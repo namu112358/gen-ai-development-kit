@@ -8,6 +8,7 @@
 | `*-guardrail.test.ts` | ガードレールの範囲と、それに触れる計画・PR の扱い（止めるか通すか）のテスト |
 | `hooks-*.test.ts` | hook（`.claude/hooks/`）：見張りの hook（`guard.ts`）が止めるべき操作を止めるか、SessionStart の hook（`session-env.ts`）がセッションの ID を書き残すか、Orca の CLI が無いときに Windows・WSL・Linux を見分けて知らせるか、入口（`run.mjs`）が Node の版を確かめて、動けないときに guard は止め SessionStart は知らせるか |
 | `skills.test.ts`・`ship-skill.test.ts`・`qa-retro-skill.test.ts`・`label-delegation.test.ts`・`label-session-decide.test.ts`・`arch-review-skill.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、ラベルを Jev に任せる手順・Jev が下限未満で付けなかったものをセッションが決めて付ける手順・arch-review の手順と arch-reviewer の定義の検査 |
+| `qa-retro-loop.test.ts` | qa-retro を `/loop` から回すときの期間のつなぎ方（`harness/lib/qa-retro-loop.ts`：前回の回の終わりを次の始まりに・終わりは今の7日前、境目の PR が1回だけ数えられること）、状態のファイルの読み方と進めるときの一致の確かめ、下書きの記録と採用、skill・docs の書き方（#329） |
 | `agent-commands.test.ts` | `harness/scripts/agent.ts` の入口がコマンドの一覧を持たず、`harness/scripts/agent/commands/` から読み込むこと（名前が分ける前と同じ・重複で止まる・.ts だけを読む・知らないコマンドの出力と終了コード）（#313） |
 | `orca-skills.test.ts`・`settings-permission-mode.test.ts` | Orca の導入の検査（#195）。`orca-skills.test.ts`：skill の入口（`.claude/skills/orca-cli`・`orchestration`）を取り込んだ版（sha256・コミットの固定値）のまま配ること、MIT の表示（`docs/upstream/`・`NOTICE`）、`harness/managed.json` に当たること、入口に素の `orca` のコマンドが無いこと、`docs/setup.md` の Orca の節と `docs/security.md` の受け入れているリスクの行。`settings-permission-mode.test.ts`：`.claude/settings.json` の `permissions.disableBypassPermissionsMode` で bypass を使えなくし `defaultMode` を書かないこと、`harness/managed.json` がそのキーを持つこと、`docs/setup.md` の Orca の節の利用者の設定と Agent Permissions の手順 |
 | `plan-ask-before-post.test.ts` | plan の skill で、Planner の質問（`openQuestions`・`needsHumanReasons`）を批評と投稿の前に人に聞き、答えを計画に書き込んで申告から除く手順と、Routine は聞かないこと、入れ子の ship は投稿せずに fleet に返し、fleet がまとめて聞いて呼び直すこと、`harness/CLAUDE.harness.md` の規則の検査（#289・#299） |
@@ -33,7 +34,7 @@
 | `gates-tests-jev.test.ts` | `agent/tests` の Jev の判定（shadow・enforce・off、同じ差分の記録の使い回し、判定の受け付けと auto-merge の後の書き直し）のテスト |
 | `report-tamper.test.ts` | テストの改ざんの Jev の判定と人の判断（`test:exempt`・Merge した差分）の一致の集計のテスト |
 | `observe.test.ts`・`observe-docs.test.ts`・`hotspot.test.ts`・`test-health.test.ts` | 保守の観測（`harness/scripts/observe.ts`）：docs の照合（実在しないサブコマンド・パス・ラベル・設定キー・リンク先・見出し）、ホットスポット（変更回数 × 行数）、テストの健康（遅いテスト・不安定なテスト・生き残ったミュータント）と、節を組んだ JSON・前回との差・GitHub に GET しか呼ばないこと・出力を一時ディレクトリに書くこと（#326） |
-| `auto-mode-state.test.ts`・`auto-mode-danger.test.ts` | auto mode（`harness/lib/auto-mode.ts`）：ダッシュボードのラベルと timeline からの状態（人が付けたもの・App や Bot・停止スイッチ）、`autoMode` の設定の既定・上書き・誤り、雛形と `harness.config.json` の `autoMode` と `delegateMergeExclude`。Jev と Claude の答えから保留するかと理由、Jev への要求の state（PR は diff と変更ファイルだけ）、diff が大きすぎるときの skipped（#342） |
+| `auto-mode-state.test.ts`・`auto-mode-danger.test.ts`・`auto-mode-danger-format.test.ts` | auto mode（`harness/lib/auto-mode.ts`）：ダッシュボードのラベルと timeline からの状態（人が付けたもの・App や Bot・停止スイッチ）、`autoMode` の設定の既定・上書き・誤り、雛形と `harness.config.json` の `autoMode` と `delegateMergeExclude`。Jev と Claude の答えから保留するかと理由、Jev への要求の state（PR は diff と変更ファイルだけ）、diff が大きすぎるときの skipped（#342）。Claude の危険の判定の書式（計画の `critique.danger`・判定の `risk.danger` の検査、compose-verdict の写し、plan-critic・Risk Agent の定義と手順の文書。#343） |
 | その他 | `harness/lib/`・`harness/scripts/` の各ロジックのテスト（`<機能名>.test.ts`。例：`plan.test.ts`・`scope.test.ts`・`mutate.test.ts`・`mutate-check-targets.test.ts`・`api-count.test.ts`） |
 | `support/` | テストが共有する補助（テストとしては動かない） |
 
