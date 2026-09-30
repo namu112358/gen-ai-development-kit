@@ -257,6 +257,7 @@ arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/
 ````markdown
 <!-- agent-harness:claude session=<id> -->
 arch-review の記録です（…）。次の arch-review はここから読みます。
+下書き 2 件・採用 1 件
 
 見つけたずれ：
 - 着手宣言の読み取りが2か所にある
@@ -264,14 +265,23 @@ arch-review の記録です（…）。次の arch-review はここから読み�
 作った Issue：
 - #201 refactor(harness): 着手宣言の読み取りを1か所にする
 
+未採用の下書き（「arch-review の下書きを選ぶ」と頼むと選べます）：
+2. docs(harness): 着手宣言の段階の説明を揃える
+
 ```arch-review
 {
   "version": 1,
+  "trigger": "loop",
   "baseSha": "前回の headSha（無ければ null）",
   "headSha": "今回見た main の SHA（40桁）",
   "prs": [157, 158],
   "summary": ["着手宣言の読み取りが2か所にある"],
-  "drafts": [{ "title": "refactor(harness): 着手宣言の読み取りを1か所にする", "created": 201 }]
+  "drafts": [
+    { "title": "refactor(harness): 着手宣言の読み取りを1か所にする", "created": 201, "body": "### Goal
+…" },
+    { "title": "docs(harness): 着手宣言の段階の説明を揃える", "created": null, "body": "### Goal
+…" }
+  ]
 }
 ```
 ````
@@ -279,15 +289,24 @@ arch-review の記録です（…）。次の arch-review はここから読み�
 | フィールド | 内容 |
 | --- | --- |
 | `version` | 書式の版（`1`） |
+| `trigger` | `loop`（`/loop` の1回分）か `manual`（人が呼んだ）。無ければ `manual` |
 | `baseSha` | 見た範囲の始まり（前回の記録の `headSha` か `--since`。直近 N 本を見たときは `null`） |
 | `headSha` | 見た既定ブランチの SHA（40桁）。次の実行はここから読む |
 | `prs` | 見た Merge 済みの PR の番号 |
 | `summary` | 見つけたずれの要約（1件1行） |
 | `drafts` | 人に示した下書き。`created` は人が選んで作った Issue の番号（作らなかったものは `null`） |
+| `drafts[].body` | 下書きの本文（任意。`trigger` が `loop` なら必須。後で「arch-review の下書きを選ぶ」で作るため） |
+| `drafts[].duplicateOf` | 同じものがある開いた Issue の番号（任意。コメントの案のときだけ） |
+| `drafts[].commented` | 人が選んでコメントを投稿した Issue の番号（任意。まだなら `null`） |
 
 - フェンスの名前は `agent-` で始まらない。App の記録（`agent-*`）と混同せず、`gate.yml` の `if:` にも当たらないので、ゲートは起動しない。App の記録ではなく、PR ごとの判定の材料にもしない。
 - 次の実行（`arch-review-range`）は、ダッシュボード Issue のコメントのうち、コラボレーター（OWNER・MEMBER・COLLABORATOR。App を除く）が書いた Claude の目印付きで、```` ```arch-review ```` が1つだけあり JSON が正しいものの最新を前回とする（`harness/lib/arch-review.ts` の `latestArchReviewRecord`）。ダッシュボードが無ければ前回なしとして扱う。
-- 下書きは `node harness/scripts/agent.ts arch-review-drafts <ファイル>` で検査する（`[{ title, body, duplicateOf? }]`。タイトルは Conventional Commits、本文は Issue Form の必須の見出し、`labels` に `agent:ready` があれば誤り）。
+- 下書きは `node harness/scripts/agent.ts arch-review-drafts <ファイル>` で検査する（`[{ title, body, duplicateOf? }]`。タイトルは Conventional Commits、本文は Issue Form の必須の見出し、`labels` に `agent:ready` があれば誤り）。`--loop` を付けると、下書きが上限（3件、`ARCH_REVIEW_LOOP_MAX_DRAFTS`）を超えたら誤り。
+- `trigger` が `loop` の記録は、`drafts` が3件以下で、すべてに `body` があること（`checkArchReviewRecord`）。本文（下書きの `body`）は JSON の中にだけ持ち、人が読む部分にはタイトルの一覧だけを出す。
+- 人が読む部分の「下書き N 件・採用 M 件」の採用は、`created` か `commented` が `null` でない下書きの数。
+- 記録のコメントの本文がコメントの上限（65536 文字、`ARCH_REVIEW_COMMENT_MAX`）を超えたら、`arch-review-record`・`arch-review-adopt` は投稿・編集せずに止まる。
+- 採用の書き戻し：`node harness/scripts/agent.ts arch-review-adopt <記録のコメントID> <下書きの番号> <Issue 番号> [--comment]` が、記録のコメントを読み直し（ダッシュボード Issue のコメントであることを確かめる）、番号（1始まり）の下書きの `created`（`--comment` なら `commented`）を書いてコメントを編集する（`adoptArchReviewDraft`）。元の目印のセッションは残す。コラボレーターの Claude の目印付きの記録でない・番号が範囲外・採用済み・`--comment` で宛先が `duplicateOf` と違うなら誤り。コメントの作成日時は変わらないので、前回の位置は動かない。
+- 集計：`node harness/scripts/agent.ts arch-review-pending` が、前回を選ぶのと同じ条件の記録すべてから、記録の数・下書きの数・採用された数と、未採用の下書き（記録のコメント ID・番号・タイトル・本文・`duplicateOf`）を出す（`archReviewAdoption`。読むだけ）。
 
 ## App の記録（agent-app）
 
