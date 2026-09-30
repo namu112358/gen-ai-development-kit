@@ -104,6 +104,15 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 - 報告は人に示すだけで、判定の材料にしない（Reviewer・Risk Agent・Jev に渡さない）。
 - しきい値・問いの変更は、報告を見て人が別の Issue で決める（qa-retro の skill の中では変えない）。
 
+### /loop で続けて回す
+
+付き添いのセッションの `/loop` から qa-retro を続けて回し、つながった期間の報告を見直しの根拠にできる（しきい値・問いは変えない）。詳しい手順は [qa-retro の skill の「/loop で回すとき」](../.claude/skills/qa-retro/SKILL.md#loop-で回すとき)、skill によらない共通の規則は [operations.md の「見直しを /loop で回す」](operations.md#見直しを-loop-で回す) に置く。
+
+- 呼び方：`/loop 1d /qa-retro --loop`。間隔の目安は1日〜1週間。
+- 1回分の期間：前回の回の終わりから、今の7日前まで（後追いの修正の窓の7日が閉じた PR だけを見る）。初回は14日幅。前回の回の終わりは手元の状態のファイル（`harness/scripts/qa-retro-loop.ts`）に持つので、回ごとの期間は重ならず抜けない。
+- 止め方：`/loop` を止める。期間を進める前に止めた回は、次の回が同じ始まりから見直す。
+- 下書き：ループの回では Issue にしない。人が「qa-retro の下書きを選ぶ」と頼んだときに、選んだものだけを作る。報告を判定の材料にしないのはループでも同じ。
+
 ## Jev
 
 `jev.mode` が `shadow` の間は、Actions から Jev に同じ8問を1回で問い、結果を記録するだけにする。Jev には同じ8問を、Jev 向けの英文と境界の例（`criteria`）で問う（文は `harness/lib/jev.ts`）。Jev に渡すのは App が集めたもの（diff・変更ファイル・ガードレールの一覧）だけで、Risk Agent の `facts` や Claude の判定などセッションが書いたものは渡さない。切り替え（`enforce`）の判断は `harness/scripts/report.ts` の集計で行い、基準は [security.md](security.md#jev) に置く。
