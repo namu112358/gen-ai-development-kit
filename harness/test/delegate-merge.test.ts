@@ -14,7 +14,7 @@ import { APP, acceptanceFake, config, ctxFor, pr, verdict, verdictEvent, type Fa
 // ---- delegateExcludeFiles ----
 
 test('delegateExcludeFiles：delegateMergeExclude に当たるファイルを、ソート・重複なしで返す', () => {
-  const files = ['harness/gates/run.ts', 'docs/a.md', 'harness/lib/delegate.ts', 'harness/gates/run.ts', 'harness/lib/plan.ts'];
+  const files = ['harness/gates/run.ts', 'docs/a.md', 'harness/lib/delegate.ts', 'harness/gates/run.ts', 'harness/lib/epic.ts'];
   assert.deepEqual(delegateExcludeFiles(config, files), ['harness/gates/run.ts', 'harness/lib/delegate.ts']);
 });
 
@@ -35,7 +35,7 @@ const okParts: EligParts = {
 };
 
 test('delegateEligibility：ガードレールに触れ Risk が critical でも、ほかの条件を満たせば eligible。skipped にガードレールと Risk が入る', () => {
-  const r = delegateEligibility({ ...okParts, guardrail: ['harness/lib/plan.ts'], risk: { ok: false, reasons: ['Risk レベルが critical'] } });
+  const r = delegateEligibility({ ...okParts, guardrail: ['harness/lib/epic.ts'], risk: { ok: false, reasons: ['Risk レベルが critical'] } });
   assert.equal(r.eligible, true, r.reasons.join('\n'));
   assert.ok(r.skipped.some((s) => s.includes('ガードレール')), r.skipped.join('\n'));
   assert.ok(r.skipped.includes('Risk レベルが critical'), r.skipped.join('\n'));
@@ -61,7 +61,7 @@ test('delegateEligibility：除外・範囲外・ブロッキング・humanMerge
     ['orphan-base', { base: 'orphan-base' }],
   ];
   for (const [name, patch] of cases) {
-    const r = delegateEligibility({ ...okParts, guardrail: ['harness/lib/plan.ts'], risk: { ok: false, reasons: ['Risk レベルが critical'] }, ...patch });
+    const r = delegateEligibility({ ...okParts, guardrail: ['harness/lib/epic.ts'], risk: { ok: false, reasons: ['Risk レベルが critical'] }, ...patch });
     assert.equal(r.eligible, false, name);
     assert.ok(r.reasons.length > 0, `${name}: 理由がない`);
   }
@@ -77,10 +77,10 @@ test('delegateEligibility：scopeOk・outside・exclude を記録用に写す', 
 
 // ---- evaluateMergeRoute ----
 
-const delegateOk: DelegateRecord = { eligible: true, reasons: [], skipped: ['ガードレールに触れます: harness/lib/plan.ts', 'Risk レベルが critical'], scopeOk: true, outside: [], exclude: [] };
+const delegateOk: DelegateRecord = { eligible: true, reasons: [], skipped: ['ガードレールに触れます: harness/lib/epic.ts', 'Risk レベルが critical'], scopeOk: true, outside: [], exclude: [] };
 const humanOnly: Acceptance = {
   version: 1, verdictCommentId: 1, verdictHeadSha: 'a'.repeat(40), patchId: 'p', reviewPass: true, riskLevel: 'critical', riskOk: false, scopeOk: true, outside: [],
-  guardrail: ['harness/lib/plan.ts'], humanMerge: [], autoEligible: false, reasons: ['Risk レベルが critical', 'ガードレールに触れます（人が Merge する）: harness/lib/plan.ts'],
+  guardrail: ['harness/lib/epic.ts'], humanMerge: [], autoEligible: false, reasons: ['Risk レベルが critical', 'ガードレールに触れます（人が Merge する）: harness/lib/epic.ts'],
   delegate: delegateOk,
 };
 const routeIn: MergeRouteInput = { autoMergeEnabled: true, isAgentPr: true, hold: false, autoMergeMode: true, acceptance: humanOnly, delegateMode: true };
@@ -188,7 +188,7 @@ async function accept(fake: FakeGitHub, v = critical(), extra: Parameters<typeof
 }
 
 test('受け付け：ガードレールに触れ Risk が critical の PR は delegate.eligible が真、skipped にガードレールと Risk。auto-merge はまだ付けない', async () => {
-  const fake = acceptanceWith({ pass: true, plan: { files: ['harness/lib/plan.ts'] } }, ['harness/lib/plan.ts']);
+  const fake = acceptanceWith({ pass: true, plan: { files: ['harness/lib/epic.ts'] } }, ['harness/lib/epic.ts']);
   await accept(fake);
   const a = recorded(fake);
   assert.equal(a.autoEligible, false);
@@ -213,13 +213,13 @@ test('受け付け：delegateMergeExclude・harness.config.json に当たる PR 
 });
 
 test('受け付け：範囲外のファイル・Reviewer のブロッキング・humanMergePaths があれば delegate.eligible が偽', async () => {
-  const outside = acceptanceWith({ pass: true, plan: { files: ['harness/lib/plan.ts'] } }, ['harness/lib/plan.ts', 'package.json']);
+  const outside = acceptanceWith({ pass: true, plan: { files: ['harness/lib/epic.ts'] } }, ['harness/lib/epic.ts', 'package.json']);
   await accept(outside);
   assert.equal(recorded(outside).delegate?.eligible, false, '範囲外');
   assert.equal(recorded(outside).delegate?.scopeOk, false);
   assert.ok(recorded(outside).delegate?.outside.includes('package.json'));
 
-  const blocking = acceptanceWith({ pass: true, plan: { files: ['harness/lib/plan.ts'] } }, ['harness/lib/plan.ts']);
+  const blocking = acceptanceWith({ pass: true, plan: { files: ['harness/lib/epic.ts'] } }, ['harness/lib/epic.ts']);
   await accept(blocking, verdict({ risk: critical().risk, review: { pass: false, blocking: [{ kind: 'ac-unmet', detail: 'AC 2' }], nonBlocking: [] } }));
   assert.equal(recorded(blocking).delegate?.eligible, false, 'ブロッキング');
 
@@ -229,14 +229,14 @@ test('受け付け：範囲外のファイル・Reviewer のブロッキング�
 });
 
 test('受け付け：計画ゲートで止まった計画（gate）の files とは照合し、Planner の申告で止まった計画とは照合しない', async () => {
-  const byGate = acceptanceWith({ pass: false, planReviewOrigin: 'gate', plan: { files: ['harness/lib/plan.ts'] } }, ['harness/lib/plan.ts']);
+  const byGate = acceptanceWith({ pass: false, planReviewOrigin: 'gate', plan: { files: ['harness/lib/epic.ts'] } }, ['harness/lib/epic.ts']);
   await accept(byGate);
   const g = recorded(byGate);
   assert.equal(g.scopeOk, false, '自動 Merge の範囲照合は通過した計画だけ');
   assert.equal(g.delegate?.scopeOk, true);
   assert.equal(g.delegate?.eligible, true, g.delegate?.reasons.join('\n'));
 
-  const byPlanner = acceptanceWith({ pass: false, planReviewOrigin: 'planner', plan: { files: ['harness/lib/plan.ts'] } }, ['harness/lib/plan.ts']);
+  const byPlanner = acceptanceWith({ pass: false, planReviewOrigin: 'planner', plan: { files: ['harness/lib/epic.ts'] } }, ['harness/lib/epic.ts']);
   await accept(byPlanner);
   const p = recorded(byPlanner);
   assert.equal(p.delegate?.scopeOk, false);

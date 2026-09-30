@@ -11,7 +11,7 @@ const { planLabel: PLAN, mergeLabel: MERGE } = delegateConfig(config);
 const SINCE = '2026-09-29T10:00:00.000Z';
 
 /** ガードレールに当たり、delegateMergeExclude に当たらない files */
-const GUARDED = 'harness/lib/plan.ts';
+const GUARDED = 'harness/lib/epic.ts';
 const GUARD_REASON = (...files: string[]) => `ガードレールに触れます（人が実装して Merge する）: ${files.join(', ')}`;
 const RISK_REASON = (risk: string) => `想定 Risk が ${risk} です`;
 
