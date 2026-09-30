@@ -637,7 +637,7 @@ const isAfter = (a: { created_at: string; id: number }, b: { created_at: string;
 const FIX_REQUEST_LINE = /^- \*\*([\w-]+)\*\*(?: `([^`]+)`)?: (.*)$/;
 
 /** fix-request の本文の行（harness/gates/on-comment.ts の renderBlockingReview の形）からブロッキング指摘を読む */
-function fixRequestFindings(body: string): BlockingFinding[] {
+export function fixRequestFindings(body: string): BlockingFinding[] {
   const out: BlockingFinding[] = [];
   for (const line of body.replace(/\r\n/g, '\n').split('\n')) {
     const m = line.match(FIX_REQUEST_LINE);

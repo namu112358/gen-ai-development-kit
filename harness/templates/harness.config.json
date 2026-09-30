@@ -53,6 +53,9 @@
     "normalLimit": 2,
     "criticalLimit": 3
   },
+  "syncLoop": {
+    "limit": 3
+  },
   "staleHours": 24,
   "dashboardIssueTitle": "Agent ダッシュボード",
   "reviewPanel": {
