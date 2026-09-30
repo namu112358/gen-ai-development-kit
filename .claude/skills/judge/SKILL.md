@@ -28,7 +28,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
    - ファイルが無いときは、同じパスを渡してその担当を1回だけ呼び直す。2回目も無ければ判定せず人に返す。
    - ファイルがあって JSON として読めないときは、呼び直さずに判定せず人に返す。
    - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、判定せず人に返す（担当が出力のパスの外を書いた恐れがある）。付き添いの作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
-6. `node harness/scripts/agent.ts compose-verdict <PR番号> <reviewer-<PR番号>-<head7>.json> <risk-<PR番号>-<head7>.json> --judge-input <judge-input のファイル> --model <モデル名>` で判定コメントを作る（出力はファイルのパス。`enforce` では reviewer の出力の位置に合体版の組み立ての出力を渡す）。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら（main の取り込みだけなら）判定した head のまま組み立てる（App は patch-id で受け付ける）。patch-id が違って止まったら手順1からやり直す。risk-agent の出力の `danger`（auto mode の危険の判定）は、compose-verdict が判定コメントの `risk.danger` にそのまま写す（書き換えない。自分で答えない。無い古い出力も組み立てられる）。
+6. `node harness/scripts/agent.ts compose-verdict <PR番号> <reviewer-<PR番号>-<head7>.json> <risk-<PR番号>-<head7>.json> --judge-input <judge-input のファイル> --model <モデル名>` で判定コメントを作る（出力はファイルのパス。`enforce` では reviewer の出力の位置に合体版の組み立ての出力を渡す）。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら（main の取り込みだけなら）判定した head のまま組み立てる（App は patch-id で受け付ける）。patch-id が違って止まったら手順1からやり直す。risk-agent の出力に定義に無いキーがあって止まったら（#382 より前の定義の risk-agent が書いた出力など）、出力を直さずに今の定義の risk-agent を呼び直す（手順1からやり直す）。
 7. `node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル>` で投稿する。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら判定した head のまま投稿する。patch-id が違って止まったら手順1からやり直す。
 8. App が受け付けたかを `gh pr view <PR番号> --json isDraft,statusCheckRollup` で確かめる。合格なら `agent/review`・`agent/risk` が成功し、`isDraft` が false になる。数分待っても変わらなければ、PR のコメント（App の `verdict-rejected` など）とゲートの実行（`gh run list --workflow gate.yml`）の結果を見る。確かめてから人に報告する。
 

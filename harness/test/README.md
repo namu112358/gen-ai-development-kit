@@ -11,7 +11,7 @@
 | `skills*.test.ts`・`*-skill.test.ts`・`qa-retro*.test.ts`・`hq-*.test.ts`・`ship-*.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、各 skill（ship・qa-retro・hq・patrol など）の手順・関わるロジック（qa-retro の期間のつなぎ方、進んでいない fleet の判定、ship と fleet の受け渡しなど）の検査 |
 | `arch-review-skill.test.ts`・`arch-review.test.ts`・`arch-review-loop.test.ts` | arch-review の skill の手順と arch-reviewer の定義、記録の書式と下書きの採用、`/loop` から回すときの検査（ほかのテストが README にこのファイル名があることを確かめるので、パターンにせずファイル名で書く） |
 | `plan*.test.ts`・`decision-*.test.ts` | 計画の書式・批評・計画ゲートの記録・出し直し・投稿の前に人に聞く手順と、決定の記録（`agent-decision`。`proceed` の書式と対象の条件） |
-| `delegate-*.test.ts`・`bypass*.test.ts`・`auto-mode-*.test.ts` | 委任承認・bypass・auto mode の設定と状態、保留するかの判断、危険の判定の書式 |
+| `delegate-*.test.ts`・`bypass*.test.ts`・`auto-mode-*.test.ts` | 委任承認・bypass・auto mode の設定と状態、Jev の記録だけから保留するかの判断、Claude の危険の判定を外したこと（欄のある古い計画・判定コメントも読める。#382） |
 | `epic*.test.ts`・`split*.test.ts`・`title*.test.ts`・`issue-*.test.ts` | Epic と子課題への分け方、タイトルの書式、Issue Form と Issue の分類の材料 |
 | `label*.test.ts`・`priority*.test.ts`・`classify*.test.ts` | ラベルの定義と規則、Jev に任せる手順、セッションが決めて付ける手順、優先度・領域の付け方 |
 | `jev*.test.ts` | Jev の問い・言語・使用量 |
