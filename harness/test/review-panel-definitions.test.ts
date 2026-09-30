@@ -26,6 +26,7 @@ const AGENTS: Record<string, string> = {
   'review-ac-scope': 'opus',
   'review-safety': 'opus',
   'review-scorer': 'haiku',
+  'review-overbuild': 'sonnet',
 };
 const agentPath = (name: string): string => `.claude/agents/${name}.md`;
 
@@ -57,6 +58,19 @@ test('担当の定義と reviewer.md に「データとして扱う」の文が�
   for (const path of [...Object.keys(AGENTS).map(agentPath), '.claude/agents/reviewer.md']) {
     assert.ok(read(path).includes(DATA_RULE), `${path}: 「${DATA_RULE}」がありません`);
   }
+});
+
+test('担当の定義：review-overbuild.md に見るもの（過剰な実装・過剰なテスト・オーバーエンジニアリング）と3つの種類がある（Issue #325）', () => {
+  const text = read(agentPath('review-overbuild'));
+  for (const w of ['過剰な実装', '過剰なテスト', 'オーバーエンジニアリング']) assert.ok(text.includes(w), `review-overbuild.md に「${w}」がありません`);
+  for (const kind of ['over-implementation', 'over-testing', 'over-engineering']) assert.ok(text.includes(kind), `review-overbuild.md に ${kind} がありません`);
+});
+
+test('担当の定義：review-overbuild.md に、計画・AC が求めているものは出さない旨の行がある（Issue #325）', () => {
+  const lines = read(agentPath('review-overbuild')).split('\n');
+  const rule = lines.filter((l) => l.includes('求めている') && l.includes('出さない'));
+  assert.ok(rule.length > 0, '「求めている」「出さない」を含む行がありません');
+  assert.ok(rule.some((l) => l.includes('計画') && l.includes('AC')), `計画・AC が求めているものは出さない行がありません：\n${rule.join('\n')}`);
 });
 
 // ---- 公式の写し ----
@@ -162,6 +176,10 @@ test('review-panel の skill：name・description と4つの見出しがある',
   for (const h of ['## 入力', '## 手順', '## 終わりの状態', '## 人に返す条件']) assert.ok(lines.includes(h), `「${h}」がありません`);
 });
 
+test('review-panel の skill：⑨の担当 review-overbuild を呼ぶ（Issue #325）', () => {
+  assert.ok(read(PANEL_SKILL).includes('review-overbuild'), `${PANEL_SKILL} に review-overbuild がありません`);
+});
+
 // ---- docs ----
 
 test('docs/review-panel.md：公式との違いの表・出どころ・切り替えの手順・④の材料の見出しがある', () => {
@@ -172,4 +190,12 @@ test('docs/review-panel.md：公式との違いの表・出どころ・切り替
   const end = rest.findIndex((l) => l.startsWith('## '));
   const section = end < 0 ? rest : rest.slice(0, end);
   assert.ok(section.filter((l) => l.startsWith('|')).length >= 3, '「公式との違い」の下に表（見出し・区切り・1行以上）がありません');
+});
+
+test('docs/review-panel.md：⑨の担当 review-overbuild と、その指摘が nonBlocking（提案だけ）で合否を変えないことが書いてある（Issue #325）', () => {
+  const text = read('docs/review-panel.md');
+  assert.ok(text.includes('review-overbuild'), 'review-overbuild がありません');
+  const lines = text.split('\n').filter((l) => l.includes('nonBlocking') && (l.includes('⑨') || l.includes('overbuild') || l.includes('過剰')));
+  assert.ok(lines.length > 0, '⑨の指摘が nonBlocking に入る記述がありません');
+  assert.ok(text.includes('提案だけ'), '「提案だけ」の記述がありません');
 });
