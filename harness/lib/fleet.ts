@@ -220,6 +220,7 @@ function overlapKind(a: string[], b: string[], sharedFiles: string[]): 'none' | 
  * 領域の上限（areaConcurrency）は見ない。config.fleet?.sharedFiles は、計画の files が重なるかの判定でだけ使う（共有ファイルだけの重なりでは待たない）。
  * 両方に PR がある組は、実際に試して衝突した組（prConflicts）だけ、既に選んだ PR と衝突する後の側が待つ。
  * PR がまだ無い Issue は、既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
+ * 既に選んだ Issue のうち段階が plan-review（人の判断待ち）のものは、この重なりの相手にしない（今は進まないので、進められる Issue を待たせない。Issue #312）。人が進めると決めて段階が変われば、読み直した表で相手になる。
  * 計画の無い Issue は重なりが分からないので、その判定から外して選ぶ（計画の後に重なれば、後から選んだほうが待つ）。
  */
 export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null, me: string | null = null): FleetSelection {
@@ -269,7 +270,8 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
       const hit = selected.find((o) => { const q = openPrOf(o); return q !== null && conflictOf(pr, q) !== undefined; });
       if (hit) { excluded.set(r.issue, `#${hit.facts.number} と衝突するため待つ（先に Merge された側に合わせて sync）`); continue; }
     } else if (i.planFiles !== null) {
-      const others = [...selected, ...busy].filter((o) => o.facts.number !== r.issue && o.planFiles !== null);
+      const movable = selected.filter((o) => rowOf.get(o.facts.number)?.stage !== 'plan-review');
+      const others = [...movable, ...busy].filter((o) => o.facts.number !== r.issue && o.planFiles !== null);
       const hit = others.find((o) => overlapKind(i.planFiles!, o.planFiles!, sharedFiles) === 'blocking');
       if (hit) { excluded.set(r.issue, `#${hit.facts.number} と触るファイルが重なるため待つ`); continue; }
     }
