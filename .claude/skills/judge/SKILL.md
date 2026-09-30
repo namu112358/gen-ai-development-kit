@@ -10,7 +10,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 ## 入力
 
 - PR 番号
-- `node harness/scripts/agent.ts judge-input <PR番号>` が書くファイル（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの `agent-plan` ブロックは省く〕、Epic の子課題なら親 Epic の子課題の一覧と Validation Requirements、計画ゲートの記録の計画、PR 本文、PR のコラボレーターのコメント〔判定コメントを除く〕、`agent/scope` の結果〔無い・未完了・結論〕、前回の判定の head とブロッキング指摘、再レビューの範囲の補足、PR の状態〔state・draft・merged〕、変更ファイルを触った Merge 済みの過去の PR のコラボレーターのコメント〔App・Claude の目印のものを除く〕）
+- `node harness/scripts/agent.ts judge-input <PR番号>` が書くファイル（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの `agent-plan` ブロックは省く〕、Epic の子課題なら親 Epic の子課題の一覧と Validation Requirements、計画ゲートの記録の計画、PR 本文、PR のコラボレーターのコメント〔判定コメントを除く〕、`agent/scope` の結果〔無い・未完了・結論〕、前回の判定の head とブロッキング指摘、再レビューの範囲の補足、PR の状態〔state・draft・merged〕、変更ファイルを触った Merge 済みの過去の PR のコラボレーターのコメント〔App・Claude の目印のものを除く〕、スタックの節〔Stacked PR の層なら base・位置・下の層と変更ファイル〕）
 
 ## 手順
 
@@ -22,7 +22,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `enforce`：reviewer を呼ばない。手順4の risk-agent と review-panel の skill を動かし、review-panel の compose の出力 `review-<PR番号>-<head7>.json` を、手順6の compose-verdict の reviewer の出力の位置に渡す。合体版が失敗したら判定せず人に返す。review-intake が `eligible: false`（PR が closed、または前回の判定と同じ head）を返したら、判定を投稿せずに終え、理由を人に伝える（同じ head を二重に判定しない。closed の PR は判定しない）。
 4. 担当を呼ぶ前に、`git status --porcelain --untracked-files=all` の結果を scratchpad の `worktree-<PR番号>-<head7>.txt` に書き出して控える（`shadow`・`enforce` で review-panel を並行に動かすときも、控えるのはここの1回で、review-panel の skill は控えない）。続けてサブエージェントを並列に呼ぶ。どれにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押し、出力のパスを渡して「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。出力のパスは scratchpad の `reviewer-<PR番号>-<head7>.json`・`risk-<PR番号>-<head7>.json`（head7 は headSha の先頭7文字）。PR 番号と head を名前に入れるのは、並行して別の PR や別の head を判定しても取り違えないため。
    - **reviewer**（`enforce` では呼ばない）：judge-input のファイルの中身と、出力のパス `reviewer-<PR番号>-<head7>.json` を指示に含めて渡す。Agent の説明は `reviewer <PR番号> <head7>` にする（合体版と費用を分けて数えるため）。
-   - **risk-agent**：PR 番号と head SHA と、出力のパス `risk-<PR番号>-<head7>.json` **だけ**を渡す（Issue・PR の説明は渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
+   - **risk-agent**：PR 番号と head SHA と、PR の base のブランチ名（`gh pr view <PR番号> --json baseRefName`）と、出力のパス `risk-<PR番号>-<head7>.json` **だけ**を渡す（Issue・PR の説明は渡さない）。diff は `git fetch origin && git diff origin/<PR の base>...<headSha>` で読むよう伝える（既定ブランチ宛ての PR は base が `main` で今までと同じ）。
 5. 全部の担当（`shadow`・`enforce` では review-panel の担当も）が返った後に、次を確かめる。呼び出し元は担当の出力のファイルを書かない、直さない（担当の代わりに書かない）。
    - 担当が書いたファイルが出力のパスにあり、JSON として読めること（`node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読むだけ）。
    - ファイルが無いときは、同じパスを渡してその担当を1回だけ呼び直す。2回目も無ければ判定せず人に返す。
@@ -38,7 +38,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 
 合体版も同じ決まりで、review-panel の compose が組み立てのときに行う（前回の head から変わった行への指摘、⑥⑦の直っていない前回の指摘、⑧だけをブロッキングにする）。
 
-judge-input の「再レビューの範囲（補足）」には、前回の head の後に main の取り込みがあったかが入る。取り込みがあれば、前回の head からの差分には main から来た変更も入る。PR 自身の変更は、それぞれの head で `git diff origin/main...<head>` を取って比べると分かる（差分の取り方は reviewer.md のまま）。最新の判定コメントのブロックが壊れていれば、それを飛ばした前の正しい判定が「前回の判定」に入り、そのことが注記される。
+judge-input の「再レビューの範囲（補足）」には、前回の head の後に main の取り込みがあったかが入る。取り込みがあれば、前回の head からの差分には main から来た変更も入る。PR 自身の変更は、それぞれの head で `git diff origin/<PR の base>...<head>` を取って比べると分かる（差分の取り方は reviewer.md のまま。既定ブランチ宛ての PR は `origin/main...`）。最新の判定コメントのブロックが壊れていれば、それを飛ばした前の正しい判定が「前回の判定」に入り、そのことが注記される。
 
 ## 終わりの状態
 
