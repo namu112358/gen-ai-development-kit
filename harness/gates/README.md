@@ -21,6 +21,8 @@
 | `plan-link.ts` | 必須チェック agent/plan-link：PR が計画のある Issue に紐付いているか（本文の `Closes #N`、Stacked PR の層は `Refs #N` も）。 | ○ |
 | `publish-queue.ts` | 次にやること（queue）を App が計算し、ダッシュボード Issue の本文に公開する。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションが Agent PR に push したことを、PR に App のコメント（kind=unclaimed-push）で知らせる（止めない）。 | ○ |
+| `rerun-failed.ts` | 定期実行：計画・判定・決定の記録のコメントで起動して失敗した gate の実行を見つけ、1回だけやり直す（#390）。 | ○ |
+| `rerun.ts` | ジョブ rerun-failed の入口。 | ○ |
 | `run.ts` | ゲートの入口で、イベントの種類ごとに処理を選ぶ。 | ○ |
 | `stale.ts` | 定期実行：停滞検知。 | ○ |
 | `tests-check.ts` | 必須チェック agent/tests の書き方（on-pr.ts と apply.ts の両方から使う）。 | ○ |
