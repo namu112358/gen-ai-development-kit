@@ -85,7 +85,7 @@
     "decisionMaxTargets": 20,
     "decisionMaxAnswerChars": 20000,
     "decisionRelease": "shadow",
-    "testTamper": "shadow",
+    "testTamper": "enforce",
     "thresholds": {
       "lowProbability": 0.9,
       "noulSafe": 0.9,
