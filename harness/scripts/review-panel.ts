@@ -8,7 +8,7 @@ import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import {
   composePanel, npmCiFailureMessage, parseChangedLines, parsePanelOutputs, parsePanelRecord, pastPrMaterial, previousFromJudgeInput, renderPanelRecord, subagentCost,
-  PANEL_MODES, PANEL_OUTPUT_NAMES, type CheckResult, type PanelMode, type PanelRecord,
+  PANEL_MODES, PANEL_OPTIONAL_OUTPUT_NAMES, PANEL_OUTPUT_NAMES, type CheckResult, type PanelMode, type PanelRecord,
 } from '../lib/review-panel.ts';
 import { checkJudgeInput, judgedHeadOf, judgedPrOf, splitArgs } from '../lib/session-inputs.ts';
 import { sessionFromEnv, transcriptSessionId } from '../lib/session.ts';
@@ -26,7 +26,7 @@ import { addWorktree, mainRepoRoot, npmCommand, removeWorktree } from '../lib/wo
  *       { headSha, exitCode, outputTail }（出力の末尾 60 行）を JSON のファイルに書き、パスを出力。worktree は必ず消す。
  *       npm ci が失敗したら⑧の指摘にせず止まる
  *   node harness/scripts/review-panel.ts findings <dir>
- *       <dir> の担当の出力（intake.json・lens1.json〜lens5.json・ac-scope.json・safety.json）を検査し、採点に渡す指摘の一覧（ID 付き）を出力
+ *       <dir> の担当の出力（intake.json・lens1.json〜lens5.json・ac-scope.json・safety.json、あれば overbuild.json）を検査し、採点に渡す指摘の一覧（ID 付き）を出力
  *   node harness/scripts/review-panel.ts compose <pr> <dir> --judge-input <file> [--session <jsonl>]
  *       <dir> の担当の出力・score-<id>.json・check.json と、judge-input の前回の判定（あれば git diff -U0 <前回の head> <headSha> の変わった行）から組み立て、
  *       組み立ての出力（review-<PR>-<head7>.json。reviewer の出力と同じ形）と記録のコメント（panel-<PR>-<head7>.md）を書いてパスを出力。
@@ -126,6 +126,10 @@ function readOutputs(dir: string) {
     if (!existsSync(path)) fail([`${path} がありません`]);
     files[name] = readJson(path);
   }
+  for (const name of PANEL_OPTIONAL_OUTPUT_NAMES) {
+    const path = join(dir, `${name}.json`);
+    if (existsSync(path)) files[name] = readJson(path);
+  }
   const parsed = parsePanelOutputs(files);
   if (!parsed.ok) fail(parsed.errors);
   return parsed.value;
@@ -195,7 +199,7 @@ async function compose(gh: GitHub, args: string[]): Promise<string> {
   const composeHeadError = headError(head, current);
   if (composeHeadError !== null) fail([composeHeadError]);
 
-  const composed = composePanel({ findings: outputs.findings, notes: outputs.notes, suggestions: outputs.suggestions, scores, check: checkRaw as CheckResult, previous: previous.value, changedLines });
+  const composed = composePanel({ findings: outputs.findings, notes: outputs.notes, suggestions: outputs.suggestions, overbuildMissing: outputs.overbuildMissing, scores, check: checkRaw as CheckResult, previous: previous.value, changedLines });
   if (!composed.ok) fail(composed.errors);
   const head7 = head.slice(0, 7);
   const record: PanelRecord = {
