@@ -275,6 +275,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <li>指摘を直す、main を取り込む</li>
         <li>複数の Issue は fleet で進める。<code>fleet.shipMode</code> が <code>worker</code> で Orca があれば、Issue ごとに ship を Orca の worker（独立したセッション）で起こし、無ければ1つのセッションの中（サブエージェントか、段階を交互に）で進める</li>
         <li>intel は Orca の本体のタブで待ち、hq・fleet・人から届く気づきを控えて Issue の下書きにし、人の質問に根拠つきで答える。何も動かさない</li>
+        <li>hq は人の判断が要る相談を人に聞き、今すぐの判断が要らない気づき・改善案は intel に回す（fleet も hq を通さず intel に送る）。人が hq に言ったアイデアも intel に回し、次からは intel のタブに送るよう案内する</li>
       </ul>
       <p class="not">しないこと：Merge、Draft の解除、main への push、保護ラベルの付け外し（見張りの hook が止める）</p>
     </section>
