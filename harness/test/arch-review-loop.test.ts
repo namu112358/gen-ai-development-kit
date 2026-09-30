@@ -1,3 +1,6 @@
+// Issue #328：arch-review を /loop から回し、前回の位置から続けて見直す。
+// 記録の書式（trigger・下書きの body・採用数）、下書きの採用（arch-review-adopt）、採用待ちの一覧（arch-review-pending）、
+// /loop の下書きの上限、skill・docs の /loop での回し方の検査
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -21,10 +24,6 @@ import { claudeMark } from '../lib/blocks.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { documentedAgentCommands } from './support/agent-source.ts';
 import { APP, config } from './support/gate-fixtures.ts';
-
-// Issue #328：arch-review を /loop から回し、前回の位置から続けて見直す。
-// 記録の書式（trigger・下書きの body・採用数）、下書きの採用（arch-review-adopt）、採用待ちの一覧（arch-review-pending）、
-// /loop の下書きの上限、skill・docs の /loop での回し方の検査
 
 const root = join(import.meta.dirname, '..', '..');
 const read = (path: string): string => readFileSync(join(root, path), 'utf8').replace(/\r\n/g, '\n');
