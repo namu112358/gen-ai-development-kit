@@ -142,13 +142,15 @@ git config --global user.email "<メール>"
 
 `.gitattributes` が入る前に Windows の git で取り出した checkout は、作業ツリーが CRLF のままになっている。次の手順で LF にそろえる。
 
+main の checkout での手順1〜5は、**人が自分のターミナルで**行う（Claude のセッションに頼まない）。Claude のセッションでは、書き換えの見張りの hook（`.claude/hooks/workspace-guard.ts`）が main の checkout での `git add`・`git rm`・`git reset` を止める（人の決定で、守らせ方は「場所で止める」。この手順のために hook に例外は作らない。#296）。hook が止めるのは Claude のツールの呼び出しだけで、人のターミナルの git は止めない。
+
 1. `git status` で未 commit の変更が無いことを確かめる。あれば commit か stash する（手順4の `git reset --hard` で消えるため）。未追跡のファイルは `git reset --hard` では消えない。
-2. main を取り込む（`.gitattributes` を含む版にする）。
+2. main を取り込む（`.gitattributes` を含む版にする）：`git pull --ff-only origin main`。
 3. `git add --renormalize .` で index を属性に合わせる。このリポジトリの index はもう LF なので、ふつうは差分が出ない。`git status` に差分が出たら commit しない。手順4の `git reset --hard` でその差分は消えるので、Issue にするなら先に `git diff --cached --stat` などで内容を控えてから進める。
 4. `git rm -r --cached -q .` と `git reset --hard` で作業ツリーを取り出し直す（CRLF のファイルが LF になる）。
 5. 確かめる：`git ls-files --eol` で `w/crlf` が無いこと。WSL など別の git で `git status` が変更0件であること。
 
-worktree は作業ツリーがそれぞれ別なので、worktree でも同じ手順を行う（または作り直す）。
+worktree は作業ツリーがそれぞれ別なので、worktree でも同じ手順を行う（または作り直す）。Issue の worktree は hook が止めないので、worktree での手順は Claude のセッションが行ってよい。
 
 導入先でも同じ `* text=auto eol=lf` の行を `.gitattributes` に置くとよい。導入先のバイナリや CRLF の要るファイルの例外は、導入先が書く（`.gitattributes` は配らない。[1. ファイルを持ち込む](#1-ファイルを持ち込む)）。
 

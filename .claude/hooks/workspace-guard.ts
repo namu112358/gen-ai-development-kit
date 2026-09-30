@@ -3,11 +3,14 @@
  *
  * main の checkout と fleet のワークスペース（印のファイル `.agent-harness-workspace` を一番上に置いた作業ツリー）の中の書き換えを止め、
  * 書き換えを Issue の worktree の中だけにする（規則「作業は常に worktree で行う」を仕組みで守らせる。人の決定は #281 のコメント 5892608637）。
- * 止めるのは Edit・Write・NotebookEdit の書き先と、作業ツリー・索引を変える git（commit・add・reset など、`--ff-only` の無い pull）だけ。
- * `git pull --ff-only`・`fetch`・`status`・`worktree add/remove/prune` などは通す。OS の一時ディレクトリと `~/.claude` の中は常に通す。
+ * 止めるのは Edit・Write・NotebookEdit の書き先と、作業ツリー・索引を変える git（commit・add・reset など、
+ * `--ff-only` も `pull.ff=only` の設定も無い pull、rebase を伴う pull（`--ff-only` があっても））だけ。
+ * `git pull --ff-only`・`pull.ff=only` の設定で fast-forward だけになる素の pull（コマンド行・環境で設定を変えていないとき）・
+ * `fetch`・`status`・`worktree add/remove/prune` などは通す。OS の一時ディレクトリと `~/.claude` の中は常に通す。
  *
- * 場所の判定の順：通す置き場所 → 書き先の作業ツリーの一番上（`git rev-parse --show-toplevel --git-common-dir`）→
- * 書き先から作業ツリーの一番上までの祖先の印 → 作業ツリーの一番上が「git-common-dir の親」（main の checkout）か。
+ * 場所の判定の順：通す置き場所 → 書き先の作業ツリーの一番上（`git rev-parse --show-toplevel --git-dir --git-common-dir`）→
+ * 書き先から作業ツリーの一番上までの祖先の印 → 作業ツリーが main の checkout か（git-dir と git-common-dir が同じ作業ツリー。
+ * `--separate-git-dir` で git のディレクトリが離れていても見分ける。linked worktree・submodule は「git-common-dir の親」と比べる）。
  * 作業ツリーの一番上で比べるので、main の checkout の中の `.claude/worktrees/` の worktree や `../<リポジトリ名>.worktrees/` は通る。
  * 判定できないとき（入力が読めない・パスが無い・git が失敗する・git の作業場所が静的に決まらない）は止める。
  *
@@ -18,7 +21,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, join, posix, resolve, win32 } from 'node:path';
 import { parseScript } from './guard.ts';
 
 export const MARKER = '.agent-harness-workspace';
@@ -30,10 +33,22 @@ export type Located = { kind: 'repo'; toplevel: string; mainRoot: string } | { k
 export interface WorkspaceContext {
   /** 常に通す置き場所（OS の一時ディレクトリ・~/.claude） */
   allowRoots: string[];
-  /** dir（無ければ今ある一番近い祖先）を含む作業ツリーの一番上と、main の checkout（git-common-dir の親） */
+  /** dir（無ければ今ある一番近い祖先）を含む作業ツリーの一番上と、main の checkout（git-dir と git-common-dir が同じなら作業ツリーの一番上、linked worktree・submodule は git-common-dir の親） */
   locate: (dir: string) => Located;
   /** dir の直下に印のファイルがあるか */
   hasMarker: (dir: string) => boolean;
+  /** パスの扱い（区切り・大文字小文字・Git Bash の /c/...）を決めるプラットフォーム。既定はこの OS */
+  platform?: NodeJS.Platform;
+  /**
+   * dir で素の `git pull` に効く設定（`pull.ff` と、今のブランチの `branch.<名前>.rebase`、無ければ `pull.rebase`。未設定は null）。
+   * null は読めない。無いか null なら、素の pull は場所で判定する（main の checkout では止める）
+   */
+  pullSettings?: (dir: string) => PullSettings | null;
+}
+
+export interface PullSettings {
+  ff: string | null;
+  rebase: string | null;
 }
 
 export interface HookInput {
@@ -45,7 +60,6 @@ export interface HookInput {
 
 const ALLOW: Decision = { deny: false };
 const MAX_DEPTH = 8;
-const WIN = process.platform === 'win32';
 
 const ADVICE = '書き換えは Issue の worktree（node harness/scripts/agent.ts worktree <ブランチ>）の中で行ってください。hq・fleet の役のセッションはファイルを書き換えません（harness/CLAUDE.harness.md の「作業は常に worktree で行う」）。';
 const deny = (what: string): Decision => ({ deny: true, reason: `hook（workspace-guard）が止めました：${what}。${ADVICE}` });
@@ -56,53 +70,74 @@ const unknownDeny = (what: string): Decision => ({
 
 // ---------------------------------------------------------------- パス
 
+/** パスの扱い。win32 は大文字・小文字と区切り（/ と \）を区別せず、Git Bash の /c/... を C:/... と読む */
+interface PathOps {
+  win: boolean;
+  p: typeof posix;
+  /** 実際のファイルシステムを見るか（判定するプラットフォームがこの OS と同じときだけ） */
+  fs: boolean;
+}
+
+function ops(ctx: WorkspaceContext): PathOps {
+  return opsFor(ctx.platform ?? process.platform);
+}
+
+function opsFor(platform: NodeJS.Platform): PathOps {
+  const win = platform === 'win32';
+  return { win, p: win ? win32 : posix, fs: win === (process.platform === 'win32') };
+}
+
 /** Git Bash の /c/... を C:/... に読み替える（Windows だけ） */
-function fromMsys(p: string): string {
-  if (!WIN) return p;
+function fromMsys(o: PathOps, p: string): string {
+  if (!o.win) return p;
   const m = /^\/([a-zA-Z])(\/.*)?$/.exec(p);
   return m ? `${m[1]!.toUpperCase()}:${m[2] ?? '/'}` : p;
 }
 
-function expandHome(p: string): string {
+function expandHome(o: PathOps, p: string): string {
   if (p === '~') return homedir();
-  if (p.startsWith('~/') || p.startsWith('~\\')) return join(homedir(), p.slice(2));
+  if (p.startsWith('~/') || p.startsWith('~\\')) return o.p.join(homedir(), p.slice(2));
   return p;
 }
 
+function exists(o: PathOps, p: string): boolean {
+  return o.fs && existsSync(p);
+}
+
 /** 絶対パスにし、今ある一番近い祖先を実体のパスにする */
-function canonical(p: string): string {
-  let cur = resolve(p);
+function canonical(o: PathOps, p: string): string {
+  let cur = o.p.resolve(p);
   const rest: string[] = [];
   for (;;) {
-    if (existsSync(cur)) {
+    if (exists(o, cur)) {
       let real = cur;
       try {
         real = realpathSync.native(cur);
       } catch {
         // そのまま使う
       }
-      return rest.length > 0 ? join(real, ...rest.reverse()) : real;
+      return rest.length > 0 ? o.p.join(real, ...rest.reverse()) : real;
     }
-    const parent = dirname(cur);
-    if (parent === cur) return resolve(p);
+    const parent = o.p.dirname(cur);
+    if (parent === cur) return o.p.resolve(p);
     rest.push(cur.slice(parent.length).replace(/^[\\/]/, ''));
     cur = parent;
   }
 }
 
-const key = (p: string): string => {
-  const r = resolve(p).replace(/[\\/]+$/, '');
-  return WIN ? r.replace(/\//g, '\\').toLowerCase() : r;
-};
-const samePath = (a: string, b: string): boolean => key(a) === key(b);
-function within(child: string, root: string): boolean {
-  const c = key(child);
-  const r = key(root);
-  const sep = WIN ? '\\' : '/';
+function key(o: PathOps, p: string): string {
+  const r = o.p.resolve(p).replace(/[\\/]+$/, '');
+  return o.win ? r.replace(/\//g, '\\').toLowerCase() : r;
+}
+const samePath = (o: PathOps, a: string, b: string): boolean => key(o, a) === key(o, b);
+function within(o: PathOps, child: string, root: string): boolean {
+  const c = key(o, child);
+  const r = key(o, root);
+  const sep = o.win ? '\\' : '/';
   return c === r || c.startsWith(r.endsWith(sep) ? r : r + sep);
 }
 
-/** 今ある一番近い祖先のディレクトリ */
+/** 今ある一番近い祖先のディレクトリ（realContext の locate が git を動かす場所） */
 function existingDir(p: string): string {
   let cur = p;
   for (;;) {
@@ -122,23 +157,25 @@ function existingDir(p: string): string {
  * 止めるなら理由、通すなら null
  */
 function classify(target: string, isDir: boolean, ctx: WorkspaceContext): Decision {
-  const abs = canonical(target);
+  const o = ops(ctx);
+  const abs = canonical(o, target);
   for (const root of ctx.allowRoots) {
-    if (within(abs, canonical(root))) return ALLOW;
+    if (within(o, abs, canonical(o, root))) return ALLOW;
   }
-  const start = existingDir(isDir ? abs : dirname(abs));
+  // まだ無いディレクトリでもよい（locate が今ある祖先で git を読む。印は無いディレクトリには無い）
+  const start = isDir ? abs : o.p.dirname(abs);
   const loc = ctx.locate(start);
   if (loc.kind === 'error') return unknownDeny(`git で ${start} の作業ツリーを読めなかった`);
-  const top = loc.kind === 'repo' ? canonical(loc.toplevel) : null;
+  const top = loc.kind === 'repo' ? canonical(o, loc.toplevel) : null;
   let cur = start;
   for (;;) {
     if (ctx.hasMarker(cur)) return deny(`fleet のワークスペース（${cur} に ${MARKER} がある）の中の書き換え（${abs}）`);
-    if (top !== null && samePath(cur, top)) break;
-    const parent = dirname(cur);
+    if (top !== null && samePath(o, cur, top)) break;
+    const parent = o.p.dirname(cur);
     if (parent === cur) break;
     cur = parent;
   }
-  if (loc.kind === 'repo' && top !== null && samePath(top, canonical(loc.mainRoot))) {
+  if (loc.kind === 'repo' && top !== null && samePath(o, top, canonical(o, loc.mainRoot))) {
     return deny(`main の checkout（${top}）の中の書き換え（${abs}）`);
   }
   return ALLOW;
@@ -162,35 +199,69 @@ const baseName = (s: string): string => s.slice(Math.max(s.lastIndexOf('/'), s.l
 /** 作業ツリー・索引を変える git のサブコマンド */
 const WRITES = new Set(['commit', 'add', 'rm', 'mv', 'stash', 'reset', 'checkout', 'switch', 'restore', 'merge', 'rebase', 'cherry-pick', 'apply', 'clean', 'revert', 'am', 'pull']);
 
-function moveTo(where: Where, arg: Word | undefined): Where {
+function moveTo(where: Where, arg: Word | undefined, ctx: WorkspaceContext): Where {
+  const o = ops(ctx);
   if (arg === undefined) return { dir: homedir() };
   if (arg.dynamic || arg.text === '-') return { dir: undefined };
-  const t = fromMsys(expandHome(arg.text));
-  if (isAbsolute(t)) return { dir: resolve(t) };
-  return { dir: where.dir !== undefined ? resolve(where.dir, t) : undefined };
+  const t = fromMsys(o, expandHome(o, arg.text));
+  if (o.p.isAbsolute(t)) return { dir: o.p.resolve(t) };
+  return { dir: where.dir !== undefined ? o.p.resolve(where.dir, t) : undefined };
+}
+
+/** 素の pull（`--ff-only` の無い pull）で通してよい引数（完全一致）。ほかの `-` で始まる引数が1つでもあれば通さない */
+const PLAIN_PULL_OPTIONS = new Set([
+  '-q', '--quiet', '-v', '--verbose', '--no-rebase', '--rebase=false', '--ff-only', '--progress', '--no-progress',
+  '--autostash', '--no-autostash', '--prune', '--no-tags', '--tags',
+]);
+
+/** pull の引数が rebase を求めるか（`--rebase` の省略形 `--r`〜・`=false` 以外の値付き・短いオプションの束の `r`） */
+function wantsRebase(a: Word): boolean {
+  if (a.dynamic) return false;
+  const t = a.text;
+  if (/^-[A-Za-z]+$/.test(t)) return t.includes('r');
+  const m = /^--([a-z-]+)(?:=(.*))?$/.exec(t);
+  if (!m || !'rebase'.startsWith(m[1]!)) return false;
+  return m[2] !== 'false';
+}
+
+/** 素の pull（rebase を求めず、`--ff-only` も無い）を、効く設定が fast-forward だけのときに通してよいか */
+function plainPullIsFastForward(rest: Word[], here: Where, configOverride: boolean, ctx: WorkspaceContext): boolean {
+  if (configOverride || here.dir === undefined || ctx.pullSettings === undefined) return false;
+  for (const a of rest) {
+    if (a.dynamic) return false;
+    if (a.text.startsWith('-') && !PLAIN_PULL_OPTIONS.has(a.text)) return false;
+  }
+  const s = ctx.pullSettings(here.dir);
+  if (s === null) return false;
+  return s.ff === 'only' && (s.rebase === null || s.rebase.toLowerCase() === 'false');
 }
 
 /** git の引数から、止めるべきか。null は通す */
 function checkGit(args: Word[], where: Where, assigns: string[], ctx: WorkspaceContext): Decision {
   let here: Where = where;
   let unknownWhy: string | null = null;
+  /** コマンド行・環境で git の設定を変えている（hook が読んだ pull の設定と実際が食い違いうる） */
+  let configOverride = false;
   for (const a of assigns) {
-    const name = a.slice(0, a.indexOf('='));
+    const name = a.slice(0, a.indexOf('=')).replace(/\+$/, '');
     if (name === 'GIT_DIR' || name === 'GIT_WORK_TREE') unknownWhy = `前置きの ${name}`;
+    if (name.startsWith('GIT_CONFIG') || name === 'HOME' || name === 'XDG_CONFIG_HOME') configOverride = true;
   }
   let j = 0;
   while (j < args.length && args[j]!.text.startsWith('-') && !args[j]!.dynamic) {
     const t = args[j]!.text;
     if (t === '-C') {
-      here = moveTo(here, args[j + 1] ?? { text: '', dynamic: true, quoted: false });
+      here = moveTo(here, args[j + 1] ?? { text: '', dynamic: true, quoted: false }, ctx);
       j += 2;
     } else if (['-c', '--config-env', '--namespace', '--super-prefix', '--attr-source', '--exec-path'].includes(t)) {
+      if (t === '-c' || t === '--config-env') configOverride = true;
       j += 2;
     } else if (t === '--git-dir' || t === '--work-tree') {
       unknownWhy = `git ${t}`;
       j += 2;
     } else {
       if (t.startsWith('--git-dir=') || t.startsWith('--work-tree=')) unknownWhy = `git ${t.slice(0, t.indexOf('='))}`;
+      if (t.startsWith('--config-env=')) configOverride = true;
       j++;
     }
   }
@@ -201,7 +272,11 @@ function checkGit(args: Word[], where: Where, assigns: string[], ctx: WorkspaceC
   const s = sub.text;
   if (!WRITES.has(s)) return ALLOW;
   if (s === 'stash' && rest[0] !== undefined && !rest[0].dynamic && ['list', 'show'].includes(rest[0].text)) return ALLOW;
-  if (s === 'pull' && rest.some((a) => a.text === '--ff-only')) return ALLOW;
+  if (s === 'pull' && !rest.some(wantsRebase)) {
+    // rebase を伴う pull は --ff-only があっても通さず、場所で判定する
+    if (rest.some((a) => a.text === '--ff-only')) return ALLOW;
+    if (unknownWhy === null && plainPullIsFastForward(rest, here, configOverride, ctx)) return ALLOW;
+  }
   if (unknownWhy !== null) return unknownDeny(`${unknownWhy} が付いた git ${s} は作業ツリーが分からない`);
   if (here.dir === undefined) return unknownDeny(`git ${s} を動かす場所が静的に決まらない`);
   const d = classify(here.dir, true, ctx);
@@ -269,7 +344,7 @@ function checkSegment(seg: Segment, where: Where, ctx: WorkspaceContext, depth: 
   }
   const name = baseName(head.text);
   if (name === 'cd' || name === 'pushd') {
-    where.dir = moveTo(where, args.find((a) => !/^-[LPe@]+$/.test(a.text))).dir;
+    where.dir = moveTo(where, args.find((a) => !/^-[LPe@]+$/.test(a.text)), ctx).dir;
     return ALLOW;
   }
   if (SHELLS.has(name)) {
@@ -329,13 +404,14 @@ function analyze(script: string, where: Where, ctx: WorkspaceContext, depth: num
 export function decide(input: HookInput, ctx: WorkspaceContext): Decision {
   const toolName = typeof input.tool_name === 'string' ? input.tool_name : '';
   const toolInput = input.tool_input !== null && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>) : {};
-  const cwd = typeof input.cwd === 'string' && input.cwd !== '' ? fromMsys(input.cwd) : undefined;
+  const o = ops(ctx);
+  const cwd = typeof input.cwd === 'string' && input.cwd !== '' ? fromMsys(o, input.cwd) : undefined;
   if (toolName === 'Edit' || toolName === 'Write' || toolName === 'NotebookEdit') {
     const p = toolName === 'NotebookEdit' ? toolInput.notebook_path : toolInput.file_path;
     if (typeof p !== 'string' || p === '') return unknownDeny(`${toolName} の書き先（${toolName === 'NotebookEdit' ? 'notebook_path' : 'file_path'}）が無い`);
-    const t = fromMsys(expandHome(p));
-    if (!isAbsolute(t) && cwd === undefined) return unknownDeny(`${toolName} の書き先が相対パスで、cwd が無い`);
-    return classify(isAbsolute(t) ? t : resolve(cwd!, t), false, ctx);
+    const t = fromMsys(o, expandHome(o, p));
+    if (!o.p.isAbsolute(t) && cwd === undefined) return unknownDeny(`${toolName} の書き先が相対パスで、cwd が無い`);
+    return classify(o.p.isAbsolute(t) ? t : o.p.resolve(cwd!, t), false, ctx);
   }
   if (toolName === 'Bash') {
     const command = toolInput.command;
@@ -362,16 +438,48 @@ export function realContext(opts: { allowRoots?: string[] } = {}): WorkspaceCont
   return {
     allowRoots: opts.allowRoots ?? [tmpdir(), join(homedir(), '.claude')],
     locate: (dir: string): Located => {
-      const r = spawnSync('git', ['-C', existingDir(resolve(dir)), 'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-common-dir'], { encoding: 'utf8', timeout: 5000 });
+      const r = spawnSync(
+        'git',
+        ['-C', existingDir(resolve(dir)), 'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir', '--show-superproject-working-tree'],
+        { encoding: 'utf8', timeout: 5000 },
+      );
       if (r.status === 0 && typeof r.stdout === 'string') {
-        const [top, common] = r.stdout.trim().split(/\r?\n/);
-        if (top && common) return { kind: 'repo', toplevel: top, mainRoot: dirname(common) };
-        return { kind: 'error' };
+        // --show-superproject-working-tree は submodule でないと何も出さない（ふつうは3行、submodule では4行）
+        const lines = r.stdout.trim().split(/\r?\n/);
+        const [top, gitDir, common] = lines;
+        if (lines.length > 4 || !top || !gitDir || !common) return { kind: 'error' };
+        // submodule（4行）・linked worktree（git-dir ≠ git-common-dir）は git-common-dir の親。
+        // そうでなければ linked worktree ではないので main の checkout（--separate-git-dir で git のディレクトリが離れていても）
+        const o = opsFor(process.platform);
+        const isMain = lines.length === 3 && samePath(o, canonical(o, gitDir), canonical(o, common));
+        return { kind: 'repo', toplevel: top, mainRoot: isMain ? top : dirname(common) };
       }
       if (typeof r.stderr === 'string' && /not a git repository/i.test(r.stderr)) return { kind: 'none' };
       return { kind: 'error' };
     },
     hasMarker: (dir: string): boolean => existsSync(join(dir, MARKER)),
+    pullSettings: (dir: string): PullSettings | null => {
+      const cwd = existingDir(resolve(dir));
+      const run = (...args: string[]) => spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 5000 });
+      /** 未設定（終了コード 1）は null。ほかの失敗は読めない */
+      const get = (k: string): string | null => {
+        const r = run('config', '--get', k);
+        if (r.status === 0 && typeof r.stdout === 'string') return r.stdout.trim();
+        if (r.status === 1) return null;
+        throw new Error(`git config --get ${k}`);
+      };
+      try {
+        const ff = get('pull.ff');
+        const b = run('symbolic-ref', '-q', '--short', 'HEAD');
+        let branch: string | null = null;
+        if (b.status === 0 && typeof b.stdout === 'string') branch = b.stdout.trim() || null;
+        else if (b.status !== 1) return null;
+        const rebase = (branch !== null ? get(`branch.${branch}.rebase`) : null) ?? get('pull.rebase');
+        return { ff, rebase };
+      } catch {
+        return null;
+      }
+    },
   };
 }
 
