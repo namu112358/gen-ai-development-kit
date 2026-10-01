@@ -3,7 +3,7 @@
  *
  *   node harness/scripts/panes.ts collect --session <fleet のセッション ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...
  *   node harness/scripts/panes.ts progress|todo|prs (--session <ID> | --snapshot <パス>)（todo は hq がいない間の控えの質問も出す）
- *   node harness/scripts/panes.ts hq todo|board|log [--once] [--fleets <控えのパス>]
+ *   node harness/scripts/panes.ts hq [todo|board|log] [--once] [--fleets <控えのパス>]（ペインの名前が無ければ todo）
  *   node harness/scripts/panes.ts fleets --session <ID> [--session <ID>...]
  *   node harness/scripts/panes.ts config
  *
@@ -363,7 +363,7 @@ function main(argv: string[]): void {
   }
   if (mode === 'hq') return mainHq(rest, config);
   const args = parseCli(rest);
-  const root =fileURLToPath(new URL('../..', import.meta.url));
+  const root = fileURLToPath(new URL('../..', import.meta.url));
   const every: Schedule = (fn, ms) => setInterval(fn, ms);
   const renderDeps = (path: string): RenderDeps => ({
     readSnapshot: () => readSnapshotFile(path),
@@ -447,7 +447,11 @@ function readJsonFile(path: string): unknown {
 
 /** hq todo|board|log（Issue #402）。控えから fleet を読むので --session・--snapshot・Issue 番号は受け付けない */
 function mainHq(argv: string[], config: ReturnType<typeof loadConfig>): void {
-  const [pane, ...rest] = argv;
+  // ペインの名前が無ければ todo（hq の人待ち）。`panes.ts hq` だけで呼ぶ案内（intel の skill など）もそのまま動く
+  const [first, ...more] = argv;
+  const named = first === 'todo' || first === 'board' || first === 'log';
+  const pane = named ? first : 'todo';
+  const rest = named ? more : argv;
   if (pane !== 'todo' && pane !== 'board' && pane !== 'log') throw new Error(USAGE);
   const args = parseCli(rest);
   if (args.sessions.length > 0 || args.snapshot || args.issues.length > 0) throw new Error(`hq のペインは --session・--snapshot・Issue 番号を受け付けません（hq の控えから今動いている fleet を読みます。${USAGE}）`);

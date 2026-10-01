@@ -1,7 +1,9 @@
 // Issue #402：collect が fleet の Issue の親の Epic と子課題を gh の graphql で読んでスナップショット（epics・issueEpic）に入れること、
 // 読めなければ前回のものを使って error に書くこと、hq の描く入口（startHqRender）が控えとスナップショットだけを読み（run が無く GitHub を
 // 読まない）、描くたびに控えを読み直して今動いている fleet を見つけることを、偽の deps と schedule で確かめる。
+// CLI の入口（ペインの名前が無い `panes.ts hq` は todo、--session は止まる）は子のプロセスの --once で確かめる。
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -224,4 +226,25 @@ test('startHqRender：すぐ1回描き、以後は控えを読み直して今の
   const s2: number[] = [];
   startHqRender(deps, () => '', (_fn, ms) => { s2.push(ms); }, 1000);
   assert.equal(s2[0], 1000);
+});
+
+// ---- CLI の入口（子のプロセスで --once。控えは無いパスを --fleets で渡す） ----
+
+const script = join(root, 'harness', 'scripts', 'panes.ts');
+const missingLedger = join(root, 'harness', 'test', 'no-such-hq-fleets.json');
+const cli = (args: string[]) => spawnSync(process.execPath, [script, ...args], { cwd: root, encoding: 'utf8' });
+
+test('panes.ts hq：ペインの名前が無ければ todo（人待ち）を描く（intel の skill の案内が止まらない）', () => {
+  const bare = cli(['hq', '--once', '--fleets', missingLedger]);
+  assert.equal(bare.status, 0, bare.stderr);
+  const todo = cli(['hq', 'todo', '--once', '--fleets', missingLedger]);
+  assert.equal(todo.status, 0, todo.stderr);
+  assert.match(bare.stdout, /人待ち/);
+  assert.equal(bare.stdout, todo.stdout);
+});
+
+test('panes.ts hq：--session を渡すと止まる', () => {
+  const r = cli(['hq', 'todo', '--once', '--session', 'abc', '--fleets', missingLedger]);
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /--session/);
 });

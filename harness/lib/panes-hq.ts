@@ -6,7 +6,7 @@
  */
 import type { FleetStatusRow } from './fleet.ts';
 import {
-  MARKS, MARK_COLOR, PANE_STEPS, WHO_MARK, ago, charWidthOf, displayWidth, locateRow, paint, progressBar, rule, shortTitle, todoItems,
+  MARKS, MARK_COLOR, PANE_STEPS, WHO_MARK, ago, charWidth, displayWidth, locateRow, paint, progressBar, rule, shortTitle, todoItems,
   type PaneSnapshot, type TodoItem,
 } from './panes.ts';
 
@@ -117,7 +117,7 @@ export function wrapText(text: string, width: number): string[] {
     if (isWordChar(tok[0]!) && tw <= w) { flush(); line = tok; n = tw; continue; }
     // 幅より長い語か、全角などの1文字：入るところまで入れて折り返す
     for (const ch of tok) {
-      const d = charWidthOf(ch);
+      const d = charWidth(ch);
       if (n + d > w && n > 0) flush();
       line += ch;
       n += d;
@@ -317,7 +317,7 @@ function clipLine(line: string, width: number): string {
   for (const m of line.matchAll(/\x1b\[[0-9;]*m|[\s\S]/gu)) {
     const t = m[0];
     if (t.startsWith('\x1b')) { out += t; continue; }
-    const d = charWidthOf(t);
+    const d = charWidth(t);
     if (n + d > width) break;
     out += t;
     n += d;

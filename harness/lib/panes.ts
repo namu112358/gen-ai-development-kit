@@ -181,9 +181,8 @@ export function stripAnsi(s: string): string {
 const isWide = (cp: number): boolean =>
   (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff)
   || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6);
-const charWidth = (ch: string): number => (isWide(ch.codePointAt(0)!) ? 2 : 1);
 /** 1文字の表示の幅（全角は2） */
-export const charWidthOf = charWidth;
+export const charWidth = (ch: string): number => (isWide(ch.codePointAt(0)!) ? 2 : 1);
 
 /** 端末での表示の幅（全角は2。色は数えない） */
 export function displayWidth(s: string): number {
@@ -230,7 +229,7 @@ export const MARKS = {
 
 export const MARK_COLOR: Record<keyof typeof MARKS, Color> = { done: 'green', ai: 'blue', human: 'magenta', app: 'yellow', wait: 'gray', todo: 'gray', stopped: 'red', epic: 'gray' };
 export const WHO_MARK: Record<PaneWho, keyof typeof MARKS> = { ai: 'ai', human: 'human', app: 'app', wait: 'wait', done: 'done' };
-export const markOf = (k: keyof typeof MARKS): string => paint(MARK_COLOR[k], MARKS[k].mark);
+const markOf = (k: keyof typeof MARKS): string => paint(MARK_COLOR[k], MARKS[k].mark);
 
 const legend = (): string => paint('gray', (Object.keys(MARKS) as (keyof typeof MARKS)[]).map((k) => `${MARKS[k].mark} ${MARKS[k].meaning}`).join('  '));
 
@@ -261,7 +260,7 @@ function header(snap: PaneSnapshot, title: string, now: number, width: number): 
 const LOADING = (title: string, width: number): string => [rule(title, width), paint('gray', '最初の読み込み中…')].join('\n');
 
 /** 行の宣言の持ち主の一言（このセッション・ほかのセッション） */
-export function claimOwner(row: FleetStatusRow): string | null {
+function claimOwner(row: FleetStatusRow): string | null {
   const c = activeClaim(row);
   if (!c) return null;
   return c.own ? 'このセッション' : `ほかのセッション${c.session ? `（${shortSession(c.session)}）` : ''}`;
