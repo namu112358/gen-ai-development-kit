@@ -23,8 +23,11 @@ interface ImproveApi {
   collectIncidentComments: (comments: IssueComment[]) => IncidentEntry[];
   renderImproveSection: (entries: IncidentEntry[] | null) => string;
   replaceImproveSection: (body: string, section: string) => string;
-  improveSectionFor: (ctx: GateContext, dashboard: number) => Promise<string>;
+  improveSectionFor: (ctx: GateContext, dashboard: number, now?: Date, total?: number) => Promise<string>;
 }
+
+/** テストのコメントの作成日（2026-10-01）から 7 日の内に入る、固定の今 */
+const NOW = new Date('2026-10-02T00:00:00.000Z');
 
 /** publish-queue.ts の改善の候補の export（まだ無いときも、ほかのテストが読み込みで巻き添えにならないよう動的に読む） */
 async function load(): Promise<ImproveApi> {
@@ -113,14 +116,14 @@ test('replaceImproveSection：目印があれば差し替え（節は1つ）、�
 test('improveSectionFor：ダッシュボードのコメントを読んで節を作り、読めなくても投げずに「読めませんでした」の節を返す', async () => {
   const { improveSectionFor } = await load();
   const ok = new FakeGitHub().on('GET', /\/issues\/9\/comments/, () => [comment(1, renderIncidentComment('s-1', [incident('止められた操作')]))]);
-  const s = await improveSectionFor(ctxFor(ok, 'schedule', {}), 9);
+  const s = await improveSectionFor(ctxFor(ok, 'schedule', {}), 9, NOW, 1);
   assert.match(s, /### 改善の候補/);
   assert.ok(s.includes('止められた操作'), s);
 
   const ng = new FakeGitHub().on('GET', /\/issues\/9\/comments/, () => {
     throw new Error('boom');
   });
-  const s2 = await improveSectionFor(ctxFor(ng, 'schedule', {}), 9);
+  const s2 = await improveSectionFor(ctxFor(ng, 'schedule', {}), 9, NOW, 1);
   assert.match(s2, /### 改善の候補/);
   assert.ok(s2.includes('読めませんでした'), s2);
 });
@@ -138,13 +141,15 @@ test('routine.md：「改善の候補」の節があり、incident add・inciden
   }
 });
 
-test('improveSectionFor：全コメントは読まず、since で直近 7 日に絞り、最大 3 ページで止める（#384 の API の節約）', async () => {
+test('improveSectionFor：全コメントは読まず、コメントの総数から一番新しい側の 2 ページだけを読み、直近 7 日に作られたものを出す（#384 の API の節約）', async () => {
   const { improveSectionFor } = await load();
-  const fn = improveSectionFor as (ctx: GateContext, dashboard: number, now?: Date) => Promise<string>;
-  const full = Array.from({ length: 100 }, (_, i) => comment(i + 1, 'ふつうのコメント'));
-  const fake = new FakeGitHub().on('GET', /\/issues\/9\/comments/, () => full);
-  await fn(ctxFor(fake, 'schedule', {}), 9, new Date('2026-10-08T00:00:00.000Z'));
-  const gets = fake.calls.filter((c) => c.method === 'GET' && c.path.includes('/issues/9/comments'));
-  assert.equal(gets.length, 3, gets.map((c) => c.path).join('\n'));
-  for (const c of gets) assert.ok(c.path.includes(`since=${encodeURIComponent('2026-10-01T00:00:00.000Z')}`), c.path);
+  const old = { ...comment(1, renderIncidentComment('s-old', [incident('古い記録')])), created_at: '2026-09-01T00:00:00.000Z' };
+  const fake = new FakeGitHub()
+    .on('GET', /\/issues\/9\/comments\?per_page=100&page=(\d+)$/, (m) => (m[1] === '3' ? [comment(300, renderIncidentComment('s-new', [incident('一番新しい記録')]))] : [old]))
+    .on('GET', /\/issues\/9$/, () => ({ comments: 201 }));
+  const s = await improveSectionFor(ctxFor(fake, 'schedule', {}), 9, NOW);
+  const pages = fake.calls.filter((c) => c.method === 'GET' && c.path.includes('/issues/9/comments')).map((c) => c.path.match(/page=(\d+)$/)?.[1]);
+  assert.deepEqual(pages, ['2', '3']);
+  assert.ok(s.includes('一番新しい記録'), s);
+  assert.ok(!s.includes('古い記録'), s);
 });

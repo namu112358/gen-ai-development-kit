@@ -146,19 +146,27 @@ export function replaceImproveSection(body: string, section: string): string {
   return `${body.trimEnd()}\n\n${section}`;
 }
 
-/** 改善の候補の節で読むコメントの期間（日）と、読む最大のページ数（100 件ずつ）。#384 の API の節約を崩さないよう、全コメントは読まない */
+/** 改善の候補の節に出すコメントの期間（日、作成日で絞る）と、読むページ数（100 件ずつ）。#384 の API の節約を崩さないよう、全コメントは読まない */
 const IMPROVE_DAYS = 7;
-const IMPROVE_MAX_PAGES = 3;
+const IMPROVE_PAGES = 2;
+const PER_PAGE = 100;
 
 /**
- * ダッシュボードの直近 7 日のコメント（since で絞る。最大 3 ページ）を読んで改善の候補の節を作る。
+ * ダッシュボードの一番新しい側のコメント（コメントの総数から最後の 2 ページを求めて読む。API は古い順なので、先頭から読むと新しいものが落ちる）のうち、
+ * 直近 7 日に作られたものから改善の候補の節を作る。total はダッシュボードの Issue の comments（無ければ Issue を読む）。
  * 読めなければ「読めませんでした」の節（投げない。queue の公開とジョブの成否に響かせない）
  */
-export async function improveSectionFor(ctx: GateContext, dashboard: number, now: Date = new Date()): Promise<string> {
+export async function improveSectionFor(ctx: GateContext, dashboard: number, now: Date = new Date(), total?: number): Promise<string> {
   try {
-    const since = new Date(now.getTime() - IMPROVE_DAYS * 24 * 3600_000).toISOString();
-    const comments = await ctx.gh.paginate<IssueComment>(`/issues/${dashboard}/comments?since=${encodeURIComponent(since)}`, IMPROVE_MAX_PAGES);
-    return renderImproveSection(collectIncidentComments(comments));
+    const count = total ?? (await ctx.gh.get<{ comments?: number }>(`/issues/${dashboard}`)).comments ?? 0;
+    const last = Math.max(1, Math.ceil(count / PER_PAGE));
+    const comments: IssueComment[] = [];
+    for (let page = Math.max(1, last - IMPROVE_PAGES + 1); page <= last; page++) {
+      comments.push(...(await ctx.gh.get<IssueComment[]>(`/issues/${dashboard}/comments?per_page=${PER_PAGE}&page=${page}`)));
+    }
+    const since = now.getTime() - IMPROVE_DAYS * 24 * 3600_000;
+    const recent = comments.filter((c) => Date.parse(c.created_at) >= since);
+    return renderImproveSection(collectIncidentComments(recent));
   } catch (e) {
     ctx.log(`改善の候補のコメントが読めませんでした: ${e instanceof Error ? e.message : String(e)}`);
     return renderImproveSection(null);
@@ -168,9 +176,9 @@ export async function improveSectionFor(ctx: GateContext, dashboard: number, now
 export async function publishQueue(ctx: GateContext): Promise<void> {
   const q = await computeQueue(ctx.gh, ctx.config, null);
   const dashboard = await ensureDashboard(ctx);
-  const issue = await ctx.gh.get<{ body: string | null }>(`/issues/${dashboard}`);
+  const issue = await ctx.gh.get<{ body: string | null; comments?: number }>(`/issues/${dashboard}`);
   const withQueue = replaceQueueSection(issue.body ?? '', renderQueueSection(q));
-  const body = replaceImproveSection(withQueue, await improveSectionFor(ctx, dashboard));
+  const body = replaceImproveSection(withQueue, await improveSectionFor(ctx, dashboard, new Date(), issue.comments ?? 0));
   if (body !== issue.body) await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body } });
   ctx.log(`queue published to #${dashboard}: ${q.actions.length} action(s)`);
 }
