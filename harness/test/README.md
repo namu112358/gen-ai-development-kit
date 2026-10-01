@@ -8,7 +8,7 @@
 | `gate-*.test.ts`・`workflow-*.test.ts` | ワークフローの YAML（`.github/workflows/`）の検査：gate.yml の起動条件（`if:` の項）と、ci.yml の `on`・concurrency |
 | `guardrail*.test.ts`・`*-guardrail.test.ts` | ガードレールの範囲と、それに触れる計画・PR の扱い（止めるか通すか）のテスト |
 | `hooks-*.test.ts` | hook（`.claude/hooks/`）：見張りの hook（`guard.ts`）が止めるべき操作を止めるか、SessionStart の hook（`session-env.ts`）がセッションの ID を書き残すか、Orca の CLI が無いときの知らせ方、入口（`run.mjs`）の Node の版の確かめ、書き換えの場所の見張り（`workspace-guard.ts`）が main の checkout と fleet のワークスペースの書き換えを止めるか |
-| `skills*.test.ts`・`*-skill.test.ts`・`qa-retro*.test.ts`・`hq-*.test.ts`・`ship-*.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、各 skill（ship・qa-retro・hq・patrol など）の手順・関わるロジック（qa-retro の期間のつなぎ方、進んでいない fleet の判定、ship と fleet の受け渡しなど）の検査 |
+| `skills*.test.ts`・`*-skill.test.ts`・`qa-retro*.test.ts`・`hq-*.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、各 skill（ship・qa-retro・hq・patrol など）の手順・関わるロジック（qa-retro の期間のつなぎ方、進んでいない fleet の判定、ship と fleet の受け渡し、ship・fleet の振り分けの手順と「改善の候補」の文など）の検査 |
 | `arch-review-skill.test.ts`・`arch-review.test.ts`・`arch-review-loop.test.ts` | arch-review の skill の手順と arch-reviewer の定義、記録の書式と下書きの採用、`/loop` から回すときの検査（ほかのテストが README にこのファイル名があることを確かめるので、パターンにせずファイル名で書く） |
 | `plan*.test.ts`・`decision-*.test.ts` | 計画の書式・批評・計画ゲートの記録・出し直し・投稿の前に人に聞く手順と、決定の記録（`agent-decision`。`proceed` の書式と対象の条件） |
 | `delegate-*.test.ts`・`bypass*.test.ts`・`auto-mode-*.test.ts` | 委任承認・bypass・auto mode の設定と状態、Jev の記録だけから保留するかの判断、Claude の危険の判定を外したこと（欄のある古い計画・判定コメントも読める。#382） |
@@ -29,7 +29,7 @@
 | `usage*.test.ts`・`api-*.test.ts`・`gh-*.test.ts`・`graphql-*.test.ts`・`npm-*.test.ts` | usage の集計、API の呼び出しの数え方、`gh` の呼び出し方と GraphQL の読み取りを REST の形にそろえる変換、npm のコマンド |
 | `agent-*.test.ts`・`config-*.test.ts`・`settings-*.test.ts`・`managed*.test.ts`・`setup-*.test.ts`・`ruleset*.test.ts`・`gitattributes*.test.ts` | `agent.ts` の入口、設定（`harness.config.json`・`.claude/settings.json`）のキーと上限、導入先に配るファイルの一覧、setup・Ruleset、改行コードの設定 |
 | `harness-drift*.test.ts` | 読み込みの記録（`harness/lib/harness-drift.ts`）：版の比べ方、記録の読み書き、`fleet-status`・`step`・`claim` の配線 |
-| `incident*.test.ts` | 問題の記録（`harness/lib/incident.ts`・`agent.ts incident`）：記録の置き場所と権限、種類ごとのまとめ、秘密に見える文字列の置き換え、Issue Form の形の下書きと `agent-incident` のコメント本文、ship・fleet の振り分けの手順と「改善の候補」の文 |
+| `incident*.test.ts` | 問題の記録（`harness/lib/incident.ts`・`agent.ts incident`）：記録の置き場所と権限、種類ごとのまとめ、秘密に見える文字列の置き換え、Issue Form の形の下書きと `agent-incident` のコメント本文 |
 | `readme-*.test.ts`・`overview-*.test.ts` | 各ディレクトリの README の表と、`overview.html` のラベル表示が、実物と食い違っていないかの検査 |
 | `support/` | テストが共有する補助（テストとしては動かない） |
 
