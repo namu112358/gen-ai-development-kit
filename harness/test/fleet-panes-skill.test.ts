@@ -1,4 +1,4 @@
-// Issue #415：fleet のペインの並び（左に fleet の Claude、右に上から あなたがすること → 進み具合 → PR と費用）と、閉じる handle の確かめを、fleet の skill と docs/operations.md で検査する
+// Issue #415：fleet のペインの並び（左に fleet の Claude、右に上から 進み具合 → あなたがすること → PR と費用。Issue #430 で並びを変えた）と、閉じる handle の確かめを、fleet の skill と docs/operations.md で検査する
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -12,7 +12,7 @@ const WORKER_HEADING = '## Orca の worker として動くとき';
 const OPERATIONS = 'docs/operations.md';
 const HQ_HEADING = '### hq（テーマごとの fleet をまとめる）';
 
-const RIGHT_ORDER = ['あなたがすること', '進み具合', 'PR と費用'];
+const RIGHT_ORDER = ['進み具合', 'あなたがすること', 'PR と費用'];
 
 /** 見出しの行（前方一致）から、同じか上の階層の次の見出しの前までを切り出す */
 function section(text: string, heading: string): string {
@@ -66,10 +66,10 @@ function findLayoutLine(text: string, words: string[]): string | undefined {
 
 // ---- AC1：手順3の並びと作り方 ----
 
-test('fleet の skill：worker の節の手順3に、左に fleet の Claude（縦いっぱい）、右に上から あなたがすること → 進み具合 → PR と費用 の並びが書かれている', () => {
+test('fleet の skill：worker の節の手順3に、左に fleet の Claude（縦いっぱい）、右に上から 進み具合 → あなたがすること → PR と費用 の並びが書かれている', () => {
   const s = step3();
   const line = findLayoutLine(s, RIGHT_ORDER);
-  assert.ok(line, '手順3に「左に fleet の Claude … 右に上から あなたがすること → 進み具合 → PR と費用」の順の文がありません');
+  assert.ok(line, '手順3に「左に fleet の Claude … 右に上から 進み具合 → あなたがすること → PR と費用」の順の文がありません');
   assert.ok(line.includes('縦いっぱい'), '並びの文に「縦いっぱい」がありません');
 });
 
@@ -103,11 +103,11 @@ test('fleet の skill：worker の節の手順7に、閉じる handle が fleet 
 
 // ---- AC3：docs/operations.md のペインの説明 ----
 
-test('docs/operations.md：hq の節に、fleet のワークスペースのペインが 左に fleet の Claude、右に上から あなたがすること（todo）→ 進み具合（collect）→ PR と費用（prs）の並びで書かれている', () => {
+test('docs/operations.md：hq の節に、fleet のワークスペースのペインが 左に fleet の Claude、右に上から 進み具合（collect）→ あなたがすること（todo）→ PR と費用（prs）の並びで書かれている', () => {
   const sub = section(read(OPERATIONS), HQ_HEADING);
   assert.ok(sub !== '', `docs/operations.md に「${HQ_HEADING}」の節がありません`);
-  const line = findLayoutLine(sub, ['あなたがすること', 'panes.ts todo', '進み具合', 'panes.ts collect', 'PR と費用', 'panes.ts prs']);
-  assert.ok(line, 'hq の節に「左に fleet の Claude … 右に上から あなたがすること（panes.ts todo）→ 進み具合（panes.ts collect）→ PR と費用（panes.ts prs）」の順の文がありません');
+  const line = findLayoutLine(sub, ['進み具合', 'panes.ts collect', 'あなたがすること', 'panes.ts todo', 'PR と費用', 'panes.ts prs']);
+  assert.ok(line, 'hq の節に「左に fleet の Claude … 右に上から 進み具合（panes.ts collect）→ あなたがすること（panes.ts todo）→ PR と費用（panes.ts prs）」の順の文がありません');
   assert.ok(line.includes('fleet のワークスペースのペイン'), '並びの文に「fleet のワークスペースのペイン」がありません');
 });
 

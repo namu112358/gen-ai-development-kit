@@ -1,5 +1,5 @@
-// Issue #402：hq の SKILL.md の手順6に、hq のペインの並び（左に hq の Claude と人待ち → Epic/Issue → ログ、右に intel）と開き方
-// （ORCA terminal split と panes.ts hq todo・board・log。セッションを渡さない）、intel が起こせないときの扱いが書かれ、
+// Issue #402：hq の SKILL.md の手順6に、hq のペインの並び（左に hq の Claude、真ん中の列に上から Epic/Issue → 人待ち → ログ（Issue #430 で並びを変えた）、右に intel）と開き方
+// （ORCA terminal split と panes.ts hq board・todo・log。セッションを渡さない）、intel が起こせないときの扱いが書かれ、
 // 手順12が人待ちのペインの一覧（panes.ts hq todo --once）を使うことを確かめる。語句は要点ごとに少なく絞り、文言を丸ごと固定しない。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -36,16 +36,16 @@ test('hq の手順6：ORCA terminal split で縦・横に分けてペインを�
   assertWords(step(hqSkill(), 6), ['ORCA terminal split', '--direction vertical', '--direction horizontal'], 'hq の手順6');
 });
 
-test('hq の手順6：panes.ts hq todo → board → log の順に開く', () => {
+test('hq の手順6：panes.ts hq board → todo → log の順に開く', () => {
   assertOrder(step(hqSkill(), 6), [
-    'node harness/scripts/panes.ts hq todo', 'node harness/scripts/panes.ts hq board', 'node harness/scripts/panes.ts hq log',
+    'node harness/scripts/panes.ts hq board', 'node harness/scripts/panes.ts hq todo', 'node harness/scripts/panes.ts hq log',
   ], 'hq の手順6');
 });
 
-test('hq の手順6：左に人待ち → Epic/Issue → ログ、右に intel', () => {
+test('hq の手順6：真ん中の列に上から Epic/Issue → 人待ち → ログ、右に intel', () => {
   const s = step(hqSkill(), 6);
   assertWords(s, ['左', '右', '人待ち', 'Epic/Issue', 'ログ', 'intel'], 'hq の手順6');
-  assertOrder(s, ['人待ち', 'Epic/Issue', 'ログ'], 'hq の手順6の並び');
+  assertOrder(s, ['Epic/Issue', '人待ち', 'ログ'], 'hq の手順6の並び');
 });
 
 test('hq の手順6：intel が起こせないときは intel のペインを開かずに進める', () => {
