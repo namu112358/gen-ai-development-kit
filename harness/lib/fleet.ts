@@ -34,6 +34,8 @@ export interface FleetIssue {
   prs: FleetPr[];
   /** Issue の Assignee の login（requireAssignee が true のときだけ見る。無ければ誰もいないとみなす） */
   assignees?: string[];
+  /** GitHub の紐付けが無く、本文の Closes #N で結んだ開いた PR の番号（紐付けの抜け） */
+  linkGapPrs?: number[];
 }
 
 /** fleet-status が番号なしで集める Issue の一覧の1件（/issues の応答の一部） */
@@ -339,6 +341,7 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
     const ar = rowOf.get(a.facts.number);
     const prClaim = ar !== undefined && inFlight(ar) ? openPrClaim(a, ar) : null;
     if (prClaim && !prClaim.released) noteParts.push(`PR の着手宣言${isOwnClaim(prClaim, currentSession) ? '（このセッション）' : ''}${describeClaim(prClaim) ? `：${describeClaim(prClaim)}` : ''}`);
+    if (a.linkGapPrs && a.linkGapPrs.length > 0) noteParts.push(`${a.linkGapPrs.map((n) => `PR #${n}`).join(', ')} は GitHub の紐付けが無く、本文の Closes で結んだ（紐付けの抜け）`);
     if (noteParts.length > 0) notes.set(a.facts.number, noteParts.join('。'));
   }
 
