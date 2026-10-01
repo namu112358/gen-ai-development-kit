@@ -126,6 +126,8 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 
 止めた理由は、`agent:blocked` / `agent:plan-review` を付けるコメントに理由コード（`<!-- agent-harness:reason code=… -->`）で残す。ダッシュボードの「人の対応待ち」は理由別に並び、理由が無いものは「要確認」になる。main と衝突していて持ち主のいない Agent PR（PR と Close する Issue の着手宣言が期限切れ（`routine.humanClaimStaleHours`）か、宣言が無い）も「引き継ぐか決める」の1行で出る（PR・Issue・宣言のセッションの短い ID と時刻）。引き継ぐかは人が決め、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う（hq は見回しで見つけて人に聞くが、自分では引き継がない。fleet は拾いに行かない。#371・#407）。
 
+ダッシュボードの「止まっていそうな着手宣言」には、judge・fix・sync の着手宣言の後に `routine.stalledClaimMinutes` 分（既定 60）動き（宣言の更新・判定コメント・新しい commit）の無い Agent PR が出る（PR・段階・セッションの短い ID・経過時間）。知らせるだけで、宣言は取り消さない。commit の時刻は commit を作った時刻なので、前に作った commit を後で push すると動きが無いように見えることがある（#391）。
+
 計画ゲートで止まった Issue に計画を出し直すとき、App は自分の計画ゲートの記録で前の印の出どころを見る。ゲートの停止（critical・ガードレールなど）で、最後に印を付けたのが App なら、新しい計画だけで判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。`acChangeProposed` や人が付けた印は、人が外すまで止める。出どころの無い古い記録は、記録の計画に Planner の申告・`acChangeProposed` が無く、前の印で止めた停止でもなければゲートの停止とみなし、そう読めないものは人が外すまで止める（[formats.md](formats.md#計画)）。付き添いのセッションは、Planner の質問（`openQuestions`・`needsHumanReasons`）を計画の投稿の前に人に聞いて計画に書き込み、答えで解消したものを申告から除く（plan の skill の手順3。定期 Routine は聞かない。fleet の入れ子の方式では ship が投稿せずに質問を fleet に返し、fleet がまとめて聞いて呼び直す）。申告として残るのは答えの無かったものだけで、委任承認・bypass の範囲照合に使えない計画（Planner の申告で止まった計画）を減らす。残った Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが人の答えを決定の記録（```` ```agent-decision ````、`agent.ts post-decision`）で残すと、App が Jev に答え済みかを問い、`plan-decision` の記録を付ける。`jev.decisionRelease` が `shadow`（既定）なら記録だけ、`enforce` でしきい値（`jev.thresholds.decisionProbability`）以上なら答え済みとして判定し直す（通れば App が印を外し、ガードレール・critical などに当たれば `gate` の停止として残る）。人が付けた印は、ラベルの時刻（計画コメントの投稿の 60 秒前から、その計画ゲートの記録まで）の外で付いたものとして見分ける。`agent:plan-review` で止まった計画を人が「進める」と決めたときは、付き添いのセッションがその言葉を進める記録（`agent-decision` の `proceed`、`post-decision`）で残す。App は `plan-proceed` の記録を付け、計画コメントの本文が変わらない間、委任承認の Merge と bypass の範囲照合にその計画を使う（ラベルは変えない。[formats.md](formats.md#進める記録proceed)）。そのため Planner の申告の印を外さないまま申告付きの計画を出し直すと、2回目以降は印が窓より前から付いているので対象外になる（人が外す今までの運用に戻るだけ）。ゲートの停止の印は出し直しで外れうるので、計画を出し直しても止めておきたいときは `agent:hold` を付ける。書式は [formats.md](formats.md#計画)。
 
 | 理由コード | 意味 |
@@ -217,6 +219,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `routine.humanClaimStaleHours` | 6 | 人の着手宣言を期限切れとみなす時間 | ゲート・セッション（queue・`claim`・`fleet-status`） |
 | `routine.routineClaimTakeoverMinutes` | 90 | Routine の着手宣言を引き継げるまでの時間 | ゲート・セッション（queue） |
 | `routine.gateReplyTimeoutMinutes` | 30 | 判定コメントへの App の返答を待つ時間（過ぎたら判定し直す） | `prFacts` を通してゲートとセッション（queue・fleet）の両方 |
+| `routine.stalledClaimMinutes` | 60 | judge・fix・sync の着手宣言の後に動きが無ければ、ダッシュボードの「止まっていそうな着手宣言」に出すまでの時間 | ゲート（`stale`） |
 | `areaConcurrency` | `{"harness": 3}` | 領域ごとに同時に開いてよい判定前の Agent PR の数（節「同時に開ける PR の数」） | ゲート（queue）・セッション（`claim`） |
 | `fixLoop.normalLimit`・`criticalLimit` | 2・3 | 修正の上限（`criticalLimit` は `normalLimit` 以上） | ゲート・セッション（`agent.ts step`） |
 | `syncLoop.limit` | 3 | sync ⇄ judge のループの上限 | セッション（`agent.ts step`） |
@@ -228,7 +231,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `fleet.watch.intervalMinutes`・`appStallMinutes` | （書かない。既定 3・20） | fleet の待つ間の読み直しの間隔と、App が止まったとみなす時間（分。#199）。書かなければ既定値。誤りは `fleet-status --watch` の実行時に止まる（`loadConfig` では検査しない） | セッションだけ（`fleet-status --watch`） |
 | `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
 
-- `routine.gateReplyTimeoutMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。
+- `routine.gateReplyTimeoutMinutes`・`routine.stalledClaimMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。
 - 読むときの検査：`loadConfig` が上限の数値のキーを型と範囲で検査する（`harness/lib/config.ts` の `limitErrors`）。回数・件数・文字数は正の整数、時間は正の数、`minRemainingMinutes` は 0 以上。必須のキー（`routine` の3つ、`fixLoop` の2つ、`staleHours`、`jev.maxDiffChars`）が無いのも誤り。誤りがあれば、キーと今の値を示して止まる（上限が効かないまま動かない）。上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない。
 - 誤りのある設定が main に入ると、ゲートと `agent.ts` のコマンドが全部止まる。guard の hook も設定を読めず、`git … push` を送り先に関わらず止めるので、セッションは直す PR を push できない。人が手元で `harness.config.json` を直す PR を出して Merge する。`npm run check` が実物の設定と雛形を検査する（`harness/test/config-limits.test.ts`）ので、PR の段階で落ちる。
 
@@ -364,7 +367,7 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 | Issue 本文が読めない | `agent:blocked`＋App の `form-error` | 本文を Issue Form の見出しに直してラベルを外す |
 | 修正回数の上限 | PR に `agent:blocked` | 指摘を確認して人が直すか Close |
 | 判定が古い | App の `verdict-rejected` | 何もしない（次の実行で判定し直す） |
-| コンフリクト・停滞 | ダッシュボードの各一覧。持ち主のいない衝突した Agent PR は「人の対応待ち」に「引き継ぐか決める」で出る | 人が解消する。持ち主のいない衝突した PR は、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う |
+| コンフリクト・停滞 | ダッシュボードの各一覧。持ち主のいない衝突した Agent PR は「人の対応待ち」に「引き継ぐか決める」で出る。judge・fix・sync の宣言の後に動きの無い PR は「止まっていそうな着手宣言」に出る | 人が解消する。持ち主のいない衝突した PR は、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う。止まっていそうな着手宣言は、引き継ぐかを人が決め、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで <段階>」と言う（引き継がないなら何もしない） |
 | ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | セッションは聞かない（Jev が下限未満で付けなかった `priority:*`・`area:*` はセッションが決めて付け、理由をコメントに残す）。それでも足りないものと違反は、人がダッシュボードを見て、足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す）。セッションが付けたラベルを直すのも人 |
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる。計画・判定・決定の記録のコメントで起動して失敗した実行は、次の定期実行（1時間ごと）か手動の起動でジョブ `rerun-failed` が1回だけやり直す（直近6時間・1回目の実行・まだ処理されていないものだけ。やり直した実行と飛ばした理由はそのジョブのログにある）。2回目も失敗した実行と、「acceptance の後で失敗」で飛ばした実行（受け付けは書かれたが Ready・auto-merge などの続きが済んでいない。定期照合は auto-merge の付いた PR しか見ないので直らない）は、人が `gh run rerun` するか判定し直す |
 
