@@ -66,6 +66,8 @@ import {
 import { writePlanLink } from './plan-link.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
 import { tamperJevFor } from './tests-jev.ts';
+import { autoModeTestsFor } from './auto-mode-tests.ts';
+import { renderAutoModeTests, type AutoModeTestsOutcome } from '../lib/auto-mode-tests.ts';
 
 /**
  * 受け付けた判定を PR に反映する。順序が安全性の要：
@@ -191,7 +193,8 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
   }
   // auto-merge を付けた後にも止める側を書き直す（古い受け付けの記録で neutral を書いた別のゲート実行との競合対策）
   // enforce で Jev が通した差分は、ここでも success のまま（failure で上書きしない）
-  if (armed && tests) await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(tests.findings, [], tests.jev));
+  // auto mode の経路で Jev が妥当と答えた差分も、ここで success のまま
+  if (armed && tests) await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(tests.findings, [], tests.jev, tests.autoMode));
   const before = await getPr(ctx, pr.number);
   if (before.head.sha !== pr.head.sha) {
     ctx.log(`head が ${before.head.sha.slice(0, 7)} に進んだため反映を中止します（synchronize のゲートが処理する）`);
@@ -322,8 +325,17 @@ export async function writeBypassEnd(ctx: GateContext, pr: PullRequest, reason: 
  * 受け付けた判定で agent/tests を書き直す。検出が0件なら何もしない（API を呼ばない）。
  * test:exempt が効いていれば書かない（on-pr.ts の結果のまま）。書いたときは検出と、緩めたか（Human Merge か）と、Jev の結果（tests-jev.ts）を返す。
  * delegation・bypass・autoMode は委任・bypass・auto mode の状態（どれかで自動経路に乗るなら止める。tests-check.ts の testsHumanMerge）。
+ * auto mode の経路の PR は、妥当かを Jev に問う（auto-mode-tests.ts。Issue #349）。jev.testTamper の enforce で先に通るなら問わない。
  */
-export async function rewriteTestsCheck(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, diff: string, delegation?: DelegateState, bypass?: BypassState, autoMode?: AutoModeState): Promise<{ findings: TamperFinding[]; relaxed: boolean; jev: TamperJevOutcome } | null> {
+export async function rewriteTestsCheck(
+  ctx: GateContext,
+  pr: PullRequest,
+  acceptance: Acceptance,
+  diff: string,
+  delegation?: DelegateState,
+  bypass?: BypassState,
+  autoMode?: AutoModeState,
+): Promise<{ findings: TamperFinding[]; relaxed: boolean; jev: TamperJevOutcome; autoMode?: AutoModeTestsOutcome } | null> {
   const findings = detectTestTampering(diff, ctx.config.testPatterns ?? DEFAULT_TEST_PATTERNS);
   if (findings.length === 0) return null;
   const comments = await ctx.gh.listComments(pr.number);
@@ -333,8 +345,12 @@ export async function rewriteTestsCheck(ctx: GateContext, pr: PullRequest, accep
   const reasons = await testsHumanMerge(ctx, pr, acceptance, delegation, bypass, autoMode);
   // ふつうは on-pr.ts が同じ差分で記録しているので問い直さない（tests-jev.ts）
   const jev = await tamperJevFor(ctx, pr, findings, patch, comments);
-  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev));
-  return { findings, relaxed: reasons.length > 0, jev };
+  const jevPasses = jev.mode === 'enforce' && jev.asked && jev.allows;
+  const auto = reasons.length === 0 && !jevPasses
+    ? await autoModeTestsFor(ctx, pr, findings, acceptance, diff, patch, comments, { ...(delegation ? { delegation } : {}), ...(autoMode ? { autoMode } : {}) })
+    : undefined;
+  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev, auto));
+  return { findings, relaxed: reasons.length > 0, jev, ...(auto ? { autoMode: auto } : {}) };
 }
 
 /**
@@ -515,7 +531,7 @@ async function dismissFixRequests(ctx: GateContext, number: number): Promise<voi
 }
 
 /** 人へのレビュー依頼。何が懸念で、どこを見てほしいかを先に書く */
-export function renderHumanReview(owner: string, a: Acceptance, why: string[], tests?: { findings: TamperFinding[]; relaxed: boolean }): string {
+export function renderHumanReview(owner: string, a: Acceptance, why: string[], tests?: { findings: TamperFinding[]; relaxed: boolean; autoMode?: AutoModeTestsOutcome }): string {
   const list = (items: string[] | undefined, empty: string) => (items && items.length > 0 ? items.map((x) => `- ${x}`) : [`- ${empty}`]);
   // テストの行を変える変更は、懸念点より前に目立つ形で載せる（人は Merge の前にこれを読む）
   const testLines = tests && tests.findings.length > 0
@@ -531,6 +547,8 @@ export function renderHumanReview(owner: string, a: Acceptance, why: string[], t
         // 止めているとき（hold・自動 Merge モードの停止だけが理由）は、例外ラベルでの通し方も含む説明にする
         tests.relaxed ? renderTamperForHumanMerge(tests.findings, 30) : renderTamperSummary(tests.findings, 30, TEST_EXEMPT_LABEL),
         '',
+        // auto mode の経路で Jev に問うた（問えなかった）なら、検出ごとの確率と理由を載せる（止めたときの人への材料）
+        ...(renderAutoModeTests(tests.autoMode) ? [renderAutoModeTests(tests.autoMode), ''] : []),
       ]
     : [];
   return [

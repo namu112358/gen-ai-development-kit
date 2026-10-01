@@ -7,6 +7,7 @@
 | --- | --- | --- |
 | `apply.ts` | 受け付けた判定を PR に反映する。 | ○ |
 | `auto-mode-merge.ts` | auto mode（Epic #339）の始まりと終わりの動作（ダッシュボードの auto mode のラベルの付け外しと停止スイッチ）。 | ○ |
+| `auto-mode-tests.ts` | auto mode の経路に乗る PR で、agent/tests が見つけたテストを弱める変更が妥当かを Jev に問い、App の記録（kind=auto-mode-tests）に残す（Issue #349）。 | ○ |
 | `auto-mode.ts` | auto mode（Epic #339）の今の状態と、計画・PR を auto mode で通してよいかの判断（Jev の危険の問いと記録の使い回し）。 | ○ |
 | `bypass-merge.ts` | bypass モードの始まりと終わりの動作（ダッシュボードのラベルの付け外しと停止スイッチ）。 | ○ |
 | `bypass.ts` | bypass モードの今の状態と、PR を bypass で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |

@@ -330,13 +330,37 @@ export async function plannedFilesForDelegate(gh: GitHub, config: HarnessConfig,
  * （proceededPlan。App の plan-proceed の記録があり、計画コメントの本文がその後変わっていない）だけ。無ければ理由を返す
  */
 export async function issueDelegateFiles(gh: GitHub, config: HarnessConfig, n: number): Promise<{ files: string[] } | { missing: string }> {
-  const comments = await gh.listComments(n);
+  const gate = delegatePlanGate(config, await gh.listComments(n));
+  if (!gate) return { missing: `#${n} に委任承認で照合できる計画がありません（ゲートを通ったか、ゲートの停止で止まった計画だけを使う）` };
+  return { files: gate.plan.files };
+}
+
+type UsablePlanGate = PlanGateRecord & { plan: { files: string[] }; planBodySha256?: string };
+
+/**
+ * Issue のコメントから、委任承認・bypass の範囲照合に使える計画ゲートの記録（issueDelegateFiles の選び方）。無ければ null。
+ * auto mode でテストを弱める変更を Jev に問う材料（harness/gates/auto-mode-tests.ts）も、この選び方で計画を選ぶ（写さない）
+ */
+export function delegatePlanGate(config: HarnessConfig, comments: IssueComment[]): UsablePlanGate | null {
   const gate = latestPlanGate(config, comments) as { value: PlanGateRecord & { plan?: { files: string[] }; planBodySha256?: string } } | null;
   const usable =
     gate?.value.pass === true ||
     (gate?.value.pass === false && (gate.value.planReviewOrigin === 'gate' || (gate.value.planReviewOrigin === 'planner' && proceededPlan(config, comments, gate.value))));
-  if (!gate || !usable || !gate.value.plan) return { missing: `#${n} に委任承認で照合できる計画がありません（ゲートを通ったか、ゲートの停止で止まった計画だけを使う）` };
-  return { files: gate.value.plan.files };
+  if (!gate || !usable || !gate.value.plan) return null;
+  return gate.value as UsablePlanGate;
+}
+
+/**
+ * delegatePlanGate で選んだ計画の、計画コメントの本文。記録に planBodySha256 があれば、今の本文の sha256 が一致するときだけ返す
+ * （ゲートの後に編集された計画は使わない）。無ければ null
+ */
+export function delegatePlanBody(config: HarnessConfig, comments: IssueComment[]): string | null {
+  const gate = delegatePlanGate(config, comments);
+  if (!gate) return null;
+  const planComment = comments.find((c) => c.id === gate.planCommentId);
+  if (!planComment) return null;
+  if (gate.planBodySha256 && createHash('sha256').update(planComment.body).digest('hex') !== gate.planBodySha256) return null;
+  return planComment.body;
 }
 
 /**
