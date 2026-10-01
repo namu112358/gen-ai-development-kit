@@ -23,7 +23,7 @@
  * - fleets：渡した fleet のスナップショットを1回読み、進んでいないかの判定（harness/lib/hq-stall.ts の fleetStall。しきい値は
  *   hq.staleSnapshotMinutes・hq.stuckMinutes）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
  *   終わった fleet の古いスナップショットも一時ディレクトリに残るので、--session は必ず渡す（無ければ終了コード 1）。
- * - config：fleet.shipMode・hq・panes の設定を JSON で出す。shipModeConfig が止める理由（stopReason）を返したときだけ、理由を標準エラーに出して終了コード 1（今は subagent・worker とも null）。
+ * - config：fleet.shipMode・fleet.implementModel・hq・panes の設定を JSON で出す。shipModeConfig が止める理由（stopReason）を返したときだけ、理由を標準エラーに出して終了コード 1（今は subagent・worker とも null）。
  * - スナップショットの既定の置き場所は OS の一時ディレクトリの agent-harness-panes/<セッション ID>.json。
  * 段階の読み替えと描き方は harness/lib/panes.ts・harness/lib/panes-hq.ts。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
@@ -32,7 +32,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hqConfig, loadConfig, panesConfig, shipModeConfig } from '../lib/config.ts';
+import { hqConfig, implementModelConfig, loadConfig, panesConfig, shipModeConfig } from '../lib/config.ts';
 import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
 import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, type PaneEpic, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
@@ -354,7 +354,7 @@ function main(argv: string[]): void {
   const config = loadConfig();
   const ship = shipModeConfig(config);
   if (mode === 'config') {
-    console.log(JSON.stringify({ ...ship, ...hqConfig(config), ...panesConfig(config) }, null, 2));
+    console.log(JSON.stringify({ ...ship, ...implementModelConfig(config), ...hqConfig(config), ...panesConfig(config) }, null, 2));
     if (ship.stopReason) {
       console.error(ship.stopReason);
       process.exit(1);

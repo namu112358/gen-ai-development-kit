@@ -7,26 +7,26 @@ body:
       value: |
         この Issue は Claude Code が読む**契約**です。見出し（各項目の label）を変えるとゲートが読めなくなります（harness/lib/issue-form.ts）。
         タイトルは Conventional Commits の形式（`type(scope): 説明`。type は feat / fix / docs / refactor / test / chore / ci / build / perf / style / revert）。PR とコミットのタイトルにもそのまま使われます。
-        Risk と Priority は書きません（Risk は Agent が付けます）。書き方は docs/operations.md を参照してください。
+        Risk と Priority は書きません（Risk は Agent が付けます）。人が Goal と最初の数行で「何をしたいか・なぜか」を分かるように書き、ファイル名や内部の名前は後ろに回します。書き方は docs/operations.md を参照してください。
   - type: textarea
     id: goal
     attributes:
       label: Goal
-      description: 何を達成したいか（1〜3文）
+      description: 何をしたいかを人の言葉で1〜2文。ファイル名・関数名は書かない
     validations:
       required: true
   - type: textarea
     id: background
     attributes:
       label: Background
-      description: なぜ必要か、関連する経緯
+      description: 最初の3行に、なぜ要るか（起きたこと・人の言葉）。根拠のファイルや行はその後に
     validations:
       required: false
   - type: textarea
     id: requirements
     attributes:
       label: Requirements
-      description: 満たすべき要件（箇条書き）
+      description: 満たすべき要件を5つまで（箇条書き）。作り方の細部は計画に任せる
     validations:
       required: true
   - type: textarea
@@ -40,7 +40,7 @@ body:
     id: acceptance-criteria
     attributes:
       label: Acceptance Criteria
-      description: 検証可能な受け入れ条件。`- [ ]` の箇条書きで、1項目1条件
+      description: 検証可能な受け入れ条件を3つまで。`- [ ]` の箇条書きで、1項目1条件
       placeholder: |
         - [ ] `foo --bar` を実行すると ... が出力される
         - [ ] 既存のテストがすべて通る

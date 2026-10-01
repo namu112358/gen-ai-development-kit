@@ -8,13 +8,15 @@
 
 | 見出し | 必須 | 書くこと |
 | --- | --- | --- |
-| Goal | ○ | 達成したいこと（1〜3文） |
-| Background | | なぜ必要か |
-| Requirements | ○ | 満たすべき要件 |
+| Goal | ○ | 何をしたいかを人の言葉で1〜2文。ファイル名・関数名は書かない |
+| Background | | 最初の3行に、なぜ要るか（起きたこと・人の言葉）。根拠のファイルや行はその後に |
+| Requirements | ○ | 満たすべき要件を5つまで。作り方の細部は計画に任せる |
 | Non-goals | | やらないこと |
-| Acceptance Criteria | ○ | 検証できる受け入れ条件。`- [ ]` で1項目1条件、観測できる形で書く |
+| Acceptance Criteria | ○ | 検証できる受け入れ条件を3つまで。`- [ ]` で1項目1条件、観測できる形で書く |
 | Dependencies | | 補足のみ。順序は Issue Dependencies（blocked by）で設定する |
 | Validation Requirements | | 検証方法 |
+
+Issue を開いた人が Goal と最初の数行で「何をしたいか・なぜか」を分かるように書き、ファイル名・行番号・関数名は Background の後ろか計画に回す（人が一度に頭に保てるのは3〜5のまとまり程度なので、要件と AC の数も上の上限に絞る）。
 
 1つの Issue は1つの変更に絞る。層（`harness/lib/`・`harness/gates/`・skill・docs・設定）をまたぐなら、Issue を分けるか Epic にして子課題に分ける（大きい PR は判定の見落とし・取り込みの衝突・判定のやり直しを増やす）。AC に skill や docs の文をテストで確かめる項目を入れない（AC が多いほど test-designer のテストが増え、PR が大きくなる）。例外は、ゲートや hook が実行時に読む文（Issue Form の見出しや `agent-plan` の書式など）。
 
@@ -61,7 +63,7 @@ worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <�
 
 Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
 
-- hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。ファイルは書き換えず、唯一の書き込みは fleet のワークスペースの直下の印 `.agent-harness-workspace`（`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`harness/scripts/hq-state.ts` の控え）は作業ツリーの外で、書き換えに数えない。
+- hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。リポジトリのファイル（本体・fleet のワークスペース・Issue の worktree）は書き換えない。リポジトリの中で書くのは印のファイルだけ（fleet のワークスペースの直下の `.agent-harness-workspace`。`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。リポジトリの外の控え（scratchpad と、スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`harness/scripts/hq-state.ts` の控え））は書く（作業ツリーの外で、書き換えに数えない）。
 - テーマの案（どの Epic を進めるか／Issue をどう Epic にまとめるか）を人が承認してから、fleet を `orca orchestration worker-start --worktree new-top-level` で起こす。表示名は `fleet: #<Epic番号> <短い名前>`。同時に動く fleet は `hq.maxFleets` まで。
 - fleet のワークスペースのペインは、左に fleet の Claude（縦いっぱい）、右に上から 進み具合（`panes.ts collect`）→ あなたがすること（`panes.ts todo`）→ PR と費用（`panes.ts prs`）。分ける向きは Orca 1.4.216 の実際の動き（`--direction vertical` で左右、`horizontal` で上下。orca-cli の案内とは逆）に従い、分けた後に `terminal list --include-visual-layouts` のペインの木で並びを確かめ、違えば表示のペインだけを閉じて分け直す（#430）。終わるときは表示のペインだけを閉じ、fleet 自身の Claude の端末は閉じない（閉じる前に、閉じる handle が自分の端末の handle でないことを確かめる）。手順は fleet の SKILL.md の「Orca の worker として動くとき」の3・7。
 - hq のワークスペース（本体）のペインは、左に hq の Claude、真ん中の列に上から ① Epic/Issue（`panes.ts hq board`。Tab・`e`・`i` で、Epic ごとの子課題の Close の数・人待ちの数・Epic に入っていない Issue の件数を出す Epic のページと、Epic ごとに Issue の6段階の横棒を出し Merge 済みを1行に畳む Issue のページを切り替える）→ ② 人待ち（`node harness/scripts/panes.ts hq todo`。全 fleet の人がすること。無ければ「今はありません」と AI・App が進行中の件数）→ ③ ログ（`panes.ts hq log`。状態が変わった Issue を新しい順に、ペインの高さに収まる分だけ）、右に intel の Claude（intel の skill が無い・起こせなければ開かない）。3つのペインは `--session` を受け取らず、数秒ごとに hq の控え（下の `hq-fleets.json` の `fleets`）を読み直して、各 fleet の `session` のスナップショットだけを読む。fleet を起こし直して控えの `session` が変われば、ペインを作り直さずに新しい fleet を出す。`session` がまだ無い fleet と、起こした直後（`startedAt` から `hq.staleSnapshotMinutes` 以内）でスナップショットが無い fleet は「起動中」、それより長く無い・古い・読めなかったものがあるスナップショットは各ペインの見出しの下に1行の注意で出る。Epic の子課題は collect が `gh api graphql` で読んでスナップショットに入れ、描くペインは GitHub を読まない。タイトルは省略せずに幅で折り返す（英数字の語は途中で切らない）。手順は hq の SKILL.md の手順6（#402）。
@@ -85,12 +87,15 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 | キー | 既定 | 内容 |
 | --- | --- | --- |
 | `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker` は Orca があれば ship を Orca の worker で動かす（無ければ今の手順） |
+| `fleet.implementModel` | `sonnet` | fleet から起こされた ship が、実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル（`sonnet` か `opus`）。計画・判定・test-designer のモデルは変えない。人が付き添う単独の ship は切り替えない（ship の skill の節「実装のモデル（fleet から起こされた ship）」） |
 | `hq.maxFleets` | 2 | 同時に動かす fleet の数の上限（正の整数）。hq の人待ちのペインは超えると警告する |
 | `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
 | `hq.stuckMinutes` | 120 | AI の番の行がこれ以上同じ状態なら、進んでいないとみなす（正の整数、分） |
 | `panes.collectIntervalSeconds` | 180 | fleet の進み具合のペイン（`panes.ts collect`）が GitHub と記録を読む間隔（60 以上の整数、秒） |
 
 `hq.staleSnapshotMinutes`・`hq.stuckMinutes` は既定値で動くので、`harness.config.json` と雛形には書いていない。変えるときは `"hq": { "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }` のように書き足す。
+
+`fleet.implementModel` を戻す目安：数日分の PR で、実装のモデルごとの判定に1回で合格した割合（`report.ts`。Epic #446 の子課題で足す）を比べ、`sonnet` が `opus` のときより大きく落ちたら、`opus` に戻すかを人が決める。戻すときは `"implementModel": "opus"` と書く。
 
 Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときか、人が付き添うセッションで始めた `/loop` の各回（`/loop 6h /arch-review --loop`。下の「見直しを /loop で回す」）に動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。ループの回は下書きを記録に残すまでで、Issue にするのは人が「arch-review の下書きを選ぶ」と頼んだときに選んだものだけ。
 
@@ -125,6 +130,8 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。queue は定期実行（1時間ごと）と手動の起動のときだけ公開し直すので、宣言の変化もそのときに queue へ出る（今すぐ出したいときは gate の手動実行。下の「ゲートの失敗」）。今の宣言は `claim`・`fleet-status` がコメントから直接読む。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
 
 止めた理由は、`agent:blocked` / `agent:plan-review` を付けるコメントに理由コード（`<!-- agent-harness:reason code=… -->`）で残す。ダッシュボードの「人の対応待ち」は理由別に並び、理由が無いものは「要確認」になる。main と衝突していて持ち主のいない Agent PR（PR と Close する Issue の着手宣言が期限切れ（`routine.humanClaimStaleHours`）か、宣言が無い）も「引き継ぐか決める」の1行で出る（PR・Issue・宣言のセッションの短い ID と時刻）。引き継ぐかは人が決め、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う（hq は見回しで見つけて人に聞くが、自分では引き継がない。fleet は拾いに行かない。#371・#407）。
+
+ダッシュボードの「止まっていそうな着手宣言」には、judge・fix・sync の着手宣言の後に `routine.stalledClaimMinutes` 分（既定 60）動き（宣言の更新・判定コメント・新しい commit）の無い Agent PR が出る（PR・段階・セッションの短い ID・経過時間）。知らせるだけで、宣言は取り消さない。commit の時刻は commit を作った時刻なので、前に作った commit を後で push すると動きが無いように見えることがある（#391）。
 
 計画ゲートで止まった Issue に計画を出し直すとき、App は自分の計画ゲートの記録で前の印の出どころを見る。ゲートの停止（critical・ガードレールなど）で、最後に印を付けたのが App なら、新しい計画だけで判定し、止めた理由が当たらなければ `agent:plan-review` を外して通す。`acChangeProposed` や人が付けた印は、人が外すまで止める。出どころの無い古い記録は、記録の計画に Planner の申告・`acChangeProposed` が無く、前の印で止めた停止でもなければゲートの停止とみなし、そう読めないものは人が外すまで止める（[formats.md](formats.md#計画)）。付き添いのセッションは、Planner の質問（`openQuestions`・`needsHumanReasons`）を計画の投稿の前に人に聞いて計画に書き込み、答えで解消したものを申告から除く（plan の skill の手順3。定期 Routine は聞かない。fleet の入れ子の方式では ship が投稿せずに質問を fleet に返し、fleet がまとめて聞いて呼び直す）。申告として残るのは答えの無かったものだけで、委任承認・bypass の範囲照合に使えない計画（Planner の申告で止まった計画）を減らす。残った Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが人の答えを決定の記録（```` ```agent-decision ````、`agent.ts post-decision`）で残すと、App が Jev に答え済みかを問い、`plan-decision` の記録を付ける。`jev.decisionRelease` が `shadow`（既定）なら記録だけ、`enforce` でしきい値（`jev.thresholds.decisionProbability`）以上なら答え済みとして判定し直す（通れば App が印を外し、ガードレール・critical などに当たれば `gate` の停止として残る）。人が付けた印は、ラベルの時刻（計画コメントの投稿の 60 秒前から、その計画ゲートの記録まで）の外で付いたものとして見分ける。`agent:plan-review` で止まった計画を人が「進める」と決めたときは、付き添いのセッションがその言葉を進める記録（`agent-decision` の `proceed`、`post-decision`）で残す。App は `plan-proceed` の記録を付け、計画コメントの本文が変わらない間、委任承認の Merge と bypass の範囲照合にその計画を使う（ラベルは変えない。[formats.md](formats.md#進める記録proceed)）。そのため Planner の申告の印を外さないまま申告付きの計画を出し直すと、2回目以降は印が窓より前から付いているので対象外になる（人が外す今までの運用に戻るだけ）。ゲートの停止の印は出し直しで外れうるので、計画を出し直しても止めておきたいときは `agent:hold` を付ける。書式は [formats.md](formats.md#計画)。
 
@@ -217,6 +224,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `routine.humanClaimStaleHours` | 6 | 人の着手宣言を期限切れとみなす時間 | ゲート・セッション（queue・`claim`・`fleet-status`） |
 | `routine.routineClaimTakeoverMinutes` | 90 | Routine の着手宣言を引き継げるまでの時間 | ゲート・セッション（queue） |
 | `routine.gateReplyTimeoutMinutes` | 30 | 判定コメントへの App の返答を待つ時間（過ぎたら判定し直す） | `prFacts` を通してゲートとセッション（queue・fleet）の両方 |
+| `routine.stalledClaimMinutes` | 60 | judge・fix・sync の着手宣言の後に動きが無ければ、ダッシュボードの「止まっていそうな着手宣言」に出すまでの時間 | ゲート（`stale`） |
 | `areaConcurrency` | `{"harness": 3}` | 領域ごとに同時に開いてよい判定前の Agent PR の数（節「同時に開ける PR の数」） | ゲート（queue）・セッション（`claim`） |
 | `fixLoop.normalLimit`・`criticalLimit` | 2・3 | 修正の上限（`criticalLimit` は `normalLimit` 以上） | ゲート・セッション（`agent.ts step`） |
 | `syncLoop.limit` | 3 | sync ⇄ judge のループの上限 | セッション（`agent.ts step`） |
@@ -228,7 +236,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `fleet.watch.intervalMinutes`・`appStallMinutes` | （書かない。既定 3・20） | fleet の待つ間の読み直しの間隔と、App が止まったとみなす時間（分。#199）。書かなければ既定値。誤りは `fleet-status --watch` の実行時に止まる（`loadConfig` では検査しない） | セッションだけ（`fleet-status --watch`） |
 | `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
 
-- `routine.gateReplyTimeoutMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。
+- `routine.gateReplyTimeoutMinutes`・`routine.stalledClaimMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。
 - 読むときの検査：`loadConfig` が上限の数値のキーを型と範囲で検査する（`harness/lib/config.ts` の `limitErrors`）。回数・件数・文字数は正の整数、時間は正の数、`minRemainingMinutes` は 0 以上。必須のキー（`routine` の3つ、`fixLoop` の2つ、`staleHours`、`jev.maxDiffChars`）が無いのも誤り。誤りがあれば、キーと今の値を示して止まる（上限が効かないまま動かない）。上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない。
 - 誤りのある設定が main に入ると、ゲートと `agent.ts` のコマンドが全部止まる。guard の hook も設定を読めず、`git … push` を送り先に関わらず止めるので、セッションは直す PR を push できない。人が手元で `harness.config.json` を直す PR を出して Merge する。`npm run check` が実物の設定と雛形を検査する（`harness/test/config-limits.test.ts`）ので、PR の段階で落ちる。
 
@@ -364,7 +372,7 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 | Issue 本文が読めない | `agent:blocked`＋App の `form-error` | 本文を Issue Form の見出しに直してラベルを外す |
 | 修正回数の上限 | PR に `agent:blocked` | 指摘を確認して人が直すか Close |
 | 判定が古い | App の `verdict-rejected` | 何もしない（次の実行で判定し直す） |
-| コンフリクト・停滞 | ダッシュボードの各一覧。持ち主のいない衝突した Agent PR は「人の対応待ち」に「引き継ぐか決める」で出る | 人が解消する。持ち主のいない衝突した PR は、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う |
+| コンフリクト・停滞 | ダッシュボードの各一覧。持ち主のいない衝突した Agent PR は「人の対応待ち」に「引き継ぐか決める」で出る。judge・fix・sync の宣言の後に動きの無い PR は「止まっていそうな着手宣言」に出る | 人が解消する。持ち主のいない衝突した PR は、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う。止まっていそうな着手宣言は、引き継ぐかを人が決め、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで <段階>」と言う（引き継がないなら何もしない） |
 | ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | セッションは聞かない（Jev が下限未満で付けなかった `priority:*`・`area:*` はセッションが決めて付け、理由をコメントに残す）。それでも足りないものと違反は、人がダッシュボードを見て、足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す）。セッションが付けたラベルを直すのも人 |
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる。計画・判定・決定の記録のコメントで起動して失敗した実行は、次の定期実行（1時間ごと）か手動の起動でジョブ `rerun-failed` が1回だけやり直す（直近6時間・1回目の実行・まだ処理されていないものだけ。やり直した実行と飛ばした理由はそのジョブのログにある）。2回目も失敗した実行と、「acceptance の後で失敗」で飛ばした実行（受け付けは書かれたが Ready・auto-merge などの続きが済んでいない。定期照合は auto-merge の付いた PR しか見ないので直らない）は、人が `gh run rerun` するか判定し直す |
 
