@@ -46,7 +46,7 @@ const OPTIONAL_INTEGER = [
   'jev.decisionMaxTargets',
   'jev.decisionMaxAnswerChars',
 ];
-const OPTIONAL_NUMBER = ['delegateMerge.hours', 'routine.gateReplyTimeoutMinutes'];
+const OPTIONAL_NUMBER = ['delegateMerge.hours', 'routine.gateReplyTimeoutMinutes', 'routine.stalledClaimMinutes'];
 
 // --- 実物と雛形 ---
 
@@ -67,6 +67,7 @@ test('足した4つのキーが、実物と雛形の両方に今の値で書か�
     const c = readJson(path) as { classification: Record<string, unknown>; routine: Record<string, unknown>; jev: Record<string, unknown> };
     assert.equal(c.classification.issueTriageJevPerRun, 5, path);
     assert.equal(c.routine.gateReplyTimeoutMinutes, 30, path);
+    assert.equal(c.routine.stalledClaimMinutes, 60, path);
     assert.equal(c.jev.decisionMaxTargets, 20, path);
     assert.equal(c.jev.decisionMaxAnswerChars, 20000, path);
   }
@@ -151,6 +152,7 @@ test('省略できるキー（areaConcurrency・fleet・syncLoop・delegateMerge
     'delegateMerge',
     'classification.issueTriageJevPerRun',
     'routine.gateReplyTimeoutMinutes',
+    'routine.stalledClaimMinutes',
     'jev.decisionMaxTargets',
     'jev.decisionMaxAnswerChars',
   ]) {
