@@ -10,7 +10,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 ## 入力
 
 - Issue 番号
-- Issue がまだ無い依頼（「〜を Issue にして進めて」）なら、Issue Form（`.github/ISSUE_TEMPLATE/agent-task.yml`）の見出しと、タイトルの書式（`harness/lib/title.ts` の `parseTitle`、Conventional Commits）に合わせて `gh issue create` で作り、その番号で手順1から進める。人が「作るだけ」と言わない限り、作った Issue は同じセッションで plan まで進める
+- Issue がまだ無い依頼（「〜を Issue にして進めて」）なら、Issue Form（`.github/ISSUE_TEMPLATE/agent-task.yml`）の見出しと、タイトルの書式（`harness/lib/title.ts` の `parseTitle`、Conventional Commits）に合わせ、[docs/operations.md](../../../docs/operations.md) の「Issue の書き方」どおり1つの変更に絞って（AC に skill や docs の文のテストを入れない）`gh issue create` で作り、その番号で手順1から進める。人が「作るだけ」と言わない限り、作った Issue は同じセッションで plan まで進める
 - Issue の状態：ラベル（`agent:plan-ok`・`agent:plan-review`・`epic`・`agent:waiting`・`agent:blocked`・`agent:hold`）と、`gh issue view <番号> --comments` の本文・コメント
 - 計画ゲートの記録：`node harness/scripts/agent.ts show-plan <番号>`
 - Issue を Closes する開いた PR：`gh issue view <番号> --json closedByPullRequestsReferences`。Stacked PR の下の層は本文が `Refs #N` で Closes にならないので、`gh pr list --state open --json number,body,baseRefName` から本文で `Refs #<番号>` を探す
