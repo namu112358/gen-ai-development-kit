@@ -10,7 +10,7 @@ import { issueFacts, prFacts } from './facts.ts';
 import type { FleetIssue, FleetPr } from './fleet.ts';
 import { GitHub, type Transport } from './github.ts';
 import { PrefetchTransport, readBatch, Snapshot } from './graphql-prefetch.ts';
-import { isAppComment, isSameRepoPr, latestPlanGate, type PlanGateRecord, type PullRequest } from './state.ts';
+import { bodyIssueRefs, isAppComment, isSameRepoPr, latestPlanGate, linkedIssuesWithSource, type PlanGateRecord, type PullRequest, withStack } from './state.ts';
 
 export type FleetIssueItem = { number: number; title: string; state: string; labels: { name: string }[]; pull_request?: unknown; user?: { login: string } | null; author_association?: string; assignees?: { login: string }[] | null };
 
@@ -76,6 +76,18 @@ export async function collectFleetIssues(gh: GitHub, config: HarnessConfig, item
   const openPrLabels = areaLimitLabels(config, openPrs, repository);
   const prsOf = new Map<number, { number: number; state: string }[]>();
   for (const i of items) prsOf.set(i.number, await closingPrs(gh, i.number, snap));
+  // GitHub の紐付けが空の Issue だけ、開いた PR の本文の Closes #N で補う（紐付けの抜け）
+  const linkGaps = new Map<number, number[]>();
+  for (const i of items) {
+    if ((prsOf.get(i.number) ?? []).some((p) => p.state === 'OPEN')) continue;
+    for (const p of openPrs) {
+      if (p.number === i.number || !bodyIssueRefs(p.body).some((r) => r.keyword === 'closes' && r.number === i.number)) continue;
+      const linked = await linkedIssuesWithSource(gh, config, await withStack(gh, config, p));
+      if (!linked.fromBody || !linked.issues.includes(i.number)) continue;
+      prsOf.set(i.number, [...(prsOf.get(i.number) ?? []), { number: p.number, state: 'OPEN' }]);
+      linkGaps.set(i.number, [...(linkGaps.get(i.number) ?? []), p.number]);
+    }
+  }
   const prByIssue = new Map<number, number>();
   for (const [n, prs] of prsOf) {
     const open = prs.find((p) => p.state === 'OPEN');
@@ -110,7 +122,7 @@ export async function collectFleetIssues(gh: GitHub, config: HarnessConfig, item
         facts,
       });
     }
-    issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs, assignees: (item.assignees ?? []).map((u) => u.login) });
+    issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs, assignees: (item.assignees ?? []).map((u) => u.login), ...(linkGaps.has(item.number) ? { linkGapPrs: linkGaps.get(item.number)! } : {}) });
   }
 
   return { issues, openPrs, openPrLabels };
