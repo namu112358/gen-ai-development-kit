@@ -153,13 +153,12 @@ const PER_PAGE = 100;
 
 /**
  * ダッシュボードの一番新しい側のコメント（コメントの総数から最後の 2 ページを求めて読む。API は古い順なので、先頭から読むと新しいものが落ちる）のうち、
- * 直近 7 日に作られたものから改善の候補の節を作る。total はダッシュボードの Issue の comments（無ければ Issue を読む）。
+ * 直近 7 日に作られたものから改善の候補の節を作る。total はダッシュボードの Issue の comments。
  * 読めなければ「読めませんでした」の節（投げない。queue の公開とジョブの成否に響かせない）
  */
-export async function improveSectionFor(ctx: GateContext, dashboard: number, now: Date = new Date(), total?: number): Promise<string> {
+export async function improveSectionFor(ctx: GateContext, dashboard: number, now: Date, total: number): Promise<string> {
   try {
-    const count = total ?? (await ctx.gh.get<{ comments?: number }>(`/issues/${dashboard}`)).comments ?? 0;
-    const last = Math.max(1, Math.ceil(count / PER_PAGE));
+    const last = Math.max(1, Math.ceil(total / PER_PAGE));
     const comments: IssueComment[] = [];
     for (let page = Math.max(1, last - IMPROVE_PAGES + 1); page <= last; page++) {
       comments.push(...(await ctx.gh.get<IssueComment[]>(`/issues/${dashboard}/comments?per_page=${PER_PAGE}&page=${page}`)));

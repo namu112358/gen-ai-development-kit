@@ -23,7 +23,7 @@ interface ImproveApi {
   collectIncidentComments: (comments: IssueComment[]) => IncidentEntry[];
   renderImproveSection: (entries: IncidentEntry[] | null) => string;
   replaceImproveSection: (body: string, section: string) => string;
-  improveSectionFor: (ctx: GateContext, dashboard: number, now?: Date, total?: number) => Promise<string>;
+  improveSectionFor: (ctx: GateContext, dashboard: number, now: Date, total: number) => Promise<string>;
 }
 
 /** テストのコメントの作成日（2026-10-01）から 7 日の内に入る、固定の今 */
@@ -145,9 +145,8 @@ test('improveSectionFor：全コメントは読まず、コメントの総数か
   const { improveSectionFor } = await load();
   const old = { ...comment(1, renderIncidentComment('s-old', [incident('古い記録')])), created_at: '2026-09-01T00:00:00.000Z' };
   const fake = new FakeGitHub()
-    .on('GET', /\/issues\/9\/comments\?per_page=100&page=(\d+)$/, (m) => (m[1] === '3' ? [comment(300, renderIncidentComment('s-new', [incident('一番新しい記録')]))] : [old]))
-    .on('GET', /\/issues\/9$/, () => ({ comments: 201 }));
-  const s = await improveSectionFor(ctxFor(fake, 'schedule', {}), 9, NOW);
+    .on('GET', /\/issues\/9\/comments\?per_page=100&page=(\d+)$/, (m) => (m[1] === '3' ? [comment(300, renderIncidentComment('s-new', [incident('一番新しい記録')]))] : [old]));
+  const s = await improveSectionFor(ctxFor(fake, 'schedule', {}), 9, NOW, 201);
   const pages = fake.calls.filter((c) => c.method === 'GET' && c.path.includes('/issues/9/comments')).map((c) => c.path.match(/page=(\d+)$/)?.[1]);
   assert.deepEqual(pages, ['2', '3']);
   assert.ok(s.includes('一番新しい記録'), s);
