@@ -62,7 +62,7 @@
 | `test-health.ts` | 保守の観測（harness/scripts/observe.ts）のテストの健康：遅いテスト、不安定なテスト（同じ head で失敗の後に成功）、mutation で生き残ったミュータント。 | ○ |
 | `test-prune-loop.ts` | test-prune を付き添いのセッションの `/loop` から回すときの、手元の状態と回の記録（純粋関数）。 | ○ |
 | `test-prune.ts` | 減らせるテストの材料（harness/scripts/test-prune.ts）の決まる集計。 | ○ |
-| `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えを Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
+| `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えとテストの名前の変更を Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
 | `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |
 | `unowned-conflict.ts` | 持ち主のいない衝突した Agent PR の判定（ダッシュボードの「引き継ぐか決める」の行）。 | ○ |
