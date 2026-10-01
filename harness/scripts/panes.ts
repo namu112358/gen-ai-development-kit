@@ -3,24 +3,29 @@
  *
  *   node harness/scripts/panes.ts collect --session <fleet のセッション ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...
  *   node harness/scripts/panes.ts progress|todo|prs (--session <ID> | --snapshot <パス>)（todo は hq がいない間の控えの質問も出す）
- *   node harness/scripts/panes.ts hq --session <ID> [--session <ID>...]
+ *   node harness/scripts/panes.ts hq todo|board|log [--once] [--fleets <控えのパス>]
  *   node harness/scripts/panes.ts fleets --session <ID> [--session <ID>...]
  *   node harness/scripts/panes.ts config
  *
  * - collect：GitHub と記録を読むのはこれだけ。harness.config.json の panes.collectIntervalSeconds（既定 180 秒）ごとに、
  *   fleet-status --json（fleet のセッションとして。AGENT_HARNESS_SESSION をその ID にし、CLAUDE_CODE_REMOTE_SESSION_ID を消す）・
+ *   fleet の Issue の親の Epic と子課題（gh api graphql。Issue ごとに別名を付け、50件ずつ1回で読む。Issue #402）・
  *   行の PR（gh pr view）・fleet のセッションの usage（`~/.claude/projects/<作業ディレクトリ>/<ID>.jsonl`。無ければ読まない）を読み、
  *   スナップショット（harness/lib/panes.ts の PaneSnapshot）を一時ファイルに書いてから名前を変える。このペインは進み具合も描く。
  *   記録のディレクトリは作業ディレクトリごとに分かれるので、fleet のセッションの作業ディレクトリが collect と違えば --cwd で渡す。
- * - progress・todo・prs・hq：スナップショットを数秒ごとに読み直して描くだけ（GitHub を読まない）。
+ * - progress・todo・prs：スナップショットを数秒ごとに読み直して描くだけ（GitHub を読まない）。
  *   todo は、hq がいない間に fleet が控えた質問（harness/scripts/hq-state.ts の git の共通ディレクトリの下の控え）があれば先頭に出す（Issue #409）。
  *   控えは --session の ID で引き、--snapshot だけのときはスナップショットの session で引く。
+ * - hq todo|board|log：hq の3つのペイン（① 人待ち・② Epic/Issue・③ ログ。描き方は harness/lib/panes-hq.ts。Issue #402）。GitHub を読まない。
+ *   数秒ごとに hq の控え（hq-state.ts の git の共通ディレクトリの下の hq-fleets.json。--fleets で別のパス）を読み直し、控えの fleets の
+ *   session のスナップショットだけを読む（--session は渡さない。起こし直しで hq が控えの session を書き換えれば、ペインを作り直さずに追う）。
+ *   board は標準入力が端末なら Tab・e・i でページ（Epic・Issue）を切り替える（q・Ctrl+C で終わる）。--once は1回だけ色なしで描いて終わる。
  * - fleets：渡した fleet のスナップショットを1回読み、進んでいないかの判定（harness/lib/hq-stall.ts の fleetStall。しきい値は
  *   hq.staleSnapshotMinutes・hq.stuckMinutes）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
  *   終わった fleet の古いスナップショットも一時ディレクトリに残るので、--session は必ず渡す（無ければ終了コード 1）。
  * - config：fleet.shipMode・hq・panes の設定を JSON で出す。shipModeConfig が止める理由（stopReason）を返したときだけ、理由を標準エラーに出して終了コード 1（今は subagent・worker とも null）。
  * - スナップショットの既定の置き場所は OS の一時ディレクトリの agent-harness-panes/<セッション ID>.json。
- * 段階の読み替えと描き方は harness/lib/panes.ts。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
+ * 段階の読み替えと描き方は harness/lib/panes.ts・harness/lib/panes-hq.ts。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
@@ -30,9 +35,10 @@ import { fileURLToPath } from 'node:url';
 import { hqConfig, loadConfig, panesConfig, shipModeConfig } from '../lib/config.ts';
 import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
-import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderHq, renderProgress, renderPrs, renderTodo, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
+import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, type PaneEpic, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
+import { nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type HqView } from '../lib/panes-hq.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
-import { gitCommonDir, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
+import { gitCommonDir, ledgerPath, parseLedger, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
 import { projectTranscriptDir } from '../lib/usage.ts';
 
 export interface RunResult {
@@ -119,6 +125,44 @@ function prOf(stdout: string): PanePr | null {
 
 const PR_FIELDS = 'number,title,state,isDraft,autoMergeRequest,labels,statusCheckRollup';
 
+/** 1回の graphql で読む Issue の数 */
+const EPIC_CHUNK = 50;
+
+/** collect が Epic を読む graphql のクエリ（Issue ごとに別名 i<番号>。owner・name は変数） */
+export function epicsQuery(issues: number[]): string {
+  const fields = issues.map((n) => `i${n}: issue(number: ${n}) { number parent { number title state subIssues(first: 100) { nodes { number title state } } } }`);
+  return `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`;
+}
+
+interface GhIssueNode { number?: unknown; title?: unknown; state?: unknown }
+interface GhEpicIssue { number?: unknown; parent?: (GhIssueNode & { subIssues?: { nodes?: GhIssueNode[] | null } | null }) | null }
+
+const issueOf = (n: GhIssueNode | null | undefined): { number: number; title: string; state: string } | null =>
+  n && typeof n.number === 'number' ? { number: n.number, title: String(n.title ?? ''), state: String(n.state ?? '') } : null;
+
+/** fleet の Issue の親の Epic と子課題を読む。1回でも読めなければ null */
+function collectEpics(deps: CollectDeps, issues: number[], env: Record<string, string | undefined>): { epics: PaneEpic[]; issueEpic: Record<string, number | null> } | null {
+  const epics = new Map<number, PaneEpic>();
+  const issueEpic: Record<string, number | null> = {};
+  for (let i = 0; i < issues.length; i += EPIC_CHUNK) {
+    const chunk = issues.slice(i, i + EPIC_CHUNK);
+    const r = deps.run('gh', ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-f', `query=${epicsQuery(chunk)}`], { cwd: deps.root, env });
+    const json = r.status === 0 ? (parseJson(r.stdout) as { data?: { repository?: Record<string, GhEpicIssue | null> | null } } | null) : null;
+    const repo = json?.data?.repository;
+    if (!repo || typeof repo !== 'object') return null;
+    for (const n of chunk) {
+      const node = repo[`i${n}`];
+      const parent = issueOf(node?.parent);
+      issueEpic[String(n)] = parent ? parent.number : null;
+      if (parent && !epics.has(parent.number)) {
+        const children = (node?.parent?.subIssues?.nodes ?? []).map(issueOf).filter((c): c is NonNullable<typeof c> => c !== null);
+        epics.set(parent.number, { ...parent, children });
+      }
+    }
+  }
+  return { epics: [...epics.values()], issueEpic };
+}
+
 /** 1回分を読み、スナップショットを書いて返す。読めなかったものは前回の値を使い、error に書く */
 export function collectOnce(deps: CollectDeps, opts: CollectOptions): PaneSnapshot {
   const prev = deps.readSnapshot(opts.snapshotPath);
@@ -131,6 +175,15 @@ export function collectOnce(deps: CollectDeps, opts: CollectOptions): PaneSnapsh
   const parsed = fs.status === 0 ? (parseJson(fs.stdout) as FleetStatusData | null) : null;
   if (parsed && parsed.version === 1 && Array.isArray(parsed.rows)) status = parsed;
   else errors.push(`fleet-status が読めませんでした${lastLine(fs.stderr) ? `（${lastLine(fs.stderr)}）` : ''}`);
+
+  // Epic の子課題（読めなければ前回の値。fleet の Issue が0件なら graphql を呼ばない）
+  let epics = prev?.epics;
+  let issueEpic = prev?.issueEpic;
+  if (opts.issues.length > 0) {
+    const e = collectEpics(deps, opts.issues, env);
+    if (e) ({ epics, issueEpic } = e);
+    else errors.push('Epic が読めませんでした');
+  }
 
   const prs: PanePr[] = [];
   for (const n of [...new Set((status?.rows ?? []).map((r) => r.pr).filter((p): p is number => p !== null))]) {
@@ -166,6 +219,8 @@ export function collectOnce(deps: CollectDeps, opts: CollectOptions): PaneSnapsh
     usage,
     history: [...(prev?.history ?? []), { at, totalUsd: usage?.totalUsd ?? null }].slice(-HISTORY_LIMIT),
     since: nextSince(prev?.since ?? null, status?.rows ?? [], at),
+    ...(epics !== undefined ? { epics } : {}),
+    ...(issueEpic !== undefined ? { issueEpic } : {}),
     error: errors.length > 0 ? errors.join(' / ') : null,
   };
   deps.writeSnapshot(opts.snapshotPath, snap);
@@ -200,6 +255,30 @@ export function startRender(deps: RenderDeps, draw: (snap: PaneSnapshot | null, 
   const tick = (): void => deps.write(`${CLEAR_SCREEN}${draw(deps.readSnapshot(), deps.now(), deps.width())}`);
   tick();
   schedule(tick, ms);
+}
+
+/** 描く hq のペインが外に触るもの（控えとスナップショットを読むことと、画面に書くことだけ。run は無いので GitHub を読めない） */
+export interface HqRenderDeps {
+  readLedger(): { fleets: Record<string, unknown>[] } | null;
+  readSnapshot(session: string): PaneSnapshot | null;
+  write(text: string): void;
+  now(): number;
+  width(): number;
+  height(): number;
+  /** hq.staleSnapshotMinutes */
+  staleMinutes: number;
+}
+
+/** すぐ1回描き、以後は ms ごとに控えとスナップショットを読み直して描く。描き直す関数を返す（キーでページを変えたときに呼ぶ） */
+export function startHqRender(deps: HqRenderDeps, draw: (view: HqView, now: number, width: number, height: number) => string, schedule: Schedule, ms = 5000): () => void {
+  const tick = (): void => {
+    const now = deps.now();
+    const view = readHqView(deps.readLedger(), (s) => deps.readSnapshot(s), now, deps.staleMinutes);
+    deps.write(`${CLEAR_SCREEN}${draw(view, now, deps.width(), deps.height())}`);
+  };
+  tick();
+  schedule(tick, ms);
+  return tick;
 }
 
 /** todo のペインの描き方。hq がいない間の fleet の控え（答えの無い質問）があれば先頭に出す。session が無ければスナップショットの session で引く */
@@ -242,11 +321,13 @@ interface CliArgs {
   label: string | null;
   snapshot: string | null;
   cwd: string | null;
+  fleets: string | null;
+  once: boolean;
   issues: number[];
 }
 
 function parseCli(args: string[]): CliArgs {
-  const out: CliArgs = { sessions: [], label: null, snapshot: null, cwd: null, issues: [] };
+  const out: CliArgs = { sessions: [], label: null, snapshot: null, cwd: null, fleets: null, once: false, issues: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const value = (): string => {
@@ -258,13 +339,15 @@ function parseCli(args: string[]): CliArgs {
     else if (a === '--label') out.label = value();
     else if (a === '--snapshot') out.snapshot = value();
     else if (a === '--cwd') out.cwd = value();
+    else if (a === '--fleets') out.fleets = value();
+    else if (a === '--once') out.once = true;
     else if (/^\d+$/.test(a)) out.issues.push(Number(a));
     else throw new Error(`知らない引数：${a}`);
   }
   return out;
 }
 
-const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq --session <ID>... | fleets --session <ID>... | config';
+const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | fleets --session <ID>... | config';
 
 function main(argv: string[]): void {
   const [mode, ...rest] = argv;
@@ -278,8 +361,9 @@ function main(argv: string[]): void {
     }
     return;
   }
+  if (mode === 'hq') return mainHq(rest, config);
   const args = parseCli(rest);
-  const root = fileURLToPath(new URL('../..', import.meta.url));
+  const root =fileURLToPath(new URL('../..', import.meta.url));
   const every: Schedule = (fn, ms) => setInterval(fn, ms);
   const renderDeps = (path: string): RenderDeps => ({
     readSnapshot: () => readSnapshotFile(path),
@@ -350,20 +434,73 @@ function main(argv: string[]): void {
     console.log(JSON.stringify(out, null, 2));
     return;
   }
-  if (mode === 'hq') {
-    if (args.sessions.length === 0) throw new Error(USAGE);
-    const { maxFleets } = hqConfig(config);
-    const paths = args.sessions.map((s) => defaultSnapshotPath(tmpdir(), s));
-    const w = (): number => Math.max(40, (process.stdout.columns || 80) - 1);
-    const tick = (): void => {
-      const snaps = paths.map(readSnapshotFile).filter((s): s is PaneSnapshot => s !== null);
-      process.stdout.write(`${CLEAR_SCREEN}${renderHq(snaps, Date.now(), w(), maxFleets)}\n`);
-    };
-    tick();
-    every(tick, 5000);
+  throw new Error(USAGE);
+}
+
+function readJsonFile(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** hq todo|board|log（Issue #402）。控えから fleet を読むので --session・--snapshot・Issue 番号は受け付けない */
+function mainHq(argv: string[], config: ReturnType<typeof loadConfig>): void {
+  const [pane, ...rest] = argv;
+  if (pane !== 'todo' && pane !== 'board' && pane !== 'log') throw new Error(USAGE);
+  const args = parseCli(rest);
+  if (args.sessions.length > 0 || args.snapshot || args.issues.length > 0) throw new Error(`hq のペインは --session・--snapshot・Issue 番号を受け付けません（hq の控えから今動いている fleet を読みます。${USAGE}）`);
+  const { maxFleets } = hqConfig(config);
+  const { staleSnapshotMinutes } = hqStallConfig(config);
+  const root = fileURLToPath(new URL('../..', import.meta.url));
+  let path = args.fleets;
+  if (!path) {
+    const common = gitCommonDir(root);
+    if (!common) throw new Error('git の共通ディレクトリが分かりません（--fleets で控えのパスを渡してください）');
+    path = ledgerPath(common);
+  }
+  const ledgerFile = path;
+  let page: BoardPage = 'epic';
+  const draw = (view: HqView, now: number, width: number, height: number): string => {
+    if (pane === 'todo') return renderHqTodo(view, now, width, maxFleets);
+    if (pane === 'board') return renderHqBoard(view, page, now, width);
+    return renderHqLog(view, now, width, height);
+  };
+  const deps: HqRenderDeps = {
+    readLedger: () => parseLedger(readJsonFile(ledgerFile)),
+    readSnapshot: (session) => {
+      try {
+        return readSnapshotFile(defaultSnapshotPath(tmpdir(), session));
+      } catch {
+        return null;
+      }
+    },
+    write: (t) => void process.stdout.write(t),
+    now: () => Date.now(),
+    width: () => Math.max(40, (process.stdout.columns || 80) - 1),
+    height: () => Math.max(5, (process.stdout.rows || 24) - 1),
+    staleMinutes: staleSnapshotMinutes,
+  };
+  if (args.once) {
+    const now = deps.now();
+    const view = readHqView(deps.readLedger(), (s) => deps.readSnapshot(s), now, staleSnapshotMinutes);
+    console.log(stripAnsi(draw(view, now, deps.width(), pane === 'log' ? 1000 : deps.height())));
     return;
   }
-  throw new Error(USAGE);
+  const redraw = startHqRender(deps, draw, (fn, ms) => setInterval(fn, ms));
+  if (pane === 'board' && process.stdin.isTTY) {
+    process.stdin.setRawMode(true);
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (key: string) => {
+      if (key === 'q' || key === '\u0003') process.exit(0);
+      const next = nextBoardPage(page, key);
+      if (next !== page) {
+        page = next;
+        redraw();
+      }
+    });
+  }
 }
 
 if (import.meta.main) {

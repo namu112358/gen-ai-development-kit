@@ -1,7 +1,7 @@
 import type { FleetClaimInfo, FleetStatusData, FleetStatusRow } from './fleet.ts';
 
 /**
- * fleet と hq のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。純粋関数だけ。
+ * fleet のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。純粋関数だけ。hq の3つのペインは harness/lib/panes-hq.ts。
  * 入力は collect が書いたスナップショット（fleet-status --json の FleetStatusData・PR・usage）だけで、gh・GitHub・ファイルを読まない。
  * 見た目は人が承認した試作（Issue #284）に合わせる。
  */
@@ -120,6 +120,22 @@ export interface PaneUsage {
   perModel: Record<string, number | null>;
 }
 
+/** Epic の子課題1つ（collect が sub-issues から読む） */
+export interface PaneEpicIssue {
+  number: number;
+  title: string;
+  /** OPEN・CLOSED */
+  state: string;
+}
+
+/** fleet の Issue の親の Epic と、その子課題（Issue #402） */
+export interface PaneEpic {
+  number: number;
+  title: string;
+  state: string;
+  children: PaneEpicIssue[];
+}
+
 /** collect が書くスナップショット。描くペインはこれだけを読む */
 export interface PaneSnapshot {
   version: 1;
@@ -139,6 +155,10 @@ export interface PaneSnapshot {
   /** 合計の推移（最大 HISTORY_LIMIT 件） */
   history: { at: string; totalUsd: number | null }[];
   since: PaneSince;
+  /** fleet の Issue の親の Epic（Issue #402）。無い古いスナップショットは「Epic なし」扱い */
+  epics?: PaneEpic[];
+  /** Issue 番号（文字列）→ 親の Epic の番号か null（Issue #402） */
+  issueEpic?: Record<string, number | null>;
   /** 読めなかったもの。無ければ null */
   error: string | null;
 }
@@ -148,8 +168,8 @@ export const HISTORY_LIMIT = 40;
 // ---- 見た目の部品 ----
 
 const COLORS = { reset: '\x1b[0m', dim: '\x1b[2m', bold: '\x1b[1m', red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m', blue: '\x1b[34m', magenta: '\x1b[35m', cyan: '\x1b[36m', gray: '\x1b[90m' } as const;
-type Color = Exclude<keyof typeof COLORS, 'reset'>;
-const paint = (c: Color, s: string): string => `${COLORS[c]}${s}${COLORS.reset}`;
+export type Color = Exclude<keyof typeof COLORS, 'reset'>;
+export const paint = (c: Color, s: string): string => `${COLORS[c]}${s}${COLORS.reset}`;
 
 /** 画面を消す。スクロールも消す（前の描画が上に積もらない） */
 export const CLEAR_SCREEN = '\x1b[H\x1b[2J\x1b[3J';
@@ -162,6 +182,8 @@ const isWide = (cp: number): boolean =>
   (cp >= 0x1100 && cp <= 0x115f) || (cp >= 0x2e80 && cp <= 0xa4cf) || (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff)
   || (cp >= 0xfe30 && cp <= 0xfe4f) || (cp >= 0xff00 && cp <= 0xff60) || (cp >= 0xffe0 && cp <= 0xffe6);
 const charWidth = (ch: string): number => (isWide(ch.codePointAt(0)!) ? 2 : 1);
+/** 1文字の表示の幅（全角は2） */
+export const charWidthOf = charWidth;
 
 /** 端末での表示の幅（全角は2。色は数えない） */
 export function displayWidth(s: string): number {
@@ -206,17 +228,17 @@ export const MARKS = {
   epic: { mark: '↳', meaning: '子課題で進める（Epic）' },
 } as const satisfies Record<string, Mark>;
 
-const MARK_COLOR: Record<keyof typeof MARKS, Color> = { done: 'green', ai: 'blue', human: 'magenta', app: 'yellow', wait: 'gray', todo: 'gray', stopped: 'red', epic: 'gray' };
-const WHO_MARK: Record<PaneWho, keyof typeof MARKS> = { ai: 'ai', human: 'human', app: 'app', wait: 'wait', done: 'done' };
-const markOf = (k: keyof typeof MARKS): string => paint(MARK_COLOR[k], MARKS[k].mark);
+export const MARK_COLOR: Record<keyof typeof MARKS, Color> = { done: 'green', ai: 'blue', human: 'magenta', app: 'yellow', wait: 'gray', todo: 'gray', stopped: 'red', epic: 'gray' };
+export const WHO_MARK: Record<PaneWho, keyof typeof MARKS> = { ai: 'ai', human: 'human', app: 'app', wait: 'wait', done: 'done' };
+export const markOf = (k: keyof typeof MARKS): string => paint(MARK_COLOR[k], MARKS[k].mark);
 
 const legend = (): string => paint('gray', (Object.keys(MARKS) as (keyof typeof MARKS)[]).map((k) => `${MARKS[k].mark} ${MARKS[k].meaning}`).join('  '));
 
-const shortTitle = (title: string): string => title.replace(/^\w+(\([^)]*\))?!?: /, '');
-const shortSession = (session: string): string => session.slice(0, 8);
+export const shortTitle = (title: string): string => title.replace(/^\w+(\([^)]*\))?!?: /, '');
+export const shortSession = (session: string): string => session.slice(0, 8);
 
 /** 時刻からの経過（「たった今」「5分前」「1時間3分前」） */
-function ago(iso: string | undefined, now: number): string {
+export function ago(iso: string | undefined, now: number): string {
   if (!iso) return '—';
   const m = Math.floor((now - Date.parse(iso)) / 60000);
   if (!Number.isFinite(m)) return '—';
@@ -225,7 +247,7 @@ function ago(iso: string | undefined, now: number): string {
   return `${Math.floor(m / 60)}時間${m % 60}分前`;
 }
 
-function rule(title: string, width: number): string {
+export function rule(title: string, width: number): string {
   const t = ` ${title} `;
   return paint('cyan', `━━${t}${'━'.repeat(Math.max(0, width - displayWidth(t) - 2))}`);
 }
@@ -239,13 +261,14 @@ function header(snap: PaneSnapshot, title: string, now: number, width: number): 
 const LOADING = (title: string, width: number): string => [rule(title, width), paint('gray', '最初の読み込み中…')].join('\n');
 
 /** 行の宣言の持ち主の一言（このセッション・ほかのセッション） */
-function claimOwner(row: FleetStatusRow): string | null {
+export function claimOwner(row: FleetStatusRow): string | null {
   const c = activeClaim(row);
   if (!c) return null;
   return c.own ? 'このセッション' : `ほかのセッション${c.session ? `（${shortSession(c.session)}）` : ''}`;
 }
 
-function progressBar(at: RowLocation): string {
+/** 6つの段階の横棒（進み具合のペインと hq の Issue のページで使う） */
+export function progressBar(at: RowLocation): string {
   const cell = (s: string): string => padEnd(s, 7);
   return PANE_STEPS.map((_, i) => {
     if (at.step === 'stopped') return cell(markOf('stopped'));
@@ -256,7 +279,7 @@ function progressBar(at: RowLocation): string {
   }).join('');
 }
 
-/** 進み具合の行（hq でも使う） */
+/** 進み具合の行 */
 function progressLines(snap: PaneSnapshot, now: number, width: number): string[] {
   const out: string[] = [paint('gray', `      ${PANE_STEPS.map((s) => padEnd(s, 7)).join('')}`)];
   for (const row of snap.status?.rows ?? []) {
@@ -399,32 +422,5 @@ export function renderPrs(snap: PaneSnapshot | null, now: number, width: number)
     const spark = vals.map((v) => SPARK[hi === lo ? 0 : Math.round(((v - lo) / (hi - lo)) * 7)]).join('');
     out.push(`  ${paint('cyan', spark)} ${paint('gray', '（合計の推移）')}`);
   }
-  return out.join('\n');
-}
-
-const WHO_ORDER: PaneWho[] = ['human', 'ai', 'app', 'wait', 'done'];
-
-/** hq のペイン：fleet ごと（テーマ＝ label、無ければセッションの短い ID）の段階と誰の番の件数、全 fleet の人がすることの一覧 */
-export function renderHq(snaps: PaneSnapshot[], now: number, width: number, maxFleets: number): string {
-  const out = [rule('hq：fleet のまとめ', width)];
-  if (snaps.length > maxFleets) out.push(paint('yellow', clip(`⚠ fleet が ${snaps.length} 個あります（hq.maxFleets は ${maxFleets}）。同時に動かす fleet を減らしてください`, width)));
-  if (snaps.length === 0) out.push(paint('gray', '  fleet のスナップショットがまだありません'));
-  const name = (s: PaneSnapshot): string => s.label ?? shortSession(s.session);
-  for (const snap of snaps) {
-    const rows = snap.status?.rows ?? [];
-    const locs = rows.map(locateRow);
-    const who = WHO_ORDER.map((w) => {
-      const n = locs.filter((l) => (l.other ? 'ai' : l.who) === w).length;
-      return n > 0 ? `${MARKS[WHO_MARK[w]].meaning} ${n}` : null;
-    }).filter((x) => x !== null);
-    const steps = PANE_STEPS.map((s, i) => { const n = locs.filter((l) => l.step === i).length; return n > 0 ? `${s} ${n}` : null; }).filter((x) => x !== null);
-    out.push('', `${paint('bold', name(snap))}  ${paint('gray', `更新 ${ago(snap.at, now)}${snap.error ? `  ⚠ ${snap.error}` : ''}`)}`);
-    out.push(`  ${rows.length} 件  ${who.join('・') || '—'}`);
-    if (steps.length > 0) out.push(paint('gray', `  ${steps.join('・')}`));
-  }
-  out.push('', rule('あなたがすること（全 fleet）', width));
-  const all = snaps.flatMap((s) => todoItems(s).map((it) => ({ it, s }))).sort((a, b) => a.it.rank - b.it.rank);
-  const tag = new Map(all.map(({ it, s }) => [it, `[${name(s)}] `]));
-  out.push(...todoLines(all.map(({ it }) => it), width, (it) => tag.get(it) ?? ''));
   return out.join('\n');
 }
