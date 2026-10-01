@@ -63,7 +63,7 @@ worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <�
 
 Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
 
-- hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。ファイルは書き換えず、唯一の書き込みは fleet のワークスペースの直下の印 `.agent-harness-workspace`（`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`harness/scripts/hq-state.ts` の控え）は作業ツリーの外で、書き換えに数えない。
+- hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。リポジトリのファイル（本体・fleet のワークスペース・Issue の worktree）は書き換えない。リポジトリの中で書くのは印のファイルだけ（fleet のワークスペースの直下の `.agent-harness-workspace`。`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。リポジトリの外の控え（scratchpad と、スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`harness/scripts/hq-state.ts` の控え））は書く（作業ツリーの外で、書き換えに数えない）。
 - テーマの案（どの Epic を進めるか／Issue をどう Epic にまとめるか）を人が承認してから、fleet を `orca orchestration worker-start --worktree new-top-level` で起こす。表示名は `fleet: #<Epic番号> <短い名前>`。同時に動く fleet は `hq.maxFleets` まで。
 - fleet のワークスペースのペインは、左に fleet の Claude（縦いっぱい）、右に上から 進み具合（`panes.ts collect`）→ あなたがすること（`panes.ts todo`）→ PR と費用（`panes.ts prs`）。分ける向きは Orca 1.4.216 の実際の動き（`--direction vertical` で左右、`horizontal` で上下。orca-cli の案内とは逆）に従い、分けた後に `terminal list --include-visual-layouts` のペインの木で並びを確かめ、違えば表示のペインだけを閉じて分け直す（#430）。終わるときは表示のペインだけを閉じ、fleet 自身の Claude の端末は閉じない（閉じる前に、閉じる handle が自分の端末の handle でないことを確かめる）。手順は fleet の SKILL.md の「Orca の worker として動くとき」の3・7。
 - hq のワークスペース（本体）のペインは、左に hq の Claude、真ん中の列に上から ① Epic/Issue（`panes.ts hq board`。Tab・`e`・`i` で、Epic ごとの子課題の Close の数・人待ちの数・Epic に入っていない Issue の件数を出す Epic のページと、Epic ごとに Issue の6段階の横棒を出し Merge 済みを1行に畳む Issue のページを切り替える）→ ② 人待ち（`node harness/scripts/panes.ts hq todo`。全 fleet の人がすること。無ければ「今はありません」と AI・App が進行中の件数）→ ③ ログ（`panes.ts hq log`。状態が変わった Issue を新しい順に、ペインの高さに収まる分だけ）、右に intel の Claude（intel の skill が無い・起こせなければ開かない）。3つのペインは `--session` を受け取らず、数秒ごとに hq の控え（下の `hq-fleets.json` の `fleets`）を読み直して、各 fleet の `session` のスナップショットだけを読む。fleet を起こし直して控えの `session` が変われば、ペインを作り直さずに新しい fleet を出す。`session` がまだ無い fleet と、起こした直後（`startedAt` から `hq.staleSnapshotMinutes` 以内）でスナップショットが無い fleet は「起動中」、それより長く無い・古い・読めなかったものがあるスナップショットは各ペインの見出しの下に1行の注意で出る。Epic の子課題は collect が `gh api graphql` で読んでスナップショットに入れ、描くペインは GitHub を読まない。タイトルは省略せずに幅で折り返す（英数字の語は途中で切らない）。手順は hq の SKILL.md の手順6（#402）。
@@ -87,12 +87,15 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 | キー | 既定 | 内容 |
 | --- | --- | --- |
 | `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker` は Orca があれば ship を Orca の worker で動かす（無ければ今の手順） |
+| `fleet.implementModel` | `sonnet` | fleet から起こされた ship が、実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル（`sonnet` か `opus`）。計画・判定・test-designer のモデルは変えない。人が付き添う単独の ship は切り替えない（ship の skill の節「実装のモデル（fleet から起こされた ship）」） |
 | `hq.maxFleets` | 2 | 同時に動かす fleet の数の上限（正の整数）。hq の人待ちのペインは超えると警告する |
 | `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
 | `hq.stuckMinutes` | 120 | AI の番の行がこれ以上同じ状態なら、進んでいないとみなす（正の整数、分） |
 | `panes.collectIntervalSeconds` | 180 | fleet の進み具合のペイン（`panes.ts collect`）が GitHub と記録を読む間隔（60 以上の整数、秒） |
 
 `hq.staleSnapshotMinutes`・`hq.stuckMinutes` は既定値で動くので、`harness.config.json` と雛形には書いていない。変えるときは `"hq": { "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }` のように書き足す。
+
+`fleet.implementModel` を戻す目安：数日分の PR で、実装のモデルごとの判定に1回で合格した割合（`report.ts`。Epic #446 の子課題で足す）を比べ、`sonnet` が `opus` のときより大きく落ちたら、`opus` に戻すかを人が決める。戻すときは `"implementModel": "opus"` と書く。
 
 Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときか、人が付き添うセッションで始めた `/loop` の各回（`/loop 6h /arch-review --loop`。下の「見直しを /loop で回す」）に動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。ループの回は下書きを記録に残すまでで、Issue にするのは人が「arch-review の下書きを選ぶ」と頼んだときに選んだものだけ。
 

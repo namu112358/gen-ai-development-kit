@@ -274,7 +274,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
       <h3>Claude（付き添いのセッション）</h3>
       <ul>
         <li>計画を書く（plan-critic が批評）</li>
-        <li>テストを書き（test-designer）、実装して Draft PR を出す</li>
+        <li>テストを書き（test-designer）、実装して Draft PR を出す。fleet から起こされた ship は、コードを書く部分を <code>fleet.implementModel</code> のモデル（既定 Sonnet）のサブエージェントに任せる</li>
         <li>判定する（Reviewer・Risk Agent）</li>
         <li>指摘を直す、main を取り込む</li>
         <li>複数の Issue は fleet で進める。<code>fleet.shipMode</code> が <code>worker</code> で Orca があれば、Issue ごとに ship を Orca の worker（独立したセッション）で起こし、無ければ1つのセッションの中（サブエージェントか、段階を交互に）で進める</li>
