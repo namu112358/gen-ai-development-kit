@@ -7,6 +7,7 @@ import type { ExemptRecord } from './exempt.ts';
 import { parsePanelRecord, type PanelRecord } from './review-panel.ts';
 import { isTrustedComment } from './state.ts';
 import { tamperAllows, tamperJevThreshold, type TamperJevRecord } from './test-tamper-jev.ts';
+import type { AutoModeJevRecord } from './auto-mode.ts';
 import type { AutoModeTestsRecord } from './auto-mode-tests.ts';
 import { BLOCKING_KINDS, parseVerdict, RISK_QUESTIONS, type BlockingFinding, type BlockingKind } from './verdict.ts';
 
@@ -1066,5 +1067,70 @@ export function renderDecisionAgreement(stats: DecisionAgreement, rows: Decision
           '| --- | --- | --- | --- | --- |',
           ...rows.map((r) => `| #${r.issue} | ${r.decisionCommentId} | ${r.recordedAt.slice(0, 16)} | ${yn(r.jevPass, '可', '不可')} | ${yn(r.humanProceeded, '進めた', '進めなかった')} |`),
         ]),
+  ].join('\n');
+}
+
+/** 見解あり・なしの比べ（auto mode の危険の問いの shadow。#426） */
+export interface AutoModeViewShift {
+  /** 見解なし・見解ありの両方の確率が読めて比べた件数 */
+  compared: number;
+  /** 見解なしは安全で、見解ありは危険 */
+  safeToDanger: number;
+  /** 見解なしは危険で、見解ありは安全 */
+  dangerToSafe: number;
+  /** 確率の差（見解あり − 見解なし）の平均。比べた件数が 0 なら null */
+  meanDiff: number | null;
+}
+
+/**
+ * 計画ゲートの記録（計画コメントごと）と受け付けの記録（patch-id ごと）から、auto mode の Jev の記録を1件ずつ取り出す。
+ * 同じ計画コメント・同じ patch-id の記録が何回出し直されても、最後の1件だけを数える（記録は使い回されるので同じ問いを重ねて数えない）。jev の無いものは除く。
+ */
+export function autoModeViewRecords(
+  planGates: { planCommentId: number; autoMode?: { jev?: AutoModeJevRecord } }[],
+  acceptances: { patchId: string; autoMode?: { jev?: AutoModeJevRecord } }[],
+): AutoModeJevRecord[] {
+  const plans = new Map<number, AutoModeJevRecord | undefined>();
+  for (const g of planGates) plans.set(g.planCommentId, g.autoMode?.jev);
+  const prs = new Map<string, AutoModeJevRecord | undefined>();
+  for (const a of acceptances) prs.set(a.patchId, a.autoMode?.jev);
+  return [...plans.values(), ...prs.values()].filter((j): j is AutoModeJevRecord => j !== undefined);
+}
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * 見解あり・なしで結論（安全／危険）が変わった件数。見解なしが ok で確率が読め、withView も ok で確率が読める記録だけを比べる。
+ * 結論は autoModeDanger と同じ下限で決める（安全側の確率 1 - yes が dangerSafe 未満なら危険）
+ */
+export function autoModeViewShift(dangerSafe: number, records: AutoModeJevRecord[]): AutoModeViewShift {
+  const s: AutoModeViewShift = { compared: 0, safeToDanger: 0, dangerToSafe: 0, meanDiff: null };
+  let sum = 0;
+  const danger = (yes: number) => 1 - yes < dangerSafe;
+  for (const r of records) {
+    const w = r.withView;
+    if (r.status !== 'ok' || !finite(r.yes) || w?.status !== 'ok' || !finite(w.yes)) continue;
+    s.compared++;
+    sum += w.yes - r.yes;
+    const before = danger(r.yes);
+    const after = danger(w.yes);
+    if (!before && after) s.safeToDanger++;
+    if (before && !after) s.dangerToSafe++;
+  }
+  if (s.compared > 0) s.meanDiff = Math.round((sum / s.compared) * 1000) / 1000;
+  return s;
+}
+
+export function renderAutoModeViewShift(s: AutoModeViewShift): string {
+  const diff = s.meanDiff === null ? '-' : `${s.meanDiff > 0 ? '+' : ''}${(s.meanDiff * 100).toFixed(1)} ポイント`;
+  return [
+    '## auto mode の見解あり・なし（shadow）',
+    '',
+    '作業したセッションの見解（`authorView`）を渡した問いと渡さない問いの、Jev の危険の結論の比べ。保留するかは見解なしだけで決めている。',
+    '見解ありの記録（`withView`）が無い・ok でない・確率が読めない記録は比べない。計画コメントごと・patch-id ごとに1件。',
+    '',
+    '| 比べた件数 | 安全→危険 | 危険→安全 | 危険の確率の差の平均（あり − なし） |',
+    '| --- | --- | --- | --- |',
+    `| ${s.compared} | ${s.safeToDanger} | ${s.dangerToSafe} | ${diff} |`,
   ].join('\n');
 }

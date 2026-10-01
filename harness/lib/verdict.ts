@@ -1,5 +1,5 @@
 import { RISK_LEVELS, type RiskLevel } from './config.ts';
-import type { Parsed } from './plan.ts';
+import { parseAuthorView, type Parsed } from './plan.ts';
 import { Checker } from './validate.ts';
 
 /**
@@ -76,6 +76,8 @@ export interface Verdict {
     fileKinds: string;
   };
   metrics?: Record<string, string | number>;
+  /** PR を実装したセッションの見解（任意。auto mode の危険の問いで、見解ありの問いにだけ渡す。結論には使わない。#426） */
+  authorView?: string;
 }
 
 export function parseVerdict(raw: unknown): Parsed<Verdict> {
@@ -144,6 +146,7 @@ export function parseVerdict(raw: unknown): Parsed<Verdict> {
       Object.entries(m).filter((e): e is [string, string | number] => typeof e[1] === 'string' || typeof e[1] === 'number'),
     );
   }
+  if (o.authorView !== undefined) verdict.authorView = parseAuthorView(c, o.authorView, 'verdict.authorView');
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: verdict };
 }
 

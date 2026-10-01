@@ -72,7 +72,7 @@ Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材
 - `changed_files`：変更ファイル（リネームは旧パスも）
 - `guardrail_paths`・`guardrail_exclude`：`harness.config.json` のガードレールの一覧
 
-判定コメントの `facts`・level・answers など、セッションが書いたものは渡さない（セッションが Jev を誘導できないように）。`facts` は記録と人の確認用に残る。Jev はリポジトリを読めないため、diff に見えない影響（変えた関数の呼び出し元など）は分からないものとして安全側に倒すよう問う。
+判定コメントの `facts`・level・answers など、セッションが書いたものは渡さない（セッションが Jev を誘導できないように）。例外は auto mode の危険の問いの見解ありの問い（Issue #426）：計画・判定の `authorView`（作業したセッションの見解）を別の欄 `author_view` で渡すが、保留するかは見解なしの確率だけで決め、見解ありの結果は記録（`autoMode.jev.withView`）にだけ残す（自己申告で危険が安全に寄るおそれを、結論に使わないことで抑える。`report.ts` の「auto mode の見解あり・なし（shadow）」で差を見る）。`facts` は記録と人の確認用に残る。Jev はリポジトリを読めないため、diff に見えない影響（変えた関数の呼び出し元など）は分からないものとして安全側に倒すよう問う。
 
 **決定の記録の確かめ**：Planner の申告への人の答え（```` ```agent-decision ````）を確かめるときは、App の計画ゲートの記録にある計画の写しの `needsHumanReasons`・`openQuestions` と、答えの `to`・`choice`・`quote` だけを渡す（本文の要約と日時は渡さない）。`jev.decisionRelease` は `shadow` から始め、`report.ts` の「人の決定の記録（Jev の判定と人の判断）」の一致率を見て、`enforce` にするかを人が PR で決める。
 

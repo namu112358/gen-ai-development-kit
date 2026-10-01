@@ -2,6 +2,7 @@
  * auto mode（Epic #339）の今の状態と、計画・PR を auto mode で通してよいかの判断（Jev の危険の問いと記録の使い回し）。
  * 判断を harness/gates/ に置くのは、bypass と同じく委任承認の除外（delegateMergeExclude の harness/gates/**）に入れ、委任で緩められないようにするため。
  * 危険の判定は Jev だけ（人の決定、#382）。保留するかは harness/lib/auto-mode.ts の autoModeDanger で決める。
+ * 作業したセッションの見解（authorView）があれば見解ありでも問い、記録の withView に残す（shadow。結論に使わない。#426）。
  * auto mode で PR に auto-merge を付けた・外した記録（kind=auto-mode-merge・auto-mode-merge-end）と、auto mode で自動経路に乗せるかの判断（autoModeRoute）もここに置く。
  * on-comment.ts・apply.ts・tests-check.ts・auto-mode-merge.ts・delegate-merge.ts・bypass-merge.ts から使う。apply.ts を import しない（循環させない）。
  */
@@ -56,20 +57,41 @@ export function reusablePrJev(previous: { autoMode?: AutoModeRecord } | null): A
 
 const skippedRecord = (detail: string): AutoModeJevRecord => ({ status: 'skipped', detail, questionSet: AUTO_MODE_JEV_QUESTION_SET });
 
-/** 計画の危険を Jev に問う。鍵が無ければ問わずに skipped の記録にする */
-export async function askPlanJev(ctx: GateContext, planBody: string, files: string[]): Promise<AutoModeJevRecord> {
-  const apiKey = ctx.secrets.jevApiKey;
-  if (!apiKey) return skippedRecord('JEV_API_KEY が未設定');
-  return autoModeJevRecord(await (ctx.askJev ?? askJev)(apiKey, autoModePlanJevRequest(ctx.config, planBody, files)));
+/**
+ * 見解なしの記録が ok で見解があるときだけ、見解ありでもう1回問い、結果を withView に入れる（shadow。保留するかには使わない。#426）。
+ * 見解なしが skipped・error なら見解ありは問わない
+ */
+async function withViewRecord(record: AutoModeJevRecord, view: string | undefined, ask: () => Promise<Awaited<ReturnType<typeof askJev>>>): Promise<AutoModeJevRecord> {
+  if (record.status !== 'ok' || view === undefined) return record;
+  const { status, detail, yes } = autoModeJevRecord(await ask());
+  return { ...record, withView: { status, ...(detail === undefined ? {} : { detail }), ...(yes === undefined ? {} : { yes }) } };
 }
 
-/** PR の危険を Jev に問う。鍵が無い・diff が大きすぎるときは問わずに skipped の記録にする */
-export async function askPrJev(ctx: GateContext, diff: string, changedFiles: string[]): Promise<AutoModeJevRecord> {
+/**
+ * 計画の危険を Jev に問う。鍵が無ければ問わずに skipped の記録にする。
+ * planBody は見解を除いた本文（planBodyWithoutView）。view（計画の authorView）があれば見解ありでも問う（withViewRecord）
+ */
+export async function askPlanJev(ctx: GateContext, planBody: string, files: string[], view?: string): Promise<AutoModeJevRecord> {
+  const apiKey = ctx.secrets.jevApiKey;
+  if (!apiKey) return skippedRecord('JEV_API_KEY が未設定');
+  const ask = ctx.askJev ?? askJev;
+  const record = autoModeJevRecord(await ask(apiKey, autoModePlanJevRequest(ctx.config, planBody, files)));
+  return withViewRecord(record, view, () => ask(apiKey, autoModePlanJevRequest(ctx.config, planBody, files, view)));
+}
+
+/** PR の危険を Jev に問う。鍵が無い・diff が大きすぎるときは問わずに skipped の記録にする。view（判定の authorView）があれば見解ありでも問う（withViewRecord） */
+export async function askPrJev(ctx: GateContext, diff: string, changedFiles: string[], view?: string): Promise<AutoModeJevRecord> {
   const apiKey = ctx.secrets.jevApiKey;
   if (!apiKey) return skippedRecord('JEV_API_KEY が未設定');
   const built = autoModePrJevRequest(ctx.config, diff, changedFiles);
   if (!built.ask) return built.record;
-  return autoModeJevRecord(await (ctx.askJev ?? askJev)(apiKey, built.request));
+  const ask = ctx.askJev ?? askJev;
+  const record = autoModeJevRecord(await ask(apiKey, built.request));
+  return withViewRecord(record, view, () => {
+    const viewed = autoModePrJevRequest(ctx.config, diff, changedFiles, view);
+    // diff の大きさは見解なしと同じなので、ここで ask: false にはならない
+    return ask(apiKey, viewed.ask ? viewed.request : built.request);
+  });
 }
 
 /** Jev の危険の問いより前に決まる、auto mode でも自動経路に乗せない理由（必須の条件） */

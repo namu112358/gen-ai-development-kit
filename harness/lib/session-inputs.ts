@@ -437,20 +437,32 @@ export interface ComposeArgs {
   riskFile: string;
   judgeInput: string;
   model?: string;
+  /** 見解（authorView）を書いたテキストのファイル（任意。PR を実装したセッションだけが渡す。#426） */
+  authorViewFile?: string;
 }
 
-const COMPOSE_USAGE = 'compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>]';
+const COMPOSE_USAGE = 'compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>] [--author-view <file>]';
 
-/** compose-verdict の引数を読む（--judge-input・--model の位置に関わらず） */
+/** compose-verdict の引数を読む（--judge-input・--model・--author-view の位置に関わらず） */
 export function parseComposeArgs(args: string[]): Parsed<ComposeArgs> {
-  const r = splitArgs(args, ['--judge-input', '--model']);
+  const r = splitArgs(args, ['--judge-input', '--model', '--author-view']);
   if (!r.ok) return { ok: false, errors: [...r.errors, COMPOSE_USAGE] };
   const { positional, options } = r.value;
   const [pr, reviewerFile, riskFile] = positional;
   const judgeInput = options['--judge-input'];
   if (positional.length !== 3 || !pr || !reviewerFile || !riskFile || !judgeInput) return { ok: false, errors: [COMPOSE_USAGE] };
   if (!/^\d+$/.test(pr)) return { ok: false, errors: [`PR 番号「${pr}」が数ではありません`, COMPOSE_USAGE] };
-  return { ok: true, value: { pr: Number(pr), reviewerFile, riskFile, judgeInput, ...(options['--model'] ? { model: options['--model'] } : {}) } };
+  return {
+    ok: true,
+    value: {
+      pr: Number(pr),
+      reviewerFile,
+      riskFile,
+      judgeInput,
+      ...(options['--model'] ? { model: options['--model'] } : {}),
+      ...(options['--author-view'] ? { authorViewFile: options['--author-view'] } : {}),
+    },
+  };
 }
 
 export interface PreviousCritique {
@@ -525,6 +537,8 @@ export interface ComposeInput {
   risk: unknown;
   /** judgedBy は判定者の説明（「付き添いのセッション」やセッションの URL など） */
   meta: { model?: string; judgedBy: string };
+  /** PR を実装したセッションの見解（任意。判定の agent-verdict の authorView に入る。結論には使わない。#426） */
+  authorView?: string;
 }
 
 /** Reviewer と Risk Agent の出力から判定コメントを作り、書式を検査する */
@@ -541,7 +555,16 @@ export function composeVerdict(input: ComposeInput, session: string | null = inp
   if (keyErrors.length > 0) return { ok: false, errors: keyErrors };
   const { facts, ...risk } = input.risk as Record<string, unknown>;
   const metrics: Record<string, string> = { ...(input.meta.model ? { model: input.meta.model } : {}), stage: 'judge', judgedBy: input.meta.judgedBy };
-  const parsed = parseVerdict({ version: 1, pr: input.pr, headSha: input.judgedHead, review: input.reviewer, risk, facts, metrics });
+  const parsed = parseVerdict({
+    version: 1,
+    pr: input.pr,
+    headSha: input.judgedHead,
+    review: input.reviewer,
+    risk,
+    facts,
+    metrics,
+    ...(input.authorView === undefined ? {} : { authorView: input.authorView }),
+  });
   if (!parsed.ok) return parsed;
   const v = parsed.value;
   const unsafe = RISK_QUESTIONS.filter((q) => v.risk.answers[q.key] !== q.safe).map((q) => `- ${q.text}：${v.risk.answers[q.key]}`);

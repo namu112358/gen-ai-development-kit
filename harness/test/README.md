@@ -20,7 +20,7 @@
 | `flow*.test.ts`・`step-*.test.ts`・`stage-*.test.ts`・`sync-*.test.ts` | 段階のグラフのデータ（`harness/lib/flow.ts`）と queue・fleet の判断の食い違い、`agent.ts step` が返すノード、段階のファイル、`syncLoop` の設定 |
 | `fleet*.test.ts` | fleet の選び方（重なり・PR 同士の衝突・着手宣言の扱い）と、進め方（入れ子の orca／交互の flat） |
 | `worktree*.test.ts`・`panes*.test.ts`・`orca-*.test.ts` | worktree の置き場所と作り方、Orca の表示名、fleet と hq のワークスペースのペイン表示、Orca の skill の入口の固定 |
-| `judge*.test.ts`・`verdict*.test.ts`・`facts*.test.ts`・`scope*.test.ts` | 判定の入力と出力、判定コメント（`agent-verdict`）の書式と判定した head のずれ、facts、PR を出す前の範囲照合 |
+| `judge*.test.ts`・`verdict*.test.ts`・`compose-verdict-*.test.ts`・`facts*.test.ts`・`scope*.test.ts` | 判定の入力と出力、判定コメント（`agent-verdict`）の書式と判定した head のずれ、facts、PR を出す前の範囲照合 |
 | `merge-*.test.ts`・`human-merge*.test.ts`・`tests-*.test.ts`・`exempt*.test.ts`・`patch-id*.test.ts`・`revert*.test.ts`・`pr-*.test.ts`・`main-push*.test.ts`・`stack*.test.ts` | Merge の経路（自動 Merge と Human Merge）、テストの結果と例外ラベル、patch-id、revert、PR と Issue の結び付け、main への push、Stacked PR |
 | `review-panel-*.test.ts` | 合体版のレビューの組み立て・記録・担当の定義と、今の判定と比べる集計 |
 | `report-*.test.ts`・`render-*.test.ts` | 判定の集計（`harness/lib/report.ts`）：外れの数え方、fix の PR の結び付け、Jev の問いごとの確率、テストの改ざんの判定と人の判断の一致、文字数とトークン数の比、指標の描き方 |

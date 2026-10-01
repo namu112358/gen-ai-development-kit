@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { autoModeConfig, autoModeDanger, type AutoModeJevRecord, type AutoModeState } from '../lib/auto-mode.ts';
+import { autoModeConfig, autoModeDanger, planBodyWithoutView, type AutoModeJevRecord, type AutoModeState } from '../lib/auto-mode.ts';
 import { extractBlock } from '../lib/blocks.ts';
 import { AREA_PREFIX } from '../lib/classify.ts';
 import { answeredPlan } from '../lib/decision.ts';
@@ -139,7 +139,7 @@ async function onPlan(
   // auto mode の危険の判定：ほかに止める理由が無いときだけ Jev に問う（同じ計画コメント・同じ本文の ok の記録は使い回す）
   let autoMode: PlanAutoMode | undefined;
   if (autoCandidate && autoSkips && autoState) {
-    const jev = autoKnown?.jev ?? reusablePlanJev(latestPlanGate(ctx.config, comments)?.value, comment.id, sha256(comment.body)) ?? (await askPlanJev(ctx, comment.body, plan.files));
+    const jev = autoKnown?.jev ?? reusablePlanJev(latestPlanGate(ctx.config, comments)?.value, comment.id, sha256(comment.body)) ?? (await askPlanJev(ctx, planBodyWithoutView(comment.body), plan.files, plan.authorView));
     const danger = autoModeDanger(ctx.config, { jev });
     autoMode = { skipped: autoSkips, label: autoModeConfig(ctx.config).label, by: autoState.by, since: autoState.since, jev, hold: danger.hold, reasons: danger.reasons };
     if (!danger.hold) gate = { pass: true, reasons: [], ...(gate.critiqueProceeded ? { critiqueProceeded: gate.critiqueProceeded } : {}) };
@@ -329,7 +329,7 @@ async function reviewAutoModePlan(ctx: GateContext, issue: OpenIssue, state: Aut
   if (lastLabeled(events, LABELS.planReview)?.actor?.login !== appLogin(ctx.config)) return;
   const planComment = comments.find((c) => c.id === record.planCommentId);
   if (!planComment || !isTrustedComment(planComment) || sha256(planComment.body) !== record.planBodySha256) return;
-  const jev = reusablePlanJev(record, planComment.id, record.planBodySha256) ?? (await askPlanJev(ctx, planComment.body, record.plan.files));
+  const jev = reusablePlanJev(record, planComment.id, record.planBodySha256) ?? (await askPlanJev(ctx, planBodyWithoutView(planComment.body), record.plan.files, record.plan.authorView));
   if (autoModeDanger(ctx.config, { jev }).hold) return;
   const block = extractBlock(planComment.body, 'agent-plan');
   await onPlan(ctx, issue, planComment, block, decisionComment ? { commentId: decisionComment.id, url: decisionComment.html_url } : undefined, undefined, { state, jev });
@@ -454,7 +454,7 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
   if (!elig.autoEligible && required.length === 0) {
     // 鍵が無ければ問えないので、前の記録も読まない（API を増やさない）
     const reused = ctx.secrets.jevApiKey ? reusablePrJev(acceptanceForPatch(ctx.config, await ctx.gh.listComments(prNumber), currentPatch)) : null;
-    autoJev = reused ?? (await askPrJev(ctx, diff, files));
+    autoJev = reused ?? (await askPrJev(ctx, diff, files, verdict.authorView));
   }
   const autoMode = autoModeEligibility({ required, danger: autoJev ? autoModeDanger(ctx.config, { jev: autoJev }) : null, jev: autoJev, humanMerge, exclude, jevGate, guardrail, risk });
   return {
