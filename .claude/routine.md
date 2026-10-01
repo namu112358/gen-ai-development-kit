@@ -54,7 +54,7 @@
 4. `planFiles` の範囲で実装する。範囲外の変更が必要になったら、PR 本文に理由を書く（範囲照合で自動 Merge の対象外になる）。
 5. `npm run check` を通す（`npm ci` は worktree が行っている）。
 6. commit して `git push -u origin <ブランチ>`。
-7. MCP で **Draft** PR を作る（base は main）。タイトルは Issue のタイトルをそのまま使う（Conventional Commits。コミットメッセージの1行目も同じ形式にする）。本文は `.github/pull_request_template.md` に沿って書く（`Closes #<番号>`、計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、変更の概要、AC ごとの対応、範囲外の変更、人に見てほしい点、テスト）。
+7. MCP で **Draft** PR を作る（base は main）。タイトルは Issue のタイトルをそのまま使う（Conventional Commits。コミットメッセージの1行目も同じ形式にする）。本文は `.github/pull_request_template.md` に沿って書く（`Closes #<番号>`、ひとことで、あなたに確かめてほしいこと、動きの変化、リスクと戻し方。`<details>` の中に計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、変えたファイル、AC ごとの対応、範囲外の変更、テスト）。
 8. Issue に `render-claim --release` の出力をコメントする。
 9. `node harness/scripts/agent.ts render-metrics implement <モデル名> <所要分>` の出力を PR にコメントする。トークン数と推定料金はセッション記録から自動で入る（トークン数の引数は不要。読めなければ unknown になる）。
 10. 判定は**しない**（次の実行で別の段階として行う）。

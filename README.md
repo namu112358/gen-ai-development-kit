@@ -44,7 +44,7 @@ GitHub の設定。ここはガードレール（変えると人が Merge する
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
 | `ISSUE_TEMPLATE/` | Issue の作り方の設定。`agent-task.yml` は「Agent タスク」の Issue Form（Goal・Requirements・Acceptance Criteria などの見出しをゲートが読む）、`config.yml` は Form を使わない Issue も作れるようにする設定。ここに .md を置くと Issue のテンプレートとして扱われるので、README は置かない | ○ |
-| `pull_request_template.md` | PR 本文の見本（`Closes #番号`、変更の概要、AC ごとの対応、範囲外の変更、テスト） | ○ |
+| `pull_request_template.md` | PR 本文の見本（`Closes #番号`、ひとことで・あなたに確かめてほしいこと・動きの変化・リスクと戻し方を先頭に、計画・変えたファイル・AC ごとの対応・範囲外の変更・テストは `<details>` にたたむ） | ○ |
 | `workflows/` | GitHub Actions の設定。 | ○ |
 <!-- readme:generated end -->
 
