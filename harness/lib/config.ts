@@ -39,6 +39,8 @@ export interface HarnessConfig {
     routineClaimTakeoverMinutes: number;
     /** 判定コメントへの App の返答をこれ以上待たない時間（分。過ぎたら判定し直す）。無ければ 30（harness/lib/facts.ts。Issue #272） */
     gateReplyTimeoutMinutes?: number;
+    /** judge・fix・sync の着手宣言の後に動きが無ければ、ダッシュボードの「止まっていそうな着手宣言」に出すまでの時間（分）。無ければ 60（harness/lib/stalled-claim.ts。Issue #391） */
+    stalledClaimMinutes?: number;
   };
   /**
    * true なら、Assignee がちょうど1人で今の GitHub のユーザーである Issue（と、その Issue を Close する PR）にだけ着手する（claim --manual・ensureOwnClaim・fleet。harness/lib/assignee.ts）。
@@ -103,6 +105,8 @@ export interface HarnessConfig {
     sharedFiles?: string[];
     /** ship の動かし方。subagent（既定）はサブエージェント、worker は Orca があれば ship を Orca の worker で動かす（無ければ今の手順。fleet の skill。Issue #197） */
     shipMode?: 'subagent' | 'worker';
+    /** 実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル。無ければ sonnet（implementModelConfig。Issue #469） */
+    implementModel?: 'sonnet' | 'opus';
   };
   /** hq（テーマごとの fleet をまとめて見る）の設定。maxFleets は hq のペインがまとめる fleet の数の目安（超えると警告。hqConfig） */
   hq?: { maxFleets?: number };
@@ -140,6 +144,7 @@ const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
   { path: 'routine.humanClaimStaleHours', kind: 'positive', required: true },
   { path: 'routine.routineClaimTakeoverMinutes', kind: 'positive', required: true },
   { path: 'routine.gateReplyTimeoutMinutes', kind: 'positive', required: false },
+  { path: 'routine.stalledClaimMinutes', kind: 'positive', required: false },
   { path: 'fixLoop.normalLimit', kind: 'positiveInteger', required: true },
   { path: 'fixLoop.criticalLimit', kind: 'positiveInteger', required: true },
   { path: 'syncLoop.limit', kind: 'positiveInteger', required: false },
@@ -254,6 +259,19 @@ export function shipModeConfig(config: Pick<HarnessConfig, 'fleet'>): { shipMode
   if (shipMode === 'subagent') return { shipMode, stopReason: null };
   if (shipMode === 'worker') return { shipMode, stopReason: null };
   throw new Error('fleet.shipMode は subagent か worker で書いてください');
+}
+
+/** 実装を任せるサブエージェントのモデルの既定値 */
+export const IMPLEMENT_MODEL_DEFAULTS = { implementModel: 'sonnet' } as const;
+
+/**
+ * fleet から起こされた ship が実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル
+ * （fleet.implementModel。無ければ sonnet。ship の skill。Issue #469）。sonnet か opus 以外は throw する
+ */
+export function implementModelConfig(config: Pick<HarnessConfig, 'fleet'>): { implementModel: 'sonnet' | 'opus' } {
+  const { implementModel = IMPLEMENT_MODEL_DEFAULTS.implementModel } = sectionOf(config.fleet, 'fleet', '{ "implementModel": "sonnet" }');
+  if (implementModel === 'sonnet' || implementModel === 'opus') return { implementModel };
+  throw new Error('fleet.implementModel は sonnet か opus で書いてください');
 }
 
 /** hq の既定値 */

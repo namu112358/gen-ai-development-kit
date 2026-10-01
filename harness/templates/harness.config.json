@@ -14,7 +14,8 @@
     "maxItemsPerRun": 5,
     "humanClaimStaleHours": 6,
     "routineClaimTakeoverMinutes": 90,
-    "gateReplyTimeoutMinutes": 30
+    "gateReplyTimeoutMinutes": 30,
+    "stalledClaimMinutes": 60
   },
   "testPatterns": [
     "**/*.test.*",
@@ -65,7 +66,8 @@
   "fleet": {
     "nesting": "orca",
     "maxParallelShips": 3,
-    "shipMode": "subagent"
+    "shipMode": "subagent",
+    "implementModel": "sonnet"
   },
   "hq": {
     "maxFleets": 2
