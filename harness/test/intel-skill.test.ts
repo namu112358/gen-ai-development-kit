@@ -71,6 +71,13 @@ test('手順に、人の質問に根拠つきで答えること（根拠・フ�
   assertWords(mustSection(skill(), '## 手順', 'SKILL.md'), ['根拠', 'ファイルと行', 'panes.ts hq'], '「## 手順」');
 });
 
+test('Issue #437：hq のペインの読み方は panes.ts hq todo で書き、ペインの名前の無い panes.ts hq を使わない', () => {
+  const text = skill();
+  assert.ok(text.includes('panes.ts hq todo'), 'SKILL.md に「panes.ts hq todo」がありません');
+  const bare = text.match(/panes\.ts hq(?! (todo|board|log)\b)/);
+  assert.equal(bare, null, `ペインの名前の無い書き方があります: ${bare?.[0]}`);
+});
+
 test('手順に、名前（ListAgents）と受け取りの返事（受け取った）、進め方の話を hq に回すことがある', () => {
   assertWords(mustSection(skill(), '## 手順', 'SKILL.md'), ['ListAgents', '受け取った', 'hq のタブで伝えてください'], '「## 手順」');
 });
