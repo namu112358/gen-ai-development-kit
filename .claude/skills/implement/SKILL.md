@@ -18,7 +18,9 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 1. `node harness/scripts/agent.ts claim <番号> --manual --stage implement` で着手を宣言する（段階の更新。ほかのセッションの宣言があれば止まる。先に宣言したセッションがあって自分の宣言を取り下げて止まったら、作業を始めずに ship / fleet の扱いに従う）。同じ領域の判定前の Agent PR（Draft）が上限で止まったら、AskUserQuestion で人に聞く（急ぐと言われたときだけ `--force`）。
 2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作る（出力がパス。置き場所はリポジトリの外）。以降はそのディレクトリで作業する。`node_modules` が無ければ worktree が `npm ci` まで行う。
 3. **test-designer** サブエージェントにテストを書かせる。GitHub は読ませないので、Issue 番号、AC、Validation Requirements、計画の `files` を指示に含めて渡す。
-4. 計画の `files` の範囲で実装する。範囲外の変更が要るなら、先に AskUserQuestion で人に聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方。範囲外として出すなら PR 本文の「範囲外の変更」に理由を書き、計画を出し直すなら plan の skill に戻る）。
+4. 計画の `files` の範囲で実装する。計画に無い設計の判断（新しいファイル・公開の形（関数・型・コマンド・設定のキー・出力の書式）の変更・計画の `files` の外の変更）が要ると分かったら、即興で決めて書かずに止まる（書きかけの変更は commit しない）。`node harness/scripts/agent.ts claim <番号> --manual --stage plan` で段階を `plan` に戻し、要る判断とその理由を計画に書いて、plan の skill で計画を出し直す（批評と計画ゲートを通し直す）。通ったら手順1の `claim --stage implement` で宣言し直し、既にある worktree で（手順2をやり直さずに）手順3から続ける（test-designer のテストも出し直した計画に合わせて見直す）。
+   - 範囲外のまま出すかを AskUserQuestion で聞いてよいのは、人が付き添うセッションで、計画の `files` の外の変更を範囲外のまま出すかを人が決めるときだけ（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。範囲外として出すと決まったら PR 本文の「範囲外の変更」に理由を書き、出し直すと決まったら上のとおり計画に返す。
+   - fleet から起こされた ship（入れ子の ship（サブエージェントとして動く ship。ship の skill の「サブエージェントの ship として動くとき」）と、fleet が Orca の worker として起こした ship）と、その ship が実装を任せたサブエージェントは聞かずに、上のとおり計画に返す（任されたサブエージェントは書かずに止まって理由を返し、ship が段階を `plan` に戻す）。
 5. `npm run check` を通す。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
 7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
@@ -55,7 +57,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 
 - `claim --manual` が領域の上限で止まった
 - `claim` が先に宣言したセッションがあるため取り下げて止まった、または `ensure-claim` で止まった（PR を出さない）
-- 計画の `files` の外を変える必要がある、または計画どおりでは AC を満たせない
+- 計画どおりでは AC を満たせない（計画に無い設計の判断が要るときは、人に返さずに手順4のとおり計画に返す）
 - `scope-check` が範囲の外のファイルを出した（計画を出し直すか、その変更を外すかを AskUserQuestion で聞く）
 - `scope-check` が JSON を出さずに終わった（終了コード 2 など。PR を作らない）
 - `npm run check` が、この変更と関係ない理由で落ちる
