@@ -1,10 +1,14 @@
 import { appMarkKind } from '../lib/blocks.ts';
 import { appLogin, loadConfig, TEST_EXEMPT_LABEL } from '../lib/config.ts';
 import { exemptRecords } from '../lib/exempt.ts';
-import { GitHub, transportFromEnv } from '../lib/github.ts';
+import { GitHub, transportFromEnv, type IssueComment } from '../lib/github.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
 import {
   decisionAgreement,
+  implementModelOf,
+  implementModelQuality,
+  planReturnsOf,
+  renderImplementModelQuality,
   decisionRows,
   fixLinksFor,
   fixPrFilesOf,
@@ -42,6 +46,7 @@ import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
  *
  * ここでは GitHub から事実を集めて行にするだけ。集計と基準の判定は harness/lib/report.ts、基準の意味は docs/security.md の「Jev」。
  * 受け付けられなかった判定コメントも件数に出す。テストの改ざんの Jev の記録と人の判断（test:exempt・Merge した差分）の一致も数える（Q95）。
+ * 実装のモデル（PR 本文の「実装のモデル:」の行）ごとに、1回で合格した割合・修正の回数・計画に返した回数を出す節も付ける（#473）。
  * 最後に合体版のレビューの記録と今の判定を比べる節（基準は docs/plan.md の Q91）と、人の決定の記録の Jev の判定と人の判断の一致率の節（Q93）、
  * auto mode の危険の問いの見解あり・なしの結論の比べ（shadow。#426）の節を出す。
  */
@@ -92,6 +97,16 @@ async function prFiles(n: number) {
 // Closes する Issue の番号（PR 番号でキャッシュする。Issue の本文は結び付けに使わない）
 const closesOf = new Map<number, number[]>();
 const closes = async (n: number) => closesOf.get(n) ?? closesOf.set(n, await closingIssues(gh, n).catch(() => [])).get(n)!;
+
+// Issue の着手宣言のコメント（Issue 番号でキャッシュする。計画に返した回数の数え方は lib/report.ts の planReturnsOf）
+const issueCommentsOf = new Map<number, IssueComment[]>();
+async function issueComments(n: number): Promise<IssueComment[]> {
+  const cached = issueCommentsOf.get(n);
+  if (cached) return cached;
+  const list = await gh.listComments(n).catch(() => []);
+  issueCommentsOf.set(n, list);
+  return list;
+}
 
 // fix の PR の候補（タイトルかブランチで fix と分かる Merge 済みの PR）だけ、変更ファイル・patch・本文・Closes する Issue を取る
 const fixCandidates: MergedPr[] = [];
@@ -153,6 +168,8 @@ for (const pr of agentPrs) {
     : [];
   const acceptance = appRecords<Acceptance>(config, comments, 'acceptance').at(-1)?.value ?? null;
   const fixedBy = fixLinks.map((l) => l.pr);
+  let planReturns = 0;
+  for (const i of await closes(pr.number)) planReturns += planReturnsOf(await issueComments(i));
   rows.push({
     pr: pr.number,
     createdAt: pr.created_at,
@@ -177,6 +194,8 @@ for (const pr of agentPrs) {
       acceptance?.patchId ?? null,
     ),
     fixLinks,
+    implementModel: implementModelOf(pr.body),
+    planReturns,
   });
 
   // 合体版のレビューの記録と今の判定の組（App の fix-request と、レビューコメント）
@@ -208,7 +227,9 @@ for (const pr of agentPrs) {
   for (const [k, n] of Object.entries(panel.excluded)) panelExcluded[k] = (panelExcluded[k] ?? 0) + n;
 }
 
-console.log(`${renderReport(summarize(config, rows), rows, days)}\n\n${renderTokenRatios(tokenRatios(rows))}`);
+console.log(`${renderReport(summarize(config, rows), rows, days)}\n\n${renderTokenRatios(tokenRatios(rows))}
+
+${renderImplementModelQuality(implementModelQuality(rows))}`);
 console.log(`\n${renderPanelComparison(panelComparison(panelRows), panelRows, panelExcluded)}`);
 
 // 人の決定の記録（shadow の plan-decision）と人の判断の一致率。plan-decision の記録がある Issue だけ events と Closes する PR を読む
