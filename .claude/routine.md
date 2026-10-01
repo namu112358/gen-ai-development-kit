@@ -96,6 +96,18 @@ Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同�
 
 Issue に `agent:waiting` を付け、未解決の blocker を書いたコメントを残す（先頭に `<!-- agent-harness:claude -->`）。blocker が閉じると App が外す。
 
+### 問題の記録（改善の候補）
+
+拒否された操作（`deny`）・人に返す（`render-block`。`return-to-human`）・App の拒否（ゲートの停止・受け付けの拒否。`app-reject`）が起きたら、その場で記録する（記録はリポジトリの外のファイル。[docs/operations.md](../docs/operations.md#問題の記録と振り分け)）。Routine には `AGENT_HARNESS_SESSION` が無いことがあるので、セッションは `--session` で渡す。
+
+```
+node harness/scripts/agent.ts incident add --session "$CLAUDE_CODE_REMOTE_SESSION_ID" --kind <種類> --what <起きたこと> [--target <#番号|PR #番号>]
+```
+
+見張りの hook（`.claude/hooks/guard.ts`）が止めた操作は、hook が stdin の `session_id`（SessionStart の hook が `AGENT_HARNESS_SESSION` に書くのと同じ ID）の記録に自動で足す。これが `CLAUDE_CODE_REMOTE_SESSION_ID` と同じだとは限らないので、読むときは `AGENT_HARNESS_SESSION` があれば `--session "$AGENT_HARNESS_SESSION"` も重ねる（同じなら重複は除かれる）。
+
+実行の終わりに `incident list --session "$CLAUDE_CODE_REMOTE_SESSION_ID" [--session "$AGENT_HARNESS_SESSION"]` で記録があれば、`node harness/scripts/agent.ts incident render-comment --session "$CLAUDE_CODE_REMOTE_SESSION_ID" [--session "$AGENT_HARNESS_SESSION"]` の出力を、MCP でダッシュボードの Issue に**1回だけ**コメントする（記録が無ければコメントしない）。起票はしない。App がダッシュボードの「改善の候補」の節に並べ、起票するかは人が決める。GitHub に記録を書くのは、人の決定（2026-09-29）による例外で、Routine（無人）の実行ごとにこの1回だけ。付き添いのセッションは GitHub に記録を書かない。
+
 ## 終わりに
 
-処理したアクションと結果、飛ばした理由の要約を最後に出力する。
+処理したアクションと結果、飛ばした理由、問題の記録をダッシュボードにコメントしたかの要約を最後に出力する。

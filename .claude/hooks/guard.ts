@@ -12,7 +12,8 @@
  * ブランチ名やフラグを渡す link など）は止める。スタックの Merge の API（`gh api -X PUT …/pulls/<番号>/merge-async`）も止める。
  *
  * 入出力（https://code.claude.com/docs/en/hooks.md）：stdin の JSON（tool_name・tool_input・cwd）を読み、
- * 止めるときは hookSpecificOutput.permissionDecision = "deny" と理由を stdout に出して exit 0。
+ * 止めるときは hookSpecificOutput.permissionDecision = "deny" と理由を stdout に出して exit 0。stdin に session_id があれば、
+ * 出した後に止めた操作をセッションの問題の記録（harness/lib/incident.ts。agent.ts incident と同じファイル）に1件足す（#187。失敗しても判定は変えない）。
  * 通すときは何も出さずに exit 0（通常の許可の流れ。permissions.deny もそのまま効く）。
  * 安全側の判定：stdin の JSON が読めないときは、push・merge・保護ラベルの名前を含むものだけ止める（コマンドを取り出せないため）。
  * 設定や今のブランチが読めない、または判定の途中で失敗したときは、Bash は通常と同じ判定を使い、`git … push` だけは
@@ -38,6 +39,7 @@ export interface HookInput {
   tool_name?: unknown;
   tool_input?: unknown;
   cwd?: unknown;
+  session_id?: unknown;
   [k: string]: unknown;
 }
 
@@ -1170,7 +1172,7 @@ function gitBranch(dir: string): string | null {
 /** hook の本体。直接起動したとき（import.meta.main）と、入口（run.mjs）から呼ばれたときに動く */
 export async function main(): Promise<void> {
   let raw = '';
-  let out = '';
+  let decision: Decision;
   try {
     for await (const chunk of process.stdin) raw += String(chunk);
     let ctx: GuardContext | null = null;
@@ -1194,11 +1196,31 @@ export async function main(): Promise<void> {
     } catch {
       ctx = null;
     }
-    out = hookOutput(decideRaw(raw, ctx));
+    decision = decideRaw(raw, ctx);
   } catch {
-    out = hookOutput(fallback(raw, FALLBACK_LABELS, 'hook の途中で失敗した'));
+    decision = fallback(raw, FALLBACK_LABELS, 'hook の途中で失敗した');
   }
+  const out = hookOutput(decision);
   if (out) process.stdout.write(`${out}\n`);
+  if (decision.deny) await recordDeny(raw, decision.reason);
+}
+
+/**
+ * 止めた操作を、stdin の session_id のセッションの問題の記録（harness/lib/incident.ts の incidentFile。agent.ts incident と同じファイル）に
+ * kind=deny・source=hook で1件足す（#187）。判定の標準出力を書いた後に呼ぶ。秘密に見える文字列は appendIncident が置き換える。
+ * 判定の関数を import するテストに incident.ts を読み込ませないよう、ここで動的に import する。
+ * session_id が無い・形が違う・lib が読めない・書けないときは何もしない（判定・標準出力・終了コードを変えない。例外を外に出さない）
+ */
+async function recordDeny(raw: string, reason: string): Promise<void> {
+  try {
+    const input = JSON.parse(raw) as HookInput;
+    if (typeof input.session_id !== 'string' || input.session_id === '') return;
+    const tool = typeof input.tool_name === 'string' ? input.tool_name : '?';
+    const lib = await import('../../harness/lib/incident.ts');
+    lib.appendIncident(input.session_id, { kind: 'deny', what: `guard.ts が止めた（${tool}）：${reason}`, source: 'hook' }, process.env);
+  } catch {
+    // 記録の失敗は判定に響かせない
+  }
 }
 
 if (import.meta.main) await main();
