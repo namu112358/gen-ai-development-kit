@@ -132,7 +132,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 ```
 ````
 
-- `review.blocking[].kind`：`ac-unmet` / `out-of-scope` / `typecheck-test-failure` / `data-destruction` / `secret-leak` / `regression` / `bug`（合体版のレビューの②〜⑤の観点で、確信度 75 以上の不具合） / `claude-md`（①の CLAUDE.md の決まりへの違反で、確信度 75 以上）。`bug`・`claude-md` は今の reviewer（`.claude/agents/reviewer.md`）は出さない。修正の上限は通常と同じ（critical でない）
+- `review.blocking[].kind`：`ac-unmet` / `out-of-scope` / `typecheck-test-failure` / `data-destruction` / `secret-leak` / `regression` / `bug`（合体版のレビューの②〜⑤の観点で、確信度 75 以上の不具合） / `claude-md`（①の CLAUDE.md の決まりへの違反で、確信度 75 以上） / `over-implementation`・`over-testing`・`over-engineering`（合体版の⑨の観点で、確信度 75 以上の過剰さ。#386）。`bug`・`claude-md`・⑨の3つは今の reviewer（`.claude/agents/reviewer.md`）は出さない。修正の上限は通常と同じ（critical でない）
 - `review.pass` は `blocking` が空のときだけ `true`（矛盾していれば拒否）
 - `review.humanNotes`（任意）：人にレビューを依頼するときの懸念点（`concerns`）と見てほしい箇所（`checkPoints`）。App の Human Merge の依頼コメントに載る
 - `risk.answers` は `yes` / `no` / `unsure` の3択。安全側の答えは [risk-policy.md](risk-policy.md)

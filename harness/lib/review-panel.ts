@@ -13,20 +13,17 @@ import { BLOCKING_KINDS, type BlockingFinding, type BlockingKind, type HumanNote
 export const PANEL_MODES = ['off', 'shadow', 'enforce'] as const;
 export type PanelMode = (typeof PANEL_MODES)[number];
 
-/** 指摘を出す担当。lens1〜5 は公式の Agent #1〜#5（①〜⑤）、ac-scope は⑥、safety は⑦、overbuild は⑨（過剰さ。提案だけ） */
+/** 指摘を出す担当。lens1〜5 は公式の Agent #1〜#5（①〜⑤）、ac-scope は⑥、safety は⑦、overbuild は⑨（過剰さ。確信度 75 以上はブロッキング） */
 export const PANEL_SOURCES = ['lens1', 'lens2', 'lens3', 'lens4', 'lens5', 'ac-scope', 'safety', 'overbuild'] as const;
 export type PanelSource = (typeof PANEL_SOURCES)[number];
 
 /** 担当の出力のファイル名（拡張子なし） */
 export const PANEL_OUTPUT_NAMES: readonly string[] = ['intake', 'lens1', 'lens2', 'lens3', 'lens4', 'lens5', 'ac-scope', 'safety'];
-/** 無くても組み立てを止めない担当の出力（⑨は提案だけなので） */
+/** 無くても組み立てを止めない担当の出力（⑨の出力が無いと、⑨のブロッキングが無いまま合格しうる。humanNotes.concerns に OVERBUILD_MISSING_NOTE を残す） */
 export const PANEL_OPTIONAL_OUTPUT_NAMES: readonly string[] = ['overbuild'];
 
-/** ⑨の指摘の種類。判定のブロッキングの種類（BLOCKING_KINDS）には入れず、合否を変えない */
-export const PANEL_ADVISORY_KINDS = ['over-implementation', 'over-testing', 'over-engineering'] as const;
-export type AdvisoryKind = (typeof PANEL_ADVISORY_KINDS)[number];
-export type PanelKind = BlockingKind | AdvisoryKind;
-const PANEL_KINDS: readonly PanelKind[] = [...BLOCKING_KINDS, ...PANEL_ADVISORY_KINDS];
+/** ⑨の指摘の種類（判定のブロッキングの種類 BLOCKING_KINDS の末尾の3つ。#386） */
+export const OVERBUILD_KINDS = ['over-implementation', 'over-testing', 'over-engineering'] as const satisfies readonly BlockingKind[];
 /** ⑨の1判定の指摘の上限 */
 export const OVERBUILD_MAX_FINDINGS = 5;
 /** ⑨の出力が無かったときに humanNotes.concerns に残す文（「⑨が動いて指摘0件」と見分けるため） */
@@ -49,7 +46,7 @@ export interface PanelFinding {
   /** `<source>-<添字>`（その担当の findings の添字） */
   id: string;
   source: PanelSource;
-  kind: PanelKind;
+  kind: BlockingKind;
   file?: string;
   line?: number;
   detail: string;
@@ -104,7 +101,7 @@ export type Treatment = 'blocking' | 'nonBlocking' | 'humanNotes' | 'dropped';
 export interface PanelFindingResult {
   id: string;
   source: PanelSource;
-  kind: PanelKind;
+  kind: BlockingKind;
   score: number;
   treatment: Treatment;
   file?: string;
@@ -218,7 +215,7 @@ function parseOverbuild(c: Checker, raw: unknown): PanelFinding[] {
     const finding: PanelFinding = {
       id: `${name}-${i}`,
       source: name,
-      kind: c.oneOf(f.kind, PANEL_ADVISORY_KINDS, `${path}.kind`),
+      kind: c.oneOf(f.kind, OVERBUILD_KINDS, `${path}.kind`),
       file: c.string(f.file, `${path}.file`, { nonEmpty: true }),
       detail: c.string(f.detail, `${path}.detail`, { nonEmpty: true }),
     };
@@ -283,7 +280,8 @@ function hitsChanged(f: PanelFinding, changed: ChangedLines): boolean {
  * 担当の指摘・採点・⑧の結果から、reviewer と同じ形の出力と指摘ごとの扱いを作る。
  * ①は claude-md、②〜⑤は bug、⑥⑦は指摘の kind で、確信度 75 以上をブロッキングにする（75 未満は①〜⑤は捨て、⑥⑦は humanNotes.concerns）。
  * ⑧は採点せず、終了コードが 0 でなければ必ずブロッキング。再レビューでは、変わった行に当たる指摘・⑥⑦の直っていない前回の指摘・⑧だけをブロッキングにする。
- * ⑨（overbuild）の指摘は点数・再レビューに関わらず nonBlocking（計画の方針ごと過剰なら humanNotes.checkPoints にも）で、合否を変えない。
+ * ⑨（overbuild）は指摘の kind で、確信度 75 以上をブロッキングにする（再レビューは変わった行に当たるものだけ）。それ以外は確信度を付けて nonBlocking（humanNotes.concerns には入れない）。
+ * 計画の方針ごと過剰（planLevel）なら、扱いに関わらず humanNotes.checkPoints にも入れる。
  * 採点の欠け・重複・余り・範囲外は、黙って捨てずに拒否する。担当の提案（suggestions）は採点せず、nonBlocking の末尾に入れる（合否を変えない）。
  */
 export function composePanel(input: {
@@ -316,12 +314,13 @@ export function composePanel(input: {
     const score = scores.value.get(f.id)!.score;
     const loc = { ...(f.file ? { file: f.file } : {}), ...(f.line !== undefined ? { line: f.line } : {}) };
     if (f.source === 'overbuild') {
-      // ⑨は提案だけ：点数・再レビューに関わらずブロッキングにしない
-      nonBlocking.push(`[${f.kind}]（確信度 ${score}）${describe(f)}`);
+      const block = score >= SCORE_THRESHOLD && (!input.previous || hitsChanged(f, input.changedLines!));
+      if (block) blocking.push({ kind: f.kind, ...(f.file ? { file: f.file } : {}), detail: describe(f) });
+      else nonBlocking.push(`[${f.kind}]（確信度 ${score}）${describe(f)}`);
       if (f.planLevel === true) humanNotes.checkPoints.push(`[${f.kind}] 計画の方針ごと過剰の疑い：${describe(f)}`);
-      return { id: f.id, source: f.source, kind: f.kind, score, treatment: 'nonBlocking', ...loc, detail: f.detail };
+      return { id: f.id, source: f.source, kind: f.kind, score, treatment: block ? 'blocking' : 'nonBlocking', ...loc, detail: f.detail };
     }
-    const kind = f.kind as BlockingKind;
+    const kind = f.kind;
     const lens = f.source.startsWith('lens');
     let treatment: Treatment;
     if (score < SCORE_THRESHOLD) treatment = lens ? 'dropped' : 'humanNotes';
@@ -518,7 +517,7 @@ export function parsePanelRecord(body: string): Parsed<PanelRecord> {
     const r: PanelFindingResult = {
       id: c.string(f.id, `${path}.id`),
       source: c.oneOf(f.source, PANEL_SOURCES, `${path}.source`),
-      kind: c.oneOf(f.kind, PANEL_KINDS, `${path}.kind`),
+      kind: c.oneOf(f.kind, BLOCKING_KINDS, `${path}.kind`),
       score: c.number(f.score, `${path}.score`, 0, 100),
       treatment: c.oneOf(f.treatment, ['blocking', 'nonBlocking', 'humanNotes', 'dropped'] as const, `${path}.treatment`),
       detail: c.string(f.detail, `${path}.detail`),

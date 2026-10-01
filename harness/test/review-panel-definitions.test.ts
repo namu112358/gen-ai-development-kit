@@ -192,10 +192,10 @@ test('docs/review-panel.md：公式との違いの表・出どころ・切り替
   assert.ok(section.filter((l) => l.startsWith('|')).length >= 3, '「公式との違い」の下に表（見出し・区切り・1行以上）がありません');
 });
 
-test('docs/review-panel.md：⑨の担当 review-overbuild と、その指摘が nonBlocking（提案だけ）で合否を変えないことが書いてある（Issue #325）', () => {
-  const text = read('docs/review-panel.md');
-  assert.ok(text.includes('review-overbuild'), 'review-overbuild がありません');
-  const lines = text.split('\n').filter((l) => l.includes('nonBlocking') && (l.includes('⑨') || l.includes('overbuild') || l.includes('過剰')));
-  assert.ok(lines.length > 0, '⑨の指摘が nonBlocking に入る記述がありません');
-  assert.ok(text.includes('提案だけ'), '「提案だけ」の記述がありません');
+test('docs/review-panel.md と review-overbuild.md：⑨の指摘は確信度 75 以上でブロッキングにすると書いてある（Issue #325・#386）', () => {
+  assert.ok(read('docs/review-panel.md').includes('review-overbuild'), 'docs/review-panel.md に review-overbuild がありません');
+  for (const path of ['docs/review-panel.md', agentPath('review-overbuild')]) {
+    const lines = read(path).split('\n').filter((l) => l.includes('確信度 75 以上') && l.includes('ブロッキング'));
+    assert.ok(lines.length > 0, `${path} に、確信度 75 以上の⑨の指摘をブロッキングにする記述がありません`);
+  }
 });
