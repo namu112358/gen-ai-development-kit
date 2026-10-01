@@ -39,6 +39,8 @@ export interface HarnessConfig {
     routineClaimTakeoverMinutes: number;
     /** 判定コメントへの App の返答をこれ以上待たない時間（分。過ぎたら判定し直す）。無ければ 30（harness/lib/facts.ts。Issue #272） */
     gateReplyTimeoutMinutes?: number;
+    /** judge・fix・sync の着手宣言の後に動きが無ければ、ダッシュボードの「止まっていそうな着手宣言」に出すまでの時間（分）。無ければ 60（harness/lib/stalled-claim.ts。Issue #391） */
+    stalledClaimMinutes?: number;
   };
   /**
    * true なら、Assignee がちょうど1人で今の GitHub のユーザーである Issue（と、その Issue を Close する PR）にだけ着手する（claim --manual・ensureOwnClaim・fleet。harness/lib/assignee.ts）。
@@ -142,6 +144,7 @@ const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
   { path: 'routine.humanClaimStaleHours', kind: 'positive', required: true },
   { path: 'routine.routineClaimTakeoverMinutes', kind: 'positive', required: true },
   { path: 'routine.gateReplyTimeoutMinutes', kind: 'positive', required: false },
+  { path: 'routine.stalledClaimMinutes', kind: 'positive', required: false },
   { path: 'fixLoop.normalLimit', kind: 'positiveInteger', required: true },
   { path: 'fixLoop.criticalLimit', kind: 'positiveInteger', required: true },
   { path: 'syncLoop.limit', kind: 'positiveInteger', required: false },
