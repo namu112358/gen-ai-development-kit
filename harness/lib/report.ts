@@ -5,6 +5,7 @@ import { JEV_QUESTION_SET, jevFailures } from './jev.ts';
 import type { Acceptance, JevRecord } from './merge-route.ts';
 import type { ExemptRecord } from './exempt.ts';
 import { parsePanelRecord, type PanelRecord } from './review-panel.ts';
+import type { Claim } from './queue.ts';
 import { isTrustedComment } from './state.ts';
 import { tamperAllows, tamperJevThreshold, type TamperJevRecord } from './test-tamper-jev.ts';
 import type { AutoModeJevRecord } from './auto-mode.ts';
@@ -45,6 +46,10 @@ export interface ReportRow {
   autoModeTests?: { fixed: boolean } | null;
   /** 結び付いた fix の PR ごとの根拠（表の「fix PR」列に出す。無ければ番号だけ出す） */
   fixLinks?: FixLink[];
+  /** PR 本文の「実装のモデル:」の行のモデル（無い・null は不明。implementModelOf） */
+  implementModel?: string | null;
+  /** PR が Closes する Issue の着手宣言で、implement の次の宣言が plan だった回数（無ければ 0。planReturnsOf） */
+  planReturns?: number;
 }
 
 /**
@@ -525,6 +530,93 @@ export function renderTokenRatios(r: TokenRatios): string {
     ...r.buckets.map((b) => `| ${b.label} | ${b.count} | ${b.chars} | ${b.tokens} | ${b.ratio === null ? '-' : Math.round(b.ratio * 100) / 100} |`),
     '',
     `数えなかった記録（Jev が応答しなかった、大きさの無い古い記録、トークン数が報告されなかった）：${r.skipped} 件`,
+  ].join('\n');
+}
+
+// ---- 実装のモデルごとの品質（Issue #473） ----
+
+export const UNKNOWN_IMPLEMENT_MODEL = '不明';
+
+/** PR 本文の「実装のモデル:」の行からモデルを読む（無い・空・雛形の `<model>` のままなら不明） */
+export function implementModelOf(body: string | null | undefined): string {
+  const m = /^[ \t]*(?:[-*][ \t]+)?実装のモデル[:：](.*)$/m.exec(body ?? '');
+  if (!m) return UNKNOWN_IMPLEMENT_MODEL;
+  const value = m[1]!.trim().replace(/^`+|`+$/g, '').trim();
+  if (value === '' || value.startsWith('<')) return UNKNOWN_IMPLEMENT_MODEL;
+  return value.toLowerCase();
+}
+
+/**
+ * Issue のコメントの着手宣言で、implement の次の（解除でない）宣言が plan だった回数（実装が計画に返した回数。表示用）。
+ * 読むのは Claude の目印があり、コラボレーターが書いた読める agent-claim だけ。id の昇順で見て、持ち主・セッションでは絞らない。
+ */
+export function planReturnsOf(comments: IssueComment[]): number {
+  let prev: string | undefined;
+  let count = 0;
+  for (const c of [...comments].sort((a, b) => a.id - b.id)) {
+    if (!hasClaudeMark(c.body) || !isTrustedComment(c)) continue;
+    const b = extractBlock(c.body, 'agent-claim');
+    if (!b.found || !b.ok) continue;
+    const claim = b.value as Claim;
+    if (claim.released) continue;
+    if (prev === 'implement' && claim.stage === 'plan') count++;
+    prev = claim.stage;
+  }
+  return count;
+}
+
+export interface ImplementModelRow {
+  model: string;
+  count: number;
+  firstPass: number;
+  firstPassRate: number | null;
+  fixRequests: number;
+  fixRequestsAvg: number | null;
+  fixedPrs: number;
+  reverted: number;
+  planReturns: number;
+}
+
+/** 受け付け記録のある Agent PR を、実装のモデルごとに集計する（モデル名の昇順、不明は最後） */
+export function implementModelQuality(rows: ReportRow[]): ImplementModelRow[] {
+  const by = new Map<string, ImplementModelRow>();
+  for (const r of rows) {
+    if (r.acceptance === null) continue;
+    const model = r.implementModel || UNKNOWN_IMPLEMENT_MODEL;
+    let e = by.get(model);
+    if (!e) {
+      e = { model, count: 0, firstPass: 0, firstPassRate: null, fixRequests: 0, fixRequestsAvg: null, fixedPrs: 0, reverted: 0, planReturns: 0 };
+      by.set(model, e);
+    }
+    e.count++;
+    if (r.fixRequests === 0) e.firstPass++;
+    e.fixRequests += r.fixRequests;
+    if (r.fixedBy.length > 0) e.fixedPrs++;
+    if (r.reverted) e.reverted++;
+    e.planReturns += r.planReturns ?? 0;
+  }
+  for (const e of by.values()) {
+    e.firstPassRate = e.firstPass / e.count;
+    e.fixRequestsAvg = e.fixRequests / e.count;
+  }
+  const rank = (m: string) => (m === UNKNOWN_IMPLEMENT_MODEL ? 1 : 0);
+  return [...by.values()].sort((a, b) => rank(a.model) - rank(b.model) || (a.model < b.model ? -1 : a.model > b.model ? 1 : 0));
+}
+
+export function renderImplementModelQuality(rows: ImplementModelRow[]): string {
+  return [
+    '## 実装のモデルごとの品質',
+    '',
+    '母数は受け付け記録のある Agent PR。1回で合格は App の修正要求レビューが0件の PR。モデルは PR 本文の `実装のモデル:` の行（無ければ不明）。',
+    '計画に返した回数は、PR が Closes する Issue の着手宣言で implement の次の宣言が plan だった回数（人が計画のやり直しを求めた場合も同じ数に入る。同じ Issue を Closes する PR が複数あれば、それぞれの PR に同じ回数が入る）。',
+    '',
+    ...(rows.length === 0
+      ? ['対象の PR はありません']
+      : [
+          '| モデル | 件数 | 1回で合格 | 1回で合格の割合 | 修正の回数（合計） | 修正の回数（平均） | fix の PR がある PR | revert | 計画に返した回数 |',
+          '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+          ...rows.map((r) => `| ${r.model} | ${r.count} | ${r.firstPass} | ${pct(r.firstPassRate)} | ${r.fixRequests} | ${num(r.fixRequestsAvg)} | ${r.fixedPrs} | ${r.reverted} | ${r.planReturns} |`),
+        ]),
   ].join('\n');
 }
 
