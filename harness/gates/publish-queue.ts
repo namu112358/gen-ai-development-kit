@@ -126,7 +126,7 @@ export function renderImproveSection(entries: IncidentEntry[] | null): string {
     IMPROVE_START,
     '### 改善の候補',
     '',
-    `Routine がこのダッシュボードに書いたセッションの問題の記録（コラボレーターの \`agent-incident\` のコメント。新しい順に最大 ${IMPROVE_LIMIT} 件）。表示だけで、ゲートの判断には使いません。起票するかは人が決めます。`,
+    `Routine がこのダッシュボードに書いたセッションの問題の記録（コラボレーターの \`agent-incident\` のコメント。直近 ${IMPROVE_DAYS} 日のものを新しい順に最大 ${IMPROVE_LIMIT} 件）。表示だけで、ゲートの判断には使いません。起票するかは人が決めます。`,
     '',
     ...lines,
     IMPROVE_END,
@@ -146,10 +146,18 @@ export function replaceImproveSection(body: string, section: string): string {
   return `${body.trimEnd()}\n\n${section}`;
 }
 
-/** ダッシュボードのコメントを読んで改善の候補の節を作る。読めなければ「読めませんでした」の節（投げない。queue の公開とジョブの成否に響かせない） */
-export async function improveSectionFor(ctx: GateContext, dashboard: number): Promise<string> {
+/** 改善の候補の節で読むコメントの期間（日）と、読む最大のページ数（100 件ずつ）。#384 の API の節約を崩さないよう、全コメントは読まない */
+const IMPROVE_DAYS = 7;
+const IMPROVE_MAX_PAGES = 3;
+
+/**
+ * ダッシュボードの直近 7 日のコメント（since で絞る。最大 3 ページ）を読んで改善の候補の節を作る。
+ * 読めなければ「読めませんでした」の節（投げない。queue の公開とジョブの成否に響かせない）
+ */
+export async function improveSectionFor(ctx: GateContext, dashboard: number, now: Date = new Date()): Promise<string> {
   try {
-    const comments = await ctx.gh.paginate<IssueComment>(`/issues/${dashboard}/comments`);
+    const since = new Date(now.getTime() - IMPROVE_DAYS * 24 * 3600_000).toISOString();
+    const comments = await ctx.gh.paginate<IssueComment>(`/issues/${dashboard}/comments?since=${encodeURIComponent(since)}`, IMPROVE_MAX_PAGES);
     return renderImproveSection(collectIncidentComments(comments));
   } catch (e) {
     ctx.log(`改善の候補のコメントが読めませんでした: ${e instanceof Error ? e.message : String(e)}`);

@@ -137,3 +137,14 @@ test('routine.md：「改善の候補」の節があり、incident add・inciden
     assert.ok(section.includes(word), `「改善の候補」の節に ${word} がありません`);
   }
 });
+
+test('improveSectionFor：全コメントは読まず、since で直近 7 日に絞り、最大 3 ページで止める（#384 の API の節約）', async () => {
+  const { improveSectionFor } = await load();
+  const fn = improveSectionFor as (ctx: GateContext, dashboard: number, now?: Date) => Promise<string>;
+  const full = Array.from({ length: 100 }, (_, i) => comment(i + 1, 'ふつうのコメント'));
+  const fake = new FakeGitHub().on('GET', /\/issues\/9\/comments/, () => full);
+  await fn(ctxFor(fake, 'schedule', {}), 9, new Date('2026-10-08T00:00:00.000Z'));
+  const gets = fake.calls.filter((c) => c.method === 'GET' && c.path.includes('/issues/9/comments'));
+  assert.equal(gets.length, 3, gets.map((c) => c.path).join('\n'));
+  for (const c of gets) assert.ok(c.path.includes(`since=${encodeURIComponent('2026-10-01T00:00:00.000Z')}`), c.path);
+});
