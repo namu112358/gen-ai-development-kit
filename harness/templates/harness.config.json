@@ -14,7 +14,8 @@
     "maxItemsPerRun": 5,
     "humanClaimStaleHours": 6,
     "routineClaimTakeoverMinutes": 90,
-    "gateReplyTimeoutMinutes": 30
+    "gateReplyTimeoutMinutes": 30,
+    "stalledClaimMinutes": 60
   },
   "testPatterns": [
     "**/*.test.*",
