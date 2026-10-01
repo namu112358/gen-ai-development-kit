@@ -247,7 +247,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 - neutral の要約には「人の確認が要る変更あり」と Human Merge とみなした理由、平易な説明（何を見張っているか、なぜ止めていないか、人が確かめること）、検出の一覧を載せる。Human Merge の依頼のコメント（`kind=human-review`）にも、懸念点より前に見つけた行を目立つ形で載せる。
 - 次のときは緩めず、今までどおり failure（`test:exempt` が要る）：`agent:hold` や自動 Merge モードの停止だけが理由のとき（外すと判定のやり直し無しに自動 Merge に戻るため）、人の PR・fork の PR、PR に auto-merge が付いているとき、Reviewer が不合格の判定だけのとき。
 - 誤検出や、Issue 本文にテストを変える理由がある変更は、人が PR に `test:exempt` を付けて通す（付け外しを App が記録し、外すと検査し直す）。自動 Merge の対象の PR で使う（Human Merge の PR では要らない）。例外は付けた時点の差分にだけ効く（次節）。
-- 結論の優先順は「検出0件 → success」「`test:exempt` が効く → success（Jev に問わない）」「Human Merge → neutral」「`jev.testTamper` が `enforce` で Jev が通す → success」「auto mode の経路で Jev が妥当と答える → success（下記「auto mode の間（Jev が妥当か）」）」「それ以外 → failure」（`harness/gates/tests-check.ts` の `testsOutcome`）。
+- 結論の優先順は「検出0件 → success」「`test:exempt` が効く → success（Jev に問わない）」「Human Merge → neutral」「`jev.testTamper` が `enforce` で Jev が通す → success」「auto mode の経路で、自動 Merge モードが有効なときに Jev が妥当と答える → success（下記「auto mode の間（Jev が妥当か）」）」「それ以外 → failure」（`harness/gates/tests-check.ts` の `testsOutcome`）。
 
 ### Jev の判定（`jev.testTamper`）
 
@@ -268,9 +268,9 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 
 auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを弱める変更が見つかったら、すぐ人に回さず、その変更が妥当か（Issue と計画が求める振る舞いの変更に合ったテストの正しい直しで、落ちるはずのテストを黙らせるためのものではないか）を Jev に問う（Issue #349。`harness/lib/auto-mode-tests.ts`・`harness/gates/auto-mode-tests.ts`）。危険の判定は Jev だけ（人の決定、#382）で、Claude の答えは問わない。
 
-- かける PR：Agent PR で、現在の差分の受け付けがあり、auto mode で自動経路に乗る（`autoModeRoute` が ok：Reviewer 合格・自動 Merge の対象外・auto mode が有効・受け付けの `autoMode.eligible`）もの。委任承認（計画＋Merge）で乗る PR・bypass だけで乗る PR・自動 Merge の対象の PR・Human Merge の PR・`agent:hold` の付いた PR にはかけない（今までの扱いのまま。hold を外すと受け付けを当て直すので、そのときに問う）。auto mode の経路の PR は、Risk critical・ガードレール・`humanMergePaths` に触れても Human Merge の neutral にしない（neutral だと Jev を通らずに必須チェックを抜けるため）。
+- かける PR：Agent PR で、現在の差分の受け付けがあり、auto mode で自動経路に乗る（`autoModeRoute` が ok：Reviewer 合格・自動 Merge の対象外・auto mode が有効・受け付けの `autoMode.eligible`）もので、自動 Merge モードが有効（リポジトリの Allow auto-merge が有効で、ダッシュボードに停止ラベルが無い）なとき。委任承認（計画＋Merge）で乗る PR・bypass だけで乗る PR・自動 Merge の対象の PR・Human Merge の PR・`agent:hold` の付いた PR にはかけない（今までの扱いのまま。hold を外すと受け付けを当て直すので、そのときに問う。bypass だけ・委任だけで乗る PR に問わないことは `harness/test/gates-auto-mode-tests-holes.test.ts` で確かめる）。自動 Merge モードが無効なら、auto mode の経路でも問わず、`agent/tests` は今までどおり failure（`test:exempt` が要る）。auto-merge が付かず人が Merge するので、人が確かめる前にテストを弱める変更が Jev の答えで「確かめ済み」に見えないようにするため（Issue #440）。auto mode の経路の PR は、Risk critical・ガードレール・`humanMergePaths` に触れても Human Merge の neutral にしない（neutral だと Jev を通らずに必須チェックを抜けるため）。
 - かける検出：すべての種類（テストファイルの削除・リネーム、テスト定義の削除、skip / only / todo の追加、アサーションの削除・書き換え）。ただし `jev.testTamper` が `enforce` で Jev がアサーションの書き換えを通すなら、先に success にして auto mode の問いはかけない。
-- 材料：PR が Closes する Issue（1つだけ）の番号・タイトル・本文（Goal・Requirements・AC を含む本文そのまま）、その Issue の計画コメントの本文（委任・bypass の範囲照合と同じ選び方：ゲートを通った計画・ゲートの停止で止まった計画・人が進めると決めた計画。ゲートの記録の本文の sha256 と今の本文が違えば使わない）、検出ごとの種類・ファイル・行・変更前の行・変更後の行・前後の差分（その行を含む hunk。ファイル単位の検出はそのファイルの diff の先頭）。行は 500 文字、差分は 4000 文字で切る。PR 本文・コメント・判定などセッションが PR の上で書いたものは渡さない。
+- 材料：PR が Closes する Issue（1つだけ）の番号・タイトル・本文（Goal・Requirements・AC を含む本文そのまま）、その Issue の計画コメントの本文（委任・bypass の範囲照合と同じ選び方：ゲートを通った計画・ゲートの停止で止まった計画・人が進めると決めた計画。ゲートの記録の本文の sha256 と今の本文が違えば使わない。sha256 の無い古い記録の計画は、ゲートの後に編集されたかを確かめられないので使わない（Issue #440））、検出ごとの種類・ファイル・行・変更前の行・変更後の行・前後の差分（その行を含む hunk。ファイル単位の検出はそのファイルの diff の先頭）。行は 500 文字、差分は 4000 文字で切る。PR 本文・コメント・判定などセッションが PR の上で書いたものは渡さない。
 - 問い：検出ごとに Noul の1問（`finding_0`, `finding_1`, …。yes が妥当）。Issue と計画から理由が言えなければ no。妥当とみなさない例を問いの criteria に書く：Issue・計画に理由が無いのに期待値を緩める／落ちるテストを消す・skip する（確かめていた振る舞いがまだ要るのに）／確かめる数を減らすだけで置き換えが無い／実装の不具合に合わせて期待値を変える。問いを変えたら版（`AUTO_MODE_TESTS_QUESTION_SET`）を上げる。
 - 通す条件：検出ごとの確率の最小値が `jev.thresholds.autoModeTestsProbability` 以上（このリポジトリと雛形は 0.9。無ければ通さない）。答えが欠けた検出があれば通さない。
 - 問わない（failure のまま、理由を要約に出す）とき：検出が 20 件を超える、材料が `jev.maxDiffChars` を超える、Closes する Issue が1つでない、使える計画が無い、fork の PR、`JEV_API_KEY` が無い、Jev がエラーを返した。
