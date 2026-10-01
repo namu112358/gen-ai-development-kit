@@ -4,6 +4,7 @@
  * 検出するもの：
  * - テストファイルの削除と、テストファイルでないパスへのリネーム
  * - テスト定義（test( / it( / describe(）の行の削除。同じファイルに同じ名前の定義が追加されていれば移動とみなす
+ * - テストの名前の変更：削除された定義の行が、同じまとまりで組になった追加の定義の行と名前の文字列だけ違うもの（削除にせず、変更後の行を持たせる）
  * - skip / only / todo の追加（.skip(、{ skip: … }、xit( など）。文字列リテラル（'…'・"…"・`…`）の中の一致は数えない。
  *   ただし見分けが確かでない行（文字列・テンプレート・ブロックコメントが行をまたぐ。テンプレートに ${ がある、コードの部分に
  *   正規表現か割り算かもしれない / があるときは、同じ hunk の残りの行も）は伏せずに生の行で数える。コメントの中の一致は数える
@@ -14,7 +15,7 @@
 import { TEST_EXEMPT_LABEL } from './config.ts';
 import { globToRegExp } from './scope.ts';
 
-export type TamperKind = 'deleted-file' | 'renamed-away' | 'removed-test' | 'skip-added' | 'assertion-changed';
+export type TamperKind = 'deleted-file' | 'renamed-away' | 'removed-test' | 'renamed-test' | 'skip-added' | 'assertion-changed';
 
 export interface TamperFinding {
   kind: TamperKind;
@@ -23,7 +24,7 @@ export interface TamperFinding {
   line?: number;
   side?: 'base' | 'head';
   text?: string;
-  /** assertion-changed で、同じ場所の追加の行と対になったときの変更後の行（head 側） */
+  /** assertion-changed・renamed-test で、同じ場所の追加の行と対になったときの変更後の行（head 側） */
   after?: { line: number; text: string };
 }
 
@@ -31,6 +32,7 @@ export const TAMPER_KIND_LABELS: Record<TamperKind, string> = {
   'deleted-file': 'テストファイルの削除',
   'renamed-away': 'テストファイルでないパスへのリネーム',
   'removed-test': 'テスト定義の削除',
+  'renamed-test': 'テストの名前の変更',
   'skip-added': 'skip / only / todo の追加',
   'assertion-changed': 'アサーションの削除・書き換え',
 };
@@ -40,6 +42,7 @@ export const TAMPER_KIND_NOTES: Record<TamperKind, string> = {
   'deleted-file': 'テストのファイルがまるごと消えています。確かめる対象が無くなると、何を変えても通ってしまいます。',
   'renamed-away': 'テストのファイルが、テストとして扱われない場所・名前に移されています。テストとして動かなくなるおそれがあります。',
   'removed-test': 'テストの項目（`test(` / `it(` / `describe(`）が消えています。それまで確かめていたことが確かめられなくなります。',
+  'renamed-test': 'テストの項目（`test(` / `it(` / `describe(`）の名前（説明の文字列）だけが変わっています。中身の行は別に検査しています。',
   'skip-added': 'テストを飛ばす・一部だけ動かす印（`skip` / `only` / `todo`）が足されています。そのテスト（`only` ならほかのテスト）が動かなくなります。',
   'assertion-changed': '採点基準の行（`assert` / `expect(`）が消えたか、書き換わっています。変更後の行が分かるものは並べています。',
 };
@@ -61,7 +64,7 @@ interface FileDiff {
   added: Line[];
 }
 
-const DEFINITION = /\b(?:test|it|describe)(?:\.\w+)*\s*\(\s*(['"`])((?:\\.|(?!\1).)*)\1/;
+const DEFINITION = /\b((?:test|it|describe)(?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\2).)*)\2/;
 const SKIP = /\.(?:skip|only|todo)\s*\(|\b[xf](?:it|describe|test)\s*\(|[{,]\s*(?:skip|only|todo)\s*:(?!\s*false\b)/;
 const ASSERTION = /\bassert\b|\bexpect\s*\(/;
 /** import の行はアサーションとみなさない（`import assert from ...` の削除で誤検出しない） */
@@ -98,8 +101,11 @@ export function detectTestTampering(diff: string, patterns: string[]): TamperFin
     const addedNames = new Set(f.added.map((l) => definitionName(l.text)).filter((n): n is string => n !== null));
     for (const l of removed) {
       const name = definitionName(l.text);
-      if (name !== null && !addedNames.has(name)) findings.push({ kind: 'removed-test', file, line: l.no, side: 'base', text: l.text.trim() });
-      else if (ASSERTION.test(l.text) && !IMPORT.test(l.text)) {
+      if (name !== null && !addedNames.has(name)) {
+        const after = pairs.get(l);
+        const renamed = after !== undefined && sameExceptName(l.text, after.text);
+        findings.push({ kind: renamed ? 'renamed-test' : 'removed-test', file, line: l.no, side: 'base', text: l.text.trim(), ...(renamed ? { after: { line: after.no, text: after.text.trim() } } : {}) });
+      } else if (ASSERTION.test(l.text) && !IMPORT.test(l.text)) {
         const after = pairs.get(l);
         findings.push({ kind: 'assertion-changed', file, line: l.no, side: 'base', text: l.text.trim(), ...(after ? { after: { line: after.no, text: after.text.trim() } } : {}) });
       }
@@ -127,7 +133,20 @@ function pairLines(removed: Line[], added: Line[]): Map<Line, Line> {
 }
 
 function definitionName(text: string): string | null {
-  return text.match(DEFINITION)?.[2] ?? null;
+  return text.match(DEFINITION)?.[3] ?? null;
+}
+
+/** テスト定義の行の名前の文字列（引用符を含む）を印に置き換えた行（前後の空白は除く）。定義でなければ null */
+function definitionSkeleton(text: string): string | null {
+  const m = text.match(DEFINITION);
+  if (!m || m.index === undefined) return null;
+  return `${text.slice(0, m.index)}${m[1]}(\u0000${text.slice(m.index + m[0].length)}`.trim();
+}
+
+/** 2つの行がどちらもテスト定義で、名前の文字列だけが違うか（呼び出し・引数・行の残りが同じ） */
+function sameExceptName(before: string, after: string): boolean {
+  const a = definitionSkeleton(before);
+  return a !== null && a === definitionSkeleton(after);
 }
 
 function countTexts(lines: Line[]): Map<string, number> {

@@ -7,7 +7,7 @@ import { askableChanges, buildTamperRequest, renderTamperJev, summarizeTamperJev
 
 /**
  * テストの改ざんの検査が止めた変更を Jev に問う材料と問い方（Issue #126、純粋関数）。
- * - 問えるのは、対になったアサーションの書き換えだけ（削除系・対にならない削除・上限の 20 件超えは問わない）
+ * - 問えるのは、対になったアサーションの書き換えだけ（削除系・対にならない削除・上限の 40 件超えは問わない）
  * - 要求の state は file・before・after だけ（各行 500 文字で切る）。問いは英語で対ごとに1問（change_0…、type noul）
  * - 確率は対ごとの最小値で、しきい値以上なら allows（下限が無い・答えが欠けたときは通さない）
  * - agent/tests の要約に足す節に、確率とモードが出る
@@ -75,12 +75,12 @@ test('askableChanges：対にならないアサーションの削除（変更後
   assert.equal(askableChanges(fromDiff).ask, false);
 });
 
-test('askableChanges：対が 20 件までは問い、21 件（上限超え）は問わない', () => {
+test('askableChanges：対が 40 件までは問い、41 件（上限超え）は問わない', () => {
   const pairs = (n: number) => Array.from({ length: n }, (_, i) => changed(`assert.equal(f(${i}), 1);`, `assert.equal(f(${i}), 2);`, FILE, i + 1));
-  const twenty = askableChanges(pairs(20));
-  assert.equal(twenty.ask, true);
-  assert.ok(twenty.ask && twenty.changes.length === 20);
-  const over = askableChanges(pairs(21));
+  const forty = askableChanges(pairs(40));
+  assert.equal(forty.ask, true);
+  assert.ok(forty.ask && forty.changes.length === 40);
+  const over = askableChanges(pairs(41));
   assert.equal(over.ask, false);
   assert.ok(!over.ask && over.reason.length > 0);
 });
