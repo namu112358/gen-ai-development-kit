@@ -4,7 +4,9 @@
  * 検出するもの：
  * - テストファイルの削除と、テストファイルでないパスへのリネーム
  * - テスト定義（test( / it( / describe(）の行の削除。同じファイルに同じ名前の定義が追加されていれば移動とみなす
- * - skip / only / todo の追加（.skip(、{ skip: … }、xit( など）
+ * - skip / only / todo の追加（.skip(、{ skip: … }、xit( など）。文字列リテラル（'…'・"…"・`…`）の中の一致は数えない。
+ *   ただし見分けが確かでない行（文字列・テンプレート・ブロックコメントが行をまたぐ。テンプレートに ${ がある、コードの部分に
+ *   正規表現か割り算かもしれない / があるときは、同じ hunk の残りの行も）は伏せずに生の行で数える。コメントの中の一致は数える
  * - アサーション（assert / expect(）を含む行の削除・書き換え（整形だけの変更も含む）
  * 同じファイルで同じ内容の行が消えて足されたもの（移動）は数えない。
  * アサーションの書き換えは、同じ場所の削除と追加が対になれば変更後の行も持たせる（表示と、Jev に問う材料（harness/lib/test-tamper-jev.ts）に使う。この検査の判定には使わない）。
@@ -47,6 +49,8 @@ interface Line {
   text: string;
   /** hunk の中の「連続する削除と、その直後に続く連続する追加」のまとまりの番号 */
   block: number;
+  /** 追加の行だけ：skip / only / todo の検出に当てる行（文字列の中身を伏せた行か、生の行）。相殺・テスト定義・アサーションの検出には使わない */
+  skipText?: string;
 }
 
 interface FileDiff {
@@ -101,7 +105,7 @@ export function detectTestTampering(diff: string, patterns: string[]): TamperFin
       }
     }
     for (const l of added) {
-      if (SKIP.test(l.text)) findings.push({ kind: 'skip-added', file, line: l.no, side: 'head', text: l.text.trim() });
+      if (SKIP.test(l.skipText ?? l.text)) findings.push({ kind: 'skip-added', file, line: l.no, side: 'head', text: l.text.trim() });
     }
   }
   return findings;
@@ -179,6 +183,67 @@ function headerPaths(line: string): [string, string] | null {
   return [unquote(m[1]!).replace(/^a\//, ''), unquote(m[2]!).replace(/^b\//, '')];
 }
 
+type LexState = 'code' | 'single' | 'double' | 'template' | 'block';
+
+interface LexResult {
+  /** 文字列・テンプレートの中身を空白にした行（引用符とコメントは残す） */
+  masked: string;
+  /** 次の行の始めの状態（'…'・"…" は行末の \ で続くときだけ持ち越す） */
+  next: LexState;
+  /** 行の終わりが文字列・テンプレート・ブロックコメントの中か */
+  open: boolean;
+  /** テンプレートの ${ か、コードの部分にコメントの始まりでない / があった（状態を読み違えるおそれ） */
+  unsure: boolean;
+}
+
+const QUOTES: Record<string, LexState> = { "'": 'single', '"': 'double', '`': 'template' };
+const CLOSE: Partial<Record<LexState, string>> = { single: "'", double: '"', template: '`' };
+
+/** 1行を左から読み、文字列リテラルの中身を伏せる（skip / only / todo の検出のためだけの小さな字句の読み取り） */
+function lexLine(text: string, start: LexState): LexResult {
+  let s = start;
+  let out = '';
+  let unsure = false;
+  let continued = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    const next = text[i + 1] ?? '';
+    if (s === 'code') {
+      if (ch === '/' && next === '/') {
+        out += text.slice(i);
+        break;
+      }
+      if (ch === '/' && next === '*') {
+        out += '/*';
+        i++;
+        s = 'block';
+        continue;
+      }
+      if (ch === '/') unsure = true;
+      s = QUOTES[ch] ?? 'code';
+      out += ch;
+    } else if (s === 'block') {
+      if (ch === '*' && next === '/') {
+        out += '*/';
+        i++;
+        s = 'code';
+      } else out += ch;
+    } else if (ch === '\\') {
+      if (next === '') continued = true;
+      out += next === '' ? ' ' : '  ';
+      i++;
+    } else if (ch === CLOSE[s]) {
+      out += ch;
+      s = 'code';
+    } else {
+      if (s === 'template' && ch === '$' && next === '{') unsure = true;
+      out += ' ';
+    }
+  }
+  const next = (s === 'single' || s === 'double') && !continued ? 'code' : s;
+  return { masked: out, next, open: s !== 'code', unsure };
+}
+
 function parseDiff(diff: string): FileDiff[] {
   const files: FileDiff[] = [];
   let cur: FileDiff | null = null;
@@ -188,6 +253,18 @@ function parseDiff(diff: string): FileDiff[] {
   let newLeft = 0;
   let block = 0;
   let prev = ' ';
+  // skip の検出のための字句の状態。hunk の新しい側の行（文脈と追加）を順に読んで持ち越し、
+  // 読み違えるおそれ（unsure）が出たら、その hunk の残りは生の行で数える
+  let lex: LexState = 'code';
+  let unsure = false;
+  /** 新しい側の1行を読んで状態を進め、skip の検出に当てる行を返す（伏せてよいときだけ伏せた行） */
+  const lexNewSide = (text: string): string => {
+    const r = lexLine(text, lex);
+    const safe = lex === 'code' && !r.open && !r.unsure && !unsure;
+    if (r.unsure) unsure = true;
+    lex = r.next;
+    return safe ? r.masked : text;
+  };
   for (const raw of diff.split('\n')) {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     if (cur && (oldLeft > 0 || newLeft > 0)) {
@@ -201,9 +278,10 @@ function parseDiff(diff: string): FileDiff[] {
         oldLeft--;
       } else if (mark === '+') {
         if (prev !== '-' && prev !== '+') block++;
-        cur.added.push({ no: newNo++, text, block });
+        cur.added.push({ no: newNo++, text, block, skipText: lexNewSide(text) });
         newLeft--;
       } else {
+        lexNewSide(text);
         oldNo++;
         newNo++;
         oldLeft--;
@@ -227,6 +305,8 @@ function parseDiff(diff: string): FileDiff[] {
       newNo = Number(hunk[3]);
       newLeft = hunk[4] === undefined ? 1 : Number(hunk[4]);
       prev = ' ';
+      lex = 'code';
+      unsure = false;
     } else if (line.startsWith('deleted file mode')) {
       cur.deleted = true;
     } else if (line.startsWith('rename from ')) {
