@@ -27,10 +27,10 @@ judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mo
 2. 段階3：次を並行に動かす。
    - **review-lens** を観点 1〜5 で5回（それぞれ観点の番号・PR 番号・head・intake の `summary` と、出力のパス `<dir>/lens1.json`〜`<dir>/lens5.json` のうち観点の番号のものを渡す。①には intake の `claudeMd` のパス、④には judge-input の「=== 過去の PR のコメント」の節をそのまま渡す）
    - **review-ac-scope**・**review-safety**（judge-input のファイルの中身と、出力のパス `<dir>/ac-scope.json`・`<dir>/safety.json` を渡す）
-   - **review-overbuild**（⑨。judge-input のファイルの中身と、出力のパス `<dir>/overbuild.json` を渡す。提案だけで合否を変えない）
+   - **review-overbuild**（⑨。judge-input のファイルの中身と、出力のパス `<dir>/overbuild.json` を渡す。確信度 75 以上はブロッキング、未満は提案）
    - ⑧：`node harness/scripts/review-panel.ts check <judge-input のファイル>`（出力はファイルのパス。その中身を `<dir>/check.json` に写す。担当の答えではなくスクリプトの出力なので、ここだけは呼び出し元が写す）。`npm ci` の失敗で止まったら、1回だけやり直し、それでも失敗なら合体版を失敗として judge に返す
 3. 担当が書いた `<dir>/lens1.json`〜`<dir>/lens5.json`・`<dir>/ac-scope.json`・`<dir>/safety.json` を確かめる（上の確かめ方）。`<dir>/overbuild.json` も同じく確かめるが、2回目も無ければ合体版を止めずに続ける（`compose` が `humanNotes.concerns` に「⑨の記録なし」を残す）。
-4. 段階4：`node harness/scripts/review-panel.ts findings <dir>` で採点に渡す指摘の一覧を出す。指摘ごとに **review-scorer** を並行に呼ぶ（指摘の ID・観点・種類・ファイル・行・内容・根拠、PR 番号、head、intake の `claudeMd` のパス、`falsePositiveExamples`〔①〜⑤の指摘なら true〕と、出力のパス `<dir>/score-<id>.json` を渡す。⑥⑦⑨の指摘には judge-input の Issue 本文と計画の節も渡す）。⑨（overbuild）の指摘は定義のまま haiku で採点する（点は記録に残すだけで、合否に使わない）。⑥⑦（ac-scope・safety）の指摘の review-scorer は、Agent の model を opus にして呼ぶ（見つけた担当より弱いモデルの採点で落とさないため。①〜⑤は定義のまま haiku）。返ったら担当が書いた `<dir>/score-<id>.json` を確かめる。指摘が無ければ採点は飛ばす。
+4. 段階4：`node harness/scripts/review-panel.ts findings <dir>` で採点に渡す指摘の一覧を出す。指摘ごとに **review-scorer** を並行に呼ぶ（指摘の ID・観点・種類・ファイル・行・内容・根拠、PR 番号、head、intake の `claudeMd` のパス、`falsePositiveExamples`〔①〜⑤の指摘なら true〕と、出力のパス `<dir>/score-<id>.json` を渡す。⑥⑦⑨の指摘には judge-input の Issue 本文と計画の節も渡す）。⑨（overbuild）の指摘は定義のまま haiku で採点する（75 以上はブロッキングになる）。⑥⑦（ac-scope・safety）の指摘の review-scorer は、Agent の model を opus にして呼ぶ（見つけた担当より弱いモデルの採点で落とさないため。①〜⑤は定義のまま haiku）。返ったら担当が書いた `<dir>/score-<id>.json` を確かめる。指摘が無ければ採点は飛ばす。
 5. 段階5・6：`node harness/scripts/review-panel.ts compose <PR番号> <dir> --judge-input <judge-input のファイル>` で組み立てる（出力は、組み立ての出力 `review-<PR番号>-<head7>.json` と記録のコメント `panel-<PR番号>-<head7>.md` のパス）。今の head が judge-input の head と違っても、PR 自身の差分（patch-id）が同じなら（main の取り込みだけなら）判定した head のまま組み立てる。patch-id が違って止まったら judge の手順1からやり直す。
 6. `node harness/scripts/review-panel.ts post <PR番号> <記録のコメントのファイル>` で記録を投稿する。今の head が記録の head と違っても、PR 自身の差分（patch-id）が同じなら判定した head のまま投稿する。patch-id が違って止まったら judge の手順1からやり直す。
 

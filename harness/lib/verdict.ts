@@ -32,6 +32,10 @@ export const BLOCKING_KINDS = [
   'regression',
   'bug',
   'claude-md',
+  // 合体版のレビューの⑨（過剰さ）で確信度 75 以上のもの（#386。今の reviewer は出さない。修正の上限は通常）
+  'over-implementation',
+  'over-testing',
+  'over-engineering',
 ] as const;
 export type BlockingKind = (typeof BLOCKING_KINDS)[number];
 

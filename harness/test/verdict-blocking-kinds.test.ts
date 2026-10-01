@@ -24,16 +24,22 @@ function failing(blocking: BlockingFinding[]): Verdict {
 const bug: BlockingFinding = { kind: 'bug', file: 'harness/lib/a.ts', detail: '境界で1つずれる' };
 const claudeMd: BlockingFinding = { kind: 'claude-md', file: 'harness/lib/b.ts', detail: 'enum を使っている（CLAUDE.md のコードの書き方に反する）' };
 
-test('BLOCKING_KINDS の末尾に bug・claude-md があり、CRITICAL_BLOCKING は変わらない', () => {
-  assert.deepEqual(BLOCKING_KINDS.slice(-2), ['bug', 'claude-md']);
+const overbuild: BlockingFinding[] = [
+  { kind: 'over-implementation', file: 'harness/lib/c.ts', detail: 'harness/lib/c.ts:4 使われない設定を足している' },
+  { kind: 'over-testing', file: 'harness/test/c.test.ts', detail: '同じ分岐を3回確かめている' },
+  { kind: 'over-engineering', file: 'harness/lib/d.ts', detail: '1か所でしか使わない抽象' },
+];
+
+test('BLOCKING_KINDS の末尾に bug・claude-md、続いて⑨の3つがあり、CRITICAL_BLOCKING は変わらない（Issue #148・#386）', () => {
+  assert.deepEqual(BLOCKING_KINDS.slice(-5), ['bug', 'claude-md', 'over-implementation', 'over-testing', 'over-engineering']);
   for (const k of ['ac-unmet', 'out-of-scope', 'typecheck-test-failure', 'data-destruction', 'secret-leak', 'regression']) {
     assert.ok((BLOCKING_KINDS as readonly string[]).includes(k), `既存の種類 ${k} が残る`);
   }
   assert.deepEqual([...CRITICAL_BLOCKING].sort(), ['data-destruction', 'secret-leak', 'typecheck-test-failure']);
 });
 
-test('parseVerdict：kind の bug・claude-md を受け付ける', () => {
-  for (const finding of [bug, claudeMd]) {
+test('parseVerdict：kind の bug・claude-md と⑨の3つを受け付ける', () => {
+  for (const finding of [bug, claudeMd, ...overbuild]) {
     const r = parseVerdict(failing([finding]));
     assert.ok(r.ok, `${finding.kind} を受け付ける`);
     assert.equal(r.value.review.blocking[0]!.kind, finding.kind);
@@ -65,6 +71,17 @@ test('composeVerdict：bug・claude-md のブロッキング指摘を持つ revi
   const v = parseVerdict(b.value);
   assert.ok(v.ok);
   assert.deepEqual(v.value.review.blocking, [bug, claudeMd]);
+});
+
+test('composeVerdict：⑨のブロッキング指摘を持つ reviewer の出力から判定コメントを作れ、parseVerdict を通る（Issue #386）', () => {
+  const r = composeVerdict(input({ pass: false, blocking: overbuild, nonBlocking: [] }));
+  assert.ok(r.ok, r.ok ? '' : r.errors.join('\n'));
+  assert.ok(r.value.includes('不合格（ブロッキング指摘 3 件）'));
+  const b = extractBlock(r.value, 'agent-verdict');
+  assert.ok(b.found && b.ok);
+  const v = parseVerdict(b.value);
+  assert.ok(v.ok, v.ok ? '' : v.errors.join('\n'));
+  assert.deepEqual(v.value.review.blocking, overbuild);
 });
 
 test('composeVerdict：未知の kind の reviewer の出力は拒否する', () => {
