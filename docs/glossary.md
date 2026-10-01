@@ -138,6 +138,10 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ブロッキング指摘の無い Agent PR の Merge を、人が期限なしで App に任せること。ダッシュボード Issue に `agent:bypass-merge` を人だけが付け、付けている間は、Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev を理由に Human Merge になる Agent PR も、ブロッキング指摘が無く範囲照合と `agent/tests` を通れば自動 Merge する（ハーネス自身の変更も含む）。停止スイッチが優先する。ラベルを外すと、bypass で付けた auto-merge を外して Human Merge に戻す。詳細：[risk-policy.md](risk-policy.md#bypass-モード)
 
+### auto mode
+
+計画ゲートの承認と Merge の判断の両方を、人が期限なしで App に任せること。ダッシュボード Issue に `agent:auto-mode` を人だけが付け、付けている間は、ガードレール・Risk・`delegateMergeExclude` を理由に止まる計画と Agent PR も、ほかの条件を満たし、Jev が危険（守りを弱める・データを壊す・auto mode の保留を減らす）と答えなければ App が通して自動 Merge する。Jev の記録が無い・読めないときは保留にし、保留にしたものは人の判断に回す。危険の判定は Jev だけで、Claude には問わない。停止スイッチが優先する。ラベルを外すと、auto mode で付けた auto-merge を外して Human Merge に戻す。乗り方の順番は、Merge が 自動 Merge の対象 → 委任承認 → auto mode → bypass、計画ゲートが 委任承認 → auto mode。詳細：[risk-policy.md](risk-policy.md#auto-mode)
+
 ### `agent:hold`
 
 人が Issue や PR に付ける個別停止のラベル。PR なら merge-route が failure になり、Issue なら Routine が処理しない。詳細：[operations.md](operations.md#止める仕組み)
