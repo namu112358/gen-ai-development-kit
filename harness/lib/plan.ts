@@ -1,7 +1,7 @@
 import { RISK_LEVELS, type RiskLevel } from './config.ts';
 import { parseSplit, validateSplit, type SplitChild } from './epic.ts';
 import { guardrailPatterns, type GuardrailConfig } from './guardrail.ts';
-import { validateScopePattern } from './scope.ts';
+import { globToRegExp, validateScopePattern } from './scope.ts';
 import { Checker } from './validate.ts';
 
 /**
@@ -23,16 +23,63 @@ export interface Plan {
   critique?: { verdict: CritiqueVerdict; rounds: number; mustRemaining?: number };
   /** 計画を書いたセッションの見解（任意。auto mode の危険の問いで、見解ありの問いにだけ渡す。結論には使わない。#426） */
   authorView?: string;
+  /** 実装の手順書（任意。1〜PLAN_STEPS_MAX 件。split の計画では書かない。#470） */
+  steps?: PlanStep[];
 }
+
+/** 実装の手順書の1件。file は files の項目と同じか、その glob に当たるパス */
+export interface PlanStep {
+  file: string;
+  change: string;
+  symbols?: string;
+  follow?: string;
+  edgeCases?: string;
+  dontTouch?: string;
+}
+
+/** 手順書（steps）の件数の上限 */
+export const PLAN_STEPS_MAX = 50;
 
 /** 見解（authorView）の長さの上限 */
 export const AUTHOR_VIEW_MAX = 2000;
 
 /** 見解（authorView）を読む：空でない文字列で AUTHOR_VIEW_MAX 文字まで。計画と判定で同じ規則 */
 export function parseAuthorView(c: Checker, value: unknown, path: string): string {
-  const view = c.string(value, path, { nonEmpty: true });
+  return parseBoundedString(c, value, path);
+}
+
+/** 空でない文字列で AUTHOR_VIEW_MAX 文字までを読む（見解と手順書の各欄で同じ規則） */
+function parseBoundedString(c: Checker, value: unknown, path: string): string {
+  const s = c.string(value, path, { nonEmpty: true });
   if (typeof value === 'string' && value.length > AUTHOR_VIEW_MAX) c.errors.push(`${path}: ${AUTHOR_VIEW_MAX} 文字を超えています（${value.length} 文字）`);
-  return view;
+  return s;
+}
+
+const STEP_OPTIONAL_KEYS = ['symbols', 'follow', 'edgeCases', 'dontTouch'] as const;
+
+/** 手順書（steps）を読む。file は files の項目と同じか glob に当たること。未知のキーは読まない */
+function parseSteps(c: Checker, raw: unknown, files: string[], hasSplit: boolean): PlanStep[] {
+  if (hasSplit) {
+    c.errors.push('plan.steps: split の計画では書きません（子課題の計画で書く）');
+    return [];
+  }
+  const items = c.array(raw, 'plan.steps');
+  if (!Array.isArray(raw)) return [];
+  if (items.length === 0) c.errors.push('plan.steps: 1 件以上ではありません');
+  if (items.length > PLAN_STEPS_MAX) c.errors.push(`plan.steps: ${PLAN_STEPS_MAX} 件を超えています（${items.length} 件）`);
+  const matchers = files.map(globToRegExp);
+  return items.map((item, i) => {
+    const p = `plan.steps[${i}]`;
+    const o = c.object(item, p) ?? {};
+    const step: PlanStep = { file: parseBoundedString(c, o.file, `${p}.file`), change: parseBoundedString(c, o.change, `${p}.change`) };
+    if (typeof o.file === 'string' && o.file.trim() !== '' && !files.includes(o.file) && !matchers.some((m) => m.test(o.file as string))) {
+      c.errors.push(`${p}.file: files に含まれていません（${o.file}）`);
+    }
+    for (const key of STEP_OPTIONAL_KEYS) {
+      if (o[key] !== undefined) step[key] = parseBoundedString(c, o[key], `${p}.${key}`);
+    }
+    return step;
+  });
 }
 
 export const CRITIQUE_VERDICTS = ['go', 'revise', 'split', 'drop'] as const;
@@ -72,6 +119,7 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
       // 未知のキーは読まない（#343 の後に投稿された計画の danger も無視する。危険の判定は Jev だけ、#382）
     }
   }
+  if (o.steps !== undefined) plan.steps = parseSteps(c, o.steps, plan.files, o.split !== undefined);
   if (o.authorView !== undefined) plan.authorView = parseAuthorView(c, o.authorView, 'plan.authorView');
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: plan };
 }
