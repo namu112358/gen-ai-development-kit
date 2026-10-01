@@ -12,7 +12,7 @@ import { COMMANDS_DIR, loadCommands, newGitHub, type CommandContext } from './ag
  * この入口はコマンドの一覧を持たない。commands/ の .ts を読み込み、コマンドの名前で振り分ける（コマンドを足すときは commands/ にファイルを置くだけ）。
  *
  * ■ Routine 用（GitHub API を呼ばない。投稿・ラベル操作は Routine が GitHub の MCP ツールで行う）
- *   render-claim・render-block・render-plan・render-verdict・render-metrics・usage・check・worktree（--routine）・worktree-remove・session-url
+ *   render-claim・render-block・render-plan・render-verdict・render-metrics・usage・check・worktree（--routine）・worktree-remove・session-url・incident（GitHub を読み書きしない。記録はリポジトリの外のファイル）
  *
  * ■ 人のセッション用（gh の認証で GitHub API を呼ぶ）
  *   上のほかの全部のコマンド
