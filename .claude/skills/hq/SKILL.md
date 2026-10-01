@@ -37,20 +37,22 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - `worker-start` が 0 以外で終わったら起こし直さない。受け取りの `failedStage`・`residualResources` を読み、`references/recovery-and-cleanup.md` に従う。
    - 受け取ったら、テーマ・Epic 番号・Dispatch ID・ワークスペースのパス・起こした時刻（`startedAt`）・Issue 番号の集合を控えの `hq-fleets.json` に書いて `hq-state.ts ledger-save` で置く。fleet から `session` が届いたら、そのセッション ID も書く。控えが無い・壊れた（`hq-state.ts ledger` が `null`）ときは、`ORCA orchestration worker-list --run <hq の Run ID> --json` で settle していない Dispatch ごとに `send` でセッション ID を聞き直して作り直す。テーマの名前（label）だけでセッションを引かない。
 5. **印を置く**：fleet のワークスペースを作った直後に、Write で `<ワークスペースの絶対パス>/.agent-harness-workspace` を置く（中身はテーマの名前1行）。まだ印が無いので hook（`.claude/hooks/workspace-guard.ts`）に止められない。書き先は main の checkout の外（fleet のワークスペースの中）の絶対パスにする。印は `.gitignore` に入っているので、ワークスペースの `git status` に出ない。これ以降、ワークスペースの中の書き換えは hook が止める。
-6. **ペイン**（#402）：hq が呼び出されたら（手順1の引き継ぎの後、fleet を起こす前に1回）、本体のワークスペースを次の並びで開く。左に hq の Claude（縦いっぱい）、真ん中の列に上から ① 人待ち → ② Epic/Issue → ③ ログ、右に intel の Claude。
+6. **ペイン**（#402）：hq が呼び出されたら（手順1の引き継ぎの後、fleet を起こす前に1回）、本体のワークスペースを次の並びで開く。左に hq の Claude（縦いっぱい）、真ん中の列に上から ① Epic/Issue → ② 人待ち → ③ ログ、右に intel の Claude（並びは #430 の人の決定「hq のペインもEpic 、進捗を一番上にしてほしい」）。
    ```text
    ┌──────────────┬──────────────────────┬──────────────┐
-   │              │ ① 人待ち              │              │
+   │              │ ① Epic/Issue         │              │
    │  hq の       ├──────────────────────┤  intel の    │
-   │  Claude      │ ② Epic/Issue         │  Claude      │
+   │  Claude      │ ② 人待ち              │  Claude      │
    │              ├──────────────────────┤              │
    │              │ ③ ログ                │              │
    └──────────────┴──────────────────────┴──────────────┘
    ```
-   - 作り方：`ORCA terminal split --terminal <hq の handle> --direction vertical --json` で右に分けて真ん中の列を作る。intel を開くときは、先に真ん中の列を `ORCA terminal split --terminal <真ん中の handle> --direction vertical --json` で右に分けて intel の列を作る（縦いっぱいにするため、上下に分ける前に分ける）。その後、真ん中の handle を `ORCA terminal split --terminal <真ん中の handle> --direction horizontal --json` で2回分けて上下に3つにする。上から順に `ORCA terminal send --terminal <handle> --text "node harness/scripts/panes.ts hq todo" --enter`（① 人待ち：全 fleet の人がすること）、`node harness/scripts/panes.ts hq board`（② Epic/Issue：Epic のページと Issue のページを Tab・e・i で切り替える）、`node harness/scripts/panes.ts hq log`（③ ログ：状態が変わった Issue を新しい順に）を送る。分ける向きの名前（`--direction`）は Orca の版で確かめる（`ORCA skills get orchestration` の案内）。
+   - 作り方：`ORCA terminal split --terminal <hq の handle> --direction vertical --json` で右に分けて真ん中の列を作る。intel を開くときは、先に真ん中の列を `ORCA terminal split --terminal <真ん中の handle> --direction vertical --json` で右に分けて intel の列を作る（縦いっぱいにするため、上下に分ける前に分ける）。その後、真ん中の handle を `ORCA terminal split --terminal <真ん中の handle> --direction horizontal --json` で2回分けて上下に3つにする。上から順に `ORCA terminal send --terminal <handle> --text "node harness/scripts/panes.ts hq board" --enter`（① Epic/Issue：Epic のページと Issue のページを Tab・e・i で切り替える）、`node harness/scripts/panes.ts hq todo`（② 人待ち：全 fleet の人がすること）、`node harness/scripts/panes.ts hq log`（③ ログ：状態が変わった Issue を新しい順に）を送る。
+   - 向き：Orca 1.4.216 では、`orca-cli` の案内（「`--direction horizontal` splits left/right」）と実際の向きが逆で、`--direction vertical` で左右、`--direction horizontal` で上下に分かれる。この skill の向きに従い、案内に合わせて `vertical` と `horizontal` を入れ替えない（#430）。
+   - 分けた後の確かめ：コマンドを送る前に `ORCA terminal list --worktree current --include-visual-layouts --json` で hq のタブのペインの木（`visualLayouts` の `panes`）を読み、hq の Claude の handle が `direction` が `vertical` の分け目の `first`（左）で、intel を開くなら真ん中の列と intel の列が `vertical` の分け目（intel が `second`、右）、真ん中の列が `horizontal` の分け目で上（`first`）から Epic/Issue → 人待ち → ログ の handle の順になっているかを確かめる。違えば、作った表示のペイン（3つと、intel を起こす前の空のペイン）だけを `ORCA terminal close --terminal <handle>` で閉じ（閉じる前の確かめは下の「自分の端末を閉じない」のとおり）、作り方から分け直す。
    - intel のペイン：節「相談・アイデアを intel に回す」の起こし方で、intel がまだいなければ、上の作り方で分けた右の列で intel を起こす（既にいれば右の列を分けない）。intel の skill（`.claude/skills/intel/SKILL.md`）が無い・起こせないときは、intel のペインを開かずに進める（hq の Claude と①〜③だけで動く）。
    - 3つのペインは fleet を自分で見つける：hq の控え（`hq-fleets.json` の `fleets`）を数秒ごとに読み直し、各 fleet の `session` のスナップショットを読む。コマンドに fleet のセッション ID を渡さない。fleet が増えた・減った・起こし直したときは控えを直すだけで、ペインを作り直さない（`session` がまだ無い fleet と、起こした直後でスナップショットが無い fleet は「起動中」と出る。読めない・古いスナップショットは各ペインの見出しの下に1行の注意で出る）。ペインの handle は控えの `paneHandles` に書いて `hq-state.ts ledger-save` で置く。
-   - fleet ごとの `panes.ts progress` のペインは hq では開かない（Issue の進み具合は ② の Issue のページで見る）。
+   - fleet ごとの `panes.ts progress` のペインは hq では開かない（Issue の進み具合は ① の Issue のページで見る）。
    - **自分の端末を閉じない**（#409）：`ORCA terminal close` を使う前に、閉じる handle が hq 自身の Claude の端末（控えの `hqHandle` と、`ORCA terminal list --worktree current --json` の hq の Claude の端末）でないことを確かめる。閉じるのは `--terminal <ペインの handle>` だけで、本体に `--tab`・`--worktree … --all` を使わない（hq の Claude まで閉じるため）。
 7. **人の判断をまとめて聞く**：`ORCA orchestration check --wait --types "worker_done,escalation,question,status" --timeout-ms 900000 --json` で待つ。
    - heartbeat を先に ack する：`check` は Run の一番古い Delivery を ack されるまで同じ束で返し続け、`--types` は待ちが起きる条件で、古い便りを飛ばす許しではない。束の中の heartbeat は、ほかの行と同じ束でも、それだけの束でも、読んだらすぐ `--ack <delivery_id>` して待ちに戻る（`check --ack <delivery_id> --wait ...` で ack と次の待ちを1回で）。heartbeat のために人への質問・`worker_done` の処理を後回しにしない。ack の後に続けて届いている question・escalation・worker_done を先に処理する。
