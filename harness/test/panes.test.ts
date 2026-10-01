@@ -14,6 +14,7 @@ import { projectTranscriptDir } from '../lib/usage.ts';
 import {
   collectOnce, defaultSnapshotPath, startCollect, startRender, type CollectDeps, type CollectOptions, type RenderDeps, type RunResult,
 } from '../scripts/panes.ts';
+import { config } from './support/gate-fixtures.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 
@@ -292,6 +293,7 @@ function fakeDeps(o: {
   const deps: CollectDeps = {
     run(cmd, args, opts) {
       calls.push({ cmd, args, opts });
+      if (cmd === 'gh' && args[0] === 'issue' && args[1] === 'list') return ok('[]');
       if (cmd === 'gh' && args[0] === 'api' && args[1] === 'graphql') return ok('{"data":{"repository":{}}}');
       if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view') {
         const n = Number(args[2]);
@@ -320,7 +322,7 @@ function fakeDeps(o: {
 }
 
 const opts = (patch: Partial<CollectOptions> = {}): CollectOptions => ({
-  session: SESSION, label: 'fleet-a', issues: [11, 22], snapshotPath: '/tmp/agent-harness-panes/sess-1.json', transcriptCwd: TRANSCRIPT_CWD, intervalSeconds: 180, ...patch,
+  session: SESSION, label: 'fleet-a', issues: [11, 22], snapshotPath: '/tmp/agent-harness-panes/sess-1.json', transcriptCwd: TRANSCRIPT_CWD, intervalSeconds: 180, config, ...patch,
 });
 
 test('collectOnce：fleet-status を渡したセッションの ID で呼び、CLAUDE_CODE_REMOTE_SESSION_ID を子に渡さない', () => {
