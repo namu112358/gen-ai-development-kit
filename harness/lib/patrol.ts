@@ -2,7 +2,7 @@ import { OBSERVE_SECTIONS, type ObserveReport, type ObserveSection } from './obs
 
 /**
  * 見直しのまとめ役（patrol の skill）が、観測の差と前回からの経過で今回まわす見直しを決める（純粋関数）。スクリプトは harness/scripts/patrol.ts。
- * 見直しごとに、見る観測の節と間隔の下限・上限を PATROL_REVIEWS に持つ。形が suggest の見直し（test-prune）は動かさず、人に勧めるだけにする。
+ * 見直しごとに、見る観測の節と間隔の下限・上限を PATROL_REVIEWS に持つ。形が suggest の見直しは動かさず、人に勧めるだけにする（今は3つとも run。suggest の形は、人に勧めるだけの見直しを足すときと、今までの状態のファイルを読むために残す）。
  *
  * 状態のファイル（既定は git の共通ディレクトリの下の agent-harness/patrol.json。作業ツリーにも GitHub にも書かない）の書式：
  *   { "version": 1, "reviews": { "<名前>": { "lastRunAt"?: "<ISO 時刻>", "lastSuggestedAt"?: "<ISO 時刻>" } },
@@ -27,7 +27,7 @@ export interface PatrolReviewDef {
 export const PATROL_REVIEWS: readonly PatrolReviewDef[] = [
   { name: 'arch-review', mode: 'run', sections: ['docs'], minHours: 12, maxHours: 72 },
   { name: 'qa-retro', mode: 'run', sections: ['flakyTests', 'mutants'], minHours: 24, maxHours: 168 },
-  { name: 'test-prune', mode: 'suggest', sections: ['slowTests', 'flakyTests', 'mutants'], minHours: 24, maxHours: 336 },
+  { name: 'test-prune', mode: 'run', sections: ['slowTests', 'flakyTests', 'mutants'], minHours: 24, maxHours: 336 },
 ];
 export const PATROL_DEFAULT_MAX = 2;
 export const PATROL_MAX_ROUNDS = 50;
@@ -93,15 +93,15 @@ function decide(def: PatrolReviewDef, state: PatrolState | null, observe: Observ
 
 const RANK: Partial<Record<PatrolReason, number>> = { never: 0, overdue: 1, diff: 2 };
 
-/** 今回まわす見直しを決める。max は run の形で回す数の上限（suggest の形は枠を使わない）。状態は変えない */
-export function selectReviews(state: PatrolState | null, observe: ObserveReport, now: Date, max: number): PatrolSelection {
-  const all = PATROL_REVIEWS.map((def) => decide(def, state, observe, now));
+/** 今回まわす見直しを決める。max は run の形で回す数の上限（suggest の形は枠を使わない）。defs は見直しの定義の一覧（既定は PATROL_REVIEWS）。状態は変えない */
+export function selectReviews(state: PatrolState | null, observe: ObserveReport, now: Date, max: number, defs: readonly PatrolReviewDef[] = PATROL_REVIEWS): PatrolSelection {
+  const all = defs.map((def) => decide(def, state, observe, now));
   const chosen = (c: Candidate): boolean => RANK[c.reason] !== undefined;
   const order = (a: Candidate, b: Candidate): number =>
     RANK[a.reason]! - RANK[b.reason]! ||
     (a.reason === 'overdue' ? b.overdueMs - a.overdueMs : 0) ||
     (a.reason === 'diff' ? b.diffCount - a.diffCount : 0) ||
-    PATROL_REVIEWS.indexOf(a.def) - PATROL_REVIEWS.indexOf(b.def);
+    defs.indexOf(a.def) - defs.indexOf(b.def);
   const runs = all.filter((c) => c.def.mode === 'run' && chosen(c)).sort(order);
   const run = runs.slice(0, Math.max(0, max));
   const limited = new Set(runs.slice(run.length).map((c) => c.def.name));
@@ -152,13 +152,13 @@ export function parsePatrolState(text: string | null): Result<{ state: PatrolSta
   return errors.length ? { ok: false, errors } : { ok: true, state: v as unknown as PatrolState };
 }
 
-/** 回を記録した新しい状態（元の状態は変えない）。ran は run の形、suggested は suggest の形の名前だけ。observe は写した観測の JSON のファイル名 */
-export function recordRound(state: PatrolState | null, ran: string[], suggested: string[], at: Date, observe: string): Result<{ state: PatrolState }> {
+/** 回を記録した新しい状態（元の状態は変えない）。ran は run の形、suggested は suggest の形の名前だけ（形は defs で決まる。既定は PATROL_REVIEWS）。observe は写した観測の JSON のファイル名 */
+export function recordRound(state: PatrolState | null, ran: string[], suggested: string[], at: Date, observe: string, defs: readonly PatrolReviewDef[] = PATROL_REVIEWS): Result<{ state: PatrolState }> {
   const errors: string[] = [];
   const check = (names: string[], mode: PatrolMode, flag: string): void => {
     const seen = new Set<string>();
     for (const n of names) {
-      const def = PATROL_REVIEWS.find((r) => r.name === n);
+      const def = defs.find((r) => r.name === n);
       if (!def) errors.push(`${flag}：知らない見直しです：${n}（${NAMES.join('・')}）`);
       else if (def.mode !== mode) errors.push(`${flag}：${n} は ${def.mode === 'run' ? '回す（--ran）' : '勧める（--suggested）'}形の見直しです`);
       if (seen.has(n)) errors.push(`${flag}：${n} が2回あります`);

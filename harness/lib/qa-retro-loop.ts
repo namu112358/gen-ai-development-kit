@@ -18,6 +18,8 @@ export const QA_RETRO_LOOP_FIRST_DAYS = 14;
 export interface LoopDraft { title: string; body: string; duplicateOf?: number; created: number | null }
 export interface LoopRound { since: string; until: string; advancedAt: string; prs: number; drafts: LoopDraft[] }
 export interface LoopState { version: 1; until: string; rounds: LoopRound[] }
+/** 下書きを回ごとに持つ状態（qa-retro-loop と test-prune-loop の状態。pendingDrafts・adoptDraft が読むのは rounds[].drafts だけ） */
+export interface DraftRounds { rounds: { drafts: LoopDraft[] }[] }
 
 type Result<T> = { ok: true } & T | { ok: false; errors: string[] };
 
@@ -111,7 +113,7 @@ export function advanceLoopState(state: LoopState | null, data: unknown, drafts:
 }
 
 /** 未採用（created が null）の下書きの一覧と、下書きの数・採用された数。round・draft は1から数える */
-export function pendingDrafts(state: LoopState | null): {
+export function pendingDrafts(state: DraftRounds | null): {
   pending: { round: number; draft: number; title: string; body: string; duplicateOf?: number }[];
   total: number;
   adopted: number;
@@ -130,7 +132,7 @@ export function pendingDrafts(state: LoopState | null): {
 }
 
 /** 人が選んで作った Issue の番号を下書きの created に書いた新しい状態（期間の until は変えない）。範囲外・採用済みは誤り */
-export function adoptDraft(state: LoopState | null, round: number, draft: number, issue: number): Result<{ state: LoopState }> {
+export function adoptDraft<S extends DraftRounds>(state: S | null, round: number, draft: number, issue: number): Result<{ state: S }> {
   if (!isPositiveInt(issue)) return { ok: false, errors: ['Issue 番号は正の整数'] };
   const r = Number.isInteger(round) ? state?.rounds[round - 1] : undefined;
   if (!state || !r || round < 1) return { ok: false, errors: [`${round}回目の記録がありません`] };
@@ -138,5 +140,5 @@ export function adoptDraft(state: LoopState | null, round: number, draft: number
   if (!d) return { ok: false, errors: [`${round}回目の${draft}件目の下書きがありません`] };
   if (d.created !== null) return { ok: false, errors: [`${round}回目の${draft}件目の下書きは #${d.created} として作成済みです`] };
   const rounds = state.rounds.map((x, i) => (i !== round - 1 ? x : { ...x, drafts: x.drafts.map((y, j) => (j !== draft - 1 ? y : { ...y, created: issue })) }));
-  return { ok: true, state: { ...state, rounds } };
+  return { ok: true, state: { ...state, rounds } as S };
 }

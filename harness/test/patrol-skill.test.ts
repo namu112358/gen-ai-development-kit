@@ -1,4 +1,4 @@
-// Issue #370：patrol の skill の書き方（入力・手順・要約・やってはいけないこと・/loop の例・リンク・使うコマンドの実在）と、skill の一覧（CLAUDE.md・CLAUDE.harness.md・skills の README）への載せ方を確かめる。
+// Issue #370・#388：patrol の skill の書き方（入力・手順・要約・やってはいけないこと・/loop の例・リンク・使うコマンドの実在）と、skill の一覧（CLAUDE.md・CLAUDE.harness.md・skills の README）への載せ方を確かめる。
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -66,9 +66,9 @@ test('入力に --max・--state・--dry-run がある', () => {
   for (const word of ['--max', '--state', '--dry-run']) assert.ok(body.includes(word), `「## 入力」に ${word} がありません`);
 });
 
-test('手順に観測（observe.ts・--previous）・patrol.ts の previous・select・record・各 skill のループの回・test-prune の勧めがある', () => {
+test('手順に観測（observe.ts・--previous）・patrol.ts の previous・select・record・各 skill のループの回（test-prune も）がある', () => {
   const body = mustSection('## 手順');
-  for (const word of ['observe.ts', '--previous', 'patrol.ts previous', 'patrol.ts select', 'patrol.ts record', 'arch-review --loop', 'qa-retro --loop', '/test-prune']) {
+  for (const word of ['observe.ts', '--previous', 'patrol.ts previous', 'patrol.ts select', 'patrol.ts record', 'arch-review --loop', 'qa-retro --loop', 'test-prune --loop']) {
     assert.ok(body.includes(word), `「## 手順」に ${word} がありません`);
   }
 });
@@ -119,6 +119,13 @@ test('skill が使う qa-retro-loop.ts の pending は、スクリプトの使�
   const used = usedSubcommands(skill(), 'qa-retro-loop.ts');
   assert.ok(used.includes('pending'), 'SKILL.md が node harness/scripts/qa-retro-loop.ts pending を使っていません');
   for (const sub of used) assert.ok(known.has(sub), `qa-retro-loop.ts ${sub} は使い方のコメントにありません`);
+});
+
+test('skill が使う test-prune-loop.ts の pending は、スクリプトの使い方のコメントに実在する', () => {
+  const known = documentedSubcommands('test-prune-loop.ts');
+  const used = usedSubcommands(skill(), 'test-prune-loop.ts');
+  assert.ok(used.includes('pending'), 'SKILL.md が node harness/scripts/test-prune-loop.ts pending を使っていません');
+  for (const sub of used) assert.ok(known.has(sub), `test-prune-loop.ts ${sub} は使い方のコメントにありません`);
 });
 
 test('CLAUDE.md の構成の表の .claude/skills/ の行に patrol がある', () => {
