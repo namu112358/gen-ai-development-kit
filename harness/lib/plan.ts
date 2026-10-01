@@ -21,6 +21,18 @@ export interface Plan {
   split?: SplitChild[];
   /** 投稿前の批評の結果。無い計画は計画ゲートで止める（evaluateCritiqueGate。verdict の値そのものでは止めない） */
   critique?: { verdict: CritiqueVerdict; rounds: number; mustRemaining?: number };
+  /** 計画を書いたセッションの見解（任意。auto mode の危険の問いで、見解ありの問いにだけ渡す。結論には使わない。#426） */
+  authorView?: string;
+}
+
+/** 見解（authorView）の長さの上限 */
+export const AUTHOR_VIEW_MAX = 2000;
+
+/** 見解（authorView）を読む：空でない文字列で AUTHOR_VIEW_MAX 文字まで。計画と判定で同じ規則 */
+export function parseAuthorView(c: Checker, value: unknown, path: string): string {
+  const view = c.string(value, path, { nonEmpty: true });
+  if (typeof value === 'string' && value.length > AUTHOR_VIEW_MAX) c.errors.push(`${path}: ${AUTHOR_VIEW_MAX} 文字を超えています（${value.length} 文字）`);
+  return view;
 }
 
 export const CRITIQUE_VERDICTS = ['go', 'revise', 'split', 'drop'] as const;
@@ -60,6 +72,7 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
       // 未知のキーは読まない（#343 の後に投稿された計画の danger も無視する。危険の判定は Jev だけ、#382）
     }
   }
+  if (o.authorView !== undefined) plan.authorView = parseAuthorView(c, o.authorView, 'plan.authorView');
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: plan };
 }
 

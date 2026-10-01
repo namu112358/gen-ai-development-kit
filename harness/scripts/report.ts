@@ -19,6 +19,9 @@ import {
   summarize,
   tamperDecision,
   autoModeTestsDecision,
+  autoModeViewRecords,
+  autoModeViewShift,
+  renderAutoModeViewShift,
   tokenRatios,
   type DecisionRow,
   type MergedPr,
@@ -26,7 +29,8 @@ import {
   type PanelPairRow,
   type ReportRow,
 } from '../lib/report.ts';
-import { appRecords, closingIssues, fixRequestCount, isAgentPr, type PullRequest, type Review } from '../lib/state.ts';
+import { appRecords, closingIssues, fixRequestCount, isAgentPr, type PlanGateRecord, type PullRequest, type Review } from '../lib/state.ts';
+import { autoModeConfig } from '../lib/auto-mode.ts';
 import { TEST_TAMPER_JEV_KIND, type TamperJevRecord } from '../lib/test-tamper-jev.ts';
 import { AUTO_MODE_TESTS_KIND, type AutoModeTestsRecord } from '../lib/auto-mode-tests.ts';
 import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
@@ -38,7 +42,8 @@ import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
  *
  * ここでは GitHub から事実を集めて行にするだけ。集計と基準の判定は harness/lib/report.ts、基準の意味は docs/security.md の「Jev」。
  * 受け付けられなかった判定コメントも件数に出す。テストの改ざんの Jev の記録と人の判断（test:exempt・Merge した差分）の一致も数える（Q95）。
- * 最後に合体版のレビューの記録と今の判定を比べる節（基準は docs/plan.md の Q91）と、人の決定の記録の Jev の判定と人の判断の一致率の節（Q93）を出す。
+ * 最後に合体版のレビューの記録と今の判定を比べる節（基準は docs/plan.md の Q91）と、人の決定の記録の Jev の判定と人の判断の一致率の節（Q93）、
+ * auto mode の危険の問いの見解あり・なしの結論の比べ（shadow。#426）の節を出す。
  */
 
 const config = loadConfig();
@@ -135,6 +140,9 @@ async function laterHeadFilesOf(pr: number, input: Pick<PanelCompareInput, 'comm
 const rows: ReportRow[] = [];
 const panelRows: PanelPairRow[] = [];
 const panelExcluded: Record<string, number> = {};
+// auto mode の危険の問いの見解あり・なし（#426）：受け付けの記録（patch-id ごと）と計画ゲートの記録（計画コメントごと）
+const viewAcceptances: Acceptance[] = [];
+const viewPlanGates: PlanGateRecord[] = [];
 for (const pr of agentPrs) {
   const comments = await gh.listComments(pr.number);
   const fixLinks = pr.merged_at
@@ -180,6 +188,7 @@ for (const pr of agentPrs) {
   // fix-pr の裏付けは、Jev・Claude の外れと同じ結び付けの、根拠になったファイルだけで見る
   const fixPrFiles = fixPrFilesOf(fixLinks);
   const acceptances = appRecords<Acceptance>(config, comments, 'acceptance');
+  viewAcceptances.push(...acceptances.map((a) => a.value));
   const panel = panelPairs(config, {
     pr: pr.number,
     mergedAt: row.mergedAt,
@@ -209,6 +218,8 @@ const issues = (await gh.paginate<{ number: number; comments: number; pull_reque
 const decisionRowsAll: DecisionRow[] = [];
 for (const i of issues) {
   const comments = await gh.listComments(i.number);
+  // 見解あり・なしの比べは、読んだコメントの計画ゲートの記録から拾う（API を増やさない）
+  viewPlanGates.push(...appRecords<PlanGateRecord>(config, comments, 'plan-gate').map((r) => r.value));
   if (appRecords(config, comments, 'plan-decision').length === 0) continue;
   const events = await gh.paginate<{ event: string; created_at?: string; actor?: { login: string } | null; label?: { name: string } }>(`/issues/${i.number}/events`);
   const data = await gh.graphql<{ repository: { issue: { closedByPullRequestsReferences: { nodes: { number: number; createdAt: string }[] } } } }>(
@@ -218,3 +229,4 @@ for (const i of issues) {
   decisionRowsAll.push(...decisionRows(config, i.number, comments, events, data.repository.issue.closedByPullRequestsReferences.nodes));
 }
 console.log(`\n${renderDecisionAgreement(decisionAgreement(decisionRowsAll), decisionRowsAll)}`);
+console.log(`\n${renderAutoModeViewShift(autoModeViewShift(autoModeConfig(config).dangerSafe, autoModeViewRecords(viewPlanGates, viewAcceptances)))}`);
