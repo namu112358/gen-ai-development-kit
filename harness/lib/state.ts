@@ -351,15 +351,15 @@ export function delegatePlanGate(config: HarnessConfig, comments: IssueComment[]
 }
 
 /**
- * delegatePlanGate で選んだ計画の、計画コメントの本文。記録に planBodySha256 があれば、今の本文の sha256 が一致するときだけ返す
- * （ゲートの後に編集された計画は使わない）。無ければ null
+ * delegatePlanGate で選んだ計画の、計画コメントの本文。記録の planBodySha256 と今の本文の sha256 が一致するときだけ返す
+ * （ゲートの後に編集された計画は使わない）。planBodySha256 の無い古い記録は、編集されたかを確かめられないので使わない（Issue #440）。無ければ null
  */
 export function delegatePlanBody(config: HarnessConfig, comments: IssueComment[]): string | null {
   const gate = delegatePlanGate(config, comments);
   if (!gate) return null;
   const planComment = comments.find((c) => c.id === gate.planCommentId);
   if (!planComment) return null;
-  if (gate.planBodySha256 && createHash('sha256').update(planComment.body).digest('hex') !== gate.planBodySha256) return null;
+  if (!gate.planBodySha256 || createHash('sha256').update(planComment.body).digest('hex') !== gate.planBodySha256) return null;
   return planComment.body;
 }
 

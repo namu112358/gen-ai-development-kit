@@ -1,6 +1,7 @@
 /**
  * auto mode の経路に乗る PR で、agent/tests が見つけたテストを弱める変更が妥当かを Jev に問い、App の記録（kind=auto-mode-tests）に残す（Issue #349）。
- * かけるのは auto mode で自動経路に乗る PR（auto-mode.ts の autoModeRoute が ok で、委任（delegatedRoute）では乗らない）だけ。
+ * かけるのは auto mode で自動経路に乗る PR（auto-mode.ts の autoModeRoute が ok で、委任（delegatedRoute）では乗らない）で、自動 Merge モードが有効なときだけ。
+ * 自動 Merge モードが無効なら apply.ts は auto-merge を付けず人が Merge するので、Jev の答えで agent/tests を success にしない（問わない。Issue #440）。
  * 1つの差分（patch-id）に1回だけ問う。同じ patch-id・同じ問いの版の記録があれば問い直さず、記録の確率と今の下限で通すかを決め直す（push で差分が変わると問い直す）。
  * Jev の error は記録しない（次のイベントで問い直す）。on-pr.ts と apply.ts の両方から使うので、apply.ts を import しない。
  * 判断を harness/gates/ に置くのは、委任承認の除外（delegateMergeExclude の harness/gates/**）に入れ、委任で緩められないようにするため。
@@ -22,7 +23,7 @@ import type { IssueComment } from '../lib/github.ts';
 import { askJev } from '../lib/jev.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
 import { LABELS } from '../lib/config.ts';
-import { appRecords, delegatePlanBody, hasLabel, isAgentPr, isSameRepoPr, linkedIssues, type PullRequest } from '../lib/state.ts';
+import { appRecords, autoMergeMode, delegatePlanBody, hasLabel, isAgentPr, isSameRepoPr, linkedIssues, type PullRequest } from '../lib/state.ts';
 import type { TamperFinding } from '../lib/test-tamper.ts';
 import { autoModeFor, autoModeRoute } from './auto-mode.ts';
 import { appComment, type GateContext } from './context.ts';
@@ -33,7 +34,7 @@ const resolve = <T>(v: Lazy<T>): Promise<T> => (typeof v === 'function' ? (v as 
 
 /**
  * auto mode の経路に乗るか（乗らなければこの仕組みをかけない）。tests-check.ts の testsHumanMerge と同じく、
- * 状態を渡されなければ、委任・auto mode で乗りうる受け付けのときだけ今の状態を読む。agent:hold の付いた PR にはかけない。
+ * 状態を渡されなければ、委任・auto mode で乗りうる受け付けのときだけ今の状態を読む。agent:hold の付いた PR と、自動 Merge モードが無効なときはかけない。
  */
 export async function onAutoModeRoute(ctx: GateContext, pr: PullRequest, acceptance: Acceptance | null, state: { delegation?: DelegateState; autoMode?: AutoModeState } = {}): Promise<boolean> {
   if (!isAgentPr(ctx.config, pr, ctx.repository)) return false;
@@ -41,7 +42,9 @@ export async function onAutoModeRoute(ctx: GateContext, pr: PullRequest, accepta
   if (hasLabel(pr, LABELS.hold)) return false;
   if (!acceptance?.reviewPass || acceptance.autoEligible || !acceptance.autoMode?.eligible) return false;
   if (acceptance.delegate?.eligible && delegatedRoute(state.delegation ?? (await delegationFor(ctx, new Date())), acceptance).ok) return false;
-  return autoModeRoute(state.autoMode ?? (await autoModeFor(ctx)), acceptance).ok;
+  if (!autoModeRoute(state.autoMode ?? (await autoModeFor(ctx)), acceptance).ok) return false;
+  // 自動 Merge モードが無効（Allow auto-merge が無効など）なら auto-merge を付けず人が Merge するので問わない
+  return autoMergeMode(ctx.gh, ctx.config);
 }
 
 /** Issue の本文と使える計画の本文（Jev の材料）。PR が Issue を1つだけ Closes し、使える計画があるときだけ */

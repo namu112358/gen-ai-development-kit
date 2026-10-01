@@ -65,7 +65,7 @@ const appRecord = (kind: string, value: unknown, text = 'x') => ({
 });
 const planComment = { id: 80, created_at: minutesAgo(600), updated_at: '', html_url: 'p', author_association: 'OWNER', user: { login: 'me', type: 'User' }, body: PLAN_BODY };
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-const planGate = (files: string[], patch: Record<string, unknown> = {}) => appRecord('plan-gate', { version: 1, planCommentId: 80, pass: true, reasons: [], plan: { files }, ...patch });
+const planGate = (files: string[], patch: Record<string, unknown> = {}) => appRecord('plan-gate', { version: 1, planCommentId: 80, pass: true, reasons: [], plan: { files }, planBodySha256: sha256(PLAN_BODY), ...patch });
 const humanComment = { id: 77, created_at: minutesAgo(30), updated_at: '', html_url: 'h', author_association: 'OWNER', user: { login: 'me', type: 'User' }, body: PR_COMMENT_MARK };
 
 /** 記録（kind=auto-mode-tests）。既定は WEAKEN_DIFF の 3 件を 0.95 で通した記録 */
