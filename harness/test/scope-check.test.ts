@@ -381,7 +381,7 @@ test('implement の skill: scope-check の手順に、終了コード 0・1・3 
   assert.ok(one.some((l) => l.includes('AskUserQuestion')), '終了コード 1 は AskUserQuestion で聞く');
   assert.ok(one.some((l) => /PR を作らず/.test(l)), '終了コード 1 は PR を作らない');
   const three = exitCodeLines(lines, 3);
-  assert.ok(three.some((l) => l.includes('人に見てほしい点')), '終了コード 3 は PR 本文の「人に見てほしい点」に書く');
+  assert.ok(three.some((l) => l.includes('あなたに確かめてほしいこと')), '終了コード 3 は PR 本文の「あなたに確かめてほしいこと」に書く');
   assert.ok(three.some((l) => /聞かずに進め/.test(l)), '終了コード 3 は聞かずに進める');
 });
 
