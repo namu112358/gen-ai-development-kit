@@ -8,13 +8,15 @@
 
 | 見出し | 必須 | 書くこと |
 | --- | --- | --- |
-| Goal | ○ | 達成したいこと（1〜3文） |
-| Background | | なぜ必要か |
-| Requirements | ○ | 満たすべき要件 |
+| Goal | ○ | 何をしたいかを人の言葉で1〜2文。ファイル名・関数名は書かない |
+| Background | | 最初の3行に、なぜ要るか（起きたこと・人の言葉）。根拠のファイルや行はその後に |
+| Requirements | ○ | 満たすべき要件を5つまで。作り方の細部は計画に任せる |
 | Non-goals | | やらないこと |
-| Acceptance Criteria | ○ | 検証できる受け入れ条件。`- [ ]` で1項目1条件、観測できる形で書く |
+| Acceptance Criteria | ○ | 検証できる受け入れ条件を3つまで。`- [ ]` で1項目1条件、観測できる形で書く |
 | Dependencies | | 補足のみ。順序は Issue Dependencies（blocked by）で設定する |
 | Validation Requirements | | 検証方法 |
+
+Issue を開いた人が Goal と最初の数行で「何をしたいか・なぜか」を分かるように書き、ファイル名・行番号・関数名は Background の後ろか計画に回す（人が一度に頭に保てるのは3〜5のまとまり程度なので、要件と AC の数も上の上限に絞る）。
 
 1つの Issue は1つの変更に絞る。層（`harness/lib/`・`harness/gates/`・skill・docs・設定）をまたぐなら、Issue を分けるか Epic にして子課題に分ける（大きい PR は判定の見落とし・取り込みの衝突・判定のやり直しを増やす）。AC に skill や docs の文をテストで確かめる項目を入れない（AC が多いほど test-designer のテストが増え、PR が大きくなる）。例外は、ゲートや hook が実行時に読む文（Issue Form の見出しや `agent-plan` の書式など）。
 
