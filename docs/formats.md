@@ -10,6 +10,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-claim ```` | Claude | Issue / PR コメント | `harness/lib/queue.ts` |
 | ```` ```agent-decision ```` | 付き添いのセッション（Routine は書かない） | Issue コメント | `harness/lib/decision.ts` |
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
+| ```` ```agent-incident ```` | Routine（#187。付き添いのセッションは書かない） | ダッシュボード Issue のコメント | `harness/lib/incident.ts`（表示だけで信頼しない） |
 | ```` ```arch-review ```` | 付き添いのセッション（arch-review の skill） | ダッシュボード Issue のコメント | `harness/lib/arch-review.ts` |
 
 共通ルール：
@@ -278,6 +279,26 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - `quote` は人の言葉そのまま（空は不可）、`choice` は選択肢で答えたときに選んだ項目、`at` は ISO 8601 の日時。
 - App は Jev に問わず、`jev.decisionRelease` にも依らずに確かめ（`harness/lib/decision.ts` の `proceedEligibility`）、`plan-proceed` の記録を付ける。ラベルと計画ゲートの結果は変えない。対象になるのは、Issue が開いていて `agent:plan-review` が付き、App の最新の計画ゲートの記録が止まった記録で `planCommentId` が一致し、計画コメントの本文がゲートの後に変わっておらず、決定の記録がその停止の後に書かれ、計画に `acChangeProposed` が無く、今の印がどれかの計画の投稿（`post-plan`）か App の停止の窓（計画コメントの投稿の 60 秒前からその計画ゲートの記録まで）で付いたもの。窓の外で付いた印（人が付けた印）は対象外で、人が外して計画を出し直す。
 - 委任承認の Merge と bypass の範囲照合（`harness/lib/state.ts` の `issueDelegateFiles`）は、`status: ok` の `plan-proceed` の記録の `planCommentId` と `planBodySha256` が最新の計画ゲートの記録と一致し、今の計画コメントの本文の sha256 も一致するときだけ、その計画を使う。`agent/scope` は今までどおりゲートを通った計画だけ。
+
+## 問題の記録（agent-incident）
+
+セッションで起きた問題の記録（Issue #186。振り分けは [operations.md](operations.md#問題の記録と振り分け)）。記録はリポジトリの外のセッションごとの JSON Lines（`<AGENT_HARNESS_INCIDENT_DIR か ~/.agent-harness/incidents>/<セッションID>.jsonl`）に1行1件で書き、GitHub には書かない。1行の形：
+
+```json
+{ "id": 1, "at": "2026-10-01T00:00:00.000Z", "kind": "deny", "target": "#186", "what": "起きたこと", "workaround": "回避策", "source": "session" }
+```
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `id` | 整数 | そのファイルの中の連番（1から） |
+| `at` | ISO 時刻 | 記録した時刻 |
+| `kind` | 文字列 | `deny`（拒否）・`return-to-human`（人に返す）・`app-reject`（App の拒否）・`human-correction`（人の訂正）・`workaround`（回避策） |
+| `target` | 文字列（任意） | `#<Issue>` か `PR #<番号>` |
+| `what` | 文字列 | 起きたこと（秘密に見える文字列は `***` に置き換えて書く） |
+| `workaround` | 文字列（任意） | 回避策 |
+| `source` | 文字列 | `session`（`incident add`）か `hook`（#187） |
+
+`node harness/scripts/agent.ts incident render-comment` が出すコメント本文（Routine がダッシュボード Issue に書く。#187）は、Claude の目印と ````agent-incident```` ブロック。ブロックの中身は `{ "version": 1, "session": <ID か null>, "incidents": [<上の1行に session を足したもの>...] }`。表示だけで信頼しない（`gate.yml` の `if:` に無く、ゲートを起こさない）。
 
 ## arch-review の記録
 

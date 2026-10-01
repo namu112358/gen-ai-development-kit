@@ -369,6 +369,17 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 
 PR に残る実行メトリクスのトークン数と推定料金（`harness.config.json` の `pricing` で計算）はセッションの累計による目安で、実際の請求額ではない。手元では `node harness/scripts/agent.ts usage` で確認できる。
 
+## 問題の記録と振り分け
+
+ship・fleet は、セッションで起きた問題を記録し、終わりに振り分けて、ハーネスの改善の候補を「人がすること」の「改善の候補」に示す（Issue #186）。
+
+- **何を記録するか**：拒否された操作（`deny`）、人に返す条件に当たった（`return-to-human`）、App の拒否（ゲートの停止・受け付けの拒否。`app-reject`）、人の訂正（`human-correction`）、手順に無い回避策（`workaround`）。起きたその場で `node harness/scripts/agent.ts incident add --kind <種類> --what <起きたこと> [--target <#番号|PR #番号>] [--workaround <回避策>]` で残す。
+- **置き場所**：リポジトリの外の、セッションごとの JSON Lines。ディレクトリは `AGENT_HARNESS_INCIDENT_DIR`、無ければホームの下の `.agent-harness/incidents/`（TMPDIR は使わない）。ファイルは `<セッションID>.jsonl`（ディレクトリ 0700・ファイル 0600）。セッション ID は `--session <id>`、無ければ `AGENT_HARNESS_SESSION`（英数字と `-` `_` だけ）。置き場所の決め方は `harness/lib/incident.ts` の `incidentFile` の1か所で、hook（#187）も同じものを使う。秘密に見える文字列（`ghp_`・`github_pat_`・`sk-ant-`・`Bearer`・`token=` の値など）は記録するときと下書きを出すときに `***` に置き換える。
+- **`/clear` で記録が分かれたら**：セッション ID が変わると記録のファイルも変わる。`node harness/scripts/agent.ts incident sessions` で記録のあるセッション ID を新しい順に出し、`incident list --session <今の ID> --session <前の ID>` のように `--session` を重ねて前の記録も読む（`render-issue` も同じ）。
+- **振り分けの3つ**：ハーネスの不具合・手順の抜けは Issue の候補（`gh issue list --state open --search` で開いた Issue を探し、同じものがあればコメントの案、無ければ `incident render-issue <id>... --title <題>` で Issue Form の形の下書き）。このパソコンの環境は docs の候補か何もしない。一度きりのミスは記録だけ。
+- **起票は人が選ぶ**：起票・コメントは人が選んだものだけで、自動で起票しない。起票した Issue のラベルは Jev に任せる（[ラベル](#ラベル)）。
+- **付き添いのセッションは GitHub に自動で書かない**：記録はファイルに残るだけ。`incident render-comment`（`agent-incident` ブロックのコメント本文、[formats.md](formats.md#問題の記録agent-incident)）は Routine がダッシュボードに書くためのもの（#187）で、ship・fleet は使わない。
+
 ## 保守の観測
 
 PR ごとの判定は1つの diff しか見ないので、リポジトリ全体に積み重なるずれは、人が指示したときに `node harness/scripts/observe.ts` で1回分だけ観測する。LLM を呼ばない決まる集計で、判断（直すか・Issue にするか）は人が行う。

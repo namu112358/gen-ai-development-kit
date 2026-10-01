@@ -222,6 +222,10 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
       <div class="step-head"><span class="num">5</span><h3>Merge</h3><span class="who app">App</span><span class="who human">人</span></div>
       <p>判定の結果で、自動 Merge か Human Merge（人が Merge）に分かれます（下の図）。</p>
     </li>
+    <li class="step">
+      <div class="step-head"><span class="num">6</span><h3>振り分け</h3><span class="who claude">Claude</span><span class="who human">人</span></div>
+      <p>ship・fleet は途中で起きた問題（拒否・人に返す・App の拒否・人の訂正・回避策）をリポジトリの外のファイルに記録しておき、「人がすること」の前に振り分けます。ハーネスの不具合・手順の抜けは Issue の下書きか開いた Issue へのコメントの案にして、「人がすること」の<strong>改善の候補</strong>に並べます。起票するのは人が選んだものだけです。</p>
+    </li>
   </ol>
 
   <figure class="fork" aria-label="Merge の分かれ道">

@@ -61,9 +61,9 @@ const ONLY_HUMAN = /人の判断待ちだけが残/;
 
 // ---- 読み直しの回し方 ----
 
-test('待つ間の読み直し：全部が待つか人の Merge 待ちになったら、手順8の一覧の後も終わらずに fleet-status --watch を間隔ごとに読み直す', () => {
+test('待つ間の読み直し：全部が待つか人の Merge 待ちになったら、手順9の一覧の後も終わらずに fleet-status --watch を間隔ごとに読み直す', () => {
   const sub = watch();
-  assertWords('待つ間の読み直し', sub, ['node harness/scripts/agent.ts fleet-status --watch', 'human-merge', 'auto-merge', '手順8']);
+  assertWords('待つ間の読み直し', sub, ['node harness/scripts/agent.ts fleet-status --watch', 'human-merge', 'auto-merge', '手順9']);
   assert.ok(lineWith(sub, ['間隔']), '間隔ごとに読み直す文がありません');
 });
 
@@ -126,13 +126,13 @@ test('待つ間の読み直し：受け持つ Epic が Close したとき（gh i
   assert.match(sub, ONLY_HUMAN, '人の判断待ちだけが残ったときに終える文がありません');
 });
 
-test('fleet の手順5：手順8の一覧を出した後に「待つ間の読み直し」へ進む', () => {
+test('fleet の手順5：手順9の一覧を出した後に「待つ間の読み直し」へ進む', () => {
   const step5 = item(mustSection(FLEET_SKILL, '## 手順'), 5);
   assert.ok(step5 !== '', '手順5がありません');
   assertWords('fleet の手順5', step5, ['待つ間の読み直し']);
 });
 
-test('fleet の入れ子の方式の手順3：手順8の一覧を出した後に「待つ間の読み直し」へ進む', () => {
+test('fleet の入れ子の方式の手順3：手順9の一覧を出した後に「待つ間の読み直し」へ進む', () => {
   const step3 = item(mustSection(FLEET_SKILL, '## 入れ子の方式'), 3);
   assert.ok(step3 !== '', '入れ子の方式の手順3がありません');
   assertWords('入れ子の方式の手順3', step3, ['待つ間の読み直し']);
