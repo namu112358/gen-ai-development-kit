@@ -7,6 +7,7 @@ import type { ExemptRecord } from './exempt.ts';
 import { parsePanelRecord, type PanelRecord } from './review-panel.ts';
 import { isTrustedComment } from './state.ts';
 import { tamperAllows, tamperJevThreshold, type TamperJevRecord } from './test-tamper-jev.ts';
+import type { AutoModeTestsRecord } from './auto-mode-tests.ts';
 import { BLOCKING_KINDS, parseVerdict, RISK_QUESTIONS, type BlockingFinding, type BlockingKind } from './verdict.ts';
 
 /**
@@ -39,6 +40,8 @@ export interface ReportRow {
   fixedBy: number[];
   /** テストの改ざんの Jev の確率と人の判断（tamperDecision。集計しないときは null か省略） */
   tamper?: { probability: number; human: 'pass' | 'fix' } | null;
+  /** auto mode でテストを弱める変更を Jev が妥当と答えて通した PR と、その後に人が直させたか（autoModeTestsDecision。数えないときは null か省略） */
+  autoModeTests?: { fixed: boolean } | null;
   /** 結び付いた fix の PR ごとの根拠（表の「fix PR」列に出す。無ければ番号だけ出す） */
   fixLinks?: FixLink[];
 }
@@ -58,6 +61,18 @@ export function tamperDecision(records: TamperJevRecord[], exempts: ExemptRecord
   if (exempted || (merged && finalPatchId === last.patchId)) return { probability, human: 'pass' };
   if (merged) return { probability, human: 'fix' };
   return null;
+}
+
+/**
+ * auto mode でテストを弱める変更を通した記録（kind=auto-mode-tests）に対する、その後の結果（Issue #349）。PR ごとに最後の記録 L を1件だけ使う。
+ * L が通した（allows）ときだけ数える。Merge され、最後の受け付け記録の patch-id が L と違えば、通した差分のまま Merge されなかった（人が直させた。危険側に外れた）とみなす。
+ * 通した後に、テストと関係の無い push（Reviewer の指摘の fix など）で差分が変わった PR も「直させた」に数えるので、この件数は多めに出る。
+ * 未 Merge（開いている・閉じた）と、L が通さなかった記録は null（tamperDecision と同じく、結果の出たものだけを数える）
+ */
+export function autoModeTestsDecision(records: AutoModeTestsRecord[], merged: boolean, finalPatchId: string | null): { fixed: boolean } | null {
+  const last = records.at(-1);
+  if (!last || last.allows !== true || !merged) return null;
+  return { fixed: finalPatchId !== last.patchId };
 }
 
 /** fix の PR を探すときの PR の形（変更ファイルなどは呼び出し元が集めて渡す） */
@@ -282,6 +297,8 @@ export interface ReportSummary {
    * jevPassHumanFix（Jev は通す・人は直させた）が enforce で危険側に外れる件数。threshold は数えるのに使った下限（未設定なら null）
    */
   tamper: { rows: number; agreed: number; agreement: number | null; jevPassHumanFix: number; jevFixHumanPass: number; threshold: number | null };
+  /** テストの改ざん：auto mode で Jev が妥当と答えて通した件数（Merge 済み）と、そのうち人が後から直させた件数（危険側に外れた。autoModeTestsDecision） */
+  autoModeTests: { allowed: number; fixed: number };
 }
 
 const isMiss = (r: ReportRow) => r.reverted || r.fixedBy.length > 0;
@@ -351,6 +368,10 @@ export function summarize(config: HarnessConfig, rows: ReportRow[]): ReportSumma
       jevFixHumanPass: tamperRows.filter((t) => !t.jevPass && t.human === 'pass').length,
       threshold: tamperJevThreshold(config),
     },
+    autoModeTests: {
+      allowed: rows.filter((r) => r.autoModeTests).length,
+      fixed: rows.filter((r) => r.autoModeTests?.fixed === true).length,
+    },
   };
 }
 
@@ -417,6 +438,8 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
     `| テストの改ざん：Jev と人の判断（件数 / 一致率） | ${s.tamper.rows} / ${pct(s.tamper.agreement)}（Jev が通す下限：${s.tamper.threshold === null ? '未設定' : s.tamper.threshold}） |`,
     `| テストの改ざん：Jev は通す・人は直させた | ${s.tamper.jevPassHumanFix} |`,
     `| テストの改ざん：Jev は止める・人は通した | ${s.tamper.jevFixHumanPass} |`,
+    `| テストの改ざん：auto mode で通した | ${s.autoModeTests.allowed} |`,
+    `| テストの改ざん：auto mode で通した・人が後から直させた | ${s.autoModeTests.fixed} |`,
     '',
     `切り替えの基準（docs/security.md）：否定側 ${c.minNegatives} 件以上、Jev の low の外れ ${c.maxJevLowMisses} 件、Jev だけが「可」${c.maxJevOnly} 件 → ${criteria}`,
     '',

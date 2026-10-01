@@ -21,7 +21,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 段階ゲート | `agent:plan-ok` は App だけ。App 以外が付けたら App が外す |
 | 計画の紐付け | すべての PR（付き添いのセッションの Agent PR も、人の PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録）。Stacked PR の層は本文の `Refs #N`（一番上は `Closes #N`）で紐付け、App が `stack-link` を記録して、層が Merge されたら Issue を閉じる |
 | 計画の写し | ゲート通過時の計画を App の記録に写す。後で計画コメントが編集されても写しを使う |
-| テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。人が Merge する PR（ガードレール・`humanMergePaths`・自動 Merge の対象外の判定）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の Merge の判断にまとめる（テストを弱めた PR が自動で Merge されるのを防ぐ目的は変わらない。経路が自動 Merge に変わると止める側に戻る）。`jev.testTamper` が enforce なら、アサーションの書き換えだけの差分は Jev の確率が下限以上で通る（下記「Jev」の「テストの改ざん」） |
+| テストの改ざん | テストの削除、skip・only・todo の追加、アサーションの削除・書き換えを必須チェック `agent/tests` で検出する（差分だけを見る決定論的な検査。fork の PR も）。例外は人が付ける `test:exempt`（App が付けた時点の差分の patch-id を記録し、差分が変わると効かない）。人が Merge する PR（ガードレール・`humanMergePaths`・自動 Merge の対象外の判定）では止めずに neutral にし、見つけた行を Human Merge の依頼に載せて人の Merge の判断にまとめる（テストを弱めた PR が自動で Merge されるのを防ぐ目的は変わらない。経路が自動 Merge に変わると止める側に戻る）。`jev.testTamper` が enforce なら、アサーションの書き換えだけの差分は Jev の確率が下限以上で通る（下記「Jev」の「テストの改ざん」）。auto mode の経路に乗る PR は neutral にせず、すべての種類の検出を、Issue と計画に合った妥当な直しかを Jev に問い、検出ごとの確率の最小値が `jev.thresholds.autoModeTestsProbability` 以上なら通す（答えが無い・読めない・差分が変わったときは止める。下記「Jev」の「テストの改ざん」の auto mode） |
 | ガードレール | `harness.config.json` の `guardrailPaths`（除外 `guardrailExclude`、一覧自身は外せない、一覧が無ければすべて）に触れる PR は、Risk Agent の答えに関わらず自動 Merge せず理由を受け付けのコメントに書く（変更ファイルはリネームの旧パスも）。触れる計画は想定 Risk に関わらず計画ゲートで止める（`harness/lib/guardrail.ts`）。委任承認の間の例外は [risk-policy.md](risk-policy.md#委任承認) |
 | 範囲照合 | 計画の `files` と PR の変更ファイル（リネームは旧パスも）を照合する。最初の階層にワイルドカードがあるパターンは拒否。全件取得できなければ不可 |
 | 判定の鮮度 | 判定時と現在の head で、PR 自身の差分の `git patch-id --verbatim` が同じときだけ受け付ける（`--stable` は空白を無視するため使わない） |
@@ -54,6 +54,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | 既定ブランチ以外が base の PR | base が既定ブランチ以外の PR（Stacked PR の層など）は既定ブランチの Ruleset の外なので、必須チェックでは Merge を止められない | App が orphan-base を Draft に留め、Stacked PR は Human Merge。人が Ready にしてからゲートが Draft に戻すまでの短い間は防げない |
 | gh の別名 | `gh alias set` で作った gh の別名、`gh stack alias` で前に作った別名（`gs` など）は hook で中身を追えない | 規則の「やってはいけないこと」、`gh stack alias` は hook が止める、Merge は Ruleset と App の判定を通る |
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
+| auto mode のテストの判定の材料 | auto mode の経路の PR でテストを弱める変更を Jev に問う材料（Issue の本文と計画の本文）は、人とセッションが書いたもの。計画に理由を書けば、Jev が妥当と答えうる | 計画は計画ゲートを通ったもの・ゲートの停止で止まったもの・人が進めると決めたものだけで、その後に編集されていないもの。auto mode の計画には危険の判定（Jev）がかかる。通した記録は通した差分にだけ効き、人は `agent:hold` で止められる。`report.ts` で通した件数と人が後から直させた件数を見る |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |
 | 合体版の記録の偽り | 合体版のレビューの記録（`agent-review-panel`）はセッションが書くので偽れる。判定コメントより前の記録だけを数えることで防げるのは、App の受け付け・変更要求を見てから記録を合わせることだけで、shadow ではセッションが今の reviewer の出力を見てから記録を合わせることは防げない | 判定コメントより前・未編集・head の一致・コラボレーターの記録だけ数える、集計の表で事実の列と申告の列を分ける、本物・誤検知は事実の裏付けで数える、切り替えの前に人が全件を確かめる（裏付けのうち人のレビューコメントは、セッションも本人の名義で書くので Claude の目印の有無でしか人のものと分けられず、目印の無いセッションのコメントは人のものとして数えてしまう）、担当の定義と組み立て（`.claude/agents/review-*.md`・review-panel の skill・`harness/scripts/review-panel.ts`・`harness/lib/**`）はガードレール（[plan.md](plan.md) の Q91） |
 | 決定の記録の名義 | 決定の記録（```` ```agent-decision ````）は人の名義で書かれ、App は人が書いたかセッションが書いたかを区別できない。Routine が書くことも、`.claude/routine.md` の禁止だけで止めている（hook の入力・環境変数では Routine と付き添いのセッションを見分けられない。Routine を再開するときに専用の環境と環境変数を用意すれば hook で止められる見込み） | 外すのは Planner の申告の停止だけ（App のゲートの停止・人が付けた印・AC の変更提案は外さない）、答え済みの計画をゲートがもう一度判定する、既定は `shadow`、ガードレール・critical の停止と Human Merge・判定の受け付けは変えない |
@@ -100,6 +101,15 @@ Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材
 - **Agent が書いた行を問う**：変更前・変更後の行そのものは Agent が書く。行の中に Jev への指示を書き込めば確率を上げられるおそれがあるので、`enforce` にする前に、shadow の記録で人の判断との一致率と「Jev は通す・人は直させた」件数を見る。
 - **集計の見方**：`node harness/scripts/report.ts` の指標の表に「テストの改ざん：Jev と人の判断（件数 / 一致率）」「Jev は通す・人は直させた」「Jev は止める・人は通した」が出る。PR ごとに最後の `test-tamper-jev` の記録を使い、人の判断は、同じ差分に `test:exempt` を付けたか同じ差分のまま Merge したら「通した」、違う差分で Merge したら「直させた」（未 Merge は数えない。enforce で Jev が通した記録も、自分で自分を数えないので数えない）。Jev の「通す」は確率が `jev.thresholds.testTamperProbability` 以上（下限が未設定なら0件）。「Jev は通す・人は直させた」が enforce で危険側に外れる件数。enforce の基準は決めておらず、表を見て人が決める。
 - **このリポジトリの切り替え**：2026-09-30 に `enforce` にした（持ち主の決定、#364。docs/plan.md の Q104）。上の「`enforce` にする前に一致率を見る」は導入先向けの一般の説明で、このリポジトリでは一致率を見ずに持ち主が切り替えた（`report.ts` が読めなかった。受け入れているリスク：行の中の指示で Jev の確率を上げられるおそれを、一致率で確かめる前に受け入れる）。enforce で Jev が通した記録は一致率に数えないので、切り替えの後は一致率の材料が減る。雛形の既定は `shadow` のまま。
+
+#### auto mode の間（Issue #349）
+
+auto mode の経路に乗る PR では、`agent/tests` のすべての種類の検出を、Issue と計画が求める振る舞いの変更に合った妥当な直しかを Jev に問う（手順は [operations.md](operations.md#テストの改ざん検査) の「auto mode の間（Jev が妥当か）」）。危険の判定は Jev だけ（人の決定、#382）。
+
+- **材料**：PR が Closes する Issue の本文、使える計画の本文（ゲートの後に編集されたものは使わない）、検出した行と前後の差分だけ。PR 本文・コメント・判定などセッションが PR の上で書いたものは渡さない。
+- **安全側**：答えが欠けた・読めない、Jev のエラー、問わない条件（件数・大きさ・Issue や計画が無い・鍵が無い・fork）、記録の差分（patch-id）が今の差分と違うときは、今までどおり failure（人に回す）。
+- **材料を書いた側**：Issue の本文と計画は人とセッションが書く。計画に理由を書けば Jev が妥当と答えうる（受け入れているリスクの表）。
+- **集計の見方**：`node harness/scripts/report.ts` の「テストの改ざん：auto mode で通した」「auto mode で通した・人が後から直させた」。PR ごとに最後の `auto-mode-tests` の記録を使い、通した（`allows`）もので Merge 済みのものを「通した」、そのうち最後の受け付けの patch-id が記録と違う（通した差分のまま Merge されなかった）ものを「直させた」に数える（危険側に外れた件数）。未 Merge は数えない。通した後に Reviewer の指摘の fix など、テストと関係の無い push で差分が変わった PR も「直させた」に数えるので、この件数は多めに出る。
 
 ### 日本語の材料の実験
 

@@ -17,6 +17,8 @@ import { applyAppLabels } from './label-apply.ts';
 import { notifyUnclaimedPush } from './push-claim.ts';
 import { testsHumanMerge, testsOutcome } from './tests-check.ts';
 import { tamperJevFor } from './tests-jev.ts';
+import { autoModeTestsFor } from './auto-mode-tests.ts';
+import type { Acceptance } from '../lib/merge-route.ts';
 
 /**
  * PR の出来事（作成・push・編集・ラベル）ごとの処理。
@@ -202,6 +204,8 @@ async function notifyExemptNotApplied(ctx: GateContext, pr: PullRequest, label: 
  * 検出があっても、人が Merge する PR（Human Merge）なら止めずに neutral にする（tests-check.ts）。auto-merge が付いていれば緩めない。
  * 委任承認（計画＋Merge）で自動経路に乗る PR は止める（testsHumanMerge が委任の状態を読んで決める）。
  * 検出があれば Jev に問い（tests-jev.ts）、jev.testTamper が enforce で Jev が通せば、緩めないときでも success にする（Q95）。
+ * auto mode の経路の PR は、今の差分の受け付けがあれば妥当かを Jev に問い（auto-mode-tests.ts）、妥当と答えれば success にする（Issue #349）。
+ * PR の作成・push の直後は受け付けが無いので問わない（判定の受け付けの apply.ts の rewriteTestsCheck で問う）。
  */
 async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () => Promise<string>, exempt: boolean, getComments: () => Promise<IssueComment[]>, getPatch: () => Promise<string>): Promise<void> {
   if (exempt) {
@@ -210,14 +214,19 @@ async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () =>
   }
   const findings = detectTestTampering(await getDiff(), ctx.config.testPatterns ?? DEFAULT_TEST_PATTERNS);
   let reasons: string[] = [];
+  let acceptance: Acceptance | null = null;
   if (findings.length > 0 && isAgentPr(ctx.config, pr, ctx.repository)) {
-    reasons = await testsHumanMerge(ctx, pr, acceptanceForPatch(ctx.config, await getComments(), await getPatch()));
+    acceptance = acceptanceForPatch(ctx.config, await getComments(), await getPatch());
+    reasons = await testsHumanMerge(ctx, pr, acceptance);
     // 書く直前に取り直し、auto-merge が付いていれば緩めない
     if (reasons.length > 0 && (await getPr(ctx, pr.number)).auto_merge) reasons = [];
   }
   // Agent PR でない同じリポジトリの PR でも問って記録する（fork・off・鍵なし・問えない検出は tamperJevFor が問わない）
   const jev = findings.length > 0 ? await tamperJevFor(ctx, pr, findings, getPatch, getComments) : undefined;
-  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev));
+  // auto mode の経路の PR（今の差分の受け付けがあるときだけ）は、妥当かを Jev に問う。jev.testTamper の enforce で先に通るなら問わない
+  const jevPasses = jev?.mode === 'enforce' && jev.asked && jev.allows;
+  const autoMode = findings.length > 0 && reasons.length === 0 && !jevPasses && acceptance ? await autoModeTestsFor(ctx, pr, findings, acceptance, getDiff, getPatch, getComments) : undefined;
+  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev, autoMode));
 }
 
 /**

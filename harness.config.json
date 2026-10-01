@@ -92,7 +92,8 @@
       "labelProbability": 0.8,
       "labelProbabilityByLabel": { "priority:medium": 0.5 },
       "decisionProbability": 0.9,
-      "testTamperProbability": 0.9
+      "testTamperProbability": 0.9,
+      "autoModeTestsProbability": 0.9
     }
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
@@ -136,6 +137,7 @@
     ".claude/skills/judge/SKILL.md",
     "docs/risk-policy.md",
     "harness/lib/auto-mode.ts",
+    "harness/lib/auto-mode-tests.ts",
     ".claude/agents/plan-critic.md",
     "harness/lib/plan.ts",
     "harness/lib/session-inputs.ts"
