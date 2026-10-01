@@ -88,6 +88,15 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 
 ダッシュボードには bypass の状態（付けた人）と、直近 `staleHours` 時間に bypass で Merge された PR の一覧が出る。
 
+## auto mode
+
+auto mode（Epic #339）の間の `agent/tests` の扱い（Issue #349）。auto mode の全体の説明は #348 で足す。
+
+- auto mode で自動経路に乗る PR（自動 Merge の対象でも委任でも乗らず、auto mode で乗るもの）は、Risk critical・ガードレール・`humanMergePaths` に触れても `agent/tests` を Human Merge の neutral にしない。
+- テストを弱める変更（すべての種類）が見つかったら、Issue と計画が求める振る舞いの変更に合った妥当な直しかを Jev に問い、検出ごとの確率の最小値が `jev.thresholds.autoModeTestsProbability` 以上なら `agent/tests` を success にする。Jev が妥当でない、答えが無い・読めない、記録の差分が今の差分と違うときは failure（人に回す）。妥当とみなさない例：Issue・計画に理由が無いのに期待値を緩める、落ちるテストを消す・skip する、確かめる数を減らすだけで置き換えが無い、実装の不具合に合わせて期待値を変える。
+- 委任で乗る PR・bypass だけで乗る PR・自動 Merge の対象の PR・Human Merge の PR の扱い（`test:exempt`・Human Merge で neutral・`jev.testTamper`）は変えない。
+- この判断（`harness/gates/auto-mode-tests.ts`・`harness/lib/auto-mode-tests.ts`）は `delegateMergeExclude` の中にあり、委任承認では緩められない。手順は [operations.md](operations.md#テストの改ざん検査) の「auto mode の間（Jev が妥当か）」。
+
 ## ガードレール
 
 ガードレールは Agent が自分を縛る仕組み（App が機械的に強制している部分）で、既定ブランチの `harness.config.json` の `guardrailPaths` に並べる（範囲パターンの書式。`guardrailExclude` に当たるものは除く）。一覧自身（`harness.config.json`）は除外できない。一覧が無い設定では、すべてのファイルをガードレールとして扱う。

@@ -18,6 +18,7 @@ import {
   renderTokenRatios,
   summarize,
   tamperDecision,
+  autoModeTestsDecision,
   tokenRatios,
   type DecisionRow,
   type MergedPr,
@@ -27,6 +28,7 @@ import {
 } from '../lib/report.ts';
 import { appRecords, closingIssues, fixRequestCount, isAgentPr, type PullRequest, type Review } from '../lib/state.ts';
 import { TEST_TAMPER_JEV_KIND, type TamperJevRecord } from '../lib/test-tamper-jev.ts';
+import { AUTO_MODE_TESTS_KIND, type AutoModeTestsRecord } from '../lib/auto-mode-tests.ts';
 import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
 
 /**
@@ -157,6 +159,12 @@ for (const pr of agentPrs) {
     tamper: tamperDecision(
       appRecords<TamperJevRecord>(config, comments, TEST_TAMPER_JEV_KIND).map((r) => r.value),
       exemptRecords(config, comments, TEST_EXEMPT_LABEL),
+      Boolean(pr.merged_at),
+      acceptance?.patchId ?? null,
+    ),
+    // auto mode でテストを弱める変更を通した PR と、その後に人が直させたか（Issue #349）
+    autoModeTests: autoModeTestsDecision(
+      appRecords<AutoModeTestsRecord>(config, comments, AUTO_MODE_TESTS_KIND).map((r) => r.value),
       Boolean(pr.merged_at),
       acceptance?.patchId ?? null,
     ),
