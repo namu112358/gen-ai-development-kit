@@ -5,7 +5,7 @@ import {
   composePanel, parseChangedLines, parsePanelOutputs, previousFromJudgeInput, PANEL_OUTPUT_NAMES, SCORE_THRESHOLD,
   type ChangedLines, type CheckResult, type PanelFinding, type PanelSource,
 } from '../lib/review-panel.ts';
-import { OVERBUILD_MAX_FINDINGS, OVERBUILD_MISSING_NOTE, PANEL_ADVISORY_KINDS, PANEL_OPTIONAL_OUTPUT_NAMES } from '../lib/review-panel.ts';
+import { OVERBUILD_MAX_FINDINGS, OVERBUILD_MISSING_NOTE, OVERBUILD_KINDS, PANEL_OPTIONAL_OUTPUT_NAMES } from '../lib/review-panel.ts';
 import { composeVerdict, renderJudgeInput } from '../lib/session-inputs.ts';
 import { parseVerdict, RISK_QUESTIONS, type BlockingFinding, type BlockingKind } from '../lib/verdict.ts';
 import { config, HEAD } from './support/gate-fixtures.ts';
@@ -38,7 +38,7 @@ function ok<T>(r: { ok: true; value: T } | { ok: false; errors: string[] }): T {
 
 const treatmentOf = (value: { findings: { id: string; treatment: string }[] }, id: string): string | undefined => value.findings.find((f) => f.id === id)?.treatment;
 
-/** 組み立てに渡す⑨（overbuild）の指摘。kind は PANEL_ADVISORY_KINDS のどれか（Issue #325） */
+/** 組み立てに渡す⑨（overbuild）の指摘。kind は OVERBUILD_KINDS のどれか（Issue #325） */
 function overbuildFinding(index: number, kind: string, patch: Record<string, unknown> = {}): PanelFinding {
   const f = { id: `overbuild-${index}`, source: 'overbuild' as PanelSource, kind: kind as PanelFinding['kind'], file: 'a.ts', line: 3, detail: `overbuild-${index} の指摘`, ...patch } as PanelFinding;
   // line: undefined を渡したら line のキーごと除く（行の無い指摘）
@@ -105,57 +105,56 @@ test('compose：しきい値 SCORE_THRESHOLD は 75 で、ちょうど SCORE_THR
   assert.equal(v.review.blocking.length, 3);
 });
 
-test('compose：⑨（overbuild）の指摘は確信度 0・75・100 のどれでも nonBlocking で、blocking に入らず合格のまま（Issue #325）', () => {
+test('compose：⑨（overbuild）の指摘は確信度 74 なら nonBlocking で合格、75・100 は⑨の種類のブロッキングで不合格（Issue #386）', () => {
   const details = ['使われない引数を足している', '同じ分岐を3回確かめている', '1か所でしか使わない抽象'] as const;
-  const v = ok(compose([
+  const findings = [
     overbuildFinding(0, 'over-implementation', { detail: details[0] }),
     overbuildFinding(1, 'over-testing', { file: 'harness/test/x.test.ts', line: 12, detail: details[1] }),
     overbuildFinding(2, 'over-engineering', { line: undefined, detail: details[2] }),
-  ], { 'overbuild-0': 0, 'overbuild-1': SCORE_THRESHOLD, 'overbuild-2': 100 }));
-  for (const id of ['overbuild-0', 'overbuild-1', 'overbuild-2']) assert.equal(treatmentOf(v, id), 'nonBlocking', id);
-  assert.deepEqual(v.review.blocking, []);
-  assert.equal(v.review.pass, true);
-  const all = v.review.nonBlocking.join('\n');
-  for (const [kind, score, detail] of [['over-implementation', 0, details[0]], ['over-testing', SCORE_THRESHOLD, details[1]], ['over-engineering', 100, details[2]]] as const) {
-    const line = v.review.nonBlocking.find((l) => l.includes(detail));
-    assert.ok(line, `${detail} が nonBlocking にありません：\n${all}`);
-    assert.ok(line.includes(`[${kind}]`), `${detail}: kind が行にありません`);
-    assert.ok(line.includes(`確信度 ${score}`), `${detail}: 確信度が行にありません`);
-  }
-  assert.ok(v.review.nonBlocking.find((l) => l.includes(details[1]))!.includes('harness/test/x.test.ts:12'), '場所（file:line）が行にある');
-  const concerns = v.review.humanNotes.concerns.join('\n');
-  for (const d of details) assert.ok(!concerns.includes(d), `${d}: ⑨は humanNotes.concerns に入らない`);
-  const found = v.findings.find((f) => f.id === 'overbuild-2')!;
+  ];
+  const low = ok(compose([findings[0]!], { 'overbuild-0': SCORE_THRESHOLD - 1 }));
+  assert.equal(treatmentOf(low, 'overbuild-0'), 'nonBlocking');
+  assert.deepEqual(low.review.blocking, []);
+  assert.equal(low.review.pass, true);
+  const line = low.review.nonBlocking.find((l) => l.includes(details[0]));
+  assert.ok(line && line.includes('[over-implementation]') && line.includes(`確信度 ${SCORE_THRESHOLD - 1}`), low.review.nonBlocking.join('\n'));
+  assert.ok(!low.review.humanNotes.concerns.join('\n').includes(details[0]), '⑨は humanNotes.concerns に入らない');
+
+  const high = ok(compose(findings.slice(1), { 'overbuild-1': SCORE_THRESHOLD, 'overbuild-2': 100 }));
+  for (const id of ['overbuild-1', 'overbuild-2']) assert.equal(treatmentOf(high, id), 'blocking', id);
+  assert.deepEqual(high.review.blocking.map((b) => b.kind), ['over-testing', 'over-engineering']);
+  assert.ok(high.review.blocking[0]!.detail.includes('harness/test/x.test.ts:12') && high.review.blocking[0]!.detail.includes(details[1]));
+  assert.equal(high.review.blocking[0]!.file, 'harness/test/x.test.ts');
+  assert.equal(high.review.pass, false);
+  const found = high.findings.find((f) => f.id === 'overbuild-2')!;
   assert.equal(found.source, 'overbuild');
   assert.equal(found.kind, 'over-engineering');
   assert.equal(found.score, 100);
   assert.ok(!('planLevel' in found), '組み立ての findings は planLevel を持たない');
 });
 
-test('compose：⑨は、ほかのブロッキングがあっても自分はブロッキングにならず、合否はほかの指摘だけで決まる（Issue #325）', () => {
+test('compose：⑨はほかのブロッキングと並んでも、両方ブロッキングになる（Issue #386）', () => {
   const v = ok(compose([finding('lens2', 0, 'bug'), overbuildFinding(0, 'over-implementation')], { 'lens2-0': 90, 'overbuild-0': 100 }));
   assert.equal(v.review.pass, false);
-  assert.deepEqual(v.review.blocking.map((b) => b.kind), ['bug']);
-  assert.ok(!v.review.blocking.some((b) => b.detail.includes('overbuild-0 の指摘')));
-  assert.equal(treatmentOf(v, 'overbuild-0'), 'nonBlocking');
-  const alone = ok(compose([finding('lens2', 0, 'bug'), overbuildFinding(0, 'over-implementation')], { 'lens2-0': 10, 'overbuild-0': 100 }));
-  assert.equal(alone.review.pass, true, 'ほかにブロッキングが無ければ合格');
-  assert.deepEqual(alone.review.blocking, []);
+  assert.deepEqual(v.review.blocking.map((b) => b.kind).sort(), ['bug', 'over-implementation']);
+  assert.equal(treatmentOf(v, 'overbuild-0'), 'blocking');
 });
 
-test('compose：⑨の planLevel: true の指摘は humanNotes.checkPoints にも入り、concerns には入らない。planLevel が無い・false なら checkPoints に入らない（Issue #325）', () => {
+test('compose：⑨の planLevel: true の指摘は確信度 74 でも 75 以上でも humanNotes.checkPoints に入り、concerns には入らない。planLevel が無い・false なら checkPoints に入らない（Issue #325・#386）', () => {
   const v = ok(compose([
     overbuildFinding(0, 'over-engineering', { planLevel: true, detail: '計画の方針ごと過剰な層' }),
-    overbuildFinding(1, 'over-testing', { planLevel: false, detail: '方針ではない過剰なテスト' }),
-    overbuildFinding(2, 'over-implementation', { detail: 'planLevel の無い指摘' }),
-  ], { 'overbuild-0': 50, 'overbuild-1': 50, 'overbuild-2': 50 }));
+    overbuildFinding(1, 'over-testing', { planLevel: true, detail: '計画の方針ごと過剰なテスト' }),
+    overbuildFinding(2, 'over-testing', { planLevel: false, detail: '方針ではない過剰なテスト' }),
+    overbuildFinding(3, 'over-implementation', { detail: 'planLevel の無い指摘' }),
+  ], { 'overbuild-0': SCORE_THRESHOLD - 1, 'overbuild-1': SCORE_THRESHOLD, 'overbuild-2': 50, 'overbuild-3': 50 }));
   const checkPoints = v.review.humanNotes.checkPoints.join('\n');
-  assert.ok(checkPoints.includes('計画の方針ごと過剰な層'), 'planLevel: true は checkPoints に入る');
+  assert.ok(checkPoints.includes('計画の方針ごと過剰な層'), '74 の planLevel: true は checkPoints に入る');
+  assert.ok(checkPoints.includes('計画の方針ごと過剰なテスト'), '75 の planLevel: true は checkPoints に入る');
   assert.ok(!checkPoints.includes('方針ではない過剰なテスト') && !checkPoints.includes('planLevel の無い指摘'));
   const concerns = v.review.humanNotes.concerns.join('\n');
-  for (const d of ['計画の方針ごと過剰な層', '方針ではない過剰なテスト', 'planLevel の無い指摘']) assert.ok(!concerns.includes(d), `${d} が concerns に入っています`);
-  for (const id of ['overbuild-0', 'overbuild-1', 'overbuild-2']) assert.equal(treatmentOf(v, id), 'nonBlocking', id);
-  assert.equal(v.review.pass, true);
+  for (const d of ['計画の方針ごと過剰な層', '計画の方針ごと過剰なテスト', '方針ではない過剰なテスト', 'planLevel の無い指摘']) assert.ok(!concerns.includes(d), `${d} が concerns に入っています`);
+  assert.equal(treatmentOf(v, 'overbuild-0'), 'nonBlocking');
+  assert.equal(treatmentOf(v, 'overbuild-1'), 'blocking');
   for (const f of v.findings) assert.ok(!('planLevel' in f), `${f.id}: 組み立ての findings は planLevel を持たない`);
 });
 
@@ -285,23 +284,27 @@ test('compose：再レビューで当たる指摘が無く⑧も通れば合格�
   assert.equal(v.review.nonBlocking.length, 1);
 });
 
-test('compose：再レビューでも、⑨の指摘は変わった行に当たっても nonBlocking で、humanNotes.concerns に入らない（Issue #325）', () => {
+test('compose：再レビューでは、75 以上の⑨は変わった行（line の無いものは変わったファイル）に当たるときだけブロッキングで、当たらなければ nonBlocking で concerns に入らない（Issue #386）', () => {
   const v = ok(composePanel({
     findings: [
       overbuildFinding(0, 'over-implementation', { file: 'a.ts', line: 3, detail: '変わった行の過剰な実装' }),
       overbuildFinding(1, 'over-engineering', { file: 'b.ts', line: undefined, detail: '変わったファイルの過剰な抽象' }),
+      overbuildFinding(2, 'over-testing', { file: 'a.ts', line: 10, detail: '変わっていない行の過剰なテスト' }),
+      overbuildFinding(3, 'over-implementation', { file: 'c.ts', line: undefined, detail: '変わっていないファイルの過剰な実装' }),
     ],
-    scores: scores({ 'overbuild-0': 100, 'overbuild-1': 75 }), check: CHECK_OK,
+    scores: scores({ 'overbuild-0': 100, 'overbuild-1': 75, 'overbuild-2': 100, 'overbuild-3': 100 }), check: CHECK_OK,
     previous: { headSha: OLD_HEAD, blocking: [] }, changedLines: { 'a.ts': [3], 'b.ts': [1] },
   }));
-  assert.equal(treatmentOf(v, 'overbuild-0'), 'nonBlocking');
-  assert.equal(treatmentOf(v, 'overbuild-1'), 'nonBlocking');
-  assert.deepEqual(v.review.blocking, []);
-  assert.equal(v.review.pass, true);
+  assert.equal(treatmentOf(v, 'overbuild-0'), 'blocking');
+  assert.equal(treatmentOf(v, 'overbuild-1'), 'blocking');
+  assert.equal(treatmentOf(v, 'overbuild-2'), 'nonBlocking');
+  assert.equal(treatmentOf(v, 'overbuild-3'), 'nonBlocking');
+  assert.deepEqual(v.review.blocking.map((b) => b.kind), ['over-implementation', 'over-engineering']);
+  assert.equal(v.review.pass, false);
   const nonBlocking = v.review.nonBlocking.join('\n');
-  assert.ok(nonBlocking.includes('変わった行の過剰な実装') && nonBlocking.includes('変わったファイルの過剰な抽象'));
+  assert.ok(nonBlocking.includes('変わっていない行の過剰なテスト') && nonBlocking.includes('変わっていないファイルの過剰な実装'), nonBlocking);
   const concerns = v.review.humanNotes.concerns.join('\n');
-  assert.ok(!concerns.includes('変わった行の過剰な実装') && !concerns.includes('変わったファイルの過剰な抽象'));
+  assert.ok(!concerns.includes('変わっていない行の過剰なテスト') && !concerns.includes('変わっていないファイルの過剰な実装'));
 });
 
 // ---- parseChangedLines ----
@@ -341,7 +344,7 @@ test('parsePanelOutputs：担当の出力の名前は intake と7つの担当', 
 
 test('parsePanelOutputs：無くてもよい担当の出力は overbuild だけで、⑨の種類は over-implementation・over-testing・over-engineering（Issue #325）', () => {
   assert.deepEqual([...PANEL_OPTIONAL_OUTPUT_NAMES], ['overbuild']);
-  assert.deepEqual([...PANEL_ADVISORY_KINDS], ['over-implementation', 'over-testing', 'over-engineering']);
+  assert.deepEqual([...OVERBUILD_KINDS], ['over-implementation', 'over-testing', 'over-engineering']);
   assert.equal(OVERBUILD_MAX_FINDINGS, 5);
 });
 
@@ -467,7 +470,7 @@ test('compose：出力の review は composeVerdict の reviewer として受け
   }
 });
 
-test('compose：⑨の指摘を含む review も composeVerdict の reviewer として受け付けられ、読み戻しても合格で blocking は空（Issue #325）', () => {
+test('compose：⑨のブロッキングを含む review も composeVerdict の reviewer として受け付けられ、読み戻すと不合格で blocking が同じ（Issue #386）', () => {
   const v = ok(compose([overbuildFinding(0, 'over-engineering', { planLevel: true }), overbuildFinding(1, 'over-testing')], { 'overbuild-0': 100, 'overbuild-1': 100 }));
   const r = composeVerdict({ pr: 5, judgedHead: HEAD, currentHead: HEAD, reviewer: v.review, risk, meta: { model: 'm', judgedBy: '付き添いのセッション' } });
   assert.ok(r.ok, r.ok ? '' : r.errors.join('\n'));
@@ -475,8 +478,8 @@ test('compose：⑨の指摘を含む review も composeVerdict の reviewer と
   assert.ok(b.found && b.ok);
   const parsed = parseVerdict(b.value);
   assert.ok(parsed.ok);
-  assert.equal(parsed.value.review.pass, true);
-  assert.deepEqual(parsed.value.review.blocking, []);
+  assert.equal(parsed.value.review.pass, false);
+  assert.deepEqual(parsed.value.review.blocking, v.review.blocking);
 });
 
 // ---- 前回の判定（judge-input から） ----
