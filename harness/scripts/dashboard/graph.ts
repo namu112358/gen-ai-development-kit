@@ -56,6 +56,8 @@ export interface DashPr {
   baseRef: string;
   /** Closes する Issue（無ければ null＝Issue の無い Agent PR） */
   issue: number | null;
+  /** GitHub の紐付けが無く、本文の Closes #N で結んだ（紐付けの抜け）。補ったときだけ入る */
+  linkGap?: true;
   fleet: FleetPr;
 }
 
@@ -238,7 +240,7 @@ export function buildGraph(issues: DashIssue[], prs: DashPr[], sessions: Session
     tasks.push({
       id: prId(p.number), kind: 'pr', number: p.number, title: p.title, url: p.url, column: col,
       status: status({ blocked: prStopped, conflict: Boolean(facts?.conflicted), claim, stage: row.stage }, opts),
-      note: orphan ? row.note : null, claim, sessions: [], warnings: [],
+      note: orphan ? row.note : null, claim, sessions: [], warnings: p.linkGap ? ['紐付けの抜け（本文の Closes で結んだ）'] : [],
     });
     if (!orphan) edges.push({ kind: 'closes', from: issueId(p.issue!), to: prId(p.number) });
     const base = byHead.get(p.baseRef);

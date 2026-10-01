@@ -251,11 +251,17 @@ export interface LinkablePr {
  * 補うときは番号ごとに GET /issues/{N} を読むので、queue・ダッシュボードの呼び出しも、その分だけ増える。
  */
 export async function linkedIssues(gh: GitHub, config: HarnessConfig, pr: LinkablePr): Promise<number[]> {
+  return (await linkedIssuesWithSource(gh, config, pr)).issues;
+}
+
+/** linkedIssues と同じ紐付けに、本文の `Closes #N` で補ったか（GitHub の紐付けの抜け）を添える。fromBody は補った Issue があるときだけ真 */
+export async function linkedIssuesWithSource(gh: GitHub, config: HarnessConfig, pr: LinkablePr): Promise<{ issues: number[]; fromBody: boolean }> {
   const kind = classifyBase(pr, config.defaultBranch);
-  if (kind === 'stacked') return bodyIssueRefs(pr.body).map((r) => r.number);
+  if (kind === 'stacked') return { issues: bodyIssueRefs(pr.body).map((r) => r.number), fromBody: false };
   const closing = await closingIssues(gh, pr.number);
-  if (closing.length > 0 || kind !== 'default') return closing;
-  return bodyClosingIssues(gh, pr.body);
+  if (closing.length > 0 || kind !== 'default') return { issues: closing, fromBody: false };
+  const issues = await bodyClosingIssues(gh, pr.body);
+  return { issues, fromBody: issues.length > 0 };
 }
 
 /** 本文の `Closes #N` のうち、このリポジトリの Issue（存在し、PR でない）の番号。404 は飛ばし、それ以外のエラーは投げる */

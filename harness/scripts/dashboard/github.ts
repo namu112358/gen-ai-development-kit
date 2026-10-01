@@ -6,7 +6,7 @@
  */
 import { appMarkKind } from '../../lib/blocks.ts';
 import { areaLimitLabels } from '../../lib/concurrency.ts';
-import { bodyIssueRefs, isAgentPr, isAppComment, isSameRepoPr, latestPlanGate, linkedIssues, withStack, type PullRequest } from '../../lib/state.ts';
+import { bodyIssueRefs, isAgentPr, isAppComment, isSameRepoPr, latestPlanGate, linkedIssuesWithSource, withStack, type PullRequest } from '../../lib/state.ts';
 import { classifyBase } from '../../lib/stack.ts';
 import type { HarnessConfig } from '../../lib/config.ts';
 import { issueFacts, prFacts } from '../../lib/facts.ts';
@@ -102,7 +102,7 @@ export class DashboardData {
   private readonly prMap = new Map<number, DashPr>();
   private openPrs: PullRequest[] = [];
   /** 開いた PR が紐付く Issue（harness/lib/state.ts の linkedIssues。Stacked PR の層は本文の Refs #N）。PR の updated_at ごとに覚える */
-  private links = new Map<number, { updatedAt: string; issues: number[] }>();
+  private links = new Map<number, { updatedAt: string; issues: number[]; fromBody: boolean }>();
   /** PR の差分（要求のパスと accept ごと。パスに head の sha が入る） */
   private readonly diffs = new Map<string, unknown>();
 
@@ -172,12 +172,12 @@ export class DashboardData {
 
   private async loadOpenPrs(gh: GitHub, snap: Snapshot): Promise<void> {
     this.openPrs = (snap.openPrs ?? []).filter((p) => isSameRepoPr(p, this.repository));
-    const links = new Map<number, { updatedAt: string; issues: number[] }>();
+    const links = new Map<number, { updatedAt: string; issues: number[]; fromBody: boolean }>();
     await pool(this.openPrs, 4, async (p) => {
       const cached = this.links.get(p.number);
       links.set(p.number, cached && cached.updatedAt === p.updated_at
         ? cached
-        : { updatedAt: p.updated_at, issues: await linkedIssues(gh, this.config, await withStack(gh, this.config, p)) });
+        : { updatedAt: p.updated_at, ...(await linkedIssuesWithSource(gh, this.config, await withStack(gh, this.config, p))) });
     });
     this.links = links;
   }
@@ -290,6 +290,7 @@ export class DashboardData {
       headRef: pr.head.ref,
       baseRef: pr.base.ref,
       issue,
+      ...(issue !== null && this.links.get(pr.number)?.fromBody ? { linkGap: true as const } : {}),
       fleet: {
         number: pr.number,
         merged: false,
