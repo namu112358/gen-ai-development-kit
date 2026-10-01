@@ -3,11 +3,13 @@ import { appMark } from '../lib/blocks.ts';
 import { bypassMergeConfig, delegateConfig, LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
 import type { DelegateState } from '../lib/delegate.ts';
 import { labelAuditRows, renderAuditLines } from '../lib/label-rules.ts';
+import type { IssueComment } from '../lib/github.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { claimOf } from '../lib/facts.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
 import { acceptanceForPatch, appRecords, autoMergeMode, findDashboard, hasLabel, isAgentPr, latestPlanGate, linkedIssues, prDiff, type DashboardIssue, type PullRequest } from '../lib/state.ts';
 import { classifyBase } from '../lib/stack.ts';
+import { renderStalledClaimLine, stalledCandidate, stalledClaimMinutes, stalledClaims, type StalledClaimInput } from '../lib/stalled-claim.ts';
 import { renderUnownedConflictLine, unownedConflicts, type UnownedConflictInput } from '../lib/unowned-conflict.ts';
 import { enforceBase, refreshMergeRoute, resumeFromOrphan, rewriteTestsCheck, writeAutoModeEnd } from './apply.ts';
 import { AUTO_MODE_MERGE_END_TEXT, autoModeArm, autoModeFor, autoModeRoute, type AutoModeMergeEndReason } from './auto-mode.ts';
@@ -29,6 +31,7 @@ import { reviewAutoModePlans, reviewDelegatedPlans } from './on-comment.ts';
  * ダッシュボードに auto mode の状態の行と、直近 staleHours 時間に auto mode で通した計画・保留にした計画・Merge した PR・保留にした PR を書く。
  * 衝突している Agent PR のうち持ち主のいないもの（PR と Close する Issue の着手宣言が期限切れか無い）は、人の対応待ちに
  * 「引き継ぐか決める」の行でも出す（判定は lib/unowned-conflict.ts。引き継ぐかは人が決める）。
+ * judge・fix・sync の着手宣言の後に routine.stalledClaimMinutes 分動きの無い Agent PR を「止まっていそうな着手宣言」の節に出す（判定は lib/stalled-claim.ts。知らせるだけ）。
  */
 
 interface IssueItem {
@@ -324,18 +327,52 @@ async function autoModeHeldPrs(ctx: GateContext, now: Date, staleMs: number, prs
   }
 }
 
-/** 衝突している PR ごとに、PR と Close する Issue の着手宣言を読む。読めなかった PR はログに残して飛ばす（ダッシュボードの更新は止めない） */
-async function conflictClaims(ctx: GateContext, conflicts: PullRequest[]): Promise<UnownedConflictInput[]> {
+/**
+ * 衝突している PR ごとに、PR と Close する Issue の着手宣言を読む。PR のコメントは読んであれば使い回す（prComments）。
+ * 読めなかった PR はログに残して飛ばす（ダッシュボードの更新は止めない）
+ */
+async function conflictClaims(ctx: GateContext, conflicts: PullRequest[], prComments: Map<number, IssueComment[]>): Promise<UnownedConflictInput[]> {
   const inputs: UnownedConflictInput[] = [];
   for (const pr of conflicts) {
     try {
       const issues = await linkedIssues(ctx.gh, ctx.config, pr);
-      const claims = [claimOf(await ctx.gh.listComments(pr.number))];
+      const claims = [claimOf(prComments.get(pr.number) ?? await ctx.gh.listComments(pr.number))];
       for (const n of issues) claims.push(claimOf(await ctx.gh.listComments(n)));
       inputs.push({ pr: { number: pr.number, title: pr.title, html_url: pr.html_url }, issues, claims });
     } catch (e) {
       ctx.log(`#${pr.number} の着手宣言を読めませんでした（引き継ぐか決めるの行に出しません）: ${(e as Error).message}`);
     }
+  }
+  return inputs;
+}
+
+/**
+ * Agent PR ごとに PR の宣言を読み、judge・fix・sync の宣言で時間を過ぎた候補だけ head の commit の時刻を読む（lib/stalled-claim.ts）。
+ * コメントは prComments に入れて衝突の判定でも使う。読めなかった PR・commit はログに残して出さない（ダッシュボードの更新は止めない）
+ */
+async function stalledClaimInputs(ctx: GateContext, prs: PullRequest[], now: Date, minutes: number, prComments: Map<number, IssueComment[]>): Promise<StalledClaimInput[]> {
+  const inputs: StalledClaimInput[] = [];
+  for (const pr of prs) {
+    let comments: IssueComment[];
+    try {
+      comments = await ctx.gh.listComments(pr.number);
+    } catch (e) {
+      ctx.log(`#${pr.number} のコメントを読めませんでした（止まっていそうな着手宣言に出しません）: ${(e as Error).message}`);
+      continue;
+    }
+    prComments.set(pr.number, comments);
+    const claim = claimOf(comments);
+    if (!stalledCandidate(claim, now, minutes)) continue;
+    let headCommitAt: string | null;
+    try {
+      const commit = await ctx.gh.get<{ commit?: { committer?: { date?: string | null } | null } }>(`/commits/${pr.head.sha}`);
+      headCommitAt = commit.commit?.committer?.date ?? null;
+    } catch (e) {
+      ctx.log(`#${pr.number} の head の commit を読めませんでした（止まっていそうな着手宣言に出しません）: ${(e as Error).message}`);
+      continue;
+    }
+    if (headCommitAt === null) ctx.log(`#${pr.number} の head の commit の時刻がありません（止まっていそうな着手宣言に出しません）`);
+    inputs.push({ pr: { number: pr.number, title: pr.title, html_url: pr.html_url }, claim, headCommitAt });
   }
   return inputs;
 }
@@ -389,7 +426,10 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     else if (age(pr.updated_at) > staleMs) stalePrs.push(pr);
     await followOnSchedule(ctx, pr, now);
   }
-  const unowned = unownedConflicts(await conflictClaims(ctx, conflicts), now, ctx.config.routine).map(renderUnownedConflictLine);
+  const prComments = new Map<number, IssueComment[]>();
+  const stalledMinutes = stalledClaimMinutes(ctx.config.routine);
+  const stalled = stalledClaims(await stalledClaimInputs(ctx, agentPrs, now, stalledMinutes, prComments), now, stalledMinutes).map((r) => renderStalledClaimLine(r, now));
+  const unowned = unownedConflicts(await conflictClaims(ctx, conflicts, prComments), now, ctx.config.routine).map(renderUnownedConflictLine);
   const labelProblems = renderAuditLines(labelAuditRows(ctx.config, ctx.repository, issues, prs));
   const delegatedRows = await delegatedMerged(ctx, now, staleMs);
   const bypassRows = await bypassMerged(ctx, now, staleMs);
@@ -408,6 +448,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     ...section('人の対応待ち（blocked / plan-review / 引き継ぐか決める）', [...byReason.map((i) => line(i, ` — ${reasons.get(i.number)}`)), ...unowned]),
     ...section('コンフリクトしている Agent PR（CI が動きません）', conflicts.map((p) => line(p))),
     ...section('停滞している Agent PR', stalePrs.map((p) => line(p))),
+    ...section(`止まっていそうな着手宣言（judge・fix・sync で ${stalledMinutes} 分動きなし）`, stalled),
     ...section('停滞している Issue', stale.map((i) => line(i))),
     ...section('ラベルが足りない Issue・PR', labelProblems),
     ...(delegatedRows === null
@@ -435,5 +476,5 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
   const kept = queueStart >= 0 ? `${withMode}\n\n${existing.slice(queueStart)}` : withMode;
   await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: kept } });
-  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} unowned=${unowned.length} stalePRs=${stalePrs.length} staleIssues=${stale.length} labelProblems=${labelProblems.length} autoModeHeld=${(autoPlans?.held.length ?? 0) + (autoHeldPrs?.length ?? 0)}`);
+  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} unowned=${unowned.length} stalePRs=${stalePrs.length} stalledClaims=${stalled.length} staleIssues=${stale.length} labelProblems=${labelProblems.length} autoModeHeld=${(autoPlans?.held.length ?? 0) + (autoHeldPrs?.length ?? 0)}`);
 }
