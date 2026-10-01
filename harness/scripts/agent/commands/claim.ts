@@ -10,9 +10,10 @@ import { type AgentCommand, assigneeIo, claimBody, config, currentSession, ensur
 /**
  * 着手宣言（宣言・持ち主の確かめ・解除）。
  *
- *   node harness/scripts/agent.ts claim <n> [--manual] [--stage <段階>] [--force] [--takeover]
+ *   node harness/scripts/agent.ts claim <n> [--manual] [--stage <段階>] [--force] [--fleet] [--takeover]
  *                                                           着手宣言のコメント（段階とこのセッションの ID を書く。同じセッションなら段階の更新）。
  *                                                           --manual は、計画の触るファイルの領域の判定前の Agent PR（Draft）が上限（areaConcurrency）に達していれば止まる（--force で着手）。
+ *                                                           --fleet は fleet が領域の上限で宣言し直すときに使う（領域の上限だけを見ない点は --force と同じで、引き継ぎにならない）。
  *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）。
  *                                                           投稿の後に少し待って読み直し、先に宣言したセッションがあれば（最初の宣言が持ち主）自分の宣言を取り下げて止まる。
  *                                                           このセッションの ID が得られなければ投稿せずに止まる
@@ -24,11 +25,16 @@ import { type AgentCommand, assigneeIo, claimBody, config, currentSession, ensur
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント（このセッションの ID が得られなければ止まる）
  */
 
-async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, takeover: boolean, stage?: ClaimStage): Promise<void> {
+/** claim の引数の読み取り。--force と --fleet はどちらも領域の上限だけを見ない（引き継ぎは --takeover だけ） */
+export function claimOptions(args: string[]): { manual: boolean; skipAreaLimit: boolean; takeover: boolean } {
+  return { manual: args.includes('--manual'), skipAreaLimit: args.includes('--force') || args.includes('--fleet'), takeover: args.includes('--takeover') };
+}
+
+async function claim(gh: GitHub, n: number, manual: boolean, skipAreaLimit: boolean, takeover: boolean, stage?: ClaimStage): Promise<void> {
   // 読み込みの記録があるときだけ fetch して比べる（judge の前の確かめと、宣言の後の一言で1回だけ読む）
   let drift: ReturnType<typeof harnessDrift> | undefined;
   const readDrift = () => (drift === undefined ? (drift = harnessDrift()) : drift);
-  // 宣言の前の確かめ：読み込みが古いときの judge（--force・--takeover でも）→ Assignee（手動の宣言。--force・--takeover でも）→ 領域の上限（手動で --force でないとき）の順
+  // 宣言の前の確かめ：読み込みが古いときの judge（--force・--takeover でも）→ Assignee（手動の宣言。--force・--takeover でも）→ 領域の上限（手動で --force・--fleet のどちらも無いとき）の順
   const before = async (): Promise<string | null> => {
     const stale = stage === 'judge' ? judgeBlock(stage, readDrift()) : null;
     if (stale) return `#${n}: ${stale}`;
@@ -36,7 +42,7 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
       const notMine = await checkAssignee(assigneeIo(gh), config, n);
       if (notMine) return notMine;
     }
-    if (!manual || force) return null;
+    if (!manual || skipAreaLimit) return null;
     const gate = latestPlanGate(config, await gh.listComments(n)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
     const repository = `${gh.owner}/${gh.repo}`;
     const labels: string[][] = [];
@@ -46,7 +52,7 @@ async function claim(gh: GitHub, n: number, manual: boolean, force: boolean, tak
       labels.push(p.labels.map((l) => l.name));
     }
     const full = fullAreas(config, gate?.value.plan?.files ?? [], labels);
-    return full.length > 0 ? `${describeFullAreas(full)}。どれかが Merge されてから着手してください（急ぐなら --force）` : null;
+    return full.length > 0 ? `${describeFullAreas(full)}。どれかが Merge されてから着手してください（急ぐなら --force。fleet は --fleet）` : null;
   };
   // 手動の宣言でなくても、Routine のセッション URL が無ければ手動の宣言として書く（claimBody と同じ）
   const r = await postClaim(gh, n, {
@@ -72,7 +78,13 @@ async function release(gh: GitHub, n: number): Promise<void> {
 }
 
 export const commands: AgentCommand[] = [
-  { name: 'claim', run: (args, ctx) => claim(ctx.gh(), Number(args[0]), args.includes('--manual'), args.includes('--force'), args.includes('--takeover'), parseStage(args)) },
+  {
+    name: 'claim',
+    run: (args, ctx) => {
+      const o = claimOptions(args);
+      return claim(ctx.gh(), Number(args[0]), o.manual, o.skipAreaLimit, o.takeover, parseStage(args));
+    },
+  },
   { name: 'ensure-claim', run: (args, ctx) => ensureOwnClaim(ctx.gh(), Number(args[0])) },
   { name: 'release', run: (args, ctx) => release(ctx.gh(), Number(args[0])) },
 ];
