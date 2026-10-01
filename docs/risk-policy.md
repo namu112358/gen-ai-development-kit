@@ -90,7 +90,49 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 
 ## auto mode
 
-auto mode（Epic #339）の間の `agent/tests` の扱い（Issue #349）。auto mode の全体の説明は #348 で足す。
+人が期限なしで、計画ゲートの承認と Merge の判断の両方を App に任せ、Jev が危険と答えたものだけを人の判断に保留する（Epic #339）。ダッシュボード Issue に `agent:auto-mode`（`harness.config.json` の `autoMode.label` で変えられる）を人が付けている間、ガードレール・Risk・`delegateMergeExclude` を理由に止まる計画と Agent PR も、ほかの条件を満たし Jev の危険の判定で保留にならなければ App が通す。
+
+- 有効な条件：bypass と同じ。ダッシュボードにラベルがあり、人が付けている（App・Bot が付けたもの、付けた記録が読めないものは無効）。期限は無い。停止スイッチ（`agent:auto-merge-stopped`）が優先する。
+- 乗り方の順番：計画ゲートは 通常のゲート → 委任承認（計画の委任）→ auto mode、Merge は 自動 Merge の対象 → 委任承認（計画＋Merge）→ auto mode → bypass。狭いものから順に見て、最初に当たったもので乗せる。委任で通る計画・乗る PR には危険の判定をかけない。auto mode が保留にした PR も、bypass が有効なら bypass が今までどおり乗せる。
+
+### 計画ゲート
+
+- 飛ばす理由：ガードレールに触れること、想定 Risk が high / critical であること、`delegateMergeExclude` か `harness.config.json` に重なりうる `files`（委任では止まるもの）。
+- auto mode でも止めるもの：Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）、人が付けた `agent:plan-review`、批評の関所（`critique` が無い・`plan-critique` の着手宣言が無い）、`files` の欠落・書式の誤り、`split` の不正、`issue` の不一致（委任と同じ）。
+- 止める理由が飛ばす理由だけのとき、Jev に計画の危険を問い、保留にならなければ `agent:plan-ok` を付ける。通過の記録（`plan-gate`）に `autoMode` が残り、コメントに飛ばした理由・ラベル・付けた人・付けた時刻と Jev の1行を書く（[formats.md](formats.md#app-の記録agent-app)）。
+- ラベルを付けたとき（auto mode が有効になったとき）と定期実行で、App のゲートの停止で止まっている計画を判定し直す。委任の判定し直しと同じく、Planner の申告・人の印・批評の関所に当たるもの・計画コメントの本文が変わったものは止まったまま。保留のままの計画と、auto mode の記録の無い古い停止には、保留のコメントを増やさない。
+- ラベルを外しても、auto mode で付けた `agent:plan-ok` は外さない。
+
+### Merge
+
+- 飛ばす理由：Risk が `low` でない・8問のどれかが安全側でないこと、ガードレールに触れること、`humanMergePaths` に触れること、`delegateMergeExclude`（`harness.config.json` を含む）に触れること、`jev.mode` が `enforce` のときの Jev の自動 Merge の許可。
+- 今のまま必須の条件：Agent の PR、base が既定ブランチ、`agent/review` の合格（ブロッキング指摘なし）、範囲照合（委任・bypass と同じく、ゲートを通った計画か、ゲートの停止で止まった計画か、人が進めると決めた計画（App の `plan-proceed` の記録がある）と照らす）、既存 CI、`agent/tests`（下の「agent/tests の扱い」）、`agent:hold` なし、自動 Merge モードが有効。
+- 判定の受け付けで、必須の条件を満たし自動 Merge の対象でない PR にだけ Jev に PR の危険を問い、受け付けの記録（`acceptance`）に `autoMode`（乗せてよいか・乗せない理由・飛ばす理由・Jev の記録）を残す。受け付けは auto mode の今の状態を見ずに書くので、後からラベルを付けても同じ記録で乗れる。merge-route は書くたびに今の auto mode の状態で評価する。
+- auto mode で auto-merge を付けたときは PR に App の記録（`auto-mode-merge`）を残す。
+
+### 危険の判定
+
+- 危険の判定は Jev だけに問う（人の決定、[Epic #339 のコメント](https://github.com/namu112358/gen-ai-development-kit/issues/339#issuecomment-5906306309)、#382）。plan-critic・Risk Agent には問わない。セッションが自分の計画・判定に「危険ではない」と書くのは自分で承認を出す形で、App は写しが本物か見分けられないため（[security.md](security.md#受け入れているリスク)）。
+- 問い：守り（ゲート・必須チェック・hook・deny・ラベルの権限・Secret の保護）を弱める・外すか、データを戻せない形で壊すか、auto mode が保留にするものを減らすか（Noul の1問。yes が危険）。既定の英文と境界の例（criteria）は `harness/lib/auto-mode.ts` にあり、`harness.config.json` の `autoMode.jev.plan`・`autoMode.jev.pr` で上書きできる。分からなければ yes と答えるよう問う。
+- 材料：計画は計画コメントの本文と `files`、PR は App が集めた diff と変更ファイルだけ。Risk Agent の `facts` などセッションが書いたものは渡さない。
+- 保留にする条件：安全側の確率（1 − 危険の確率）が `autoMode.jev.dangerSafe`（既定 0.9）未満、記録が無い・確率が読めない、Jev が `skipped`・`error`（diff が `jev.maxDiffChars` を超えるときも `skipped`）。
+- Jev の危険の問いは `jev.mode` と独立（`jev.testTamper` と同じ）で、`jev.mode` が `shadow` でも auto mode の間は問う。`JEV_API_KEY` が無いと問わずに `skipped` になるので、いつも保留になる（auto mode は実質、人の判断に戻る）。
+- 同じ計画コメントで本文の同じもの（sha256）、同じ patch-id には1回だけ問い、`ok` の記録を使い回す（判定し直し・定期実行のたびに問い直さない）。問いの版（`questionSet`）が変わったら問い直す。
+- 問いを変える PR は `harness.config.json` か `harness/lib/auto-mode.ts` に触れ、どちらも `delegateMergeExclude` の中にあるので委任承認では緩められず、auto mode の中でも危険の判定（「auto mode が保留にするものを減らすか」）の対象になる。
+
+### 保留と終わり
+
+- 保留にした計画は、理由（Jev の確率と下限）をコメントに書いて `agent:plan-review` にする。人が進めると決めたら、ほかの停止と同じく決定の記録（`agent-decision` の `proceed`）で残す。
+- 保留にした PR は、受け付けの記録の `autoMode.reasons` に理由を残し、Human Merge の依頼（`kind=human-review`）にする。
+- 終わり：ラベルを外す・停止スイッチを入れると、auto mode で付けた auto-merge を外し、記録（`auto-mode-merge-end`）と人へのレビュー依頼を出す（停止スイッチのときも出す）。停止スイッチ以外では、委任・bypass で乗り続ける PR は auto-merge を外さずに引き継ぐ（順番は委任 → bypass。前の乗り方の終わりの記録を書き、人へのレビュー依頼は出さない）。今の差分が自動 Merge の対象の PR には何もしない。終わりを取りこぼしても、定期照合が外す。
+- 窓：付けた auto-merge は、次のゲートの起動（PR・Issue のイベントか定期実行）までは外れない。
+- ラベルを外し忘れると auto mode が続き、中核に触れる変更も人を通らずに Merge されうる。[security.md](security.md#受け入れているリスク) の「auto mode の外し忘れと危険の判定の見落とし」。
+
+ダッシュボードには auto mode の状態（有効・無効と付けた人・無効の理由）と、直近 `staleHours` 時間に auto mode で通した計画・保留にした計画と、Merge した PR・保留にした PR が出る。ダッシュボードの切り替えのコメント（`auto-mode-switch`）に、有効になったか・ならなかった理由が出る。
+
+### agent/tests の扱い
+
+auto mode（Epic #339）の間の `agent/tests` の扱い（Issue #349）。
 
 - auto mode で自動経路に乗る PR（自動 Merge の対象でも委任でも乗らず、auto mode で乗るもの）は、Risk critical・ガードレール・`humanMergePaths` に触れても `agent/tests` を Human Merge の neutral にしない。
 - テストを弱める変更（すべての種類）が見つかったら、Issue と計画が求める振る舞いの変更に合った妥当な直しかを Jev に問い、検出ごとの確率の最小値が `jev.thresholds.autoModeTestsProbability` 以上なら `agent/tests` を success にする。Jev が妥当でない、答えが無い・読めない、記録の差分が今の差分と違うときは failure（人に回す）。妥当とみなさない例：Issue・計画に理由が無いのに期待値を緩める、落ちるテストを消す・skip する、確かめる数を減らすだけで置き換えが無い、実装の不具合に合わせて期待値を変える。
