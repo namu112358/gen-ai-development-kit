@@ -16,6 +16,8 @@
 | Dependencies | | 補足のみ。順序は Issue Dependencies（blocked by）で設定する |
 | Validation Requirements | | 検証方法 |
 
+1つの Issue は1つの変更に絞る。層（`harness/lib/`・`harness/gates/`・skill・docs・設定）をまたぐなら、Issue を分けるか Epic にして子課題に分ける（大きい PR は判定の見落とし・取り込みの衝突・判定のやり直しを増やす）。AC に skill や docs の文をテストで確かめる項目を入れない（AC が多いほど test-designer のテストが増え、PR が大きくなる）。例外は、ゲートや hook が実行時に読む文（Issue Form の見出しや `agent-plan` の書式など）。
+
 `agent:ready` を付けたときに App が Jev に種類・領域・優先度・AC の書き方を問うかは、`harness.config.json` の `classification.issueTriage` で決める。`off` は問わない。`shadow` は提案をコメントするだけでラベルは付けない。`label` は提案のコメントを続け、そのうえで足りない `priority:*` と（計画が無ければ）`area:*` を Jev の答えから付ける（下記「足りないラベルを付ける」）。`label` では Issue を作ったとき（`opened`）にも、`agent:ready` を待たずに足りないものを Jev に問うて付ける。同じ Issue には一度だけ問うので、作成で問い済みなら `agent:ready` を付けても提案のコメントは出ない。Risk と Priority は本文に書かない。優先度は `priority:*` の5段階（highest・high・medium・low・lowest）で、急ぐものには `priority:high` か `priority:highest` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。付いていなければ medium、複数付いていれば最も高いものとして扱う。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
 
 ## 付き添いのセッションで進める
