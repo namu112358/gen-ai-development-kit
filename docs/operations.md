@@ -83,12 +83,15 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 | キー | 既定 | 内容 |
 | --- | --- | --- |
 | `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker` は Orca があれば ship を Orca の worker で動かす（無ければ今の手順） |
+| `fleet.implementModel` | `sonnet` | fleet から起こされた ship が、実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル（`sonnet` か `opus`）。計画・判定・test-designer のモデルは変えない。人が付き添う単独の ship は切り替えない（ship の skill の節「実装のモデル（fleet から起こされた ship）」） |
 | `hq.maxFleets` | 2 | 同時に動かす fleet の数の上限（正の整数）。hq の人待ちのペインは超えると警告する |
 | `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
 | `hq.stuckMinutes` | 120 | AI の番の行がこれ以上同じ状態なら、進んでいないとみなす（正の整数、分） |
 | `panes.collectIntervalSeconds` | 180 | fleet の進み具合のペイン（`panes.ts collect`）が GitHub と記録を読む間隔（60 以上の整数、秒） |
 
 `hq.staleSnapshotMinutes`・`hq.stuckMinutes` は既定値で動くので、`harness.config.json` と雛形には書いていない。変えるときは `"hq": { "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }` のように書き足す。
+
+`fleet.implementModel` を戻す目安：数日分の PR で、実装のモデルごとの判定に1回で合格した割合（`report.ts`。Epic #446 の子課題で足す）を比べ、`sonnet` が `opus` のときより大きく落ちたら、`opus` に戻すかを人が決める。戻すときは `"implementModel": "opus"` と書く。
 
 Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときか、人が付き添うセッションで始めた `/loop` の各回（`/loop 6h /arch-review --loop`。下の「見直しを /loop で回す」）に動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。ループの回は下書きを記録に残すまでで、Issue にするのは人が「arch-review の下書きを選ぶ」と頼んだときに選んだものだけ。
 

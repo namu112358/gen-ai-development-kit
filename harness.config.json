@@ -74,7 +74,8 @@
     "nesting": "orca",
     "maxParallelShips": 3,
     "sharedFiles": ["docs/plan.md", "docs/formats.md", "docs/operations.md", "docs/security.md", "docs/glossary.md", "**/README.md"],
-    "shipMode": "subagent"
+    "shipMode": "subagent",
+    "implementModel": "sonnet"
   },
   "hq": { "maxFleets": 2 },
   "panes": { "collectIntervalSeconds": 180 },
