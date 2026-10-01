@@ -16,7 +16,7 @@ import { delegatedRoute, delegationFor } from './delegation.ts';
  * 必須チェック agent/tests の書き方（on-pr.ts と apply.ts の両方から使う）。
  * 人が Merge する PR（Human Merge）では検出があっても止めずに neutral にし、人の Merge の判断にまとめる。
  * 自動 Merge の対象の PR と、委任承認（計画＋Merge）・auto mode・bypass モードで自動経路に乗る PR は failure で止める。
- * ただし jev.testTamper が enforce で、Jev がアサーションの書き換えを弱めていないと判定すれば success にする（Q95）。
+ * ただし jev.testTamper が enforce で、Jev がアサーションの書き換えとテストの名前の変更を弱めていないと判定すれば success にする（Q95）。
  * auto mode で自動経路に乗る PR は、Jev が検出ごとに Issue と計画に合った妥当な直しと答えれば success にする（auto-mode-tests.ts。Issue #349）。
  */
 
@@ -49,6 +49,13 @@ export async function testsHumanMerge(ctx: GateContext, pr: PullRequest, accepta
   return testsHumanMergeReasons({ guardrail: guardrailFiles(ctx.config, files), humanMerge: humanMergeFiles(ctx.config, files), acceptance });
 }
 
+/** Jev が通した検出の種類ごとの件数（例：「アサーションの書き換え 2 件・テストの名前の変更 1 件」） */
+function jevPassedCounts(findings: TamperFinding[]): string {
+  const count = (kind: TamperFinding['kind']) => findings.filter((f) => f.kind === kind).length;
+  const parts = [['アサーションの書き換え', count('assertion-changed')], ['テストの名前の変更', count('renamed-test')]] as const;
+  return parts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n} 件`).join('・');
+}
+
 /**
  * agent/tests の結論を決める（書き手は on-pr.ts の writeTestsCheck と apply.ts の rewriteTestsCheck・auto-merge の後の書き直し）。
  * 優先順：検出0件 → success／Human Merge の理由あり → neutral／jev.testTamper が enforce で、問えて Jev が通す → success
@@ -79,7 +86,7 @@ export function testsOutcome(findings: TamperFinding[], humanMergeReasons: strin
       conclusion: 'success',
       title: `テストの行の変更を Jev が弱めていないと判定（P=${jev.probability.toFixed(2)}）`,
       summary: withJev([
-        `アサーションの書き換え ${findings.length} 件を、Jev が弱めていないと判定しました（\`jev.testTamper\` が enforce で、確率の最小値が下限以上）。`,
+        `${jevPassedCounts(findings)}を、Jev が弱めていないと判定しました（\`jev.testTamper\` が enforce で、確率の最小値が下限以上）。`,
         '',
         ...findings.map((f) => `- \`${f.file}${f.line === undefined ? '' : `:${f.line}`}\`${f.after ? ` → \`:${f.after.line}\`` : ''}`),
       ].join('\n')),
