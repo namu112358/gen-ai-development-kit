@@ -1,0 +1,277 @@
+/**
+ * hq の控え（hq-fleets.json）と、hq がいない間の fleet の質問の控えを、git の共通ディレクトリの下に置く（Issue #409）。
+ *
+ *   node harness/scripts/hq-state.ts path [--common-dir <dir>]
+ *   node harness/scripts/hq-state.ts ledger [--common-dir <dir>]
+ *   node harness/scripts/hq-state.ts ledger-save <file> [--common-dir <dir>]
+ *   node harness/scripts/hq-state.ts pending (--session <ID> | --all) [--common-dir <dir>]
+ *   node harness/scripts/hq-state.ts pending-add --session <ID> --issue <n> --stage <段階> --question <質問> --option <おすすめ> [--option <ほか>...] [--message-id <id>]
+ *   node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <n> --answer <人の答え>
+ *   node harness/scripts/hq-state.ts pending-remove --session <ID> --issue <n>
+ *
+ * - 置き場所は `git rev-parse --path-format=absolute --git-common-dir` の下の agent-harness/hq/（本体・fleet のワークスペース・
+ *   Issue の worktree から同じ場所。作業ツリーの外で commit されない）。hq の控えは hq-fleets.json、fleet の控えは pending/<セッション ID>.json。
+ * - 書き換えの場所の見張りの hook は .git の中への Write を止めるので、hq・fleet は Write で直接書かずにこのスクリプトで書く。
+ * - 書くときは一時ファイルに書いてから名前を変える。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
+ */
+import { spawnSync } from 'node:child_process';
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
+
+export const HQ_STATE_COMMANDS: readonly string[] = ['path', 'ledger', 'ledger-save', 'pending', 'pending-add', 'pending-answer', 'pending-remove'];
+
+export function hqStateDir(commonDir: string): string {
+  return join(commonDir, 'agent-harness', 'hq');
+}
+
+export function ledgerPath(commonDir: string): string {
+  return join(hqStateDir(commonDir), 'hq-fleets.json');
+}
+
+export function pendingDir(commonDir: string): string {
+  return join(hqStateDir(commonDir), 'pending');
+}
+
+/** fleet の控えの置き場所。セッション ID はファイル名に使える形だけを受け付ける */
+export function pendingPath(commonDir: string, session: string): string {
+  if (!TRANSCRIPT_SESSION_ID.test(session)) throw new Error(`セッション ID の形が違います：${session}`);
+  return join(pendingDir(commonDir), `${session}.json`);
+}
+
+/** hq の控え。手順8の見回しで聞いたもの・Epic の子の一覧など、ほかのキーもそのまま残す */
+export interface HqLedger {
+  version: 1;
+  runId: string | null;
+  hqHandle: string | null;
+  hqSession: string | null;
+  paneHandles: string[];
+  fleets: Record<string, unknown>[];
+  updatedAt: string | null;
+  [key: string]: unknown;
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const strOrNull = (v: unknown): v is string | null => v === null || typeof v === 'string';
+
+/** 控えを読む。形が違えば null */
+export function parseLedger(v: unknown): HqLedger | null {
+  if (!isObj(v) || v.version !== 1) return null;
+  if (!strOrNull(v.runId) || !strOrNull(v.hqHandle) || !strOrNull(v.hqSession)) return null;
+  if (!Array.isArray(v.paneHandles) || !v.paneHandles.every((h) => typeof h === 'string')) return null;
+  if (!Array.isArray(v.fleets) || !v.fleets.every(isObj)) return null;
+  const updatedAt = v.updatedAt === undefined ? null : v.updatedAt;
+  if (!strOrNull(updatedAt)) return null;
+  return { ...v, version: 1, runId: v.runId, hqHandle: v.hqHandle, hqSession: v.hqSession, paneHandles: v.paneHandles as string[], fleets: v.fleets as Record<string, unknown>[], updatedAt };
+}
+
+/** hq がいない間に fleet が控えた質問1つ */
+export interface PendingQuestion {
+  issue: number;
+  stage: string;
+  question: string;
+  options: string[];
+  /** hq に ask したときの message_id（hq が戻ったら --resume で待ち直す）。ask していなければ null */
+  messageId: string | null;
+  askedAt: string;
+  /** 人が fleet のタブで答えたもの（人の言葉のまま）。まだなら null */
+  answer: string | null;
+  answeredAt: string | null;
+}
+
+export interface PendingFile {
+  version: 1;
+  session: string;
+  questions: PendingQuestion[];
+}
+
+function parseQuestion(v: unknown): PendingQuestion | null {
+  if (!isObj(v)) return null;
+  const { issue, stage, question, options, messageId, askedAt, answer, answeredAt } = v;
+  if (typeof issue !== 'number' || !Number.isInteger(issue) || issue <= 0) return null;
+  if (typeof stage !== 'string' || typeof question !== 'string' || typeof askedAt !== 'string') return null;
+  if (!Array.isArray(options) || !options.every((o) => typeof o === 'string')) return null;
+  if (!strOrNull(messageId) || !strOrNull(answer) || !strOrNull(answeredAt)) return null;
+  return { issue, stage, question, options: options as string[], messageId, askedAt, answer, answeredAt };
+}
+
+/** fleet の控えを読む。形が違えば null */
+export function parsePending(v: unknown): PendingFile | null {
+  if (!isObj(v) || v.version !== 1 || typeof v.session !== 'string' || !Array.isArray(v.questions)) return null;
+  const questions = v.questions.map(parseQuestion);
+  if (questions.some((q) => q === null)) return null;
+  return { version: 1, session: v.session, questions: questions as PendingQuestion[] };
+}
+
+const empty = (session: string): PendingFile => ({ version: 1, session, questions: [] });
+
+/** 質問を足す。同じ Issue の質問は置き換える（答えは消える） */
+export function addPending(
+  file: PendingFile | null,
+  session: string,
+  q: { issue: number; stage: string; question: string; options: string[]; messageId: string | null },
+  now: string,
+): PendingFile {
+  const base = file ?? empty(session);
+  const next: PendingQuestion = { issue: q.issue, stage: q.stage, question: q.question, options: [...q.options], messageId: q.messageId, askedAt: now, answer: null, answeredAt: null };
+  return { version: 1, session: base.session, questions: [...base.questions.filter((x) => x.issue !== q.issue), next] };
+}
+
+/** 人の答えを書く。その Issue の質問が無ければ投げる */
+export function answerPending(file: PendingFile | null, issue: number, answer: string, now: string): PendingFile {
+  if (!file || !file.questions.some((q) => q.issue === issue)) throw new Error(`#${issue} の質問は控えにありません`);
+  return { ...file, questions: file.questions.map((q) => (q.issue === issue ? { ...q, answer, answeredAt: now } : { ...q })) };
+}
+
+/** 質問を外す（hq に上げ直した・続きを進めた）。無ければそのまま */
+export function removePending(file: PendingFile | null, session: string, issue: number): PendingFile {
+  const base = file ?? empty(session);
+  return { ...base, questions: base.questions.filter((q) => q.issue !== issue) };
+}
+
+export const PENDING_HEADING = 'hq がいない間の質問（fleet のタブで答える）';
+
+/** 「あなたがすること」のペインの先頭に出す行。答えの無い質問が無ければ空 */
+export function renderPending(file: PendingFile | null): string[] {
+  const open = (file?.questions ?? []).filter((q) => q.answer === null);
+  if (open.length === 0) return [];
+  const out = [PENDING_HEADING];
+  for (const q of open) {
+    out.push(`- #${q.issue}（${q.stage}）：${q.question}`);
+    if (q.options.length > 0) out.push(`  選択肢：${q.options.map((o, i) => (i === 0 ? `${o}（おすすめ）` : o)).join(' / ')}`);
+  }
+  return out;
+}
+
+// ---- ファイル（CLI と panes.ts が使う） ----
+
+function readJson(path: string): unknown {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+/** 一時ファイルに書いてから名前を変える（読む側が書きかけを読まない） */
+function writeJson(path: string, v: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
+  const tmp = `${path}.${process.pid}.tmp`;
+  writeFileSync(tmp, `${JSON.stringify(v, null, 2)}\n`);
+  renameSync(tmp, path);
+}
+
+export const readLedgerFile = (commonDir: string): HqLedger | null => parseLedger(readJson(ledgerPath(commonDir)));
+export const readPendingFile = (commonDir: string, session: string): PendingFile | null => parsePending(readJson(pendingPath(commonDir, session)));
+
+/** git の共通ディレクトリ。取れなければ null */
+export function gitCommonDir(cwd: string): string | null {
+  const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
+  const out = r.status === 0 ? (r.stdout ?? '').trim() : '';
+  return out ? out : null;
+}
+
+// ---- CLI（import.meta.main の中だけで動く） ----
+
+interface CliArgs {
+  positional: string[];
+  commonDir: string | null;
+  session: string | null;
+  all: boolean;
+  issue: number | null;
+  stage: string | null;
+  question: string | null;
+  options: string[];
+  messageId: string | null;
+  answer: string | null;
+}
+
+class UsageError extends Error {}
+
+function parseCli(args: string[]): CliArgs {
+  const out: CliArgs = { positional: [], commonDir: null, session: null, all: false, issue: null, stage: null, question: null, options: [], messageId: null, answer: null };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    const value = (): string => {
+      const v = args[++i];
+      if (v === undefined) throw new UsageError(`${a} に値がありません`);
+      return v;
+    };
+    if (a === '--common-dir') out.commonDir = value();
+    else if (a === '--session') out.session = value();
+    else if (a === '--all') out.all = true;
+    else if (a === '--issue') {
+      const v = value();
+      if (!/^\d+$/.test(v) || Number(v) <= 0) throw new UsageError(`--issue は正の整数です：${v}`);
+      out.issue = Number(v);
+    } else if (a === '--stage') out.stage = value();
+    else if (a === '--question') out.question = value();
+    else if (a === '--option') out.options.push(value());
+    else if (a === '--message-id') out.messageId = value();
+    else if (a === '--answer') out.answer = value();
+    else if (a.startsWith('--')) throw new UsageError(`知らない引数：${a}`);
+    else out.positional.push(a);
+  }
+  return out;
+}
+
+const USAGE = `hq-state.ts ${HQ_STATE_COMMANDS.join('|')} [--common-dir <dir>]（使い方はファイルの先頭のコメント）`;
+
+function main(argv: string[]): void {
+  const [mode, ...rest] = argv;
+  if (!mode || !HQ_STATE_COMMANDS.includes(mode)) throw new UsageError(USAGE);
+  const args = parseCli(rest);
+  const commonDir = args.commonDir ?? gitCommonDir(process.cwd());
+  if (!commonDir) throw new Error('git の共通ディレクトリが分かりません（git の作業ツリーの中で走らせるか、--common-dir を渡してください）');
+  const print = (v: unknown): void => console.log(JSON.stringify(v, null, 2));
+  const need = <T>(v: T | null, name: string): T => {
+    if (v === null) throw new UsageError(`${name} を渡してください（${USAGE}）`);
+    return v;
+  };
+
+  if (mode === 'path') return print({ dir: hqStateDir(commonDir), ledger: ledgerPath(commonDir), pendingDir: pendingDir(commonDir) });
+  if (mode === 'ledger') return print(readLedgerFile(commonDir));
+  if (mode === 'ledger-save') {
+    const file = need(args.positional[0] ?? null, '控えの JSON のファイル');
+    const ledger = parseLedger(readJson(file));
+    if (!ledger) throw new UsageError(`控えの形が違います（version 1・runId・hqHandle・hqSession・paneHandles・fleets）：${file}`);
+    const saved: HqLedger = { ...ledger, updatedAt: new Date().toISOString() };
+    writeJson(ledgerPath(commonDir), saved);
+    return print(saved);
+  }
+  if (mode === 'pending') {
+    if (args.all) {
+      const dir = pendingDir(commonDir);
+      const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith('.json')).sort() : [];
+      return print(files.map((f) => parsePending(readJson(join(dir, f)))).filter((p): p is PendingFile => p !== null));
+    }
+    return print(readPendingFile(commonDir, need(args.session, '--session か --all')));
+  }
+  const session = need(args.session, '--session');
+  const issue = need(args.issue, '--issue');
+  const path = pendingPath(commonDir, session);
+  const current = readPendingFile(commonDir, session);
+  const now = new Date().toISOString();
+  let next: PendingFile;
+  if (mode === 'pending-add') {
+    if (args.options.length === 0) throw new UsageError('--option を1つ以上渡してください（おすすめを先頭）');
+    next = addPending(current, session, { issue, stage: need(args.stage, '--stage'), question: need(args.question, '--question'), options: args.options, messageId: args.messageId }, now);
+  } else if (mode === 'pending-answer') {
+    try {
+      next = answerPending(current, issue, need(args.answer, '--answer'), now);
+    } catch (e) {
+      throw new UsageError((e as Error).message);
+    }
+  } else next = removePending(current, session, issue);
+  writeJson(path, next);
+  print(next);
+}
+
+if (import.meta.main) {
+  try {
+    main(process.argv.slice(2));
+  } catch (e) {
+    console.error((e as Error).message);
+    process.exit(e instanceof UsageError ? 1 : 2);
+  }
+}

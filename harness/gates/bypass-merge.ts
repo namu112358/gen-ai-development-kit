@@ -2,6 +2,7 @@ import { appLogin, bypassMergeConfig } from '../lib/config.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, findDashboard, isAgentPr, isSameRepoPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute, renderHumanReview, rewriteTestsCheck, writeBypassEnd } from './apply.ts';
+import { autoModeFor, autoModeRoute } from './auto-mode.ts';
 import { BYPASS_MERGE_END_TEXT, BYPASS_SWITCH_KIND, bypassArm, bypassFor, type BypassMergeEndReason, type BypassState } from './bypass.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
@@ -22,7 +23,8 @@ function ended(reason: string): BypassState {
  * （検出があれば Human Merge として neutral）、bypass-merge-end と human-review を出す（停止スイッチのときも）。
  * bypass で付けたまま終わっていない記録（bypassArm）の無い PR・閉じた PR には何もしない（二重に出さない）。
  * 今の差分の判定が自動 Merge の対象（autoEligible）なら、bypass に頼っていないので何もしない（auto-merge を残す）。
- * 委任が有効で委任で乗る PR は、auto-merge を外さずに委任に引き継ぐ（bypass-merge-end の後に delegated-merge。human-review は出さない）。
+ * 停止スイッチ以外で、委任で乗る PR・auto mode で乗る PR は、auto-merge を外さずに引き継ぐ（bypass-merge-end の後に delegated-merge か
+ * auto-mode-merge。human-review は出さない。順番は委任 → auto mode）。
  */
 export async function endBypassMerge(ctx: GateContext, stale: PullRequest, reason: BypassMergeEndReason): Promise<void> {
   const pr = await getPr(ctx, stale.number);
@@ -39,6 +41,12 @@ export async function endBypassMerge(ctx: GateContext, stale: PullRequest, reaso
     if (delegation && delegatedRoute(delegation, current).ok) {
       await writeBypassEnd(ctx, pr, reason, '委任承認（計画＋Merge）で自動経路を続けます。');
       await applyAcceptance(ctx, pr, current, { fresh: false, diff, delegation, bypass: off });
+      return;
+    }
+    const autoMode = current.autoMode?.eligible ? await autoModeFor(ctx) : null;
+    if (autoMode && autoModeRoute(autoMode, current).ok) {
+      await writeBypassEnd(ctx, pr, reason, 'auto mode で自動経路を続けます。');
+      await applyAcceptance(ctx, pr, current, { fresh: false, diff, autoMode, bypass: off });
       return;
     }
   }

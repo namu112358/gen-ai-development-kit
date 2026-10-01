@@ -1,3 +1,4 @@
+import { autoModeConfig } from '../lib/auto-mode.ts';
 import { appLogin, bypassMergeConfig, delegateConfig, LABELS, PRIORITY_LABELS, priorityRank, reasonMark } from '../lib/config.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { parseIssueBody, type IssueContract } from '../lib/issue-form.ts';
@@ -7,6 +8,8 @@ import { askJev, flattenAnswers } from '../lib/jev.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute, writeDelegationEnd } from './apply.ts';
+import { autoModeArm, autoModeFor, autoModeRoute } from './auto-mode.ts';
+import { endAutoModeMerge, onAutoModeSwitch } from './auto-mode-merge.ts';
 import { bypassArm, bypassFor, bypassRoute } from './bypass.ts';
 import { endBypassMerge, onBypassSwitch } from './bypass-merge.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
@@ -28,7 +31,7 @@ const PRIORITY_VALUES: string[] = Object.values(PRIORITY_LABELS);
  * - agent:plan-ok を App 以外が付けたら外す
  * - agent:hold が外されたら記録
  * - Close されたら依存解消（agent:waiting を外す）と親 Issue の Close
- * - ダッシュボードの停止スイッチ・委任承認のラベル（agent:delegate-plan・agent:delegate-merge）の付け外し（delegate-merge.ts）・bypass のラベルの付け外し（bypass-merge.ts）
+ * - ダッシュボードの停止スイッチ・委任承認のラベル（agent:delegate-plan・agent:delegate-merge）の付け外し（delegate-merge.ts）・bypass のラベルの付け外し（bypass-merge.ts）・auto mode のラベルの付け外し（auto-mode-merge.ts）
  */
 export async function onIssue(ctx: GateContext): Promise<void> {
   const action = ctx.event.action as string;
@@ -83,6 +86,10 @@ export async function onIssue(ctx: GateContext): Promise<void> {
     await onDelegateSwitch(ctx, issue.number, action === 'labeled', sender, new Date(), label);
     return;
   }
+  if ((action === 'labeled' || action === 'unlabeled') && label === autoModeConfig(ctx.config).label) {
+    await onAutoModeSwitch(ctx, issue.number, action === 'labeled', sender);
+    return;
+  }
   if ((action === 'labeled' || action === 'unlabeled') && label === bypassMergeConfig(ctx.config).label) {
     await onBypassSwitch(ctx, issue.number, action === 'labeled', sender);
     return;
@@ -104,8 +111,8 @@ async function clearStateLabels(ctx: GateContext, issue: { number: number; label
 
 /**
  * 停止スイッチ（ダッシュボードの停止ラベル）の切り替え。止めたら auto-merge を外し（委任で付けたものには delegated-merge-end を残し、
- * bypass で付けたものには bypass-merge-end と human-review を出す）、再開したら条件を満たす PR（自動 Merge の対象と、
- * 委任が有効なら委任で乗るもの、bypass が有効なら bypass で乗るもの）に付け直す
+ * auto mode・bypass で付けたものには auto-mode-merge-end・bypass-merge-end と human-review を出す）、再開したら条件を満たす PR（自動 Merge の対象と、
+ * 委任が有効なら委任で乗るもの、auto mode が有効なら auto mode で乗るもの、bypass が有効なら bypass で乗るもの）に付け直す
  */
 async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: boolean, sender: string | undefined): Promise<void> {
   const dashboard = await findDashboard(ctx.gh, ctx.config);
@@ -113,6 +120,7 @@ async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: bool
   await appComment(ctx, number, 'auto-merge-switch', `自動 Merge モードを${stopped ? '停止' : '再開'}しました（@${sender}）。`);
   const now = new Date();
   const delegation = stopped ? null : await delegationFor(ctx, now, dashboard);
+  const autoMode = stopped ? null : await autoModeFor(ctx, dashboard);
   const bypass = stopped ? null : await bypassFor(ctx, dashboard);
   const open = await ctx.gh.paginate<PullRequest>('/pulls?state=open');
   for (const item of open) {
@@ -123,6 +131,8 @@ async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: bool
       await refreshMergeRoute(ctx, pr);
       // 委任で付けた auto-merge を外したことを残す（human-review は出さない。再開すれば付け直す）
       if (hadAuto && delegatedArm(ctx.config, await ctx.gh.listComments(pr.number))) await writeDelegationEnd(ctx, pr, 'stopped');
+      // auto mode で付けた auto-merge も、記録と人へのレビュー依頼を出す（bypass と同じ）
+      if (hadAuto && autoModeArm(ctx.config, await ctx.gh.listComments(pr.number))) await endAutoModeMerge(ctx, pr, 'stopped');
       // bypass で付けた auto-merge は、記録と人へのレビュー依頼を出す（Requirements。委任の stopped とはここが違う）
       if (hadAuto && bypassArm(ctx.config, await ctx.gh.listComments(pr.number))) await endBypassMerge(ctx, pr, 'stopped');
       continue;
@@ -131,9 +141,10 @@ async function onAutoMergeSwitch(ctx: GateContext, number: number, stopped: bool
     const diff = await prDiff(ctx.gh, pr);
     const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patchId(diff));
     const delegated = delegation !== null && delegatedRoute(delegation, acceptance).ok;
+    const autoModed = autoMode !== null && autoModeRoute(autoMode, acceptance).ok;
     const bypassed = bypass !== null && bypassRoute(bypass, acceptance).ok;
-    if (acceptance && (acceptance.autoEligible || delegated || bypassed)) {
-      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff, ...(delegation ? { delegation } : {}), ...(bypass ? { bypass } : {}) });
+    if (acceptance && (acceptance.autoEligible || delegated || autoModed || bypassed)) {
+      await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff, ...(delegation ? { delegation } : {}), ...(autoMode ? { autoMode } : {}), ...(bypass ? { bypass } : {}) });
     }
   }
 }

@@ -111,6 +111,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - `question`：fleet が答えられないもの（人の判断）は、今の手順のとおり AskUserQuestion で人に聞く（hq に起こされた fleet なら、節「Orca の worker として動くとき」の 5 のとおり hq に `ask` で上げる）。答えは `ORCA orchestration reply --id <message_id> --body "<人の答え>" --run <fleet の Run ID> --json` で、人の言葉のまま worker に返す。
    - `escalation`：理由を人がすることの一覧に書く（hq に起こされた fleet なら hq に `escalation` で送る）。
    - `worker_done`：`--report-path` のファイルを読み、控えを直し、`node harness/scripts/agent.ts fleet-status` を読み直して、上の 3 の条件で次の worker を起こす。settle した worker は `ORCA orchestration worker-release --dispatch <Dispatch ID> --json` で解放する。
+   - 束の中の heartbeat（ship の worker の生存の知らせ）は、読んだらすぐ `--ack <delivery_id>` して、question・escalation・worker_done を後回しにしない（hq の手順7と同じ扱い。heartbeat を ack しないと、その後ろに並んだ question に届かない）。
    - fleet の `release` から worker の `claim` までの間にほかのセッションが宣言したときは、worker が failed の `worker_done` で返る。控えの Dispatch を settle 済みにして解放し、次の読み直しでその Issue が「着手宣言あり」なら起こし直さず、最後の一覧に「#番号 は session … が着手中」と書く（引き継ぐかは人が決める）。
    - hq に起こされた fleet は2つを読む：前置きの `check`（hq からの指示）と、自分の Run の `check --run <fleet の Run ID>`（ship の worker）。段階の切れ目（`worker_done` を受けたとき・`fleet-status` を読み直すとき）には、先に前置きの `check` で hq の指示を読み、次に自分の Run を読む。自分の Run の `check --wait` は `--timeout-ms` を付けて区切り、区切りごとに前置きの `check` と heartbeat をはさむ。
 7. **起動に失敗したとき**：`worker-start`（または上の 4 の起動・画面の確かめの手前の Orca のコマンド）が 0 以外で終わった Issue は出し直さず、このセッションで今の手順で進める。
@@ -131,24 +132,64 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - `subagent`（既定）：入れ子の方式で進める。
    - 終了コード 1（設定の誤りなど）：着手宣言をせず、何もしないで止める。標準エラーの理由を hq に `escalation` で送り、`worker_done` を `--outcome failed` で送る。
    - 表の「進め方」が交互（flat）のとき、または ship が「入れ子不可」を返したときも、同じく理由を hq に送って止める。交互の方式では fleet が worktree で自分でファイルを書き換えることになり、下の 4 に反するため。止めるときに着手宣言が残っていれば `release <番号>` で解除する。
-3. **ペインを作る**：fleet の Claude のターミナル（前置きの handle。無ければ `ORCA terminal list --worktree current --json` で自分のもの）を `ORCA terminal split --terminal <handle> --json` で3回分けて、4ペイン（fleet の Claude・進み具合・あなたがすること・PR と費用）にする。分けたペインで動かすコマンドは、`--command` に空白を含めて渡さない。`ORCA terminal send --terminal <新しい handle> --text "<コマンド>" --enter` で後から送る。
-   - 進み具合：`node harness/scripts/panes.ts collect --session <fleet のセッション ID> --label "<テーマ>" [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...`。GitHub を読むのはこのペインだけで、間隔は `panes.collectIntervalSeconds`
+3. **ペインを作る**：並びは、左に fleet の Claude（縦いっぱい）、右に上から あなたがすること → 進み具合 → PR と費用（hq のペインと同じ「左に Claude・右に縦に3つ」）。
+
+   ```
+   ┌──────────────┬──────────────────┐
+   │              │ あなたがすること │
+   │  fleet の    ├──────────────────┤
+   │  Claude      │ 進み具合         │
+   │              ├──────────────────┤
+   │              │ PR と費用        │
+   └──────────────┴──────────────────┘
+   ```
+
+   - 作り方：fleet の Claude のターミナル（前置きの handle。無ければ `ORCA terminal list --worktree current --json` で自分のもの）を `ORCA terminal split --terminal <fleet の handle> --direction vertical --json` で左右に分ける。右にできたペイン（あなたがすること）を `ORCA terminal split --terminal <あなたがすること の handle> --direction horizontal --json` で上下に分け（下が進み具合）、進み具合のペインをもう一度 `--direction horizontal` で分ける（下が PR と費用）。左の fleet の Claude のペインは分け直さない（縦いっぱいのまま）。
+   - 分ける向きの名前（`vertical` が左右に分けるか）は Orca の版で違うことがあるので、`ORCA terminal split --help` と `ORCA skills get orchestration` の案内で確かめ、逆なら `vertical` と `horizontal` を入れ替える。
+   - 分けたペインで動かすコマンドは、`--command` に空白を含めて渡さない。`ORCA terminal send --terminal <新しい handle> --text "<コマンド>" --enter` で後から送る。
    - あなたがすること：`node harness/scripts/panes.ts todo --session <fleet のセッション ID>`
+   - 進み具合：`node harness/scripts/panes.ts collect --session <fleet のセッション ID> --label "<テーマ>" [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...`。GitHub を読むのはこのペインだけで、間隔は `panes.collectIntervalSeconds`
    - PR と費用：`node harness/scripts/panes.ts prs --session <fleet のセッション ID>`
    - セッション ID は fleet 自身のもの（`AGENT_HARNESS_SESSION`）。表示用のペインは Claude のセッションではないので、渡さないと fleet の宣言が「ほかのセッション」と表示される。テーマは hq の指示の名前（`fleet: #<Epic番号> <短い名前>` の名前）。名前は表示のためだけで、宣言・usage・`fleet-status` はセッション ID で見分ける。Issue 番号は `fleet-status` に渡す番号の集合と同じにする。
-   - 作ったペインの handle を控える（片付けで使う）。対象の Issue が変わったら、進み具合のペインを閉じて作り直す。
-4. **fleet は指揮と読むことだけ**：fleet はリポジトリのファイル（ワークスペースの checkout と Issue の worktree）を書き換えない。コードや docs の書き換え・commit・push は、ship が Issue の worktree の中でだけ行う。fleet がするのは、`fleet-status`・`panes.ts`・`usage`・`gh` で読むこと、ship を呼ぶこと、着手宣言（`claim`・`release`）、hq とのやり取り、ship を worker で動かすとき（節「Orca の worker で ship を動かすとき」）の `node harness/scripts/agent.ts worktree`（リポジトリの外に Issue の worktree を作るだけ）と、ship の worker の `terminal create`・`terminal send`・`worker-start`・`worker-release` だけ。一時ファイルは scratchpad にだけ書く。
+   - 作ったペインの handle を、どれがどのペインか（あなたがすること・進み具合・PR と費用）と一緒に控える（片付けで使う）。fleet 自身の Claude の端末の handle も「閉じないもの」として控える。比べる自分の handle は `ORCA terminal list --worktree current --json` から控えた自分のターミナルの handle にする（前置きの worker の handle は、`terminal list` の handle と同じ種類と確かめられたときだけ使う。種類が違うと比べても一致しないため）。
+   - 対象の Issue が変わったら、進み具合のペインを閉じ（閉じる前の確かめは手順7と同じ）、あなたがすること のペインを `--direction horizontal` で分けて作り直す（並びの順を保つ）。
+4. **fleet は指揮と読むことだけ**：fleet はリポジトリのファイル（ワークスペースの checkout と Issue の worktree）を書き換えない。コードや docs の書き換え・commit・push は、ship が Issue の worktree の中でだけ行う。fleet がするのは、`fleet-status`・`panes.ts`・`usage`・`gh` で読むこと、ship を呼ぶこと、着手宣言（`claim`・`release`）、hq とのやり取り、intel への送信（下の 9）、ship を worker で動かすとき（節「Orca の worker で ship を動かすとき」）の `node harness/scripts/agent.ts worktree`（リポジトリの外に Issue の worktree を作るだけ）と、ship の worker の `terminal create`・`terminal send`・`worker-start`・`worker-release`、hq がいない間の質問の控え（`node harness/scripts/hq-state.ts pending`・`pending-add`・`pending-answer`・`pending-remove`。git の共通ディレクトリの下に書くだけで、作業ツリーの外。下の 5 の「hq がいないとき」）だけ。一時ファイルは scratchpad にだけ書く。
 5. **人に聞く（ask）**：ship と fleet の手順が AskUserQuestion で聞くところでは、AskUserQuestion を使わず、前置きの `ask` のコマンドで hq に聞く。手順1の引き継ぎ、手順2と入れ子の方式の手順2の投稿の前の質問、`agent:plan-review` で進めてよいか、「進める／直す／やめる」、手順8の人の判断待ちなどがこれに当たる。前置きに無ければ、形は `ORCA orchestration ask --from <handle> --dispatch-capability <capability> --question "<質問>" --options "<おすすめ>,<ほかの選択肢>" --timeout-ms <ミリ秒>`。
    - 1回の `ask` に1問。質問には、Issue 番号・段階・なぜ人が要るかを1行で入れる。選択肢はおすすめを先頭に置く。聞き方の決まりは [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方と同じで、書式や既定の規則で決まることは聞かない。
    - 待つ間に時間切れや切断になっても、新しく聞き直さない。同じ質問の ID を `--resume <message_id>` に渡して待ち直す（同じ質問を二重にしない）。
    - hq が `reply` で返した本文を、人の答え（人の言葉のまま）として扱い、各 skill の手順どおりに続ける。投稿の前の質問なら、答えと書きかけの計画のパスを渡して ship を呼び直す。`agent:plan-review` で進めてよいかなら、答えのとおりに進めるか止める。
    - hq が「答え無し」（人が拒んだ・答えなかった）と返したら、各 skill の「人が答えなかった」ときの扱い（申告を残して投稿する、人の判断待ちのまま一覧に書く など）にする。同じ質問を繰り返さない。
    - `ask` を待つ間も、ほかの Issue の ship は進めてよい（止めるのは、聞いた Issue だけ）。
-   - Orca のコマンドが動かないときは、そのエラーをそのまま示して止める。AskUserQuestion にも、別の実行ファイルにも切り替えない。人の判断待ちで止めるときと同じく、宣言は `release <番号>` で解除する。
+   - Orca のコマンドが動かないときは、そのエラーをそのまま示して止める。AskUserQuestion にも、別の実行ファイルにも切り替えない。人の判断待ちで止めるときと同じく、宣言は `release <番号>` で解除する。ただし Orca 自体は動いていて hq だけがいないと確かめられたとき（下の「hq がいないとき」の見なす条件）は、止めずに退行に進む。
+   - **hq がいないとき**（#409。hq が落ちた・閉じられた）：
+     - 見なす条件（両方を満たしたときだけ。一度の時間切れでは決めない）：きっかけは、hq への `ask` が時間切れになった（`--resume` で待ち直しても同じ）か、前置きの `check`・heartbeat が Orca のエラーで失敗したこと。確かめは、hq の Claude の端末（控えの `hqHandle`。`node harness/scripts/hq-state.ts ledger` で読む。控えが無ければ `ORCA orchestration run-show --id <hq の Run ID> --json` の `coordinator_handle`）を `ORCA terminal show --terminal <handle> --json` で読み、無い（エラー・live でない）ことを、5分以上あけた2回の読みで続けて確かめたこと。数えるのは `ORCA status --json` が成功している（Orca 自体は動いている）うえで `terminal show` がその handle が無い・live でないと返したときだけ。`ORCA status` も失敗するときは hq がいない証拠にせず、上の「Orca のコマンドが動かないとき」のとおり止める。端末があるなら hq はいる（人が答えていないだけ）ので、今までどおり `--resume` で待ち直す。
+     - 退行（案A）：人の判断が要る Issue は `release <番号>` で宣言を解除して「人の判断待ち」として止め、ほかの Issue は進める。質問は `node harness/scripts/hq-state.ts pending-add --session <fleet のセッション ID> --issue <番号> --stage <段階> --question "<質問>" --option "<おすすめ>" --option "<ほか>" [--message-id <ask の message_id>]` で控え、`panes.ts todo`（あなたがすること）のペインの先頭に「hq がいない間の質問（fleet のタブで答える）」として出す。AskUserQuestion には切り替えない（fleet のタブに人がいるか分からないまま fleet 全体を止めないため）。
+     - 二重に出さない：hq がいない間に出た新しい質問は `ask` せずに、同じく `pending-add` で控えに足す。
+     - 人が fleet のタブ（fleet の Claude）で答えたら、それを人の答え（人の言葉のまま）として扱い、`node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <番号> --answer "<人の答え>"` で答え済みにしてから、各 skill の手順どおりに続ける（宣言し直して ship を呼び直すなど）。続きを進めたら `pending-remove` で控えから外す。
+     - hq が戻ったとき（前置きの `check` に新しい hq の `send`（件名 `hq-back`）が届いた、または控えの `hqHandle` が変わり、その端末が live）：答えの無い控えのうち `messageId` のあるものは `ask --resume <message_id>` で待ち直し（新しい hq が前の Run を引き継いで同じ質問を受け取るので、新しく聞き直さない）、`messageId` の無いものは新しく `ask` する。hq に上げた控えは `node harness/scripts/hq-state.ts pending-remove --session <ID> --issue <番号>` でペインから外す（人と hq に二重に出さない）。答え済みの控えは待ち直さない（新しい hq が控えを読み、その質問に本文 `fleet のタブで人が答え済み` で `reply` する）。
 6. **hq からの追加の指示**：段階の切れ目（ship が返ったとき、`fleet-status` を読み直すとき）と `worker_done` の直前に、前置きの `check` のコマンドで hq の追加の指示を読む。前置きが求める間隔で heartbeat を送る（`ask`・`check --wait` の間は送らない）。
-7. **終わるとき**：`worker_done` を送るのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（節「待つ間の読み直し」の 7）。それまでは手順8の一覧を scratchpad に書き直し、`check` で hq の指示を読みながら読み直しを続ける。手順8の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
-   - 送る前に、手順3で作った表示のペイン（進み具合・あなたがすること・PR と費用）を `ORCA terminal close --terminal <handle>` で閉じる。`ORCA terminal list --worktree current --json` で読み直して、閉じた後に残った空のシェルのペイン（fleet の Claude のターミナルでないもの）も閉じる。
+   - heartbeat の間隔：前置きの間隔より短い間隔で送らない。この節の 8 で `status` を送った直後の区切りでは、heartbeat を重ねて送らない（束を増やして hq の question を遅らせないため）。
+   - heartbeat の本文に今の状況を一言入れる（#425）：前置きの heartbeat のコマンドを写し、一言を本文（`--body`）に入れる。入れるものは Issue 番号・段階・次にすること・待っているもの（例：「#388 実装中、次は判定」「#386 area:harness の上限の空き待ち」）。受け持つ Issue が複数なら、動いているもの・待っているものを短く並べる（1〜2行）。前置きの heartbeat の形が本文を持てないときは、一言を入れずに今までどおり送る（一言のために `status` を増やさない）。
+   - 一言は知らせるだけで、heartbeat に質問を載せない。人の判断が要ることは今までどおり 5 の `ask`、報告・連絡は 8 の `status` で送る。一言のために heartbeat の間隔を変えない（#395 のまま）。hq は一言を読んで人がすることの一覧（hq の手順7・12）に使う。
+7. **終わるとき**：途中の知らせは、この節の 8 で続けて送る（8 は終わるまでずっと続ける手順で、時間の順では 7 の前でもある）。`worker_done` を送るのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（節「待つ間の読み直し」の 7）。それまでは手順8の一覧を scratchpad に書き直し、`check` で hq の指示を読みながら読み直しを続ける。手順8の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
+   - 送る前に、手順3で作った表示のペイン（あなたがすること・進み具合・PR と費用）を `ORCA terminal close --terminal <handle>` で閉じる。`ORCA terminal close` を送る前に毎回、閉じる handle が手順3で控えた表示のペインの handle で、fleet 自身の Claude の端末の handle と違うことを確かめる。同じなら閉じない（#409 で hq がペインを閉じたときに自分の端末まで閉じた見込みと同じことを、fleet で起こさないため）。
+   - `ORCA terminal list --worktree current --json` で読み直して、閉じた後に残った空のシェルのペインも閉じる。このときも fleet 自身の Claude の端末の handle と比べ、同じものは閉じない。
    - ワークスペース（Orca の worktree）そのものは消さない（片付けるのは hq）。`worker_done` の後は、新しい作業を始めない。
+   - hq に `ask` で聞いて答えを待っている Issue があるうちは、`worker_done` を送らない（読み直しと `ask --resume <message_id>` の待ちを続ける）。交代・Orca のエラーなどで答えを待たずに終えるしかないときは、その Issue を `release <番号>` で解除し、レポートに「hq に聞いた質問（message_id・質問）の答えを受け取っていない」と書いてから送る。
+8. **hq に知らせる（send）**：途中の報告・連絡を、その都度 hq に `status` で送る。形は前置きの `--from`・`--dispatch-capability`・`--task-id`・`--dispatch-id` を写した `ORCA orchestration send ... --type status --subject "<件名>" --body "<1〜3行>"`（`--to` は付けない。worker が `--to` を省くと、自分の Dispatch の Run の mailbox（hq）に届く）。
+   - 送る時機：ship が返ったとき・`fleet-status` を読み直したとき・節「待つ間の読み直し」で気づいたとき。
+   - 報告（件名）：
+     - `ready-<PR>`：PR が人の Merge 待ち（`human-merge`・`auto-merge`）になった。本文に Human Merge か自動 Merge か
+     - `merged-<PR>`：Merge された
+     - `verdict-<PR>`：判定に合格／不合格。本文に合否とブロッキングの件数
+     - `wait-<Issue>`：fleet が Issue を待ちにした。本文に理由（重なり・PR 同士の衝突・`--max`・領域の上限・読み込みが古い）
+   - 連絡（件名 `notice`）：着手宣言の引き継ぎ・宣言で負けた・衝突・main の取り込みで判定が外れた・ほかのセッションと重なった。本文の先頭に Issue／PR 番号。人の判断が要るなら本文にそう書く。
+   - 相談：今の `ask`（この節の 5）のまま。人の判断が要るものは `status` で送らない。
+   - 二重に送らない：送った件名と状態を scratchpad の `fleet-hq-sent.json` に控え、読み直しで同じ状態なら送らない（状態が変わったら送り直す）。
+   - `status` は知らせるだけで、判断の正は GitHub（`fleet-status`）とラベル。
+9. **範囲の外の気づき**（#396）：ship・fleet が進める中で見つけた、今の Issue の範囲の外の気づき（仕組みの問題・改善案・Issue の種。今すぐの判断が要らないもの）は、hq を通さずに `SendMessage` の `to: intel` で intel（[intel](../intel/SKILL.md)。本体のタブで待つ）に送る。本文は出どころ（テーマ・Issue 番号）・要点・根拠。返事は待たない。
+   - 人の判断が要るもの（今の進め方を決めるもの）は、今までどおり 5 の `ask` で hq に上げる。
+   - intel がいない（`ListAgents` に無い・`SendMessage` が失敗した）ときは送らずに、手順8の一覧（`worker_done` のレポート）に「intel に回せなかった気づき」として書く。
 
 ## ハーネスが更新されたときの交代
 

@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { FLEET_STAGES, type FleetClaimInfo, type FleetStage, type FleetStatusData, type FleetStatusRow } from '../lib/fleet.ts';
 import {
-  CLEAR_SCREEN, HISTORY_LIMIT, MARKS, PANE_STEPS, clip, displayWidth, locateRow, nextSince, padEnd, renderHq, renderPrs,
+  CLEAR_SCREEN, HISTORY_LIMIT, MARKS, PANE_STEPS, clip, displayWidth, locateRow, nextSince, padEnd, renderPrs,
   renderProgress, renderTodo, rowSignature, stripAnsi, todoItems, type PanePr, type PaneSnapshot,
 } from '../lib/panes.ts';
 import { projectTranscriptDir } from '../lib/usage.ts';
@@ -243,24 +243,6 @@ test('renderPrs：usage が null なら「読めませんでした」、あれ�
   assert.doesNotMatch(text, /読めませんでした/);
 });
 
-// ---- renderHq ----
-
-test('renderHq：fleet ごとの見出しと要約、全 fleet の人がすることを1つにまとめる', () => {
-  const a = snap([row(11, { stage: 'human-merge', pr: 50 }), row(12, { stage: 'plan-ok' })], { session: 'sessaaaa-1111', label: 'fleet-a' });
-  const b = snap([row(22, { stage: 'plan-review' })], { session: 'abcdefgh1234', label: null });
-  const text = plain(renderHq([a, b], NOW, 160, 2));
-  assert.ok(text.includes('fleet-a'), 'label の見出し');
-  assert.ok(text.includes('abcdefgh'), 'label が無ければ session の先頭8文字');
-  assert.match(text, /あなたの番 1/);
-  assert.ok(text.includes('#11') && text.includes('#22'), '両方の fleet の人がすることが出る');
-  assert.doesNotMatch(text, /hq\.maxFleets/, '上限内なら警告しない');
-});
-
-test('renderHq：スナップショットが hq.maxFleets を超えると警告の行を出す', () => {
-  const snaps = [1, 2, 3].map((n) => snap([row(n)], { session: `session${n}xxxx`, label: `f${n}` }));
-  assert.match(plain(renderHq(snaps, NOW, 160, 2)), /hq\.maxFleets/);
-});
-
 // ---- 文字幅 ----
 
 test('displayWidth・clip・padEnd：全角は幅2、切るときは … で幅に収める', () => {
@@ -310,7 +292,8 @@ function fakeDeps(o: {
   const deps: CollectDeps = {
     run(cmd, args, opts) {
       calls.push({ cmd, args, opts });
-      if (cmd === 'gh') {
+      if (cmd === 'gh' && args[0] === 'api' && args[1] === 'graphql') return ok('{"data":{"repository":{}}}');
+      if (cmd === 'gh' && args[0] === 'pr' && args[1] === 'view') {
         const n = Number(args[2]);
         const j = o.prJson?.[n];
         return j === undefined ? { status: 1, stdout: '', stderr: 'not found' } : ok(JSON.stringify(j));
@@ -408,7 +391,7 @@ test('collectOnce：PR を gh pr view で読み、autoMerge・labels・checks �
   };
   const { deps, calls } = fakeDeps({ rows, prJson });
   const s = collectOnce(deps, opts());
-  const gh = calls.filter((c) => c.cmd === 'gh');
+  const gh = calls.filter((c) => c.cmd === 'gh' && c.args[0] === 'pr' && c.args[1] === 'view');
   assert.equal(gh.length, 1);
   assert.deepEqual(gh[0]?.args, ['pr', 'view', '50', '--json', 'number,title,state,isDraft,autoMergeRequest,labels,statusCheckRollup']);
   assert.deepEqual(s.prs, [{
