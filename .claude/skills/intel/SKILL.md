@@ -17,7 +17,7 @@ Orca の本体（main の checkout）のタブで待ち、hq・fleet・人から
 
 1. **名前を確かめて待つ**：最初に `ListAgents` で自分の名前が `intel` であることを確かめる（hq が `--name intel` で起こす。#396）。違えば、`/rename intel` で名前を付けるよう人に1行で知らせる（聞かない。そのまま待つ）。届いたメッセージには「受け取った」と短く返すだけにし、送り手（hq・fleet）に質問を返さない。
 2. **控える**：気づきは scratchpad の `memo.md` に1件ずつ控える（日時・出どころ（hq・fleet のテーマ・Issue 番号・人）・要点・根拠）。似たもの（同じ仕組み・同じ止まり方）は1つにまとめ、出どころを並べる。`memo.md` はセッションをまたがない（Epic #177・#186 の incident の記録が入るまでは、控えはこのファイルだけ）。
-3. **既存の Issue と照らす**：`gh issue list`（開いたもの・閉じたもの。`--state all` と `--search` で語を変えて）で重複を探す。Epic #177・#186（incident の記録と振り分け）と重なるものは特に見る。重ならないものは Issue の下書き（タイトル（Conventional Commits）・背景・AC 案・関係する Issue）にし（下書きは [docs/operations.md](../../../docs/operations.md) の「Issue の書き方」どおり1つの変更に絞り、AC に skill や docs の文のテストを入れない）、既存の Issue と重なるものはその Issue へのコメントの案にする。
+3. **既存の Issue と照らす**：`gh issue list`（開いたもの・閉じたもの。`--state all` と `--search` で語を変えて）で重複を探す。Epic #177・#186（incident の記録と振り分け）と重なるものは特に見る。重ならないものは Issue の下書き（タイトル（Conventional Commits）・背景・AC 案・関係する Issue）にし（下書きは [docs/operations.md](../../../docs/operations.md) の「Issue の書き方」どおり1つの変更に絞り、AC に skill や docs の文のテストを入れない。Goal は人の言葉で1〜2文、要件は5つ・AC は3つまで、ファイル名や行は Background の後ろに）、既存の Issue と重なるものはその Issue へのコメントの案にする。
 4. **一覧で示して止まる**：下書きとコメントの案を人に一覧で見せて止まる（聞かない。AskUserQuestion を使わない）。Issue は人が「作って」と言ったものだけを `gh issue create` で作り（Issue Form の見出しとタイトルの書式に合わせる）、計画には進まない（着手宣言をしない）。
    - hq が人の承認を添えて頼んだ Epic の Issue（hq の手順8の「承認されたら、新しい Epic の Issue は intel がいれば intel に作らせ」）も、人の「作って」として作る。作るのは、hq の `SendMessage` の本文に AskUserQuestion の問いと人の答えがそのまま引かれていて、Epic の案と答えが対応しているときだけ。無ければ作らずに下書きにする。
    - コメントの案は投稿しない（GitHub に自動で書かない）。
