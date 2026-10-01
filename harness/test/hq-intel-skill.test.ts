@@ -1,4 +1,5 @@
 // Issue #396：hq が相談・アイデアを intel に回し（分け方・回す手順・人への案内・intel のタブの起こし方・いないときの扱い）、fleet が範囲の外の気づきを intel に送り、docs/operations.md と overview.html に回し方があることを確かめる。
+// Issue #432：fleet の範囲の外の気づきは、人の判断が要るか迷ったら hq に上げ、混ざるときは分けることを手順9の中で確かめる。
 // 語句は要点ごとに少なく絞り、文言を丸ごと固定しない。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -72,12 +73,17 @@ test('hq の skill 手順2：するのは…だけに、SendMessage と terminal
 
 // ---- AC2：fleet が範囲の外の気づきを intel に送る ----
 
-test('fleet の skill「Orca の worker として動くとき」：範囲の外の気づきを hq を通さず SendMessage（to: intel）で送り、worker_done に intel への送信を含める', () => {
+// #432：節の全体ではなく手順9の中だけを見る（手順9を消すと落ちる）。
+// `hq に上げる` は前からの文にもあるので、#432 の文（迷ったら hq に上げる・混ざるときは分ける）が消えたら落ちることは
+// `迷ったら`・`混ざる`・`分け` が受け持つ。
+test('fleet の skill「Orca の worker として動くとき」の手順9：範囲の外の気づきを hq を通さず SendMessage（to: intel）で送り、人の判断が要るか迷ったら hq に上げ、混ざるときは分ける。手順4に intel への送信がある', () => {
+  const worker = section(fleetSkill(), '## Orca の worker として動くとき');
   assertWords(
-    section(fleetSkill(), '## Orca の worker として動くとき'),
-    ['範囲の外の気づき', 'SendMessage', 'to: intel', 'hq を通さず', 'worker_done', 'intel への送信'],
-    'fleet の skill の「Orca の worker として動くとき」',
+    step(worker, 9),
+    ['範囲の外の気づき', 'SendMessage', 'to: intel', 'hq を通さず', 'worker_done', '迷ったら', 'hq に上げる', '混ざる', '分け'],
+    'fleet の skill の「Orca の worker として動くとき」の手順9',
   );
+  assertWords(step(worker, 4), ['intel への送信'], 'fleet の skill の「Orca の worker として動くとき」の手順4');
 });
 
 // ---- AC3：docs/operations.md と overview.html ----
