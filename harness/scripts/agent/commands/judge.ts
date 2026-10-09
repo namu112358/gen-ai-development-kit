@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { parseChildMarker } from '../../../lib/epic.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { pastPrsFor } from '../../../lib/past-pr-reads.ts';
-import { checkJudgeInput, type CheckRun, composeVerdict, epicChildrenFromRecords, type JudgeFacts, lowerLayers, type ParentEpic, parseComposeArgs, type PrCommit, renderJudgeInput, type StackFacts } from '../../../lib/session-inputs.ts';
+import { checkJudgeInput, type CheckRun, composeVerdict, epicChildrenFromRecords, type JudgeFacts, lowerLayers, type ParentEpic, parseComposeArgs, type PrCommit, readAuthorViewFile, renderJudgeInput, type StackFacts } from '../../../lib/session-inputs.ts';
 import { classifyBase, stackOf } from '../../../lib/stack.ts';
 import { changedFiles, linkedIssues, type PullRequest } from '../../../lib/state.ts';
 import { type AgentCommand, config, currentSession, fail, type IssueItem, readJson, renderVerdict, samePatchAsCurrent, sessionUrl, writeTemp } from '../cli.ts';
@@ -101,7 +101,7 @@ async function composeVerdictFile(gh: GitHub, args: string[]): Promise<string> {
     risk: readJson(riskFile),
     meta: { model, judgedBy: sessionUrl() ?? '付き添いのセッション' },
     // 見解はファイルの前後の空白を除いて渡す（空なら parseVerdict が誤りにする）
-    ...(authorViewFile === undefined ? {} : { authorView: readFileSync(authorViewFile, 'utf8').trim() }),
+    ...(authorViewFile === undefined ? {} : { authorView: readAuthorViewFile(authorViewFile) }),
   }, currentSession());
   if (!r.ok) fail(r.errors);
   return writeTemp(`verdict-${n}.md`, r.value);

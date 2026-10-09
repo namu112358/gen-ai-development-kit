@@ -8,7 +8,7 @@ import { parsePanelRecord, type PanelRecord } from './review-panel.ts';
 import type { Claim } from './queue.ts';
 import { isTrustedComment } from './state.ts';
 import { tamperAllows, tamperJevThreshold, type TamperJevRecord } from './test-tamper-jev.ts';
-import type { AutoModeJevRecord } from './auto-mode.ts';
+import { autoModeConfig, type AutoModeJevRecord } from './auto-mode.ts';
 import type { AutoModeTestsRecord } from './auto-mode-tests.ts';
 import { BLOCKING_KINDS, parseVerdict, RISK_QUESTIONS, type BlockingFinding, type BlockingKind } from './verdict.ts';
 
@@ -1282,6 +1282,15 @@ export function autoModeViewRecords(
   const prs = new Map<string, AutoModeJevRecord | undefined>();
   for (const a of acceptances) prs.set(a.patchId, a.autoMode?.jev);
   return [...plans.values(), ...prs.values()].filter((j): j is AutoModeJevRecord => j !== undefined);
+}
+
+/** 設定の dangerSafe で、計画ゲート・受け付けの記録から見解あり・なしで結論が変わった件数を数える（autoModeViewRecords → autoModeViewShift。#449） */
+export function autoModeViewShiftOf(
+  config: Pick<HarnessConfig, 'autoMode'>,
+  planGates: Parameters<typeof autoModeViewRecords>[0],
+  acceptances: Parameters<typeof autoModeViewRecords>[1],
+): AutoModeViewShift {
+  return autoModeViewShift(autoModeConfig(config).dangerSafe, autoModeViewRecords(planGates, acceptances));
 }
 
 const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
