@@ -64,7 +64,9 @@ import {
   type AutoModeMergeRecord,
 } from './auto-mode.ts';
 import { writePlanLink } from './plan-link.ts';
-import { testsHumanMerge, testsOutcome } from './tests-check.ts';
+import { testsHumanMerge, testsJevSidePasses, testsOutcome } from './tests-check.ts';
+import { testMoveJevFor } from './tests-move.ts';
+import { renderTestMove, type TestMoveOutcome } from '../lib/test-move-jev.ts';
 import { tamperJevFor } from './tests-jev.ts';
 import { autoModeTestsFor } from './auto-mode-tests.ts';
 import { renderAutoModeTests, type AutoModeTestsOutcome } from '../lib/auto-mode-tests.ts';
@@ -194,7 +196,7 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
   // auto-merge を付けた後にも止める側を書き直す（古い受け付けの記録で neutral を書いた別のゲート実行との競合対策）
   // enforce で Jev が通した差分は、ここでも success のまま（failure で上書きしない）
   // auto mode の経路で Jev が妥当と答えた差分も、ここで success のまま
-  if (armed && tests) await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(tests.findings, [], tests.jev, tests.autoMode));
+  if (armed && tests) await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(tests.findings, [], tests.jev, tests.autoMode, tests.move));
   const before = await getPr(ctx, pr.number);
   if (before.head.sha !== pr.head.sha) {
     ctx.log(`head が ${before.head.sha.slice(0, 7)} に進んだため反映を中止します（synchronize のゲートが処理する）`);
@@ -335,7 +337,7 @@ export async function rewriteTestsCheck(
   delegation?: DelegateState,
   bypass?: BypassState,
   autoMode?: AutoModeState,
-): Promise<{ findings: TamperFinding[]; relaxed: boolean; jev: TamperJevOutcome; autoMode?: AutoModeTestsOutcome } | null> {
+): Promise<{ findings: TamperFinding[]; relaxed: boolean; jev?: TamperJevOutcome; autoMode?: AutoModeTestsOutcome; move?: TestMoveOutcome } | null> {
   const findings = detectTestTampering(diff, ctx.config.testPatterns ?? DEFAULT_TEST_PATTERNS);
   if (findings.length === 0) return null;
   const comments = await ctx.gh.listComments(pr.number);
@@ -344,13 +346,16 @@ export async function rewriteTestsCheck(
   if (exempt === 'valid') return null;
   const reasons = await testsHumanMerge(ctx, pr, acceptance, delegation, bypass, autoMode);
   // ふつうは on-pr.ts が同じ差分で記録しているので問い直さない（tests-jev.ts）
-  const jev = await tamperJevFor(ctx, pr, findings, patch, comments);
-  const jevPasses = jev.mode === 'enforce' && jev.asked && jev.allows;
-  const auto = reasons.length === 0 && !jevPasses
+  // 削除は移し先を Jev に問い（tests-move.ts）、削除以外だけを jev.testTamper に問う（Issue #514）
+  const rest = findings.filter((f) => f.kind !== 'deleted-file');
+  const hasDeletion = rest.length < findings.length;
+  const jev = hasDeletion && rest.length === 0 ? undefined : await tamperJevFor(ctx, pr, hasDeletion ? rest : findings, patch, comments);
+  const move = hasDeletion ? await testMoveJevFor(ctx, pr, findings, diff, patch, comments) : undefined;
+  const auto = reasons.length === 0 && !testsJevSidePasses(findings, jev, move)
     ? await autoModeTestsFor(ctx, pr, findings, acceptance, diff, patch, comments, { ...(delegation ? { delegation } : {}), ...(autoMode ? { autoMode } : {}) })
     : undefined;
-  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev, auto));
-  return { findings, relaxed: reasons.length > 0, jev, ...(auto ? { autoMode: auto } : {}) };
+  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev, auto, move));
+  return { findings, relaxed: reasons.length > 0, ...(jev ? { jev } : {}), ...(auto ? { autoMode: auto } : {}), ...(move ? { move } : {}) };
 }
 
 /**
@@ -531,7 +536,7 @@ async function dismissFixRequests(ctx: GateContext, number: number): Promise<voi
 }
 
 /** 人へのレビュー依頼。何が懸念で、どこを見てほしいかを先に書く */
-export function renderHumanReview(owner: string, a: Acceptance, why: string[], tests?: { findings: TamperFinding[]; relaxed: boolean; autoMode?: AutoModeTestsOutcome }): string {
+export function renderHumanReview(owner: string, a: Acceptance, why: string[], tests?: { findings: TamperFinding[]; relaxed: boolean; autoMode?: AutoModeTestsOutcome; move?: TestMoveOutcome }): string {
   const list = (items: string[] | undefined, empty: string) => (items && items.length > 0 ? items.map((x) => `- ${x}`) : [`- ${empty}`]);
   // テストの行を変える変更は、懸念点より前に目立つ形で載せる（人は Merge の前にこれを読む）
   const testLines = tests && tests.findings.length > 0
@@ -549,6 +554,8 @@ export function renderHumanReview(owner: string, a: Acceptance, why: string[], t
         '',
         // auto mode の経路で Jev に問うた（問えなかった）なら、検出ごとの確率と理由を載せる（止めたときの人への材料）
         ...(renderAutoModeTests(tests.autoMode) ? [renderAutoModeTests(tests.autoMode), ''] : []),
+        // テストファイルの削除の移し先を Jev に問うた（問えなかった）なら、ファイルごとの確率と理由を載せる
+        ...(tests.move?.applies && tests.move.asked ? [renderTestMove(tests.move), ''] : []),
       ]
     : [];
   return [
