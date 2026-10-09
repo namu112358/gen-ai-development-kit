@@ -29,7 +29,7 @@ const HQ_SPEC: SkillSpec = {
     // 手順2：するのは…だけ（#407・#396）
     { step: 2, words: ['承認した案だけ', 'sub-issues', 'SendMessage', 'terminal create'] },
     // 手順4：fleet を起こす指示に heartbeat の一言（#425）
-    { step: 4, words: ['heartbeat の本文に今の状況を一言入れる'] },
+    { step: 4, words: ['heartbeat の本文に今の状況を一言入れる', 'start-failure-save'] },
     // 手順6：ペインの並びと開き方。ペインにセッションを渡さない。確かめで閉じてよいのはそのとき分けたペインだけで、
     // intel を起こした後は分け直さない（#402・#430・#448）
     {
