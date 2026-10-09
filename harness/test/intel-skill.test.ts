@@ -48,6 +48,13 @@ test('intel の SKILL.md があり、frontmatter の name が intel で descript
   assert.ok(fm.description, 'description がありません');
 });
 
+test('Issue #437：hq のペインの読み方は panes.ts hq todo で書き、ペインの名前の無い panes.ts hq を使わない', () => {
+  const text = skill();
+  assert.ok(text.includes('panes.ts hq todo'), 'SKILL.md に「panes.ts hq todo」がありません');
+  const bare = text.match(/panes\.ts hq(?! (todo|board|log)\b)/);
+  assert.equal(bare, null, `ペインの名前の無い書き方があります: ${bare?.[0]}`);
+});
+
 test('skill が使う agent.ts のコマンドは使い方のコメントに実在する', () => {
   const known = documentedAgentCommands();
   const used = [...skill().matchAll(/node harness\/scripts\/agent\.ts ([^\s`]+)/g)].map((m) => m[1]!);
