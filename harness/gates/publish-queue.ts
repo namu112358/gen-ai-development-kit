@@ -133,11 +133,20 @@ export function renderImproveSection(entries: IncidentEntry[] | null): string {
   ].join('\n');
 }
 
-/** 本文の改善の候補の節を差し替える（無ければ queue の節の直後、それも無ければ末尾に足す） */
+/** 改善の候補の節の目印の組が正しいか（開始と終わりがちょうど1つずつで、開始が終わりより前） */
+export function improveMarkersOk(body: string): boolean {
+  const count = (marker: string): number => body.split(marker).length - 1;
+  return count(IMPROVE_START) === 1 && count(IMPROVE_END) === 1 && body.indexOf(IMPROVE_START) < body.indexOf(IMPROVE_END);
+}
+
+/** 本文の改善の候補の節を差し替える。目印の組が正しいときだけ差し替え、両方とも無いときだけ queue の節の直後（それも無ければ末尾）に足す。片方だけ・重複・順番違いなど壊れているときは、本文をそのまま返す */
 export function replaceImproveSection(body: string, section: string): string {
-  const start = body.indexOf(IMPROVE_START);
-  const end = body.indexOf(IMPROVE_END);
-  if (start >= 0 && end > start) return body.slice(0, start) + section + body.slice(end + IMPROVE_END.length);
+  if (improveMarkersOk(body)) {
+    const start = body.indexOf(IMPROVE_START);
+    const end = body.indexOf(IMPROVE_END);
+    return body.slice(0, start) + section + body.slice(end + IMPROVE_END.length);
+  }
+  if (body.includes(IMPROVE_START) || body.includes(IMPROVE_END)) return body;
   const queueEnd = body.indexOf(QUEUE_END);
   if (queueEnd >= 0) {
     const at = queueEnd + QUEUE_END.length;
@@ -178,6 +187,9 @@ export async function publishQueue(ctx: GateContext): Promise<void> {
   const issue = await ctx.gh.get<{ body: string | null; comments?: number }>(`/issues/${dashboard}`);
   const withQueue = replaceQueueSection(issue.body ?? '', renderQueueSection(q));
   const body = replaceImproveSection(withQueue, await improveSectionFor(ctx, dashboard, new Date(), issue.comments ?? 0));
+  if (!improveMarkersOk(withQueue) && (withQueue.includes(IMPROVE_START) || withQueue.includes(IMPROVE_END))) {
+    ctx.log(`#${dashboard}: 改善の候補の節の目印が壊れているので書き直しません`);
+  }
   if (body !== issue.body) await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body } });
   ctx.log(`queue published to #${dashboard}: ${q.actions.length} action(s)`);
 }
