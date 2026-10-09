@@ -49,7 +49,7 @@ const FLEET_SPEC: SkillSpec = {
         'ORCA orchestration worker-start', 'worker_done', 'node harness/scripts/agent.ts fleet-status', '読み直',
         '状態の正は GitHub', '判断の正はラベル', 'decision gate', '正にしない',
         '入口の skill', '優先', '`ORCA open`', '試さない',
-        '領域の上限', '`--force`', 'ほかのセッションの宣言で止まったら', '--outcome failed',
+        '領域の上限', '`--fleet`', 'ほかのセッションの宣言で止まったら', '--outcome failed',
         'ORCA orchestration run-create',
       ],
     },
