@@ -152,7 +152,7 @@ function readCritique(file: string): CritiqueRound {
   return { verdict, must };
 }
 
-/** 計画のファイルの書式の誤り（step --plan。agent.ts check と同じ検査。計画のファイルでなければ誤り） */
+/** 計画のファイルの書式の誤り（step --plan。agent.ts check と同じ書式の検査（一緒に変えるファイルの抜けは check だけ）。計画のファイルでなければ誤り） */
 function planFileErrors(file: string): string[] {
   const c = checkFile(file);
   return c.kind === 'plan' ? c.errors : ['計画（agent-plan）のファイルではありません', ...c.errors];

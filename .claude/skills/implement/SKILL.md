@@ -17,6 +17,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 
 1. `node harness/scripts/agent.ts claim <番号> --manual --stage implement` で着手を宣言する（段階の更新。ほかのセッションの宣言があれば止まる。先に宣言したセッションがあって自分の宣言を取り下げて止まったら、作業を始めずに ship / fleet の扱いに従う）。同じ領域の判定前の Agent PR（Draft）が上限で止まったら、AskUserQuestion で人に聞く（急ぐと言われたときだけ `--force`）。
 2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作る（出力がパス。置き場所はリポジトリの外）。以降はそのディレクトリで作業する。`node_modules` が無ければ worktree が `npm ci` まで行う。
+   - worktree は今の `origin/main` から作られるので、計画を書いたときから main が進んでいることがある。`show-plan` の `planCommentBody`（null なら `gate.plan` を ````agent-plan` で囲んだもの）を scratchpad のファイルに書き、worktree で `node harness/scripts/agent.ts check <ファイル>` を走らせて、一緒に変えるファイルの抜けを今の main で照らし直す。抜けが出たら（終了コード 1）、書かずに手順4と同じく `claim <番号> --manual --stage plan` に戻し、抜けを `files` に足して plan の skill で計画を出し直す。
 3. **test-designer** サブエージェントにテストを書かせる。GitHub は読ませないので、Issue 番号、AC、Validation Requirements、計画の `files` を指示に含めて渡す。
 4. 計画の `files` の範囲で実装する。計画に無い設計の判断（新しいファイル・公開の形（関数・型・コマンド・設定のキー・出力の書式）の変更・計画の `files` の外の変更）が要ると分かったら、即興で決めて書かずに止まる（書きかけの変更は commit しない）。`node harness/scripts/agent.ts claim <番号> --manual --stage plan` で段階を `plan` に戻し、要る判断とその理由を計画に書いて、plan の skill で計画を出し直す（批評と計画ゲートを通し直す）。通ったら手順1の `claim --stage implement` で宣言し直し、既にある worktree で（手順2をやり直さずに）手順3から続ける（test-designer のテストも出し直した計画に合わせて見直す）。
    - 範囲外のまま出すかを AskUserQuestion で聞いてよいのは、人が付き添うセッションで、計画の `files` の外の変更を範囲外のまま出すかを人が決めるときだけ（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。範囲外として出すと決まったら PR 本文の「範囲外の変更」に理由を書き、出し直すと決まったら上のとおり計画に返す。
