@@ -1,22 +1,7 @@
 // permissions.deny の保護ラベル・例外ラベルの規則が、ラベルを付け外しする gh のコマンドだけに当たり、読むだけのコマンドには当たらないことを確かめる（Issue #218・#241）
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { test } from 'node:test';
-
-const root = join(import.meta.dirname, '..', '..');
-
-interface SettingsLike { permissions?: { deny?: string[] } }
-
-function denyOf(p: string): string[] {
-  const json = JSON.parse(readFileSync(join(root, p), 'utf8')) as SettingsLike;
-  const deny = json.permissions?.deny;
-  assert.ok(Array.isArray(deny), `${p} に permissions.deny がありません`);
-  return deny;
-}
-
-const SETTINGS = '.claude/settings.json';
-const TEMPLATE = 'harness/templates/claude-settings.deny.json';
+import { denyOf, hits, matchesRule, SETTINGS, TEMPLATE } from './support/settings-deny.ts';
 
 /** 規則に書く印（保護ラベルと、例外ラベルをまとめる :exempt） */
 const MARKS = ['agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-plan', 'agent:delegate-merge', ':exempt'];
@@ -54,7 +39,7 @@ const OTHER_RULES = [
   'Bash(gh api *branches/*/protection*)',
   'Bash(gh secret *)',
   'Bash(git push * main)',
-  'Bash(git push * main:*)',
+  'Bash(git push * *:main)',
   'Bash(git push * HEAD:main)',
   'Bash(git push --force*)',
   'Bash(git push -f*)',
@@ -75,19 +60,6 @@ const OTHER_RULES = [
   'Bash(git config --get-regexp*)',
   'Bash(git credential*)',
 ];
-
-/**
- * Claude Code の Bash の規則の照合の近似：`Bash(<型>)` の `*` を任意の文字の並び（改行も含む）として、コマンド全体に当てる。
- * 本物の照合（`&&` などで区切った部分ごとの照合など）とは違うので、Merge の後に付き添いのセッションで実物を確かめる。
- */
-function matchesRule(rule: string, command: string): boolean {
-  const m = /^Bash\(([\s\S]*)\)$/.exec(rule);
-  if (!m) return false;
-  const re = new RegExp(`^${m[1]!.split('*').map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('[\\s\\S]*')}$`);
-  return re.test(command);
-}
-
-const hits = (deny: string[], command: string): string[] => deny.filter((r) => matchesRule(r, command));
 
 /** ラベルの名前を含むが、ラベルを変えないコマンド */
 const READ_ONLY = [
