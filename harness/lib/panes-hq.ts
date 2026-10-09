@@ -133,7 +133,7 @@ const wrapped = (text: string, width: number, pad: string, color?: Parameters<ty
 
 // ---- 共通 ----
 
-interface FleetRow {
+export interface FleetRow {
   view: HqFleetView;
   row: FleetStatusRow;
 }
@@ -183,26 +183,28 @@ export function nextBoardPage(page: BoardPage, key: string): BoardPage {
   return page;
 }
 
-interface EpicGroup {
+export interface EpicGroup {
   number: number;
   title: string | null;
+  state: string | null;
   children: { number: number; state: string }[] | null;
   themes: Set<string>;
   rows: FleetRow[];
 }
 
 /** Epic ごとのまとまりと、Epic に入っていない行 */
-function groupByEpic(view: HqView): { epics: EpicGroup[]; none: FleetRow[] } {
+export function groupByEpic(view: HqView): { epics: EpicGroup[]; none: FleetRow[] } {
   const epics = new Map<number, EpicGroup>();
   const get = (n: number): EpicGroup => {
     let g = epics.get(n);
-    if (!g) { g = { number: n, title: null, children: null, themes: new Set(), rows: [] }; epics.set(n, g); }
+    if (!g) { g = { number: n, title: null, state: null, children: null, themes: new Set(), rows: [] }; epics.set(n, g); }
     return g;
   };
   for (const v of view.fleets) {
     for (const e of v.snap?.epics ?? []) {
       const g = get(e.number);
       g.title = e.title;
+      g.state = e.state;
       g.children = e.children.map((c) => ({ number: c.number, state: c.state }));
       g.themes.add(v.fleet.theme);
     }
