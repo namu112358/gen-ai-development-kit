@@ -1,6 +1,6 @@
 // Issue #528：plan-critic に、origin/main の最新を含むリポジトリのパスを渡す。fleet のワークスペース（main より古い checkout）から批評しても、
 // criticRepo が先に fetch して、HEAD が origin/main を含む読み先（Issue のブランチの worktree → 今の作業ディレクトリ → 無ければ origin/main の SHA の
-// detach の worktree）を選ぶか。fetch に失敗したら批評を始める前に止める（投げる）か。renderCriticInput が「=== 読み先のリポジトリ」の節を書くか。
+// detach の worktree）を選ぶか。fetch に失敗したら手元の origin/main で続けて警告を1行出すか、手元にも無ければ投げるか。renderCriticInput が「=== 読み先のリポジトリ」の節を書くか。
 import assert from 'node:assert/strict';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { join } from 'node:path';
@@ -93,9 +93,32 @@ test('本体が最新 → 本体（cwd の toplevel）を読み先にする。cw
   }
 });
 
-test('fetch に失敗する（origin が無い）→ 本体が最新でも投げる（批評を始める前に止める）', (t) => {
-  const { sb, opts } = setup(t);
+/** origin を進めて本体を最新にしてから、origin の URL を無いパスにする（以後の fetch は失敗する）。進めた後の SHA を返す */
+function offlineLatest(sb: Sb): string {
+  const base = advanceOrigin(sb, 'b.txt');
+  sb.git(sb.root, 'pull', '-q', '--ff-only');
   sb.git(sb.root, 'remote', 'set-url', 'origin', join(sb.dir, 'missing.git'));
+  return base;
+}
+
+test('fetch に失敗する（origin が無い）→ 手元の origin/main で読み先を返し、fetch できなかったことを警告に1行出す', (t) => {
+  const { sb, opts } = setup(t);
+  const base = offlineLatest(sb);
+
+  const r = criticRepo(528, sb.root, opts);
+  same(r.path, sb.root);
+  assert.equal(r.source, 'cwd');
+  assert.equal(r.base, base, '手元の origin/main の SHA');
+  assert.equal(typeof r.fetchError, 'string');
+  assert.equal(sb.warnings.length, 1, `警告は1行: ${JSON.stringify(sb.warnings)}`);
+  assert.match(sb.warnings[0]!, /git fetch/);
+  assert.match(sb.warnings[0]!, /手元の origin\/main/);
+});
+
+test('fetch に失敗し、手元にも origin/main が無い → 投げる（批評を始める前に止める）', (t) => {
+  const { sb, opts } = setup(t);
+  offlineLatest(sb);
+  sb.git(sb.root, 'update-ref', '-d', 'refs/remotes/origin/main');
   assert.throws(() => criticRepo(528, sb.root, opts), /最新を読めるパスがありません/);
 });
 
