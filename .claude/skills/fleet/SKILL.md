@@ -38,7 +38,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - このセッションの着手宣言（宣言の session が今のセッションの ID と同じ）は選ばれ、メモに段階が出る。PR の無い段階は Issue の宣言を、PR の段階は PR の宣言（`claim <PR番号> --stage judge|fix|sync`）を見る（メモには「PR の着手宣言」と出る）。「着手宣言あり」で選ばれない Issue が止まった前のセッションの途中のもの（`/clear` で ID が変わった場合を含む）なら、1件ずつ聞かずに、前のセッションごとに「前のセッション（session <短い ID>）の宣言 #…（N 件）をこのセッションに引き継ぐか」を AskUserQuestion の1問でまとめて聞く（おすすめは引き継ぐ。Orca の worker のときは hq に `ask` の1問）。引き継ぐなら全部を `node harness/scripts/agent.ts claim <番号> --manual --takeover` で出し直して読み直す（PR の段階なら `claim <PR番号> --manual --stage judge|fix|sync --takeover`）。拒まれたら出し直さない。
    - Issue に手を付ける最初に、ship と同じく `claim <番号> --manual --stage <段階>` で宣言する。人の判断待ちで止めてセッションを終えるときは `release <番号>` で解除する。
    - `claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue を飛ばして次の Issue へ進み、最後の一覧に「#番号 は session … が着手中」と載せる（引き継ぐかは人が決める）。
-   - 着手宣言（`claim <番号> --manual`）が領域の上限で止まったら、`--force` を付けて宣言する（fleet は領域の上限を見ないため）。
+   - 着手宣言（`claim <番号> --manual`）が領域の上限で止まったら、`--fleet` を付けて宣言する（fleet は領域の上限を見ないため）。
 2. 「選ぶ」の Issue ごとに（選択が「待つ」の行は、次にやること（fix・judge など）が出ていても進めない）、表の「次にやること」の段階を ship と同じ判断（ship の手順2〜6）で1つ進める。
    - plan：plan の skill。批評（plan-critic）は Issue ごとに並行して呼んでよい。Planner の質問（`openQuestions`・`needsHumanReasons`）は plan の skill の手順3どおり投稿の前に AskUserQuestion で聞く（複数の Issue の質問を1回にまとめてよい。1回に4問まで）。入れ子の方式では ship が投稿せずに質問を返すので、「入れ子の方式」の手順2でまとめて聞き、答えを渡して ship を呼び直す。計画ゲートが `agent:plan-review` で止めた Issue は、ship の手順2と同じく、宣言が残っていれば `release <番号>` で解除してから、進めてよいかを聞く（手順9でまとめて聞いてよい）。Planner の申告で止まったら、ship の手順2どおり人の答えを `post-decision` で記録する。人が「進める」と答えたら、plan の skill の手順10どおり、その言葉を進める記録（`agent-decision` の `proceed`、`post-decision`）で残してから implement に進める（入れ子の方式では、答えを渡して呼び直した ship が記録する）。
    - implement：implement の skill。worktree は Issue ごとに分ける。test-designer・実装は並行してよい。
@@ -78,7 +78,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - 「入れ子不可」：Agent ツールが無く ship の中でサブエージェントを呼べない。以降はこのセッションで交互の方式（手順2〜5）に切り替える。
    - 人の判断待ち：手順9の前でも、たまったらまとめて AskUserQuestion で聞いてよい（1回に4問まで）。答えを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかったら、その Issue は人の判断待ちのまま一覧に書く。
    - 投稿の前の質問（ship が計画を投稿せずに返した Planner の質問）：ship の宣言が `plan` のまま残っているので、手順9を待たずに、返った質問を複数の Issue の分もまとめて AskUserQuestion で聞く（1回に4問まで。残りは次の回。おすすめを先頭）。答えと、ship が返した書きかけの計画のパスを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかった質問は「答え無し」として渡して呼び直す（ship は申告を残して投稿し、`post-plan` が宣言を解除する。同じ質問を繰り返さない）。聞けないまま、または呼び直せないままセッションを終えるときは、その Issue を `node harness/scripts/agent.ts release <番号>` で解除し、手順9の一覧に「投稿の前の質問に答えが無く、計画は投稿していない（次は plan から）」と書く。
-   - 待つ（重なり・PR 同士の衝突・`--max` の本数・領域の上限）：表で「選ぶ」に戻るまで呼び直さない。領域の上限で待つ Issue は、fleet が `claim <番号> --manual --stage implement --force` で宣言し直してから呼び直してよい（fleet は領域の上限を見ないため）。
+   - 待つ（重なり・PR 同士の衝突・`--max` の本数・領域の上限）：表で「選ぶ」に戻るまで呼び直さない。領域の上限で待つ Issue は、fleet が `claim <番号> --manual --stage implement --fleet` で宣言し直してから呼び直してよい（fleet は領域の上限を見ないため）。
    - Merge 済みの Issue が出たら、次にやることが sync になった残りの PR の ship を呼び直す。
 3. 「選ぶ」の Issue が全部、人の Merge 待ちか人の判断待ちになるまで、1〜2を繰り返す。その後、手順6〜9に進み（手順9の一覧は、ship が返した人がすることの項目をまとめる）、人の判断待ちだけが残ったのでなければ、終わらずに節「待つ間の読み直し」へ進む。
 
@@ -105,7 +105,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
 5. **仕様**：`--spec` は Task-spec の5項目（対象・すること・守ること・持ち分・終わりの確かめ）で、それだけで分かるように書く。
    - 対象：Issue 番号、worktree の絶対パス、`node harness/scripts/agent.ts fleet-status` に渡す番号の集合と `--max`
    - すること：ship の skill（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）で、人の Merge 待ちか人の判断待ちまで進める
-   - 守ること：最初に自分のセッションで `node harness/scripts/agent.ts claim <番号> --manual --stage <段階>` を出す。領域の上限で止まったら `--force` を付けて宣言し直す（fleet は領域の上限を見ないため）。ほかのセッションの宣言で止まったら何もせず、`worker_done` を `--outcome failed` で送る。人に聞くところは AskUserQuestion を使わず、前置きの `ask` で fleet に聞く。bypass permissions で動いていると分かったら進めず、`--outcome failed` で返す。Merge・Draft の解除・保護ラベルの付け外しをしない
+   - 守ること：最初に自分のセッションで `node harness/scripts/agent.ts claim <番号> --manual --stage <段階>` を出す。領域の上限で止まったら `--fleet` を付けて宣言し直す（fleet は領域の上限を見ないため）。ほかのセッションの宣言で止まったら何もせず、`worker_done` を `--outcome failed` で送る。人に聞くところは AskUserQuestion を使わず、前置きの `ask` で fleet に聞く。bypass permissions で動いていると分かったら進めず、`--outcome failed` で返す。Merge・Draft の解除・保護ラベルの付け外しをしない
    - 持ち分：その Issue の worktree の中だけを書き換える
    - 終わりの確かめ：人がすることの項目を `--report-path` のファイルに書き、`worker_done` を1回だけ送る。人の判断待ちで止めるなら `node harness/scripts/agent.ts release <番号>` で解除してから送る
 6. **待つ・答える**：`ORCA orchestration check --wait --run <fleet の Run ID> --types "worker_done,escalation,question" --json` で待つ。

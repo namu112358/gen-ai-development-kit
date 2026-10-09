@@ -64,7 +64,7 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 - plan の投稿の前の質問（plan の skill の手順3の「投稿の前に人に聞く」。計画ブロックに `openQuestions` か `needsHumanReasons` がある）でも、聞かずに止まる。計画を投稿せず、批評（plan の手順5）にも進まずに、Issue 番号・段階（投稿の前の質問）・質問と選択肢（おすすめを先頭）・書きかけの計画のファイルのパス（scratchpad）を fleet に返す。着手宣言は `plan` のまま残す（解除しない。答えの無いまま fleet が終えるときは fleet が `release <番号>` する）。批評の `revise` で直した計画に新しい質問が出たときも、同じように止まって fleet に返す。
 - 投稿の前の質問への答えを渡されて呼び直されたら、先に `claim <番号> --manual --stage plan` で宣言を確かめ直し（fleet が `release` した後なら宣言し直す）、渡されたパスの計画に、答えを人の答えとして plan の skill の手順3どおり書き込み（節「人の決定（投稿の前に聞いたこと）」）、解消したものを `openQuestions`・`needsHumanReasons` から除いてから、批評（plan の手順5）と投稿（plan の手順8）に進む。「答え無し」（人が拒んだ・答えなかった）の質問は申告に残して投稿する（投稿の後は plan の手順9の経路。答えが無いので `post-decision` はしない）。書きかけの計画のファイルが無ければ plan の手順2から書き直し、渡された答えをそのまま書き込む（同じ質問を fleet に返し直さない）。
 - implement の前と sync の前に、fleet から渡された Issue 番号の集合と `--max` で `node harness/scripts/agent.ts fleet-status [--max <n>] <番号>...` を読み、自分の行が「待つ」なら進めずに、その理由を返す（自分の番号だけで読むと、ほかの Issue との重なり・PR 同士の衝突・本数が数えられない）。
-- `claim <番号> --manual --stage implement` が領域の上限（`areaConcurrency`）で止まったら、`--force` を付けずに「待つ（領域の上限）」として返す（`--force` を付けるかは fleet が決める）。
+- `claim <番号> --manual --stage implement` が領域の上限（`areaConcurrency`）で止まったら、`--force`・`--fleet` を付けずに「待つ（領域の上限）」として返す（`--fleet` で宣言し直すかは fleet が決める）。
 - ハーネスが更新されたとき：ship は fleet と同じセッション ID なので、自分では交代しない。段階を始める前に `harness-drift` で古いと分かったら、進めずに「待つ（読み込みが古い）」として fleet に返す（宣言の扱いは人の判断待ちで止めるときと同じ。必要なら `release <番号>`）。交代は fleet が行う。
 - Merge 済みの PR で呼び直されたら、手順1の「Merge 済みで呼び直されたとき」を行い、Close の見届けの結果を返す。
 - 手順9の振り分けはこの ship の記録（`incident list`）で行い、手順10の一覧は人に出さず、その項目（Merge・例外ラベル・setup の要否・Merge 後の確かめ・改善の候補）を返す。fleet がまとめて人に出す。
