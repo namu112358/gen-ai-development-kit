@@ -365,7 +365,7 @@ const root = join(import.meta.dirname, '..', '..');
 const readRoot = (...parts: string[]): string => readFileSync(join(root, ...parts), 'utf8').replace(/\r\n/g, '\n');
 const skill = (): string => readRoot('.claude', 'skills', 'qa-retro', 'SKILL.md');
 
-/** 見出しから次の同じ深さの見出しまでの本文。見出しが無ければ null（qa-retro-skill.test.ts と同じ） */
+/** 見出しから次の同じ深さの見出しまでの本文。見出しが無ければ null */
 function section(text: string, heading: string): string | null {
   const lines = text.split('\n');
   const start = lines.indexOf(heading);
