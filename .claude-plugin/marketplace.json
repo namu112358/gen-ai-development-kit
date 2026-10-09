@@ -1,0 +1,5 @@
+{
+  "name": "agent-harness",
+  "owner": { "name": "namu112358" },
+  "plugins": [{ "name": "agent-harness", "source": "./mods/agent-harness" }]
+}
