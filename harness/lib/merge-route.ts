@@ -52,6 +52,8 @@ export interface Acceptance {
   verdictHeadSha: string;
   /** 受け付け時点の PR 自身の差分の patch-id */
   patchId: string;
+  /** main の取り込み（App の update-branch）で判定を引き継いだ記録だけにある。前の受け付けの patch-id と取り込み前の head（harness/gates/main-merge-carry.ts） */
+  carriedFrom?: { patchId: string; headSha: string };
   reviewPass: boolean;
   riskLevel: string;
   riskOk: boolean;

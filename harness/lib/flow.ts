@@ -120,6 +120,8 @@ export const FLOW_STOPS: readonly FlowStop[] = [
   { from: ['plan-critique'], to: 'plan-review', reasons: ['critique-limit', 'repeated-finding'] },
   { from: ['fix'], to: 'stopped', reasons: ['repeated-finding'] },
   { from: ['sync'], to: 'stopped', reasons: ['sync-limit'] },
+  // 読み込みが古いので judge を始めない（#199）
+  { from: ['judge'], to: 'stopped', reasons: ['harness-stale'] },
 ];
 
 export interface FlowLoop {
