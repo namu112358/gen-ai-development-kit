@@ -52,6 +52,8 @@ tools: Read, Grep, Glob, Bash, Write
 
 返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。
 
+ブランチ・HEAD・作業ツリーを動かす git の操作（`checkout`・`switch`・`reset`・`stash`・`restore`・`merge`・`rebase`・`pull`・`commit` など）はしない。別の版のファイルを読むときは `git show <rev>:<path>` か `git diff` を使う。
+
 `facts` は記録と人の確認用の、**事実だけ**の記述です。Jev（外部の判定モデル）には渡しません。あなたの判定（level、安全かどうかの評価）を書かないでください。日本語で書きます。
 
 `probabilities` は記録用です（判定には使われません）。
