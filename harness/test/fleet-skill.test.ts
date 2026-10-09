@@ -85,7 +85,8 @@ const FLEET_SPEC: SkillSpec = {
       ],
       absent: ['まだ無い', '3回分けて', '4ペイン'],
     },
-    // 手順3：ペインの並びと作り方。向きは Orca 1.4.216 の実際の動き（#415・#430）
+    // 手順3：ペインの並びと作り方。向きは Orca 1.4.216 の実際の動き。向きを決め打ちにせず、並びが違えば逆の向きで2回まで分け直し、
+    // 直らなければ表示のペイン無しで進める（#415・#430・#448）
     {
       section: AS_WORKER,
       step: 3,
@@ -94,6 +95,7 @@ const FLEET_SPEC: SkillSpec = {
         'panes.ts todo', 'panes.ts collect', 'panes.ts prs',
         '1.4.216', '案内', '逆', '`--direction vertical` で左右', '--include-visual-layouts', '違えば', '分け直す',
         '対象の Issue が変わったら', '--interrupt', '作り方',
+        '決め打ちにしない', '逆の向き', '2回まで', '表示のペイン無しで進め', '#448',
       ],
       absent: ['逆なら', 'ORCA skills get orchestration', '進み具合のペインを閉じ、'],
       order: ['左に fleet の Claude', '右に上から', '進み具合', 'あなたがすること', 'PR と費用'],
@@ -152,10 +154,13 @@ const HQ_FOR_FLEET_SPEC: SkillSpec = {
       order: ['すぐ伝える', 'ready-<PR>', '手順12の一覧にためる', 'merged-<PR>'],
       absent: ['届いたものを全部処理してから'],
     },
-    // 手順6：Orca 1.4.216 の向きと、分けた後の確かめ（#430）
+    // 手順6：Orca 1.4.216 の向きと、分けた後の確かめ。向きを決め打ちにせず、逆の向きで2回まで分け直し、直らなければペイン無しで進める（#430・#448）
     {
       step: 6,
-      words: ['1.4.216', '案内', '逆', '`--direction vertical` で左右', '--include-visual-layouts', '違えば', '分け直す'],
+      words: [
+        '1.4.216', '案内', '逆', '`--direction vertical` で左右', '--include-visual-layouts', '違えば', '分け直す',
+        '決め打ちにしない', '逆の向き', '2回まで', '表示のペイン無しで進め',
+      ],
       absent: ['逆なら', 'ORCA skills get orchestration'],
     },
   ],
