@@ -3,7 +3,7 @@
  *
  *   node harness/scripts/panes.ts collect --session <fleet のセッション ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...
  *   node harness/scripts/panes.ts progress|todo|prs (--session <ID> | --snapshot <パス>)（todo は hq がいない間の控えの質問も出す）
- *   node harness/scripts/panes.ts hq [todo|board|log] [--once] [--fleets <控えのパス>]（ペインの名前が無ければ todo）
+ *   node harness/scripts/panes.ts hq [todo|board|log] [--once] [--fleets <控えのパス>]（ペインの名前が無ければ todo。todo だけ --json で1行の JSON を出す。Claude Code の mod が読む）
  *   node harness/scripts/panes.ts fleets --session <ID> [--session <ID>...]
  *   node harness/scripts/panes.ts config
  *
@@ -39,8 +39,8 @@ import type { IssueComment } from '../lib/github.ts';
 import { epicChildrenFromRecords } from '../lib/session-inputs.ts';
 import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
-import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
-import { nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type HqView } from '../lib/panes-hq.ts';
+import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
+import { hqWarning, nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type HqView } from '../lib/panes-hq.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 import { gitCommonDir, ledgerPath, parseLedger, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
 import { projectTranscriptDir } from '../lib/usage.ts';
@@ -375,6 +375,24 @@ function writeSnapshotFile(path: string, snap: PaneSnapshot): void {
   renameSync(tmp, path);
 }
 
+/** hq todo --json の出力（Claude Code の mod が読む。mods/agent-harness/types/index.d.ts の HqTodo と同じ形） */
+export interface HqTodoJson {
+  version: 1;
+  ledger: boolean;
+  count: number;
+  items: { theme: string; issue: number; pr: number | null; text: string; sub: string }[];
+  warning: string | null;
+}
+
+/** renderHqTodo と同じ集め方（全 fleet の todoItems を rank 順）を、色なしの JSON の形にする */
+export function hqTodoJson(view: HqView, now: number): HqTodoJson {
+  const items = view.fleets
+    .flatMap((v) => (v.snap ? todoItems(v.snap).map((it) => ({ it, theme: v.fleet.theme })) : []))
+    .sort((a, b) => a.it.rank - b.it.rank)
+    .map(({ it, theme }) => ({ theme, issue: it.issue, pr: it.pr, text: it.text, sub: it.sub }));
+  return { version: 1, ledger: view.ledger, count: items.length, items, warning: hqWarning(view, now) };
+}
+
 interface CliArgs {
   sessions: string[];
   label: string | null;
@@ -382,11 +400,12 @@ interface CliArgs {
   cwd: string | null;
   fleets: string | null;
   once: boolean;
+  json: boolean;
   issues: number[];
 }
 
 function parseCli(args: string[]): CliArgs {
-  const out: CliArgs = { sessions: [], label: null, snapshot: null, cwd: null, fleets: null, once: false, issues: [] };
+  const out: CliArgs = { sessions: [], label: null, snapshot: null, cwd: null, fleets: null, once: false, json: false, issues: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const value = (): string => {
@@ -400,13 +419,14 @@ function parseCli(args: string[]): CliArgs {
     else if (a === '--cwd') out.cwd = value();
     else if (a === '--fleets') out.fleets = value();
     else if (a === '--once') out.once = true;
+    else if (a === '--json') out.json = true;
     else if (/^\d+$/.test(a)) out.issues.push(Number(a));
     else throw new Error(`知らない引数：${a}`);
   }
   return out;
 }
 
-const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | fleets --session <ID>... | config';
+const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | hq todo --json [--fleets <パス>] | fleets --session <ID>... | config';
 
 function main(argv: string[]): void {
   const [mode, ...rest] = argv;
@@ -515,6 +535,7 @@ function mainHq(argv: string[], config: ReturnType<typeof loadConfig>): void {
   if (pane !== 'todo' && pane !== 'board' && pane !== 'log') throw new Error(USAGE);
   const args = parseCli(rest);
   if (args.sessions.length > 0 || args.snapshot || args.issues.length > 0) throw new Error(`hq のペインは --session・--snapshot・Issue 番号を受け付けません（hq の控えから今動いている fleet を読みます。${USAGE}）`);
+  if (args.json && pane !== 'todo') throw new Error(`--json は hq todo だけです（${USAGE}）`);
   const { maxFleets } = hqConfig(config);
   const { staleSnapshotMinutes } = hqStallConfig(config);
   const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -546,6 +567,11 @@ function mainHq(argv: string[], config: ReturnType<typeof loadConfig>): void {
     height: () => Math.max(5, (process.stdout.rows || 24) - 1),
     staleMinutes: staleSnapshotMinutes,
   };
+  if (args.json) {
+    const now = deps.now();
+    console.log(JSON.stringify(hqTodoJson(readHqView(deps.readLedger(), (s) => deps.readSnapshot(s), now, staleSnapshotMinutes), now)));
+    return;
+  }
   if (args.once) {
     const now = deps.now();
     const view = readHqView(deps.readLedger(), (s) => deps.readSnapshot(s), now, staleSnapshotMinutes);

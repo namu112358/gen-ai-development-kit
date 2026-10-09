@@ -5,3 +5,4 @@ node_modules
 *.pem
 app-manifest.html
 .agent-harness-workspace
+mods/*/.claude-plugin/types/
