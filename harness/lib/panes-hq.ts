@@ -2,6 +2,7 @@
  * hq の3つのペイン（上から Epic/Issue・人待ち・ログ）の描き方と、hq の控えから今動いている fleet を見つけること。純粋関数だけ（Issue #402）。
  * CLI は harness/scripts/panes.ts の hq todo・hq board・hq log。
  * 入力は hq の控え（harness/scripts/hq-state.ts の hq-fleets.json）の fleets と、collect が書いた fleet のスナップショットだけで、gh・GitHub・ファイルを読まない。
+ * ログには fleet の heartbeat の一言（Issue #438）もまぜる（一言は引数で受け取り、ここでは読まない）。
  * 段階の読み替え・記号・人がすることは harness/lib/panes.ts と同じものを使う。
  */
 import type { FleetStatusRow } from './fleet.ts';
@@ -292,20 +293,31 @@ export function renderHqBoard(view: HqView, page: BoardPage, now: number, width:
 const two = (n: number): string => String(n).padStart(2, '0');
 const hhmm = (iso: string): string => { const d = new Date(iso); return `${two(d.getHours())}:${two(d.getMinutes())}`; };
 
-/** ③ ログ：状態が変わった Issue を新しい順に1行ずつ（時刻・記号・番号・一言・PR）。ペインの高さに収まる分だけ */
-export function renderHqLog(view: HqView, now: number, width: number, height: number): string {
+/** fleet の heartbeat の一言1つ（Issue #438。控えは harness/scripts/hq-state.ts の hq-heartbeat.json。ファイルは読まず、引数で受け取る） */
+export interface HqNote {
+  theme: string;
+  note: string;
+  at: string;
+}
+
+/** ③ ログ：状態が変わった Issue と fleet の heartbeat の一言（#438）を新しい順に1行ずつ（時刻・記号・番号・一言・PR）。ペインの高さに収まる分だけ */
+export function renderHqLog(view: HqView, now: number, width: number, height: number, notes: readonly HqNote[] = []): string {
   const out = heading('ログ（新しい順）', view, now, width);
-  const entries = rowsOf(view)
-    .map((fr) => ({ ...fr, at: fr.view.snap?.since[String(fr.row.issue)]?.at ?? null }))
-    .filter((e): e is FleetRow & { at: string } => e.at !== null && Number.isFinite(Date.parse(e.at)))
-    .sort((a, b) => Date.parse(b.at) - Date.parse(a.at));
-  if (entries.length === 0) out.push(paint('gray', '  まだありません'));
-  for (const e of entries) {
-    const at = locateRow(e.row);
-    const k = at.step === 'done' ? 'done' : at.step === 'stopped' ? 'stopped' : WHO_MARK[at.other ? 'ai' : at.who];
-    const line = `${paint('gray', hhmm(e.at))} ${paint(MARK_COLOR[k], MARKS[k].mark)} ${paint('bold', `#${e.row.issue}`)} ${at.what}${e.row.pr !== null ? `  ${paint('cyan', `PR #${e.row.pr}`)}` : ''}`;
-    out.push(clipLine(line, width));
+  const lines: { at: number; line: string }[] = [];
+  for (const fr of rowsOf(view)) {
+    const at = fr.view.snap?.since[String(fr.row.issue)]?.at ?? null;
+    if (at === null || !Number.isFinite(Date.parse(at))) continue;
+    const loc = locateRow(fr.row);
+    const k = loc.step === 'done' ? 'done' : loc.step === 'stopped' ? 'stopped' : WHO_MARK[loc.other ? 'ai' : loc.who];
+    lines.push({ at: Date.parse(at), line: `${paint('gray', hhmm(at))} ${paint(MARK_COLOR[k], MARKS[k].mark)} ${paint('bold', `#${fr.row.issue}`)} ${loc.what}${fr.row.pr !== null ? `  ${paint('cyan', `PR #${fr.row.pr}`)}` : ''}` });
   }
+  for (const n of notes) {
+    if (!Number.isFinite(Date.parse(n.at))) continue;
+    lines.push({ at: Date.parse(n.at), line: `${paint('gray', hhmm(n.at))} ${paint('cyan', `[${n.theme}]`)} ${n.note}` });
+  }
+  lines.sort((a, b) => b.at - a.at);
+  if (lines.length === 0) out.push(paint('gray', '  まだありません'));
+  for (const l of lines) out.push(clipLine(l.line, width));
   return out.slice(0, Math.max(1, height)).join('\n');
 }
 

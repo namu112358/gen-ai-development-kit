@@ -8,6 +8,7 @@
  *   node harness/scripts/hq-state.ts pending-add --session <ID> --issue <n> --stage <段階> --question <質問> --option <おすすめ> [--option <ほか>...] [--message-id <id>]
  *   node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <n> --answer <人の答え>
  *   node harness/scripts/hq-state.ts pending-remove --session <ID> --issue <n>
+ *   node harness/scripts/hq-state.ts heartbeat-save --theme <テーマ> --note <一言>（fleet の heartbeat の一言。ログのペインが読む。#438）
  *
  * - 置き場所は `git rev-parse --path-format=absolute --git-common-dir` の下の agent-harness/hq/（本体・fleet のワークスペース・
  *   Issue の worktree から同じ場所。作業ツリーの外で commit されない）。hq の控えは hq-fleets.json、fleet の控えは pending/<セッション ID>.json。
@@ -19,7 +20,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFile
 import { dirname, join } from 'node:path';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 
-export const HQ_STATE_COMMANDS: readonly string[] = ['path', 'ledger', 'ledger-save', 'pending', 'pending-add', 'pending-answer', 'pending-remove'];
+export const HQ_STATE_COMMANDS: readonly string[] = ['path', 'ledger', 'ledger-save', 'pending', 'pending-add', 'pending-answer', 'pending-remove', 'heartbeat-save'];
 
 export function hqStateDir(commonDir: string): string {
   return join(commonDir, 'agent-harness', 'hq');
@@ -27,6 +28,12 @@ export function hqStateDir(commonDir: string): string {
 
 export function ledgerPath(commonDir: string): string {
   return join(hqStateDir(commonDir), 'hq-fleets.json');
+}
+
+export const HEARTBEAT_FILE = 'hq-heartbeat.json';
+
+export function heartbeatPath(commonDir: string): string {
+  return join(hqStateDir(commonDir), HEARTBEAT_FILE);
 }
 
 export function pendingDir(commonDir: string): string {
@@ -143,6 +150,45 @@ export function renderPending(file: PendingFile | null): string[] {
   return out;
 }
 
+/** fleet の heartbeat の一言1つ（テーマごとに最新の1件） */
+export interface HeartbeatNote {
+  theme: string;
+  note: string;
+  at: string;
+}
+
+export interface HeartbeatFile {
+  version: 1;
+  notes: HeartbeatNote[];
+}
+
+/** heartbeat の控えを読む。形が違えば null */
+export function parseHeartbeat(v: unknown): HeartbeatFile | null {
+  if (!isObj(v) || v.version !== 1 || !Array.isArray(v.notes)) return null;
+  const notes: HeartbeatNote[] = [];
+  for (const n of v.notes) {
+    if (!isObj(n) || typeof n.theme !== 'string' || typeof n.note !== 'string' || typeof n.at !== 'string') return null;
+    notes.push({ theme: n.theme, note: n.note, at: n.at });
+  }
+  return { version: 1, notes };
+}
+
+/** 一言を控える。同じテーマの前の一言は置き換える。改行・連続する空白は1つの空白にする */
+export function recordHeartbeat(file: HeartbeatFile | null, theme: string, note: string, now: string): HeartbeatFile {
+  const kept = (file?.notes ?? []).filter((n) => n.theme !== theme);
+  return { version: 1, notes: [...kept, { theme, note: note.replace(/\s+/g, ' ').trim(), at: now }] };
+}
+
+/** 今の控えのテーマにあり、staleMinutes 分以内の一言だけを、新しい順に返す */
+export function freshHeartbeats(file: HeartbeatFile | null, themes: readonly string[], now: number, staleMinutes: number): HeartbeatNote[] {
+  if (!file) return [];
+  return file.notes
+    .map((n) => ({ n, t: Date.parse(n.at) }))
+    .filter(({ n, t }) => themes.includes(n.theme) && !Number.isNaN(t) && now - t <= staleMinutes * 60000)
+    .sort((a, b) => b.t - a.t)
+    .map(({ n }) => n);
+}
+
 // ---- ファイル（CLI と panes.ts が使う） ----
 
 function readJson(path: string): unknown {
@@ -162,6 +208,7 @@ function writeJson(path: string, v: unknown): void {
 }
 
 export const readLedgerFile = (commonDir: string): HqLedger | null => parseLedger(readJson(ledgerPath(commonDir)));
+export const readHeartbeatAt = (path: string): HeartbeatFile | null => parseHeartbeat(readJson(path));
 export const readPendingFile = (commonDir: string, session: string): PendingFile | null => parsePending(readJson(pendingPath(commonDir, session)));
 
 /** git の共通ディレクトリ。取れなければ null */
@@ -184,12 +231,14 @@ interface CliArgs {
   options: string[];
   messageId: string | null;
   answer: string | null;
+  theme: string | null;
+  note: string | null;
 }
 
 class UsageError extends Error {}
 
 function parseCli(args: string[]): CliArgs {
-  const out: CliArgs = { positional: [], commonDir: null, session: null, all: false, issue: null, stage: null, question: null, options: [], messageId: null, answer: null };
+  const out: CliArgs = { positional: [], commonDir: null, session: null, all: false, issue: null, stage: null, question: null, options: [], messageId: null, answer: null, theme: null, note: null };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const value = (): string => {
@@ -209,6 +258,8 @@ function parseCli(args: string[]): CliArgs {
     else if (a === '--option') out.options.push(value());
     else if (a === '--message-id') out.messageId = value();
     else if (a === '--answer') out.answer = value();
+    else if (a === '--theme') out.theme = value();
+    else if (a === '--note') out.note = value();
     else if (a.startsWith('--')) throw new UsageError(`知らない引数：${a}`);
     else out.positional.push(a);
   }
@@ -237,6 +288,15 @@ function main(argv: string[]): void {
     if (!ledger) throw new UsageError(`控えの形が違います（version 1・runId・hqHandle・hqSession・paneHandles・fleets）：${file}`);
     const saved: HqLedger = { ...ledger, updatedAt: new Date().toISOString() };
     writeJson(ledgerPath(commonDir), saved);
+    return print(saved);
+  }
+  if (mode === 'heartbeat-save') {
+    const theme = need(args.theme, '--theme').trim();
+    const note = need(args.note, '--note').trim();
+    if (!theme || !note) throw new UsageError('--theme と --note は空にできません');
+    const path = heartbeatPath(commonDir);
+    const saved = recordHeartbeat(readHeartbeatAt(path), theme, note, new Date().toISOString());
+    writeJson(path, saved);
     return print(saved);
   }
   if (mode === 'pending') {

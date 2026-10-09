@@ -22,7 +22,7 @@ const q = (issue: number, patch: Partial<{ stage: string; question: string; opti
 // ---- 定数・置き場所 ----
 
 test('HQ_STATE_COMMANDS：CLI のコマンドの一覧', () => {
-  assert.deepEqual([...HQ_STATE_COMMANDS], ['path', 'ledger', 'ledger-save', 'pending', 'pending-add', 'pending-answer', 'pending-remove']);
+  assert.deepEqual([...HQ_STATE_COMMANDS], ['path', 'ledger', 'ledger-save', 'pending', 'pending-add', 'pending-answer', 'pending-remove', 'heartbeat-save']);
 });
 
 test('hqStateDir・ledgerPath・pendingPath：git の共通ディレクトリの agent-harness/hq の下', () => {
