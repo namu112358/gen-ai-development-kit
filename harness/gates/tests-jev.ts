@@ -1,6 +1,6 @@
 /**
  * agent/tests の検出（アサーションの書き換え）を Jev に問い、App の記録（kind=test-tamper-jev）に残す（Q95）。
- * 問う検出には、テストの名前の変更（renamed-test）も含む（harness/lib/test-tamper-jev.ts の askableChanges）。
+ * 問う検出には、テストの名前の変更（renamed-test）も含む（harness/lib/test-tamper-jev.ts の askableChanges）。本体を持つテストの中身の書き換え（rewritten-test）も問い、材料の合計は jev.maxDiffChars までにする。
  * on-pr.ts（tests-check.ts の書き手）と apply.ts の rewriteTestsCheck の両方から使うので、apply.ts を import しない。
  * 1つの差分（patch-id）に1回だけ問う。同じ patch-id の記録があれば問い直さず、記録の確率と今の設定で通すかを計算し直す。
  * jev.testTamper が off・fork の PR・JEV_API_KEY が無い・問えない検出（削除系など）のときは問わない。Jev の error は記録しない（次のイベントで問い直す）。
@@ -36,7 +36,7 @@ export async function tamperJevFor(ctx: GateContext, pr: PullRequest, findings: 
   if (!isSameRepoPr(pr, ctx.repository)) return { mode, asked: false, reason: 'fork の PR は Jev に問いません' };
   const apiKey = ctx.secrets.jevApiKey;
   if (!apiKey) return { mode, asked: false, reason: '`JEV_API_KEY` が未設定です' };
-  const askable = askableChanges(findings);
+  const askable = askableChanges(findings, ctx.config.jev.maxDiffChars);
   if (!askable.ask) return { mode, asked: false, reason: askable.reason };
 
   const patchId = await resolve(patch);
