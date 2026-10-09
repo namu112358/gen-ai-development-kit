@@ -29,7 +29,7 @@ GitHub の Stacked PR（下の層のブランチを base にした PR を重ね�
 見張りの hook（`.claude/hooks/guard.ts`）が止める。止められたら別の方法で試さず、人に返す。
 
 - `gh stack merge`（スタックの Merge。人が GitHub の画面で行う）と、スタックの Merge の API（`…/pulls/<番号>/merge-async`）
-- `gh stack push`・`sync`・`rebase`・`submit`・`modify`（force push を含みうる。追従は `git merge`、push は `git push`）
+- `gh stack push`・`sync`・`rebase`・`submit`・`modify`（force push を含みうる。追従は `git merge`、push は層ごとに `git push origin <層のブランチ>`）
 - `gh stack alias`（別名で hook の見張りを避けられる）
 - `gh stack unstack`・`checkout`（リモートのスタックを外しうる）・`init`・`add`・`feedback` など、上の一覧に無いサブコマンド
 - ブランチ名を渡す `gh stack link`（ブランチを push して PR を作る。PR は手順2で先に出す）、フラグを付けた `gh stack link`（`--open` は Draft の解除、`--base`・`--remote` は送り先を変える）
