@@ -52,7 +52,7 @@ export async function testsHumanMerge(ctx: GateContext, pr: PullRequest, accepta
 /** Jev が通した検出の種類ごとの件数（例：「アサーションの書き換え 2 件・テストの名前の変更 1 件」） */
 function jevPassedCounts(findings: TamperFinding[]): string {
   const count = (kind: TamperFinding['kind']) => findings.filter((f) => f.kind === kind).length;
-  const parts = [['アサーションの書き換え', count('assertion-changed')], ['テストの名前の変更', count('renamed-test')]] as const;
+  const parts = [['アサーションの書き換え', count('assertion-changed')], ['テストの名前の変更', count('renamed-test')], ['テストの中身の書き換え', count('rewritten-test')]] as const;
   return parts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n} 件`).join('・');
 }
 
