@@ -11,7 +11,8 @@
  * - アサーション（assert / expect(）を含む行の削除・書き換え（整形だけの変更も含む）
  * 同じファイルで同じ内容の行が消えて足されたもの（移動）は数えない。
  * - テストの中身の書き換え：名前が変わった組（テスト定義の行どうしで組む）の本体（括弧が閉じるまで）が、空行・// だけの行・アサーションの行を除いて前後で違うもの。
- *   本体が hunk の外まで続いて全部を見られず、後ろの hunk に本体の書き換えになりうる行があるときは、前後の本体（body）を持たせない
+ *   本体が hunk の外まで続いて全部を見られず、後ろの hunk に本体の書き換えになりうる行があるときは、前後の本体（body）を持たせない。
+ *   後ろの hunk は境目より前の行だけを見る（境目：字下げが定義以下の次のテスト定義の行。字下げ 0 の定義なら、見出しの関数の文脈が別の名前のテスト定義の hunk 全体。Issue #530）
  * アサーションの書き換えは、同じ場所の削除と追加が対になれば変更後の行も持たせる（表示と、Jev に問う材料（harness/lib/test-tamper-jev.ts）に使う。この検査の判定には使わない）。
  */
 import { TEST_EXEMPT_LABEL } from './config.ts';
@@ -71,7 +72,8 @@ interface FileDiff {
   removed: Line[];
   added: Line[];
   /** hunk ごとの古い側（文脈と削除）・新しい側（文脈と追加）の行。テストの本体を切り出すのに使う */
-  hunks: { old: { no: number; text: string }[]; new: { no: number; text: string }[] }[];
+  /** section は hunk の見出し（`@@ … @@`）の後ろの関数の文脈（trim 済み。無ければ空文字） */
+  hunks: { old: { no: number; text: string }[]; new: { no: number; text: string }[]; section: string }[];
 }
 
 const DEFINITION = /\b((?:test|it|describe)(?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\2).)*)\2/;
@@ -228,10 +230,42 @@ function classifyRenamed(f: FileDiff, file: string, l: Line, after: Line, remove
     return { kind: 'rewritten-test', ...base, body: { before: before.lines.join('\n').trim(), after: now.lines.join('\n').trim() } };
   }
   // 本体が後ろの hunk まで続く。後ろの hunk に本体の書き換えになりうる行があれば、全部を見られず同じと確かめられない
-  const later = [...removed, ...added].filter((x) => x.hunk > l.hunk);
+  const later = laterBodyCandidates(f, l, after, removed, added);
   const uncertain = later.some((x) => !isIgnorableBodyLine(x.text) && !DEFINITION.test(x.text));
   if (!uncertain && same) return { kind: 'renamed-test', ...base };
   return { kind: 'rewritten-test', ...base };
+}
+
+/** 先頭の空白（スペース・タブ）の文字数 */
+function leadingWidth(text: string): number {
+  return text.length - text.trimStart().length;
+}
+
+/** 行の先頭（字下げの直後）からテスト定義が始まるときその名前。でなければ null */
+function startsWithDefinition(text: string): string | null {
+  const m = text.match(DEFINITION);
+  return m && m.index === leadingWidth(text) ? m[3]! : null;
+}
+
+/**
+ * 名前を変えた定義の本体が後ろの hunk まで続くとき、後ろの hunk の行のうち本体に入りうる行（境目より前）だけを返す。
+ * 境目（側ごと）：(a) 字下げ 0 の定義で、後ろの hunk の見出しが前後どちらの名前とも違うテスト定義、(b) 字下げが定義以下の次のテスト定義の行。見つからなければ全部
+ */
+function laterBodyCandidates(f: FileDiff, l: Line, after: Line, removed: Line[], added: Line[]): Line[] {
+  const boundary = (def: Line, side: 'old' | 'new'): { hunk: number; no: number } | null => {
+    const width = leadingWidth(def.text);
+    for (let h = l.hunk + 1; h < f.hunks.length; h++) {
+      const hunk = f.hunks[h]!;
+      const name = startsWithDefinition(hunk.section);
+      if (width === 0 && name !== null && name !== definitionName(l.text) && name !== definitionName(after.text)) return { hunk: h, no: -Infinity };
+      const row = hunk[side].find((r) => startsWithDefinition(r.text) !== null && leadingWidth(r.text) <= width);
+      if (row) return { hunk: h, no: row.no };
+    }
+    return null;
+  };
+  const keep = (lines: Line[], b: { hunk: number; no: number } | null) =>
+    lines.filter((x) => x.hunk > l.hunk && (b === null || x.hunk < b.hunk || (x.hunk === b.hunk && x.no < b.no)));
+  return [...keep(removed, boundary(l, 'old')), ...keep(added, boundary(after, 'new'))];
 }
 
 function definitionName(text: string): string | null {
@@ -423,9 +457,9 @@ function parseDiff(diff: string): FileDiff[] {
       continue;
     }
     if (!cur) continue;
-    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
     if (hunk) {
-      cur.hunks.push({ old: [], new: [] });
+      cur.hunks.push({ old: [], new: [], section: (hunk[5] ?? '').trim() });
       oldNo = Number(hunk[1]);
       oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
       newNo = Number(hunk[3]);
