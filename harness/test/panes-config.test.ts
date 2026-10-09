@@ -1,5 +1,5 @@
 // Issue #284：ペイン表示の設定（fleet.shipMode・hq.maxFleets・panes.collectIntervalSeconds）の既定値と不正な値を確かめる。
-// harness.config.json と雛形の両方に既定の値が入り、新しい関数で読めることも確かめる。
+// 雛形には既定の値、harness.config.json にはこのリポジトリの値（hq.maxFleets は 5。Issue #522）が入り、新しい関数で読めることも確かめる。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -80,18 +80,18 @@ test('panesConfig：60 以上の整数でなければ throw する', () => {
 
 // ---- 設定ファイル ----
 
-for (const [name, path] of [
-  ['harness.config.json', join(root, 'harness.config.json')],
-  ['雛形（harness/templates/harness.config.json）', join(root, 'harness', 'templates', 'harness.config.json')],
+for (const [name, path, maxFleets] of [
+  ['harness.config.json', join(root, 'harness.config.json'), 5],
+  ['雛形（harness/templates/harness.config.json）', join(root, 'harness', 'templates', 'harness.config.json'), 2],
 ] as const) {
-  test(`${name}：fleet.shipMode subagent・hq.maxFleets 2・panes.collectIntervalSeconds 180 が入り、読める`, () => {
+  test(`${name}：fleet.shipMode subagent・hq.maxFleets ${maxFleets}・panes.collectIntervalSeconds 180 が入り、読める`, () => {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as { fleet?: { shipMode?: unknown }; hq?: { maxFleets?: unknown }; panes?: { collectIntervalSeconds?: unknown } };
     assert.equal(raw.fleet?.shipMode, 'subagent');
-    assert.equal(raw.hq?.maxFleets, 2);
+    assert.equal(raw.hq?.maxFleets, maxFleets);
     assert.equal(raw.panes?.collectIntervalSeconds, 180);
     const config = readJson(path);
     assert.deepEqual(shipModeConfig(config), { shipMode: 'subagent', stopReason: null });
-    assert.deepEqual(hqConfig(config), { maxFleets: 2 });
+    assert.deepEqual(hqConfig(config), { maxFleets });
     assert.deepEqual(panesConfig(config), { collectIntervalSeconds: 180 });
     assert.deepEqual(Object.keys(fleetConfig(config)).sort(), ['maxParallelShips', 'nesting']);
   });

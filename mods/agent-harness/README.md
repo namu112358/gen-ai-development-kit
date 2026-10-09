@@ -17,6 +17,8 @@ hq・fleet の状況を Claude Code の画面に出す mod。今は試しの1つ
 
 `hooks/<機能>.tsx` に機能を書き、`hooks/register.tsx` に1行足す。mod はフォルダの外を import できないので、`panes.ts` の JSON の型は `types/index.d.ts` に手で写す。
 
+- 同じ plugin の中で、matcher の無い同じイベント（`session.start` など）の hook は1つしか置けない（`claude plugin validate` で初めて分かる）。足すときは matcher（例 `{ isInteractive: true }`、`hooks/fleet-status-line.tsx`・`hooks/hq-notify.tsx` と同じ）を付けて分けるか、今ある hook に足す。
+
 ## 確かめ方
 
 ```bash
