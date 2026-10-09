@@ -10,12 +10,14 @@
  *   正規表現か割り算かもしれない / があるときは、同じ hunk の残りの行も）は伏せずに生の行で数える。コメントの中の一致は数える
  * - アサーション（assert / expect(）を含む行の削除・書き換え（整形だけの変更も含む）
  * 同じファイルで同じ内容の行が消えて足されたもの（移動）は数えない。
+ * - テストの中身の書き換え：名前が変わった組（テスト定義の行どうしで組む）の本体（括弧が閉じるまで）が、空行・// だけの行・アサーションの行を除いて前後で違うもの。
+ *   本体が hunk の外まで続いて全部を見られず、後ろの hunk に本体の書き換えになりうる行があるときは、前後の本体（body）を持たせない
  * アサーションの書き換えは、同じ場所の削除と追加が対になれば変更後の行も持たせる（表示と、Jev に問う材料（harness/lib/test-tamper-jev.ts）に使う。この検査の判定には使わない）。
  */
 import { TEST_EXEMPT_LABEL } from './config.ts';
 import { globToRegExp } from './scope.ts';
 
-export type TamperKind = 'deleted-file' | 'renamed-away' | 'removed-test' | 'renamed-test' | 'skip-added' | 'assertion-changed';
+export type TamperKind = 'deleted-file' | 'renamed-away' | 'removed-test' | 'renamed-test' | 'rewritten-test' | 'skip-added' | 'assertion-changed';
 
 export interface TamperFinding {
   kind: TamperKind;
@@ -26,6 +28,8 @@ export interface TamperFinding {
   text?: string;
   /** assertion-changed・renamed-test で、同じ場所の追加の行と対になったときの変更後の行（head 側） */
   after?: { line: number; text: string };
+  /** rewritten-test で、本体の全部を見られたときの前後の本体（定義の行＋本体の行）。見られないときは無い（Jev に問わない） */
+  body?: { before: string; after: string };
 }
 
 export const TAMPER_KIND_LABELS: Record<TamperKind, string> = {
@@ -33,6 +37,7 @@ export const TAMPER_KIND_LABELS: Record<TamperKind, string> = {
   'renamed-away': 'テストファイルでないパスへのリネーム',
   'removed-test': 'テスト定義の削除',
   'renamed-test': 'テストの名前の変更',
+  'rewritten-test': 'テストの中身の書き換え',
   'skip-added': 'skip / only / todo の追加',
   'assertion-changed': 'アサーションの削除・書き換え',
 };
@@ -43,6 +48,7 @@ export const TAMPER_KIND_NOTES: Record<TamperKind, string> = {
   'renamed-away': 'テストのファイルが、テストとして扱われない場所・名前に移されています。テストとして動かなくなるおそれがあります。',
   'removed-test': 'テストの項目（`test(` / `it(` / `describe(`）が消えています。それまで確かめていたことが確かめられなくなります。',
   'renamed-test': 'テストの項目（`test(` / `it(` / `describe(`）の名前（説明の文字列）だけが変わっています。中身の行は別に検査しています。',
+  'rewritten-test': 'テストの項目の名前が変わり、本体（アサーションでない行）も書き換わっています。確かめていたことが変わっていないかを見ます。',
   'skip-added': 'テストを飛ばす・一部だけ動かす印（`skip` / `only` / `todo`）が足されています。そのテスト（`only` ならほかのテスト）が動かなくなります。',
   'assertion-changed': '採点基準の行（`assert` / `expect(`）が消えたか、書き換わっています。変更後の行が分かるものは並べています。',
 };
@@ -52,6 +58,8 @@ interface Line {
   text: string;
   /** hunk の中の「連続する削除と、その直後に続く連続する追加」のまとまりの番号 */
   block: number;
+  /** ファイルの中の hunk の番号（FileDiff.hunks の添字） */
+  hunk: number;
   /** 追加の行だけ：skip / only / todo の検出に当てる行（文字列の中身を伏せた行か、生の行）。相殺・テスト定義・アサーションの検出には使わない */
   skipText?: string;
 }
@@ -62,6 +70,8 @@ interface FileDiff {
   deleted: boolean;
   removed: Line[];
   added: Line[];
+  /** hunk ごとの古い側（文脈と削除）・新しい側（文脈と追加）の行。テストの本体を切り出すのに使う */
+  hunks: { old: { no: number; text: string }[]; new: { no: number; text: string }[] }[];
 }
 
 const DEFINITION = /\b((?:test|it|describe)(?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\2).)*)\2/;
@@ -98,13 +108,15 @@ export function detectTestTampering(diff: string, patterns: string[]): TamperFin
     const removed = f.removed.filter((l) => !take(addedPool, l.text.trim()));
     const added = f.added.filter((l) => !take(removedPool, l.text.trim()));
     const pairs = pairLines(removed, added);
-    const addedNames = new Set(f.added.map((l) => definitionName(l.text)).filter((n): n is string => n !== null));
+    const namesOf = (lines: Line[]) => new Set(lines.map((l) => definitionName(l.text)).filter((n): n is string => n !== null));
+    const addedNames = namesOf(f.added);
+    const defPairs = pairDefinitions(removed, added, namesOf(f.removed), addedNames);
     for (const l of removed) {
       const name = definitionName(l.text);
       if (name !== null && !addedNames.has(name)) {
-        const after = pairs.get(l);
-        const renamed = after !== undefined && sameExceptName(l.text, after.text);
-        findings.push({ kind: renamed ? 'renamed-test' : 'removed-test', file, line: l.no, side: 'base', text: l.text.trim(), ...(renamed ? { after: { line: after.no, text: after.text.trim() } } : {}) });
+        const after = defPairs.get(l);
+        if (after !== undefined && sameExceptName(l.text, after.text)) findings.push(classifyRenamed(f, file, l, after, removed, added));
+        else findings.push({ kind: 'removed-test', file, line: l.no, side: 'base', text: l.text.trim() });
       } else if (ASSERTION.test(l.text) && !IMPORT.test(l.text)) {
         const after = pairs.get(l);
         findings.push({ kind: 'assertion-changed', file, line: l.no, side: 'base', text: l.text.trim(), ...(after ? { after: { line: after.no, text: after.text.trim() } } : {}) });
@@ -130,6 +142,96 @@ function pairLines(removed: Line[], added: Line[]): Map<Line, Line> {
     if (a) pairs.set(l, a);
   }
   return pairs;
+}
+
+/**
+ * テスト定義の行どうしを組む：同じまとまりの中で、相殺後に残った削除の定義の行（追加の側に同じ名前が無いもの）の k 番目と、
+ * 追加の定義の行（削除の側に同じ名前が無いもの）の k 番目。間に足したコメントなどで組がずれない
+ */
+function pairDefinitions(removed: Line[], added: Line[], removedNames: Set<string>, addedNames: Set<string>): Map<Line, Line> {
+  const addedByBlock = new Map<number, Line[]>();
+  for (const l of added) {
+    const name = definitionName(l.text);
+    if (name !== null && !removedNames.has(name)) addedByBlock.set(l.block, [...(addedByBlock.get(l.block) ?? []), l]);
+  }
+  const seen = new Map<number, number>();
+  const pairs = new Map<Line, Line>();
+  for (const l of removed) {
+    const name = definitionName(l.text);
+    if (name === null || addedNames.has(name)) continue;
+    const k = seen.get(l.block) ?? 0;
+    seen.set(l.block, k + 1);
+    const a = addedByBlock.get(l.block)?.[k];
+    if (a) pairs.set(l, a);
+  }
+  return pairs;
+}
+
+/** 本体の比べで読み飛ばす行（空行・// だけの行・アサーションの行。アサーションは別に検出している） */
+const isIgnorableBodyLine = (text: string): boolean => {
+  const t = text.trim();
+  return t === '' || t.startsWith('//') || (ASSERTION.test(t) && !IMPORT.test(t));
+};
+
+/**
+ * 定義の行から、その hunk の同じ側の行を順に読み、括弧の深さが 0 に戻った行までを本体とする（定義の行を含む）。
+ * hunk の終わりまでに閉じなければ closed は false。文字列の中身・// 以降・/* … *\/ の中は数えない
+ */
+function definitionBody(f: FileDiff, line: Line, side: 'old' | 'new'): { lines: string[]; closed: boolean } {
+  const rows = f.hunks[line.hunk]?.[side] ?? [];
+  const start = rows.findIndex((r) => r.no === line.no);
+  const lines: string[] = [];
+  if (start < 0) return { lines, closed: false };
+  let state: LexState = 'code';
+  let inBlock = false;
+  let depth = 0;
+  for (const row of rows.slice(start)) {
+    lines.push(row.text);
+    const r = lexLine(row.text, state);
+    state = r.next;
+    const m = r.masked;
+    for (let i = 0; i < m.length; i++) {
+      if (inBlock) {
+        if (m[i] === '*' && m[i + 1] === '/') {
+          inBlock = false;
+          i++;
+        }
+      } else if (m[i] === '/' && m[i + 1] === '/') break;
+      else if (m[i] === '/' && m[i + 1] === '*') {
+        inBlock = true;
+        i++;
+      } else if ('([{'.includes(m[i]!)) depth++;
+      else if (')]}'.includes(m[i]!)) depth--;
+    }
+    if (depth <= 0) return { lines, closed: true };
+  }
+  return { lines, closed: false };
+}
+
+/** 定義の行（先頭）を除いた本体を、空行・// だけの行・アサーションの行を除いて比べる */
+function sameBody(a: string[], b: string[]): boolean {
+  const norm = (lines: string[]) => lines.slice(1).filter((t) => !isIgnorableBodyLine(t)).map((t) => t.trim());
+  const x = norm(a);
+  const y = norm(b);
+  return x.length === y.length && x.every((t, i) => t === y[i]);
+}
+
+/** 名前が変わった組（呼び出し・引数・行の残りは同じ）を、本体を比べて renamed-test か rewritten-test にする */
+function classifyRenamed(f: FileDiff, file: string, l: Line, after: Line, removed: Line[], added: Line[]): TamperFinding {
+  const base = { file, line: l.no, side: 'base' as const, text: l.text.trim(), after: { line: after.no, text: after.text.trim() } };
+  const before = definitionBody(f, l, 'old');
+  const now = definitionBody(f, after, 'new');
+  const same = sameBody(before.lines, now.lines);
+  const complete = (before.closed && now.closed) || l.hunk === f.hunks.length - 1;
+  if (complete) {
+    if (same) return { kind: 'renamed-test', ...base };
+    return { kind: 'rewritten-test', ...base, body: { before: before.lines.join('\n').trim(), after: now.lines.join('\n').trim() } };
+  }
+  // 本体が後ろの hunk まで続く。後ろの hunk に本体の書き換えになりうる行があれば、全部を見られず同じと確かめられない
+  const later = [...removed, ...added].filter((x) => x.hunk > l.hunk);
+  const uncertain = later.some((x) => !isIgnorableBodyLine(x.text) && !DEFINITION.test(x.text));
+  if (!uncertain && same) return { kind: 'renamed-test', ...base };
+  return { kind: 'rewritten-test', ...base };
 }
 
 function definitionName(text: string): string | null {
@@ -293,14 +395,18 @@ function parseDiff(diff: string): FileDiff[] {
       const text = line.slice(1);
       if (mark === '-') {
         if (prev !== '-') block++;
-        cur.removed.push({ no: oldNo++, text, block });
+        cur.hunks.at(-1)?.old.push({ no: oldNo, text });
+        cur.removed.push({ no: oldNo++, text, block, hunk: cur.hunks.length - 1 });
         oldLeft--;
       } else if (mark === '+') {
         if (prev !== '-' && prev !== '+') block++;
-        cur.added.push({ no: newNo++, text, block, skipText: lexNewSide(text) });
+        cur.hunks.at(-1)?.new.push({ no: newNo, text });
+        cur.added.push({ no: newNo++, text, block, hunk: cur.hunks.length - 1, skipText: lexNewSide(text) });
         newLeft--;
       } else {
         lexNewSide(text);
+        cur.hunks.at(-1)?.old.push({ no: oldNo, text });
+        cur.hunks.at(-1)?.new.push({ no: newNo, text });
         oldNo++;
         newNo++;
         oldLeft--;
@@ -312,13 +418,14 @@ function parseDiff(diff: string): FileDiff[] {
     if (line.startsWith('diff --git ')) {
       // 見出しが読めなくても必ず新しいファイルを始める（直前のファイルの記録を上書きしないため）。パスは ---/+++/rename でも決まる
       const paths = headerPaths(line);
-      cur = { oldPath: paths?.[0] ?? null, newPath: paths?.[1] ?? null, deleted: false, removed: [], added: [] };
+      cur = { oldPath: paths?.[0] ?? null, newPath: paths?.[1] ?? null, deleted: false, removed: [], added: [], hunks: [] };
       files.push(cur);
       continue;
     }
     if (!cur) continue;
     const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
     if (hunk) {
+      cur.hunks.push({ old: [], new: [] });
       oldNo = Number(hunk[1]);
       oldLeft = hunk[2] === undefined ? 1 : Number(hunk[2]);
       newNo = Number(hunk[3]);
