@@ -9,7 +9,9 @@
  *
  * - collect：GitHub と記録を読むのはこれだけ。harness.config.json の panes.collectIntervalSeconds（既定 180 秒）ごとに、
  *   fleet-status --json（fleet のセッションとして。AGENT_HARNESS_SESSION をその ID にし、CLAUDE_CODE_REMOTE_SESSION_ID を消す）・
- *   fleet の Issue の親の Epic と子課題（gh api graphql。Issue ごとに別名を付け、50件ずつ1回で読む。Issue #402）・
+ *   Epic（開いた `epic` のラベルの Issue を gh issue list で一覧し、Epic ごとに子課題＝sub-issues をページで全部（gh api graphql）と
+ *   App の epic-split の記録（コメント）を読んで、fleet の Issue ごとの親の Epic を決める。1つの Epic が読めなくてもほかは出る（読めない Epic は
+ *   前回の値）。`epic` のラベルの無い Epic は拾えない＝label-apply が子を持つ Issue に付ける前提。Issue #402・#437）・
  *   行の PR（gh pr view）・fleet のセッションの usage（`~/.claude/projects/<作業ディレクトリ>/<ID>.jsonl`。無ければ読まない）を読み、
  *   スナップショット（harness/lib/panes.ts の PaneSnapshot）を一時ファイルに書いてから名前を変える。このペインは進み具合も描く。
  *   記録のディレクトリは作業ディレクトリごとに分かれるので、fleet のセッションの作業ディレクトリが collect と違えば --cwd で渡す。
@@ -32,10 +34,12 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from '
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { hqConfig, implementModelConfig, loadConfig, panesConfig, shipModeConfig } from '../lib/config.ts';
+import { LABELS, hqConfig, implementModelConfig, loadConfig, panesConfig, shipModeConfig, type HarnessConfig } from '../lib/config.ts';
+import type { IssueComment } from '../lib/github.ts';
+import { epicChildrenFromRecords } from '../lib/session-inputs.ts';
 import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
-import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, type PaneEpic, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
+import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
 import { nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type HqView } from '../lib/panes-hq.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 import { gitCommonDir, ledgerPath, parseLedger, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
@@ -71,6 +75,8 @@ export interface CollectOptions {
   /** fleet のセッションの作業ディレクトリ（記録のディレクトリを決める） */
   transcriptCwd: string;
   intervalSeconds: number;
+  /** harness.config.json（App の名義と epic のラベルを読む） */
+  config: HarnessConfig;
 }
 
 /** fleet のセッションとして動かす子のプロセスの環境（fleet 自身の宣言が own: true＝「このセッション」になる） */
@@ -125,42 +131,93 @@ function prOf(stdout: string): PanePr | null {
 
 const PR_FIELDS = 'number,title,state,isDraft,autoMergeRequest,labels,statusCheckRollup';
 
-/** 1回の graphql で読む Issue の数 */
-const EPIC_CHUNK = 50;
+interface GhIssueNode { number?: unknown; title?: unknown; state?: unknown }
 
-/** collect が Epic を読む graphql のクエリ（Issue ごとに別名 i<番号>。owner・name は変数） */
-export function epicsQuery(issues: number[]): string {
-  const fields = issues.map((n) => `i${n}: issue(number: ${n}) { number parent { number title state subIssues(first: 100) { nodes { number title state } } } }`);
+const issueOf = (n: GhIssueNode | null | undefined): PaneEpicIssue | null =>
+  n && typeof n.number === 'number' ? { number: n.number, title: String(n.title ?? ''), state: String(n.state ?? '') } : null;
+
+/** Epic の子課題（sub-issues）を1ページ読む graphql のクエリ（owner・name・number・after は変数） */
+export function subIssuesQuery(): string {
+  return 'query($owner: String!, $name: String!, $number: Int!, $after: String) { repository(owner: $owner, name: $name) { issue(number: $number) { subIssues(first: 100, after: $after) { nodes { number title state } pageInfo { hasNextPage endCursor } } } } }';
+}
+
+/** 記録にだけある子課題を、別名 c<番号> で1回読むクエリ */
+function aliasQuery(numbers: number[]): string {
+  const fields = numbers.map((n) => `c${n}: issue(number: ${n}) { number title state }`);
   return `query($owner: String!, $name: String!) { repository(owner: $owner, name: $name) { ${fields.join(' ')} } }`;
 }
 
-interface GhIssueNode { number?: unknown; title?: unknown; state?: unknown }
-interface GhEpicIssue { number?: unknown; parent?: (GhIssueNode & { subIssues?: { nodes?: GhIssueNode[] | null } | null }) | null }
+interface SubIssuesPage { data?: { repository?: { issue?: { subIssues?: { nodes?: GhIssueNode[] | null; pageInfo?: { hasNextPage?: boolean; endCursor?: string | null } } | null } | null } | null } }
 
-const issueOf = (n: GhIssueNode | null | undefined): { number: number; title: string; state: string } | null =>
-  n && typeof n.number === 'number' ? { number: n.number, title: String(n.title ?? ''), state: String(n.state ?? '') } : null;
-
-/** fleet の Issue の親の Epic と子課題を読む。1回でも読めなければ null */
-function collectEpics(deps: CollectDeps, issues: number[], env: Record<string, string | undefined>): { epics: PaneEpic[]; issueEpic: Record<string, number | null> } | null {
-  const epics = new Map<number, PaneEpic>();
-  const issueEpic: Record<string, number | null> = {};
-  for (let i = 0; i < issues.length; i += EPIC_CHUNK) {
-    const chunk = issues.slice(i, i + EPIC_CHUNK);
-    const r = deps.run('gh', ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', '-f', `query=${epicsQuery(chunk)}`], { cwd: deps.root, env });
-    const json = r.status === 0 ? (parseJson(r.stdout) as { data?: { repository?: Record<string, GhEpicIssue | null> | null } } | null) : null;
-    const repo = json?.data?.repository;
+/** Epic 1つの子課題（sub-issues をページで全部と、App の epic-split の記録）を読む。どれかが読めなければ null */
+function readEpicChildren(deps: CollectDeps, config: HarnessConfig, epic: number, env: Record<string, string | undefined>): PaneEpicIssue[] | null {
+  const gql = (query: string, extra: string[] = []): RunResult =>
+    deps.run('gh', ['api', 'graphql', '-F', 'owner={owner}', '-F', 'name={repo}', ...extra, '-f', `query=${query}`], { cwd: deps.root, env });
+  const children = new Map<number, PaneEpicIssue>();
+  let after: string | null = null;
+  for (;;) {
+    const r = gql(subIssuesQuery(), ['-F', `number=${epic}`, ...(after === null ? [] : ['-f', `after=${after}`])]);
+    const subs = ((r.status === 0 ? parseJson(r.stdout) : null) as SubIssuesPage | null)?.data?.repository?.issue?.subIssues;
+    if (!subs || !Array.isArray(subs.nodes)) return null;
+    for (const c of subs.nodes.map(issueOf)) if (c) children.set(c.number, c);
+    if (subs.pageInfo?.hasNextPage !== true) break;
+    const next = subs.pageInfo.endCursor;
+    if (typeof next !== 'string' || next === '' || next === after) return null;
+    after = next;
+  }
+  const rc = deps.run('gh', ['api', '--paginate', '--slurp', `repos/{owner}/{repo}/issues/${epic}/comments`], { cwd: deps.root, env });
+  const pages = rc.status === 0 ? parseJson(rc.stdout) : null;
+  if (!Array.isArray(pages)) return null;
+  const recorded = epicChildrenFromRecords(config, pages.flat() as IssueComment[]) ?? [];
+  const missing = recorded.filter((n) => !children.has(n));
+  if (missing.length > 0) {
+    const r = gql(aliasQuery(missing));
+    const repo = ((r.status === 0 ? parseJson(r.stdout) : null) as { data?: { repository?: Record<string, GhIssueNode | null> | null } } | null)?.data?.repository;
     if (!repo || typeof repo !== 'object') return null;
-    for (const n of chunk) {
-      const node = repo[`i${n}`];
-      const parent = issueOf(node?.parent);
-      issueEpic[String(n)] = parent ? parent.number : null;
-      if (parent && !epics.has(parent.number)) {
-        const children = (node?.parent?.subIssues?.nodes ?? []).map(issueOf).filter((c): c is NonNullable<typeof c> => c !== null);
-        epics.set(parent.number, { ...parent, children });
-      }
+    for (const n of missing) {
+      const c = issueOf(repo[`c${n}`]);
+      if (!c) return null;
+      children.set(c.number, c);
     }
   }
-  return { epics: [...epics.values()], issueEpic };
+  return [...children.values()];
+}
+
+/**
+ * 開いた epic のラベルの Issue を一覧し、Epic ごとに子課題を読んで、fleet の Issue ごとの親の Epic を決める。
+ * 一覧が読めなければ null。1つの Epic が読めなければ、その Epic だけ前回の値を使い、errors に書く
+ */
+function collectEpics(deps: CollectDeps, opts: CollectOptions, prev: PaneSnapshot | null, env: Record<string, string | undefined>): { epics: PaneEpic[]; issueEpic: Record<string, number | null>; errors: string[] } | null {
+  const list = deps.run('gh', ['issue', 'list', '--label', LABELS.epic, '--state', 'open', '--json', 'number,title,state', '--limit', '1000'], { cwd: deps.root, env });
+  const listed = (list.status === 0 ? parseJson(list.stdout) : null) as GhIssueNode[] | null;
+  if (!Array.isArray(listed)) return null;
+  const heads = listed.map(issueOf).filter((e): e is PaneEpicIssue => e !== null).sort((a, b) => a.number - b.number);
+
+  const read: PaneEpic[] = [];
+  const stale: PaneEpic[] = [];
+  const errors: string[] = [];
+  for (const head of heads) {
+    const children = readEpicChildren(deps, opts.config, head.number, env);
+    if (children) {
+      read.push({ ...head, children });
+      continue;
+    }
+    errors.push(`Epic #${head.number} が読めませんでした`);
+    const old = prev?.epics?.find((e) => e.number === head.number);
+    if (old) stale.push(old);
+  }
+
+  const issueEpic: Record<string, number | null> = {};
+  const used = new Set<number>(stale.map((e) => e.number));
+  for (const n of opts.issues) {
+    const parents = read.filter((e) => e.children.some((c) => c.number === n)).map((e) => e.number);
+    for (const e of stale) if (prev?.issueEpic?.[String(n)] === e.number) parents.push(e.number);
+    const parent = parents.length > 0 ? Math.min(...parents) : null;
+    issueEpic[String(n)] = parent;
+    if (parent !== null) used.add(parent);
+  }
+  const epics = [...read, ...stale].filter((e) => used.has(e.number)).sort((a, b) => a.number - b.number);
+  return { epics, issueEpic, errors };
 }
 
 /** 1回分を読み、スナップショットを書いて返す。読めなかったものは前回の値を使い、error に書く */
@@ -180,9 +237,11 @@ export function collectOnce(deps: CollectDeps, opts: CollectOptions): PaneSnapsh
   let epics = prev?.epics;
   let issueEpic = prev?.issueEpic;
   if (opts.issues.length > 0) {
-    const e = collectEpics(deps, opts.issues, env);
-    if (e) ({ epics, issueEpic } = e);
-    else errors.push('Epic が読めませんでした');
+    const e = collectEpics(deps, opts, prev, env);
+    if (e) {
+      ({ epics, issueEpic } = e);
+      errors.push(...e.errors);
+    } else errors.push('Epic が読めませんでした');
   }
 
   const prs: PanePr[] = [];
@@ -387,6 +446,7 @@ function main(argv: string[]): void {
       snapshotPath: pathOf(session),
       transcriptCwd: args.cwd ?? process.cwd(),
       intervalSeconds: panesConfig(config).collectIntervalSeconds,
+      config,
     };
     const deps: CollectDeps = {
       run: (cmd, a, o) => {
