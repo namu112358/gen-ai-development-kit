@@ -14,6 +14,7 @@ import { autoModeFor, autoModeRoute } from './auto-mode.ts';
 import { bypassFor, bypassRoute } from './bypass.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
 import { applyAppLabels } from './label-apply.ts';
+import { carryOverMainMerge } from './main-merge-carry.ts';
 import { notifyUnclaimedPush } from './push-claim.ts';
 import { testsHumanMerge, testsJevSidePasses, testsOutcome } from './tests-check.ts';
 import { testMoveJevFor } from './tests-move.ts';
@@ -24,7 +25,7 @@ import type { Acceptance } from '../lib/merge-route.ts';
 /**
  * PR の出来事（作成・push・編集・ラベル）ごとの処理。
  * pull_request_target：PR の head は checkout せず、中身は API で読むだけ。
- * - push（synchronize）：まず auto-merge を解除し、差分が同じなら過去の判定を引き継ぐ
+ * - push（synchronize）：まず auto-merge を解除し、差分が同じなら過去の判定を引き継ぐ（App の main の取り込みで PR 自身の変更の行が同じなら、これも引き継ぐ。main-merge-carry.ts）
  * - 作成とタイトルの編集で type:* を付ける（App が前に付けたものだけ付け替える。label-apply.ts）
  * - push（synchronize）で、着手宣言の無いセッションの push を知らせる（止めない。push-claim.ts）
  * - 範囲照合（agent/scope、情報表示用）
@@ -162,6 +163,13 @@ export async function onPullRequest(ctx: GateContext): Promise<void> {
       ctx.log(`patch-id ${patch} は受け付け済みの判定と同じ。判定を引き継ぎます`);
       await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff: await getDiff() });
       return;
+    }
+    if (!acceptance && action === 'synchronize') {
+      const carried = await carryOverMainMerge(ctx, pr, comments, patch, await getDiff());
+      if (carried) {
+        await applyAcceptance(ctx, pr, carried, { fresh: false, diff: await getDiff() });
+        return;
+      }
     }
     // 判定前の PR は Draft にする（Draft＝判定前、Ready＝判定に合格して人のレビュー待ち）。出し方にかかわらずそろえる
     if (!acceptance && !pr.draft && reviewExempt !== 'valid') {
