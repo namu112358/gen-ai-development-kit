@@ -11,7 +11,7 @@ import type { HarnessConfig } from './config.ts';
  * （`../<リポジトリ名>.worktrees`）の順で `worktreeRoot` が決め、リポジトリの中になる値と本体を含む祖先は拒む
  * （作業中の変更やほかの作業ツリーがコミットに紛れ込まないように）。Issue のブランチの worktree には、Orca があれば
  * 表示名「#番号 短い名前」と Issue を付ける（`labelOrcaWorktree`。表示のためだけで、無い・失敗しても止めない）。
- * plan-critic の読み先は `criticRepo` が決める（先に fetch し、origin/<既定ブランチ> の最新を含むパスを選ぶ。無ければ SHA の detach の worktree。
+ * plan-critic の読み先は `criticRepo` が決める（先に fetch し（失敗したら手元の origin/<既定ブランチ> で続けて警告を出す）、origin/<既定ブランチ> を含むパスを選ぶ。無ければ SHA の detach の worktree。
  * セッションを渡すと Issue とセッションごとの名前の worktree（並行するセッション・入れ子の ship の片付けで消えない））。
  */
 
@@ -351,22 +351,31 @@ export interface CriticRepo {
   source: 'issue-worktree' | 'cwd' | 'snapshot';
   /** snapshot の worktree を `worktree-remove` で消すときの名前（source が snapshot のときだけ） */
   removeRef?: string;
+  /** fetch に失敗して手元の ref で続けたときだけ付く（git fetch の stderr） */
+  fetchError?: string;
 }
 
 /**
  * plan-critic が読むリポジトリのパスを決める。先に origin の既定ブランチを fetch し、HEAD がその最新（base）を含む最初のものを使う：
  * Issue のブランチ（`claude/issue-<番号>-`）の worktree → cwd の toplevel → 無ければ base の detach の worktree（addWorktree。npm ci はしない）。
  * セッションを渡すと、その worktree は Issue とセッションごとの名前になる（並行するセッション・入れ子の ship の片付けで消えない）。
- * fetch の失敗・base を読めない・worktree を作れないときは、最新を読めるパスが無いとして投げる（批評を始める前に止める）
+ * fetch の失敗は警告（`opts.warn`）を1回出して手元の origin/<既定ブランチ> で続ける（`fetchError` に stderr）。
+ * 手元の base も読めない・worktree を作れないときは、読めるパスが無いとして投げる（批評を始める前に止める）
  */
 export function criticRepo(issue: number, cwd: string, opts: WorktreeOptions, session?: string): CriticRepo {
   const { root, defaultBranch: branch } = opts;
+  const { warn = console.error } = opts;
   const noPath = (why: string) => new Error(`origin/${branch} の最新を読めるパスがありません: ${why}`);
   const fetched = run(root, ['fetch', '-q', 'origin', branch]);
-  if (fetched.status !== 0) throw noPath(`git fetch origin ${branch} に失敗しました: ${(fetched.stderr ?? '').trim()}`);
+  const fetchFailed = fetched.status !== 0;
+  const fetchStderr = (fetched.stderr ?? '').trim();
   const parsed = run(root, ['rev-parse', '--verify', '-q', `refs/remotes/origin/${branch}^{commit}`]);
   const base = parsed.status === 0 ? parsed.stdout.trim() : '';
-  if (!base) throw noPath(`origin/${branch} を読めません`);
+  if (!base) {
+    throw noPath(fetchFailed ? `git fetch origin ${branch} に失敗し、手元の origin/${branch} もありません: ${fetchStderr}` : `origin/${branch} を読めません`);
+  }
+  if (fetchFailed) warn(`警告: git fetch origin ${branch} に失敗しました。手元の origin/${branch}（${base}）で批評を続けます（最新でないおそれ）: ${fetchStderr}`);
+  const fetchError = fetchFailed ? { fetchError: fetchStderr } : {};
   const hasBase = (head: string) => head !== '' && run(root, ['merge-base', '--is-ancestor', base, head]).status === 0;
 
   const prefix = `claude/issue-${issue}-`;
@@ -381,19 +390,19 @@ export function criticRepo(issue: number, cwd: string, opts: WorktreeOptions, se
       };
     });
   const found = trees.find((t) => t.path !== '' && t.branch?.startsWith(prefix) && hasBase(t.head));
-  if (found) return { path: found.path, base, branch, source: 'issue-worktree' };
+  if (found) return { path: found.path, base, branch, source: 'issue-worktree', ...fetchError };
 
   const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
   if (top.status === 0 && hasBase(run(top.stdout.trim(), ['rev-parse', 'HEAD']).stdout.trim())) {
-    return { path: top.stdout.trim(), base, branch, source: 'cwd' };
+    return { path: top.stdout.trim(), base, branch, source: 'cwd', ...fetchError };
   }
 
   try {
     if (session) {
       const name = `critic-${issue}-${createHash('sha256').update(session).digest('hex').slice(0, 12)}-${base}`;
-      return { path: addWorktree(base, true, opts, name), base, branch, source: 'snapshot', removeRef: name };
+      return { path: addWorktree(base, true, opts, name), base, branch, source: 'snapshot', removeRef: name, ...fetchError };
     }
-    return { path: addWorktree(base, true, opts), base, branch, source: 'snapshot', removeRef: base };
+    return { path: addWorktree(base, true, opts), base, branch, source: 'snapshot', removeRef: base, ...fetchError };
   } catch (e) {
     throw noPath((e as Error).message);
   }
