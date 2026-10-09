@@ -496,14 +496,18 @@ export function parsePreviousCritique(text: string): Parsed<PreviousCritique> {
   return { ok: true, value: { verdict: typeof verdict === 'string' ? verdict : null, must } };
 }
 
-export function renderCriticInput(issue: { number: number; title: string; body: string | null }, comments: IssueComment[], planText: string, previous?: PreviousCritique): string {
+export function renderCriticInput(issue: { number: number; title: string; body: string | null }, comments: IssueComment[], planText: string, previous?: PreviousCritique, repo?: { path: string; base: string; branch: string }): string {
   const prev = previous
     ? ['', '=== 前回の批評', `verdict: ${previous.verdict ?? '(不明)'}`, ...(previous.must.length > 0 ? previous.must.map((m) => `- [must] ${m}`) : ['必須の指摘なし'])]
+    : [];
+  const repoSection = repo
+    ? ['', '=== 読み先のリポジトリ', `${repo.path}（origin/${repo.branch} ${repo.base} を含む）`, 'リポジトリのファイルはこのパスの下を読む（作業ディレクトリではなく）']
     : [];
   return [
     `=== Issue #${issue.number}`, issue.title, '', (issue.body ?? '').trim(),
     '', '=== コラボレーターのコメント', ...renderComments(comments),
     ...prev,
+    ...repoSection,
     '', '=== 計画', planText.trim(),
   ].join('\n') + '\n';
 }
