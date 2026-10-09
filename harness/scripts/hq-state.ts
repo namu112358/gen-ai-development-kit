@@ -9,6 +9,8 @@
  *   node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <n> --answer <人の答え>
  *   node harness/scripts/hq-state.ts pending-remove --session <ID> --issue <n>
  *   node harness/scripts/hq-state.ts heartbeat-save --theme <テーマ> --note <一言>（fleet の heartbeat の一言。ログのペインが読む。#438）
+ *   node harness/scripts/hq-state.ts start-failure-save --dispatch <ID> --theme <テーマ> --stage <Orca の stage> --screen-file <worker-read の JSON> [--resent accepted|unobserved|none]（起動の失敗の画面。#551）
+ *   node harness/scripts/hq-state.ts start-failures
  *
  * - 置き場所は `git rev-parse --path-format=absolute --git-common-dir` の下の agent-harness/hq/（本体・fleet のワークスペース・
  *   Issue の worktree から同じ場所。作業ツリーの外で commit されない）。hq の控えは hq-fleets.json、fleet の控えは pending/<セッション ID>.json。
@@ -20,7 +22,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFile
 import { dirname, join } from 'node:path';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 
-export const HQ_STATE_COMMANDS: readonly string[] = ['path', 'ledger', 'ledger-save', 'pending', 'pending-add', 'pending-answer', 'pending-remove', 'heartbeat-save'];
+export const HQ_STATE_COMMANDS: readonly string[] = ['path', 'ledger', 'ledger-save', 'pending', 'pending-add', 'pending-answer', 'pending-remove', 'heartbeat-save', 'start-failure-save', 'start-failures'];
 
 export function hqStateDir(commonDir: string): string {
   return join(commonDir, 'agent-harness', 'hq');
@@ -34,6 +36,12 @@ export const HEARTBEAT_FILE = 'hq-heartbeat.json';
 
 export function heartbeatPath(commonDir: string): string {
   return join(hqStateDir(commonDir), HEARTBEAT_FILE);
+}
+
+export const START_FAILURES_FILE = 'hq-start-failures.json';
+
+export function startFailuresPath(commonDir: string): string {
+  return join(hqStateDir(commonDir), START_FAILURES_FILE);
 }
 
 export function pendingDir(commonDir: string): string {
@@ -189,6 +197,58 @@ export function freshHeartbeats(file: HeartbeatFile | null, themes: readonly str
     .map(({ n }) => n);
 }
 
+/** 起動の失敗1件（Dispatch ごとに最新の1件）。画面は worker-read の末尾 */
+export interface StartFailure {
+  dispatch: string;
+  theme: string;
+  stage: string;
+  screen: string[];
+  hasDraft: boolean;
+  resent: 'accepted' | 'unobserved' | 'none' | null;
+  at: string;
+}
+
+export interface StartFailuresFile {
+  version: 1;
+  failures: StartFailure[];
+}
+
+const SCREEN_LINES = 50;
+const MAX_START_FAILURES = 20;
+const RESENT_VALUES: readonly string[] = ['accepted', 'unobserved', 'none'];
+
+/** 起動の失敗の控えを読む。形が違えば null */
+export function parseStartFailures(v: unknown): StartFailuresFile | null {
+  if (!isObj(v) || v.version !== 1 || !Array.isArray(v.failures)) return null;
+  const failures: StartFailure[] = [];
+  for (const f of v.failures) {
+    if (!isObj(f) || typeof f.dispatch !== 'string' || typeof f.theme !== 'string' || typeof f.stage !== 'string' || typeof f.at !== 'string') return null;
+    if (!Array.isArray(f.screen) || !f.screen.every((l) => typeof l === 'string') || typeof f.hasDraft !== 'boolean') return null;
+    if (f.resent !== null && !(typeof f.resent === 'string' && RESENT_VALUES.includes(f.resent))) return null;
+    failures.push({ dispatch: f.dispatch, theme: f.theme, stage: f.stage, screen: f.screen as string[], hasDraft: f.hasDraft, resent: f.resent as StartFailure['resent'], at: f.at });
+  }
+  return { version: 1, failures };
+}
+
+/** worker-read --json の中身（または生の画面）から、画面の末尾 50 行と、入力欄に文が残っているかを取り出す */
+export function parseScreen(raw: string): { screen: string[]; hasDraft: boolean } {
+  try {
+    const term = (JSON.parse(raw) as { result?: { terminal?: { tail?: unknown; draft?: unknown } } } | null)?.result?.terminal;
+    if (term && Array.isArray(term.tail) && term.tail.every((l) => typeof l === 'string')) {
+      return { screen: (term.tail as string[]).slice(-SCREEN_LINES), hasDraft: typeof term.draft === 'string' && term.draft !== '' };
+    }
+  } catch {
+    // JSON でなければ生の画面として扱う
+  }
+  return { screen: raw.replace(/\r\n/g, '\n').split('\n').slice(-SCREEN_LINES), hasDraft: false };
+}
+
+/** 起動の失敗を控える。同じ Dispatch の前の件は置き換え、新しい 20 件まで */
+export function recordStartFailure(file: StartFailuresFile | null, entry: Omit<StartFailure, 'at'>, now: string): StartFailuresFile {
+  const kept = (file?.failures ?? []).filter((f) => f.dispatch !== entry.dispatch);
+  return { version: 1, failures: [...kept, { ...entry, at: now }].slice(-MAX_START_FAILURES) };
+}
+
 // ---- ファイル（CLI と panes.ts が使う） ----
 
 function readJson(path: string): unknown {
@@ -209,6 +269,7 @@ function writeJson(path: string, v: unknown): void {
 
 export const readLedgerFile = (commonDir: string): HqLedger | null => parseLedger(readJson(ledgerPath(commonDir)));
 export const readHeartbeatAt = (path: string): HeartbeatFile | null => parseHeartbeat(readJson(path));
+export const readStartFailuresAt = (path: string): StartFailuresFile | null => parseStartFailures(readJson(path));
 export const readPendingFile = (commonDir: string, session: string): PendingFile | null => parsePending(readJson(pendingPath(commonDir, session)));
 
 /** git の共通ディレクトリ。取れなければ null */
@@ -233,12 +294,15 @@ interface CliArgs {
   answer: string | null;
   theme: string | null;
   note: string | null;
+  dispatch: string | null;
+  screenFile: string | null;
+  resent: StartFailure['resent'];
 }
 
 class UsageError extends Error {}
 
 function parseCli(args: string[]): CliArgs {
-  const out: CliArgs = { positional: [], commonDir: null, session: null, all: false, issue: null, stage: null, question: null, options: [], messageId: null, answer: null, theme: null, note: null };
+  const out: CliArgs = { positional: [], commonDir: null, session: null, all: false, issue: null, stage: null, question: null, options: [], messageId: null, answer: null, theme: null, note: null, dispatch: null, screenFile: null, resent: null };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const value = (): string => {
@@ -260,6 +324,13 @@ function parseCli(args: string[]): CliArgs {
     else if (a === '--answer') out.answer = value();
     else if (a === '--theme') out.theme = value();
     else if (a === '--note') out.note = value();
+    else if (a === '--dispatch') out.dispatch = value();
+    else if (a === '--screen-file') out.screenFile = value();
+    else if (a === '--resent') {
+      const v = value();
+      if (!RESENT_VALUES.includes(v)) throw new UsageError(`--resent は accepted・unobserved・none のどれかです：${v}`);
+      out.resent = v as StartFailure['resent'];
+    }
     else if (a.startsWith('--')) throw new UsageError(`知らない引数：${a}`);
     else out.positional.push(a);
   }
@@ -299,6 +370,19 @@ function main(argv: string[]): void {
     writeJson(path, saved);
     return print(saved);
   }
+  if (mode === 'start-failure-save') {
+    const dispatch = need(args.dispatch, '--dispatch').trim();
+    const theme = need(args.theme, '--theme').trim();
+    const stage = need(args.stage, '--stage').trim();
+    const screenFile = need(args.screenFile, '--screen-file');
+    if (!dispatch || !theme || !stage) throw new UsageError('--dispatch・--theme・--stage は空にできません');
+    const { screen, hasDraft } = parseScreen(readFileSync(screenFile, 'utf8'));
+    const path = startFailuresPath(commonDir);
+    const saved = recordStartFailure(readStartFailuresAt(path), { dispatch, theme, stage, screen, hasDraft, resent: args.resent }, new Date().toISOString());
+    writeJson(path, saved);
+    return print(saved);
+  }
+  if (mode === 'start-failures') return print(readStartFailuresAt(startFailuresPath(commonDir)));
   if (mode === 'pending') {
     if (args.all) {
       const dir = pendingDir(commonDir);
