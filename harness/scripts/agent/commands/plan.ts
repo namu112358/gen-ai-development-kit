@@ -10,6 +10,7 @@ import { claimValueAfterPlan } from '../../../lib/queue.ts';
 import { localChangedFiles, scopeCheck } from '../../../lib/scope-check.ts';
 import { parsePreviousCritique, renderCriticInput, splitArgs } from '../../../lib/session-inputs.ts';
 import { latestPlanGate, type PlanGateRecord } from '../../../lib/state.ts';
+import { criticRepo, worktreeOptions } from '../../../lib/worktree.ts';
 import { type AgentCommand, checkFile, config, ensureOwnClaim, fail, type IssueItem, manualClaim, readBlockFile, renderClaim, renderPlan, writeTemp } from '../cli.ts';
 
 /**
@@ -30,7 +31,8 @@ import { type AgentCommand, checkFile, config, ensureOwnClaim, fail, type IssueI
  *                                                           proceed の記録（人が止まった計画で進めると決めた）は、最新の記録が止まった記録で、agent:plan-review が付いていて、acChangeProposed が無いことを確かめる
  *   node harness/scripts/agent.ts critic-input <issue> <plan-file> [--previous <critique.json>]  （このセッションの着手宣言が要る）
  *                                                           plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画。
- *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力
+ *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力。
+ *                                                           先に git fetch し、origin/<既定ブランチ> の最新を含む読み先（Issue の worktree → 今の作業ディレクトリ → 無ければ base の detach の worktree）を「読み先のリポジトリ」に書く。決められなければ止まる
  */
 
 async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
@@ -127,6 +129,12 @@ async function criticInput(gh: GitHub, args: string[]): Promise<string> {
   if (a.value.positional.length !== 2 || !issueArg || !planFile || !/^\d+$/.test(issueArg)) fail([usage]);
   const n = Number(issueArg);
   await ensureOwnClaim(gh, n);
+  let repo;
+  try {
+    repo = criticRepo(n, process.cwd(), worktreeOptions(config));
+  } catch (e) {
+    fail([(e as Error).message]);
+  }
   const previousFile = a.value.options['--previous'];
   let previous;
   if (previousFile) {
@@ -135,7 +143,7 @@ async function criticInput(gh: GitHub, args: string[]): Promise<string> {
     previous = p.value;
   }
   const issue = await gh.get<IssueItem>(`/issues/${n}`);
-  return writeTemp(`critic-input-${n}.txt`, renderCriticInput(issue, await gh.listComments(n), readFileSync(planFile, 'utf8'), previous));
+  return writeTemp(`critic-input-${n}.txt`, renderCriticInput(issue, await gh.listComments(n), readFileSync(planFile, 'utf8'), previous, repo));
 }
 
 export const commands: AgentCommand[] = [
