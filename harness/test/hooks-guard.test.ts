@@ -34,6 +34,7 @@ test('main への push とその別名を止める', () => {
     'git push origin @:main',
     'git push origin x:refs/heads/main',
     'git push origin +feature:main',
+    'git push origin feature:main',
     'git -C . push origin main',
   ];
   for (const cmd of cmds) assertDeny(bash(cmd), ctx, cmd);

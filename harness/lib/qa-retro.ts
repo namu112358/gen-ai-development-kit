@@ -158,6 +158,11 @@ export function parseQaRetroArgs(args: string[], now: Date): { ok: true; value: 
 
 // --- 純粋関数 ---
 
+/** 判定の回数。main の取り込みで引き継いだ受け付け（carriedFrom あり。Issue #397）は判定として数えない */
+export function verdictCount(acceptances: { value: { carriedFrom?: unknown } }[]): number {
+  return acceptances.filter((a) => !a.value.carriedFrom).length;
+}
+
 /** merged_by が App なら自動 Merge（App の delegated-merge の記録があれば委任）、それ以外は人の Merge */
 export function mergeRouteOf(config: HarnessConfig, mergedBy: { login: string } | null | undefined, comments: IssueComment[]): MergeRoute {
   if (mergedBy?.login !== appLogin(config)) return 'human';
@@ -380,7 +385,7 @@ export async function collectQaRetro(gh: GitHub, config: HarnessConfig, period: 
       risk: last?.riskLevel ?? null,
       autoEligible: last ? last.autoEligible : null,
       mergeRoute: mergeRouteOf(config, detail.merged_by, comments),
-      verdicts: acceptances.length,
+      verdicts: verdictCount(acceptances),
       rejectedVerdicts: comments.filter((c) => isAppComment(config, c) && appMarkKind(c.body) === 'verdict-rejected').length,
       fixRequests: await fixRequestCount(gh, config, p.number),
       metrics,
