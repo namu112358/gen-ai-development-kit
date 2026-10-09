@@ -3,6 +3,7 @@ import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { HqBoard } from '../types'
+import { GUILD_INTEL_PREFIX, GUILD_INTEL_TO } from './guild-intel'
 import { GUILD_COLUMNS, GUILD_ROWS, drawGuild, guildScene, phaseOf } from './guild-scene'
 
 export const GUILD_PANE = 'guild'
@@ -10,6 +11,10 @@ export const GUILD_RASTER_KEY = 'guild-raster'
 
 // null はまだ読んでいない、'unreadable' は読めなかった
 const guildBoard = atom({ plugin: 'agent-harness', key: 'guildBoard' } as const, null)
+
+// 情報屋に送る入力欄が開いているか・送った結果の文（null はまだ送っていない）
+const guildIntelOpen = atom({ plugin: 'agent-harness', key: 'guildIntelOpen' } as const, false)
+const guildIntelResult = atom({ plugin: 'agent-harness', key: 'guildIntelResult' } as const, null)
 
 const isHqBoard = (value: unknown): value is HqBoard =>
   typeof value === 'object' &&
@@ -105,7 +110,7 @@ export const registerGuild: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: GUILD_PANE }, async ($, e) => {
-    const { Box, Text, Raster } = $.ui.resolve(e)
+    const { Box, Text, Raster, Button, Input } = $.ui.resolve(e)
     const board = await read($, guildBoard)
     const isTerminal = e.surface === 'terminal'
 
@@ -117,6 +122,25 @@ export const registerGuild: Register = on => {
           if (phaseOf(r) === 'finishHuman') waiting.push({ issue: r.issue, pr: r.pr })
         }
       }
+    }
+
+    const intelOpen = await read($, guildIntelOpen)
+    const intelResult = await read($, guildIntelResult)
+
+    const sendIntel = async (text: string): Promise<void> => {
+      const body = text.trim()
+      if (body === '') return
+      let result: string
+      let delivered = false
+      try {
+        const sent = await $.session.send({ to: GUILD_INTEL_TO, text: GUILD_INTEL_PREFIX + body })
+        delivered = sent.isDelivered
+        result = delivered ? '情報屋に送りました' : '情報屋に送れませんでした：' + (sent.reason ?? '')
+      } catch (error) {
+        result = '情報屋に送れませんでした：' + (error instanceof Error ? error.message : String(error))
+      }
+      await update($, guildIntelResult, () => result)
+      if (delivered) await update($, guildIntelOpen, () => false)
     }
 
     return (
@@ -139,6 +163,22 @@ export const registerGuild: Register = on => {
         {waiting.map(w => (
           <Text color="magenta">{w.pr !== null ? `! #${w.issue} PR #${w.pr}` : `! #${w.issue}`}</Text>
         ))}
+        {isTerminal && (
+          <Box flexDirection="column">
+            <Button key="guild-intel" label="情報屋に送る" hotkey="m" onPress={() => update($, guildIntelOpen, v => !v)} />
+            {intelOpen && (
+              <Input
+                key="guild-intel-input"
+                label="情報屋へ"
+                placeholder="気づき・質問"
+                submitLabel="send"
+                autoFocus
+                onSubmit={(text: string) => sendIntel(text)}
+              />
+            )}
+            {intelResult !== null && <Text>{intelResult}</Text>}
+          </Box>
+        )}
       </Box>
     )
   })
