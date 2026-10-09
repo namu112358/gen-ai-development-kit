@@ -19,7 +19,7 @@
  * - progress・todo・prs：スナップショットを数秒ごとに読み直して描くだけ（GitHub を読まない）。
  *   todo は、hq がいない間に fleet が控えた質問（harness/scripts/hq-state.ts の git の共通ディレクトリの下の控え）があれば先頭に出す（Issue #409）。
  *   控えは --session の ID で引き、--snapshot だけのときはスナップショットの session で引く。
- * - hq todo|board|log：hq の3つのペイン（① 人待ち・② Epic/Issue・③ ログ。描き方は harness/lib/panes-hq.ts。Issue #402）。GitHub を読まない。
+ * - hq todo|board|log：hq の3つのペイン（① Epic/Issue・② 人待ち・③ ログ（上から）。描き方は harness/lib/panes-hq.ts。Issue #402）。GitHub を読まない。
  *   数秒ごとに hq の控え（hq-state.ts の git の共通ディレクトリの下の hq-fleets.json。--fleets で別のパス）を読み直し、控えの fleets の
  *   session のスナップショットだけを読む（--session は渡さない。起こし直しで hq が控えの session を書き換えれば、ペインを作り直さずに追う）。
  *   board は標準入力が端末なら Tab・e・i でページ（Epic・Issue）を切り替える（q・Ctrl+C で終わる）。--once は1回だけ色なしで描いて終わる。

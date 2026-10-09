@@ -39,7 +39,7 @@
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `observe-docs.ts` | 保守の観測（harness/scripts/observe.ts）の docs の照合。 | ○ |
 | `observe.ts` | 保守の観測（harness/scripts/observe.ts）のまとめ。 | ○ |
-| `panes-hq.ts` | hq の3つのペイン（人待ち・Epic/Issue・ログ）の描き方と、hq の控えから今動いている fleet を見つけること。 | ○ |
+| `panes-hq.ts` | hq の3つのペイン（上から Epic/Issue・人待ち・ログ）の描き方と、hq の控えから今動いている fleet を見つけること。 | ○ |
 | `panes.ts` | fleet のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。 | ○ |
 | `past-pr-reads.ts` | judge-input の過去の PR の節の材料（変更ファイルを触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント）を GraphQL でまとめて読む。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
