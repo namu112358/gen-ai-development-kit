@@ -1,6 +1,6 @@
 // Issue #508：panes.ts hq todo --json（Claude Code の mod が読む、人待ちの1行の JSON）を確かめる。
 // hqTodoJson が全 fleet の人がすることを rank 順に集めて件数・注意・控えが読めないときの形を返すことと、
-// CLI が version 1 の1行の JSON を出し、todo 以外の --json は誤りで止まることを見る。
+// CLI が version 1 の1行の JSON を出し、todo・board 以外の --json は誤りで止まることを見る。
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
@@ -70,8 +70,8 @@ test('panes.ts hq todo --json：1行の JSON（version 1）を出す', () => {
   assert.equal(got.count, 0);
 });
 
-test('panes.ts hq board --json は誤りで止まる', () => {
-  const r = cli(['hq', 'board', '--json', '--fleets', missingLedger]);
+test('panes.ts hq log --json は誤りで止まる', () => {
+  const r = cli(['hq', 'log', '--json', '--fleets', missingLedger]);
   assert.equal(r.status, 2, r.stderr);
   assert.match(r.stderr, /--json/);
 });
