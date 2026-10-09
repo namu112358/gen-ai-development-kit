@@ -1,91 +1,70 @@
+// arch-review の skill（.claude/skills/arch-review/SKILL.md）の文を、support/skill-text.ts の構造の表で確かめる（Issue #184。#490 で個別の test() を表にまとめた）。
+// 表（ARCH_REVIEW_SPEC）は1つの test() で、足りないものを全部一度に示す。frontmatter・使うコマンドの実在と書き方・
+// arch-reviewer の定義（.claude/agents/）・一覧（CLAUDE.md・CLAUDE.harness.md・README）への掲載は、表にせず個別の test() に残す。
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { NO_OVERWRITE_RULE, WRITE_RULES } from './support/output-file-rules.ts';
 import { documentedAgentCommands } from './support/agent-source.ts';
+import { frontmatter, readText, ROOT, section, skillProblems, type SkillSpec } from './support/skill-text.ts';
 
-// Issue #184：arch-review の skill と arch-reviewer の定義、一覧への掲載
-
-const root = join(import.meta.dirname, '..', '..');
-const read = (path: string): string => readFileSync(join(root, path), 'utf8').replace(/\r\n/g, '\n');
+const read = readText;
 
 const SKILL = '.claude/skills/arch-review/SKILL.md';
 const AGENT = '.claude/agents/arch-reviewer.md';
-const HEADINGS = ['## 入力', '## 観点', '## 手順', '## 出力', '## 終わりの状態', '## 人に返す条件'];
-const FORBIDDEN_LABELS = ['agent:ready', 'agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-merge'];
-
-/** 先頭の `---` で囲まれた frontmatter を key: value で読む */
-function frontmatter(text: string): Record<string, string> {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!m) return {};
-  return Object.fromEntries(m[1]!.split('\n').map((l) => l.match(/^([a-z-]+):\s*(.*)$/)).filter((x) => x !== null).map((x) => [x[1]!, x[2]!.trim()]));
-}
-
-/** 見出しの行（前方一致）から、同じか上の階層の次の見出しの前までを切り出す */
-function section(text: string, heading: string): string {
-  const lines = text.split('\n');
-  const start = lines.findIndex((l) => l.startsWith(heading));
-  if (start < 0) return '';
-  const level = heading.match(/^#+/)![0].length;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((l) => {
-    const m = l.match(/^(#+) /);
-    return m !== null && m[1]!.length <= level;
-  });
-  return [lines[start]!, ...(end < 0 ? rest : rest.slice(0, end))].join('\n');
-}
 
 /** 句点と改行で文に分ける */
 const sentences = (text: string): string[] => text.split(/[。\n]/).map((s) => s.trim()).filter((s) => s !== '');
 
-/** agent.ts とサブコマンド（harness/scripts/agent/commands/）の使い方のコメントに書かれたコマンド名 */
-function documentedCommands(): Set<string> {
-  return documentedAgentCommands();
-}
+/** arch-review の skill の構造の表 */
+const ARCH_REVIEW_SPEC: SkillSpec = {
+  path: SKILL,
+  headings: ['## 入力', '## 観点', '## 手順', '## 出力', '## 終わりの状態', '## 人に返す条件'],
+  words: ['arch-reviewer', '人が選んだもの', 'AskUserQuestion'],
+  parts: [
+    // 既定は前回の arch-review 以降、前回が無ければ直近 10 本で、--since・--until・--last で変えられる
+    { section: '## 入力', words: ['前回', '10', '--since', '--until', '--last'] },
+    // 4つの観点
+    { section: '## 観点', words: ['重複', 'harness/lib/', 'docs', 'コードの書き方'] },
+    // 見る main を worktree（--detach）で SHA に固定し、終わりに消す
+    { section: '## 手順', step: 2, words: ['node harness/scripts/agent.ts worktree <headSha> --detach'] },
+    // 観点ごとに arch-reviewer を呼び、PR の説明・判定コメントを渡さない
+    { section: '## 手順', step: 3, words: ['arch-reviewer', 'PR の説明は渡さない', '判定コメント', 'も渡さない'] },
+    // 開いた Issue に同じものがあれば新しく立てずコメントの案にする
+    { section: '## 手順', step: 5, words: ['同じもの', 'コメントの案'] },
+    // Issue を作るのは人が選んだものだけ。ラベルは付けない
+    { section: '## 手順', step: 8, words: ['人が選んだものだけ', 'gh issue create', '`agent:ready` は付けない'] },
+    { section: '## 手順', step: 11, words: ['node harness/scripts/agent.ts worktree-remove'] },
+    // やってはいけないこと：その場で直す・PR や判定コメントへの投稿・判定の担当に渡す・ラベルの付け外し・本文の書き換え・Merge
+    {
+      section: '## 人に返す条件',
+      words: [
+        'agent:ready', 'agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-merge',
+        '直す', '判定コメント', 'reviewer', 'risk-agent', 'review-panel', '本文', 'Merge', '*:exempt',
+      ],
+    },
+    // PR へのコメント・レビューを投稿する手順を持たない。Issue にラベルを付ける指定もしない
+    { absent: ['gh pr comment', 'gh pr review', 'gh pr merge', 'gh issue edit', 'post-verdict', '--label', ' -l '] },
+  ],
+};
 
-/** 「やってはいけないこと」の見出しの節、または「やってはいけないこと」を含む行（見出しでなければその行と続く箇条書き） */
-function forbiddenPart(text: string): string {
-  const lines = text.split('\n');
-  const i = lines.findIndex((l) => l.includes('やってはいけないこと'));
-  if (i < 0) return '';
-  const heading = lines[i]!.match(/^(#+) /);
-  if (heading) return section(text, lines[i]!);
-  const out = [lines[i]!];
-  for (const l of lines.slice(i + 1)) {
-    if (!/^\s+[-*]|^\s*[-*]\s/.test(l) || l.trim() === '') break;
-    out.push(l);
-  }
-  return out.join('\n');
-}
+// ---- SKILL.md ----
 
-// ---- SKILL.md（AC1） ----
+test('arch-review の skill の構造の表', () => {
+  assert.deepEqual(skillProblems(ARCH_REVIEW_SPEC), []);
+});
 
 test('arch-review の SKILL.md があり、frontmatter の name がディレクトリ名と同じで、description に頼まれ方がある', () => {
-  assert.ok(existsSync(join(root, SKILL)), `${SKILL} がありません`);
+  assert.ok(existsSync(join(ROOT, SKILL)), `${SKILL} がありません`);
   const fm = frontmatter(read(SKILL));
   assert.equal(fm.name, 'arch-review');
   assert.ok(fm.description, 'description がありません');
   for (const phrase of ['設計を見直して', '最近の変更をまとめて見て']) assert.ok(fm.description!.includes(phrase), `description に「${phrase}」がありません`);
 });
 
-test('arch-review に入力・観点・手順・出力・終わりの状態・人に返す条件の見出しがある', () => {
-  const lines = read(SKILL).split('\n');
-  for (const h of HEADINGS) assert.ok(lines.includes(h), `「${h}」がありません`);
-});
-
-test('arch-review の入力：既定は前回の arch-review 以降、前回が無ければ直近 10 本で、--since・--until・--last で変えられる', () => {
-  const input = section(read(SKILL), '## 入力');
-  for (const word of ['前回', '10', '--since', '--until', '--last']) assert.ok(input.includes(word), `「## 入力」に「${word}」がありません`);
-});
-
-test('arch-review の観点：4つの観点（重複・置き場所・docs との食い違い・コードの書き方）がある', () => {
-  const view = section(read(SKILL), '## 観点');
-  for (const word of ['重複', 'harness/lib/', 'docs', 'コードの書き方']) assert.ok(view.includes(word), `「## 観点」に「${word}」がありません`);
-});
-
 test('arch-review が使う agent.ts のコマンドは使い方のコメントに実在し、範囲・下書き・記録の3つを使う', () => {
-  const known = documentedCommands();
+  const known = documentedAgentCommands();
   assert.ok(known.has('worktree') && known.has('claim'), '使い方のコメントからコマンドを読めていません');
   const text = read(SKILL);
   const used = [...text.matchAll(/node harness\/scripts\/agent\.ts ([^\s`]+)/g)].map((m) => m[1]!);
@@ -97,62 +76,10 @@ test('arch-review が使う agent.ts のコマンドは使い方のコメント�
   assert.equal(text.split('agent.ts ').length - 1, used.length, 'agent.ts のコマンドは完全な形で書く');
 });
 
-test('arch-review は見る main を worktree（--detach）で SHA に固定し、終わりに消す', () => {
-  const text = read(SKILL);
-  assert.ok(/node harness\/scripts\/agent\.ts worktree \S+ --detach/.test(text), 'worktree <SHA> --detach がありません');
-  assert.ok(text.includes('node harness/scripts/agent.ts worktree-remove'), 'worktree-remove がありません');
-});
-
-test('arch-review は観点ごとに arch-reviewer を呼び、PR の説明・判定コメントを渡さない', () => {
-  const text = read(SKILL);
-  assert.ok(text.includes('arch-reviewer'), 'arch-reviewer への言及がありません');
-  const ss = sentences(text);
-  assert.ok(ss.some((s) => s.includes('PR の説明') && s.includes('渡さない')), 'PR の説明を渡さない文がありません');
-  assert.ok(ss.some((s) => s.includes('判定コメント') && s.includes('渡さない')), '判定コメントを渡さない文がありません');
-});
-
-// ---- Issue の作成（AC3） ----
-
-test('arch-review：Issue を作るのは人が選んだものだけで、AskUserQuestion で聞く', () => {
-  const text = read(SKILL);
-  assert.ok(text.includes('人が選んだもの'), '「人が選んだもの」がありません');
-  assert.ok(text.includes('AskUserQuestion'), 'AskUserQuestion で聞く手順がありません');
-  const create = sentences(text).filter((s) => s.includes('gh issue create'));
-  assert.ok(create.length > 0, 'gh issue create の手順がありません');
-  assert.ok(create.some((s) => s.includes('人が選んだ')), `gh issue create の文に「人が選んだ」がありません：${create.join(' / ')}`);
-});
-
-test('arch-review：gh issue create の行に --label が無く、agent:ready を付けないと書かれている', () => {
-  const text = read(SKILL);
-  const lines = text.split('\n').filter((l) => l.includes('gh issue create'));
-  assert.ok(lines.length > 0, 'gh issue create の行がありません');
-  for (const l of lines) assert.ok(!/--label\b|\s-l\s/.test(l), `gh issue create の行にラベルの指定があります：${l}`);
-  assert.ok(sentences(text).some((s) => s.includes('agent:ready') && s.includes('付けない')), 'agent:ready を付けない文がありません');
-});
-
-test('arch-review：開いた Issue に同じものがあれば新しく立てずコメントの案にする', () => {
-  const ss = sentences(read(SKILL));
-  assert.ok(ss.some((s) => s.includes('同じもの') && s.includes('コメント')), '同じものがあればコメントの案にする文がありません');
-});
-
-test('arch-review の「やってはいけないこと」：その場で直す・PR や判定コメントへの投稿・判定の担当に渡す・ラベルの付け外し・本文の書き換え・Merge', () => {
-  const part = forbiddenPart(read(SKILL));
-  assert.ok(part !== '', '「やってはいけないこと」がありません');
-  for (const label of FORBIDDEN_LABELS) assert.ok(part.includes(label), `「やってはいけないこと」に ${label} がありません`);
-  for (const word of ['直す', '判定コメント', 'reviewer', 'risk-agent', 'review-panel', '本文', 'Merge', '*:exempt']) {
-    assert.ok(part.includes(word), `「やってはいけないこと」に「${word}」がありません`);
-  }
-});
-
-test('arch-review は PR へのコメント・レビューを投稿する手順を持たない', () => {
-  const text = read(SKILL);
-  for (const cmd of ['gh pr comment', 'gh pr review', 'gh pr merge', 'gh issue edit', 'post-verdict']) assert.ok(!text.includes(cmd), `「${cmd}」があります`);
-});
-
-// ---- arch-reviewer の定義（AC1） ----
+// ---- arch-reviewer の定義 ----
 
 test('arch-reviewer の定義：frontmatter の name・description・tools（Read, Grep, Glob, Bash, Write）', () => {
-  assert.ok(existsSync(join(root, AGENT)), `${AGENT} がありません`);
+  assert.ok(existsSync(join(ROOT, AGENT)), `${AGENT} がありません`);
   const fm = frontmatter(read(AGENT));
   assert.equal(fm.name, 'arch-reviewer');
   assert.ok(fm.description, 'description がありません');
@@ -194,7 +121,7 @@ test('arch-reviewer の定義：出力は観点・要約・根拠・なぜずれ
   assert.ok(out.includes('```json'), '「## 出力」に JSON の例がありません');
 });
 
-// ---- 一覧への掲載（AC4） ----
+// ---- 一覧への掲載 ----
 
 test('CLAUDE.md の構成の表の .claude/skills/ の行に arch-review、.claude/agents/ の行に arch-reviewer がある', () => {
   const lines = read('CLAUDE.md').split('\n');
