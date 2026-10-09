@@ -11,6 +11,7 @@
 | `git-sandbox.ts` | worktree のテスト用の git の砂場（一時ディレクトリに bare の origin と、その clone（本体）を作る） |
 | `judge-graphql-fixtures.ts` | judge-input の過去の PR の読み方のテスト用の見本（1つの見本を、REST の応答と、まとめた GraphQL の問い合わせ（PastPrHistories・PastPrThreads）の応答と、前のファイルごとの履歴の問い合わせの応答で返す偽の GitHub。#249） |
 | `output-file-rules.ts` | サブエージェントの定義に同じ言い回しで置く「渡された出力のパスに自分で書く」決まりの文（判定の担当と plan-critic のテストが共有する） |
+| `settings-deny.ts` | `.claude/settings.json` と deny の雛形の `permissions.deny` の読み方と、Bash の規則の照合の近似（`matchesRule`・`hits`。`settings-deny.test.ts`・`settings-deny-push.test.ts` が共有する。#404） |
 | `skill-text.ts` | skill の文を確かめるテストの補助（frontmatter・節・手順の切り出しと、skill ごとの構造の表（見出し・語・含まないはずの語・順番）を本文と照らし、足りないものを全部一度に返す `skillProblems`。#487） |
 | `stack-fixtures.ts` | Stacked PR・orphan-base のテスト用の見本（stack 付きの PR、orphan-base／base-resolved の App の記録、agent:blocked の events）と、`acceptanceFake` にルートを足した偽の GitHub |
 | `step-fixtures.ts` | `agent.ts step`（`harness/lib/step.ts`）のテスト用の事実（IssueFacts・PrFacts・FleetIssue・FleetPr・StepInput）の既定値と、判定のゲートと同じ形の変更要求レビューの本文（#306） |
