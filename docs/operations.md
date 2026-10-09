@@ -257,7 +257,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 - neutral の要約には「人の確認が要る変更あり」と Human Merge とみなした理由、平易な説明（何を見張っているか、なぜ止めていないか、人が確かめること）、検出の一覧を載せる。Human Merge の依頼のコメント（`kind=human-review`）にも、懸念点より前に見つけた行を目立つ形で載せる。
 - 次のときは緩めず、今までどおり failure（`test:exempt` が要る）：`agent:hold` や自動 Merge モードの停止だけが理由のとき（外すと判定のやり直し無しに自動 Merge に戻るため）、人の PR・fork の PR、PR に auto-merge が付いているとき、Reviewer が不合格の判定だけのとき。
 - 誤検出や、Issue 本文にテストを変える理由がある変更は、人が PR に `test:exempt` を付けて通す（付け外しを App が記録し、外すと検査し直す）。自動 Merge の対象の PR で使う（Human Merge の PR では要らない）。例外は付けた時点の差分にだけ効く（次節）。
-- 結論の優先順は「検出0件 → success」「`test:exempt` が効く → success（Jev に問わない）」「Human Merge → neutral」「`jev.testTamper` が `enforce` で Jev が通す → success」「auto mode の経路で、自動 Merge モードが有効なときに Jev が妥当と答える → success（下記「auto mode の間（Jev が妥当か）」）」「それ以外 → failure」（`harness/gates/tests-check.ts` の `testsOutcome`）。
+- 結論の優先順は「検出0件 → success」「`test:exempt` が効く → success（Jev に問わない）」「Human Merge → neutral」「削除があれば、削除が `test-move-jev` で通り（`enforce`・問えた・通す）、削除以外の検出が0件か `jev.testTamper` の Jev が通す → success」「削除が無く、`jev.testTamper` が `enforce` で Jev が通す → success」「auto mode の経路で、自動 Merge モードが有効なときに Jev が妥当と答える → success（下記「auto mode の間（Jev が妥当か）」）」「それ以外 → failure」（`harness/gates/tests-check.ts` の `testsOutcome`）。
 
 ### Jev の判定（`jev.testTamper`）
 
@@ -273,6 +273,19 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
 - Human Merge の PR にも問って記録する（一致率の材料を増やすため。結論は neutral のまま）。経路の判断（Human Merge か、委任・bypass か）は変えない。
 - enforce への切り替えは、`node harness/scripts/report.ts` の「テストの改ざん：Jev と人の判断」の行（一致率と、Jev は通す・人は直させた件数）を見て人が決める（[security.md](security.md#テストの改ざん)）。
 - このリポジトリは 2026-09-30 に `enforce` にした（持ち主の決定、#364。docs/plan.md の Q104）。上の一般の手順と違い、一致率は見ずに切り替えた（`report.ts` が5分で終わらず読めなかった）。auto mode の間に Jev で妥当かを確かめる仕組み（#349、Epic #339。下記「auto mode の間（Jev が妥当か）」）より先に、`test:exempt` を付ける手間を早く減らすため。`report.ts` は enforce で Jev が通した記録を一致率に数えないので、切り替えの後は一致率の材料が減る。導入先の雛形（`harness/templates/harness.config.json`）の既定は `shadow` のまま。
+
+### テストファイルの削除（移し先の確かめ）
+
+テストファイルを消した PR（`agent/tests` の検出に `deleted-file` がある）で、PR 本文に対応表があれば、App が「消したテストの確かめが、足したテストに残っているか」を Jev に問う（Epic #511、Issue #514。`harness/lib/test-move-jev.ts`・`harness/gates/tests-move.ts`）。通れば、その削除では `agent/tests` を止めない。
+
+- かける条件：削除があり、同じリポジトリの PR で、`jev.testTamper` が off でなく、`JEV_API_KEY` がある。
+- 対応表：本文に Markdown の表があり、消した各ファイルの名前（最初の `.` より前）が本文に出る。これは表があるかの印で、通すかは Jev の答えで決まる。本文は Jev に渡さない。
+- 材料：消したファイルの削除の行（中身全部）と、移し先（この PR で足した・変えたテストファイル）の追加の行。diff だけから集める。
+- 問い：消したファイルごとに1問（移し先で、同じかより厳しい条件で確かめられているか）。
+- 通す条件：`jev.testTamper` が `enforce` で、確率の最小値が `jev.thresholds.testTamperProbability` 以上。削除以外の検出（アサーションの書き換えなど）があるときは、それらを削除を除いて今の `jev.testTamper` の Jev が通すことも要る。auto mode の経路の PR の扱いは変えない（削除があっても、auto mode の Jev が妥当と答えれば今までどおり通る）。
+- 問わないとき（今までどおり止める。要約に理由が出る）：対応表が無い・消したファイルの名前が表に無い・移し先が無い・消したファイルの件数と diff から読めた件数が合わない（「消したファイルの中身を diff から読めません」）・消したファイルが 20 件を超える（`MAX_TEST_MOVE_FILES`）・材料が `jev.maxDiffChars` を超える・Jev のエラー。
+- 記録：問えたら通したときも止めたときも、ファイルごとの確率の表を PR にコメントで残す（`kind=test-move-jev`）。同じ patch-id・同じ問いの版（`TEST_MOVE_JEV_QUESTION_SET`）の記録があれば問い直さず、今の設定で決め直す。Jev のエラーは記録せず、次のイベントで問い直す。
+- Human Merge の依頼のコメントにも、問えたときはこの表を載せる。
 
 ### auto mode の間（Jev が妥当か）
 
