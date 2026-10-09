@@ -135,6 +135,8 @@ export interface PrFacts {
   acceptance: { reviewPass: boolean; at: string } | null;
   /** 現在の head に対する Claude の判定コメントがあり、App の返答（受け付け・却下）がまだない（一定時間で打ち切る） */
   verdictAwaitingGate: boolean;
+  /** 最新の Claude の判定コメントの後の、App の最後の返事が verdict-rejected（差し戻し） */
+  verdictRejected?: boolean;
   /** 最後の push より後の、人（Claude・App 以外のコラボレーター）のレビューの数（会話コメントは数えない） */
   humanFeedbackSincePush: number;
 }
