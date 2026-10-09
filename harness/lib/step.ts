@@ -167,13 +167,13 @@ function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, po
       };
     case 'fix':
       return {
-        allowed: [`node harness/scripts/agent.ts worktree <PR のブランチ>`, 'npm run check', 'git add <ファイル> / git commit', 'git push（force push しない）', `gh pr comment ${pr}（何を直したか）`],
+        allowed: [`node harness/scripts/agent.ts worktree <PR のブランチ>`, 'npm run check', 'git add <ファイル> / git commit', 'git push origin <PR のブランチ>（force push しない）', `gh pr comment ${pr}（何を直したか）`],
         inputs: [`App の最新の変更要求レビュー（kind=fix-request）と、現在の head へのコラボレーターのレビュー（gh api repos/{owner}/{repo}/pulls/${pr}/reviews）`, `node harness/scripts/agent.ts show-plan ${n}`],
         output: '指摘を直した commit の push と、何を直したかの PR のコメント',
       };
     case 'sync':
       return {
-        allowed: [`node harness/scripts/agent.ts worktree <PR のブランチ>`, 'git fetch origin / git merge origin/<既定ブランチ>（rebase・force push しない）', 'npm run check', 'git push', `gh pr comment ${pr}（取り込みと衝突の解消）`],
+        allowed: [`node harness/scripts/agent.ts worktree <PR のブランチ>`, 'git fetch origin / git merge origin/<既定ブランチ>（rebase・force push しない）', 'npm run check', 'git push origin <PR のブランチ>（force push しない）', `gh pr comment ${pr}（取り込みと衝突の解消）`],
         inputs: ['衝突したファイルと、両方の変更の意図'],
         output: 'main を取り込んだ merge commit の push',
       };
