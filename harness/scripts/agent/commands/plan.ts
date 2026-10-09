@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { type Decision, decisionTargets, uncoveredTargets } from '../../../lib/decision.ts';
 import { critiqueClaimedBefore } from '../../../lib/facts.ts';
 import { GitHub } from '../../../lib/github.ts';
+import { implementationRouting } from '../../../lib/model-routing.ts';
 import { type Plan } from '../../../lib/plan.ts';
 import { claimValueAfterPlan } from '../../../lib/queue.ts';
 import { localChangedFiles, scopeCheck } from '../../../lib/scope-check.ts';
@@ -15,7 +16,7 @@ import { type AgentCommand, checkFile, config, ensureOwnClaim, fail, type IssueI
 /**
  * 計画の段階（計画の投稿・決定の記録・通過した計画・範囲の確かめ・批評の入力）。
  *
- *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）
+ *   node harness/scripts/agent.ts show-plan <issue>         計画ゲートを通過した計画（App の記録）。出力の modelRouting.use が実装に使うモデル（Issue #139）
  *   node harness/scripts/agent.ts scope-check <issue> [--base <ref>]
  *                                                           PR を出す前に、今のディレクトリ（worktree）の変更が計画の files に収まるかを、App の範囲照合と同じ関数で確かめる（読むだけ。#290）。
  *                                                           先に git fetch origin <既定ブランチ> をし、base（既定は origin/<既定ブランチ>）との merge-base から作業ツリーまでの変更
@@ -86,6 +87,7 @@ async function showPlan(gh: GitHub, n: number): Promise<void> {
   const intact = planComment !== undefined && gate!.value.planBodySha256 === createHash('sha256').update(planComment.body).digest('hex');
   console.log(JSON.stringify({
     gate: gate!.value,
+    modelRouting: implementationRouting(config, gate!.value.modelRouting),
     planCommentUrl: planComment?.html_url,
     planCommentBody: intact ? planComment!.body : null,
     note: intact ? undefined : '計画コメントはゲート通過後に編集されたか見つかりません。gate.plan（App の写し）だけに従ってください',
