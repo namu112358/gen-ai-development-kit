@@ -15,7 +15,8 @@ import { bypassFor, bypassRoute } from './bypass.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
 import { applyAppLabels } from './label-apply.ts';
 import { notifyUnclaimedPush } from './push-claim.ts';
-import { testsHumanMerge, testsOutcome } from './tests-check.ts';
+import { testsHumanMerge, testsJevSidePasses, testsOutcome } from './tests-check.ts';
+import { testMoveJevFor } from './tests-move.ts';
 import { tamperJevFor } from './tests-jev.ts';
 import { autoModeTestsFor } from './auto-mode-tests.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
@@ -205,6 +206,7 @@ async function notifyExemptNotApplied(ctx: GateContext, pr: PullRequest, label: 
  * 委任承認（計画＋Merge）で自動経路に乗る PR は止める（testsHumanMerge が委任の状態を読んで決める）。
  * 検出があれば Jev に問い（tests-jev.ts）、jev.testTamper が enforce で Jev が通せば、緩めないときでも success にする（Q95）。
  * auto mode の経路の PR は、今の差分の受け付けがあれば妥当かを Jev に問い（auto-mode-tests.ts）、妥当と答えれば success にする（Issue #349）。
+ * テストファイルの削除は、本文に対応表があれば移し先を Jev に問い（tests-move.ts）、通れば削除では止めない。削除以外の検出は削除を除いて jev.testTamper に問う（Issue #514）。
  * PR の作成・push の直後は受け付けが無いので問わない（判定の受け付けの apply.ts の rewriteTestsCheck で問う）。
  */
 async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () => Promise<string>, exempt: boolean, getComments: () => Promise<IssueComment[]>, getPatch: () => Promise<string>): Promise<void> {
@@ -222,11 +224,14 @@ async function writeTestsCheck(ctx: GateContext, pr: PullRequest, getDiff: () =>
     if (reasons.length > 0 && (await getPr(ctx, pr.number)).auto_merge) reasons = [];
   }
   // Agent PR でない同じリポジトリの PR でも問って記録する（fork・off・鍵なし・問えない検出は tamperJevFor が問わない）
-  const jev = findings.length > 0 ? await tamperJevFor(ctx, pr, findings, getPatch, getComments) : undefined;
+  const rest = findings.filter((f) => f.kind !== 'deleted-file');
+  const hasDeletion = rest.length < findings.length;
+  const jev = findings.length === 0 ? undefined : hasDeletion ? (rest.length > 0 ? await tamperJevFor(ctx, pr, rest, getPatch, getComments) : undefined) : await tamperJevFor(ctx, pr, findings, getPatch, getComments);
+  const move = hasDeletion ? await testMoveJevFor(ctx, pr, findings, getDiff, getPatch, getComments) : undefined;
   // auto mode の経路の PR（今の差分の受け付けがあるときだけ）は、妥当かを Jev に問う。jev.testTamper の enforce で先に通るなら問わない
-  const jevPasses = jev?.mode === 'enforce' && jev.asked && jev.allows;
-  const autoMode = findings.length > 0 && reasons.length === 0 && !jevPasses && acceptance ? await autoModeTestsFor(ctx, pr, findings, acceptance, getDiff, getPatch, getComments) : undefined;
-  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev, autoMode));
+  const jevSidePasses = testsJevSidePasses(findings, jev, move);
+  const autoMode = findings.length > 0 && reasons.length === 0 && !jevSidePasses && acceptance ? await autoModeTestsFor(ctx, pr, findings, acceptance, getDiff, getPatch, getComments) : undefined;
+  await writeCheck(ctx, pr.head.sha, CHECKS.tests, testsOutcome(findings, reasons, jev, autoMode, move));
 }
 
 /**
