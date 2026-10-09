@@ -1,41 +1,39 @@
-// Issue #370・#388：patrol の skill の書き方（入力・手順・要約・やってはいけないこと・/loop の例・リンク・使うコマンドの実在）と、skill の一覧（CLAUDE.md・CLAUDE.harness.md・skills の README）への載せ方を確かめる。
+// patrol の skill（.claude/skills/patrol/SKILL.md）の文を、support/skill-text.ts の構造の表で確かめる（Issue #370・#388。#490 で個別の test() を表にまとめた）。
+// 表（PATROL_SPEC）は1つの test() で、足りないものを全部一度に示す。frontmatter・docs へのリンク・使うコマンドの実在・
+// skill の一覧（CLAUDE.md・CLAUDE.harness.md・skills の README）への載せ方は、表にせず個別の test() に残す。
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { documentedAgentCommands } from './support/agent-source.ts';
+import { frontmatter, readText, ROOT, skillProblems, type SkillSpec } from './support/skill-text.ts';
 
-const root = join(import.meta.dirname, '..', '..');
-const HEADINGS = ['## 入力', '## 手順', '## 出力', '## やってはいけないこと', '## 終わりの状態'];
+const SKILL = '.claude/skills/patrol/SKILL.md';
 const OPERATIONS_LINK = '../../../docs/operations.md#見直しを-loop-で回す';
 const OPERATIONS_HEADING = '## 見直しを /loop で回す';
+const skill = (): string => readText(SKILL);
 
-const skillPath = join(root, '.claude', 'skills', 'patrol', 'SKILL.md');
-const readRoot = (...parts: string[]): string => readFileSync(join(root, ...parts), 'utf8').replace(/\r\n/g, '\n');
-const skill = (): string => readFileSync(skillPath, 'utf8').replace(/\r\n/g, '\n');
-
-/** 先頭の `---` で囲まれた frontmatter を key: value で読む（qa-retro-skill.test.ts と同じ） */
-function frontmatter(text: string): Record<string, string> {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!m) return {};
-  return Object.fromEntries(m[1]!.split('\n').map((l) => l.match(/^([a-z-]+):\s*(.*)$/)).filter((x) => x !== null).map((x) => [x[1]!, x[2]!.trim()]));
-}
-
-/** 見出し（`## ` で始まる行）から次の同じ深さの見出しまでの本文。見出しが無ければ null（qa-retro-skill.test.ts と同じ） */
-function section(text: string, heading: string): string | null {
-  const lines = text.split('\n');
-  const start = lines.indexOf(heading);
-  if (start < 0) return null;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((l) => /^## /.test(l));
-  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
-}
-
-function mustSection(heading: string): string {
-  const body = section(skill(), heading);
-  assert.ok(body !== null, `SKILL.md に「${heading}」がありません`);
-  return body;
-}
+/** patrol の skill の構造の表 */
+const PATROL_SPEC: SkillSpec = {
+  path: SKILL,
+  headings: ['## 入力', '## 手順', '## 出力', '## やってはいけないこと', '## 終わりの状態'],
+  words: ['/loop 6h /patrol'],
+  parts: [
+    { section: '## 入力', words: ['--max', '--state', '--dry-run'] },
+    {
+      section: '## 手順',
+      words: [
+        // 観測と、各 skill のループの回
+        'observe.ts', '--previous', 'patrol.ts previous', 'patrol.ts select', 'patrol.ts record', 'arch-review --loop', 'qa-retro --loop', 'test-prune --loop',
+        // 回の要約
+        '観測の差', '動かした見直し', '勧める見直し', '下書きの数',
+        // 状態のファイルが壊れていたら上書きせずに止まる
+        '状態のファイル', '上書きしない',
+      ],
+    },
+    { section: '## やってはいけないこと', words: ['AskUserQuestion', 'gh issue create', 'ラベル'] },
+  ],
+};
 
 /** 本文で使う `node harness/scripts/<script> <サブコマンド>` のサブコマンド */
 const usedSubcommands = (text: string, script: string): string[] =>
@@ -43,59 +41,26 @@ const usedSubcommands = (text: string, script: string): string[] =>
 
 /** スクリプトの先頭の使い方のコメント（最初の `/** … *\/`）に書かれたサブコマンド */
 function documentedSubcommands(script: string): Set<string> {
-  const path = join(root, 'harness', 'scripts', script);
+  const path = join(ROOT, 'harness', 'scripts', script);
   assert.ok(existsSync(path), `harness/scripts/${script} がありません`);
-  const doc = readRoot('harness', 'scripts', script).match(/\/\*\*([\s\S]*?)\*\//)?.[1] ?? '';
+  const doc = readText(`harness/scripts/${script}`).match(/\/\*\*([\s\S]*?)\*\//)?.[1] ?? '';
   return new Set(usedSubcommands(doc, script));
 }
 
+test('patrol の skill の構造の表', () => {
+  assert.deepEqual(skillProblems(PATROL_SPEC), []);
+});
+
 test('patrol の SKILL.md があり、frontmatter の name が patrol で description がある', () => {
-  assert.ok(existsSync(skillPath), 'patrol/SKILL.md がありません');
+  assert.ok(existsSync(join(ROOT, SKILL)), 'patrol/SKILL.md がありません');
   const fm = frontmatter(skill());
   assert.equal(fm.name, 'patrol');
   assert.ok(fm.description, 'description がありません');
 });
 
-test('入力・手順・出力・やってはいけないこと・終わりの状態の見出しがある', () => {
-  const lines = skill().split('\n');
-  for (const h of HEADINGS) assert.ok(lines.includes(h), `「${h}」がありません`);
-});
-
-test('入力に --max・--state・--dry-run がある', () => {
-  const body = mustSection('## 入力');
-  for (const word of ['--max', '--state', '--dry-run']) assert.ok(body.includes(word), `「## 入力」に ${word} がありません`);
-});
-
-test('手順に観測（observe.ts・--previous）・patrol.ts の previous・select・record・各 skill のループの回（test-prune も）がある', () => {
-  const body = mustSection('## 手順');
-  for (const word of ['observe.ts', '--previous', 'patrol.ts previous', 'patrol.ts select', 'patrol.ts record', 'arch-review --loop', 'qa-retro --loop', 'test-prune --loop']) {
-    assert.ok(body.includes(word), `「## 手順」に ${word} がありません`);
-  }
-});
-
-test('手順の回の要約に、観測の差・動かした見直し・勧める見直し・下書きの数がある', () => {
-  const body = mustSection('## 手順');
-  for (const word of ['観測の差', '動かした見直し', '勧める見直し', '下書きの数']) assert.ok(body.includes(word), `「## 手順」に「${word}」がありません`);
-});
-
-test('手順に、状態のファイルが壊れていたら上書きせずに止まることがある', () => {
-  const body = mustSection('## 手順');
-  assert.ok(body.includes('状態のファイル'), '「## 手順」に「状態のファイル」がありません');
-  assert.ok(body.includes('上書きしない'), '「## 手順」に「上書きしない」がありません');
-});
-
-test('/loop の例（/loop 6h /patrol）がある', () => {
-  assert.ok(skill().includes('/loop 6h /patrol'), '`/loop 6h /patrol` がありません');
-});
-
-test('やってはいけないことに、AskUserQuestion・gh issue create・ラベルがある', () => {
-  const body = mustSection('## やってはいけないこと');
-  for (const word of ['AskUserQuestion', 'gh issue create', 'ラベル']) assert.ok(body.includes(word), `「## やってはいけないこと」に「${word}」がありません`);
-});
-
 test('docs/operations.md の「見直しを /loop で回す」へリンクし、リンク先の見出しがある', () => {
   assert.ok(skill().includes(`](${OPERATIONS_LINK})`), `${OPERATIONS_LINK} へのリンクがありません`);
-  const lines = readRoot('docs', 'operations.md').split('\n');
+  const lines = readText('docs/operations.md').split('\n');
   assert.ok(lines.includes(OPERATIONS_HEADING), `docs/operations.md に「${OPERATIONS_HEADING}」がありません`);
 });
 
@@ -129,17 +94,17 @@ test('skill が使う test-prune-loop.ts の pending は、スクリプトの使
 });
 
 test('CLAUDE.md の構成の表の .claude/skills/ の行に patrol がある', () => {
-  const row = readRoot('CLAUDE.md').split('\n').find((l) => l.startsWith('| `.claude/skills/` |'));
+  const row = readText('CLAUDE.md').split('\n').find((l) => l.startsWith('| `.claude/skills/` |'));
   assert.ok(row, 'CLAUDE.md に `.claude/skills/` の行がありません');
   assert.ok(row.includes('patrol'), `CLAUDE.md の .claude/skills/ の行に patrol がありません: ${row}`);
 });
 
 test('harness/CLAUDE.harness.md の skill の表に patrol の行がある', () => {
-  const lines = readRoot('harness', 'CLAUDE.harness.md').split('\n');
+  const lines = readText('harness/CLAUDE.harness.md').split('\n');
   assert.ok(lines.some((l) => l.startsWith('| [patrol](../.claude/skills/patrol/SKILL.md) |')), 'harness/CLAUDE.harness.md に patrol の行がありません');
 });
 
 test('.claude/skills/README.md の表に patrol/ の行がある', () => {
-  const lines = readRoot('.claude', 'skills', 'README.md').split('\n');
+  const lines = readText('.claude/skills/README.md').split('\n');
   assert.ok(lines.some((l) => l.startsWith('| `patrol/` |')), '.claude/skills/README.md に `patrol/` の行がありません');
 });
