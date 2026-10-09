@@ -19,6 +19,9 @@
  * 設定や今のブランチが読めない、または判定の途中で失敗したときは、Bash は通常と同じ判定を使い、`git … push` だけは
  * 送り先に関わらず止める（送り先を確かめられないため）。MCP は設定が読めれば通常の判定、読めなければ名前の判定と Draft の解除の判定。
  *
+ * Windows の中身の無い `python3`・`python`（Microsoft\WindowsApps の下のスタブ。何も出さずに終わる）を呼ぶ Bash も止め、node か Edit・Write ツールを案内する（#529）。
+ * 見分けは ctx.pythonStub（main が isWindowsPythonStub を渡す。無ければ止めない）。xargs・find -exec・スクリプトの中の呼び出しは、ほかの判定と同じく拾わない。
+ *
  * 拾いきれない経路があるので、最後の砦は GitHub の Ruleset：
  * - スクリプトファイルの中身、シェルの関数・別名（alias）
  * - `gh alias set` で作った gh の別名、`gh stack alias` で前に作った別名（`gs` など）
@@ -32,6 +35,7 @@
  *   （ラベルの名前が出ない。最後の砦は GitHub 側で、`agent:plan-ok` は App 以外が付けるとゲートが扱う）
  */
 import { spawnSync } from 'node:child_process';
+import { lstatSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import type { HarnessConfig } from '../../harness/lib/config.ts';
 
@@ -51,6 +55,8 @@ export interface GuardContext {
   currentBranch: string | null;
   /** `cd <dir>`・`git -C <dir>` の後のブランチ（無い・null は分からない） */
   branchAt?: (dir: string) => string | null;
+  /** `python3`・`python` のコマンド名（パス付きも）が Windows のスタブか（無ければ見ない） */
+  pythonStub?: (command: string) => boolean;
 }
 
 export type Decision = { deny: false } | { deny: true; reason: string };
@@ -75,6 +81,8 @@ const MAX_DEPTH = 8;
 const ALLOW: Decision = { deny: false };
 
 const ROLE = 'これは人か App の役割です（CLAUDE.md の「やってはいけないこと」）。別の方法で試さず、人に返してください。';
+const pythonStubReason = (name: string): string =>
+  `hook が止めました：${name} は Windows の中身の無い入口（Microsoft\WindowsApps の下のスタブ）で、何もせずに終わります。ファイルの読み書き・加工は node（node -e …）か Edit・Write ツールを使ってください。`;
 const role = (what: string): string => `hook が止めました：${what}。${ROLE}`;
 const unknown = (what: string): string =>
   `hook が止めました：${what}が展開しないと分かりません。値をそのまま書けば判定できます（main への push・Merge・保護ラベルの操作は CLAUDE.md の「やってはいけないこと」なので、その場合は人に返してください）。`;
@@ -1013,10 +1021,11 @@ function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: numb
     return keywordHit(script, ctx.protectedLabels) ? fallbackReason('標準入力から読むシェルの中身が分からない') : null;
   }
   if (name === 'eval') return analyze(args.map((a) => a.text).join(' '), { ...here }, ctx, depth + 1);
+  const file = head.text.slice(Math.max(head.text.lastIndexOf('/'), head.text.lastIndexOf('\\')) + 1);
+  if (ctx.pythonStub && /^python3?(\.exe)?$/i.test(file) && ctx.pythonStub(head.text)) return pythonStubReason(file);
   if (name === 'git') return checkGit(args, here, ctx, assigns);
   if (name === 'gh') return checkGh(args, ctx, { bodies: [...seg.heredocs, ...seg.herestrings], script });
   // gh-stack の直接の実行（Windows の `\` 区切りのパスも）
-  const file = head.text.slice(Math.max(head.text.lastIndexOf('/'), head.text.lastIndexOf('\\')) + 1);
   if (/^gh-stack(\.exe)?$/i.test(file)) return checkStack(args);
   return null;
 }
@@ -1169,10 +1178,67 @@ function gitBranch(dir: string): string | null {
   return r.status === 0 && typeof r.stdout === 'string' ? r.stdout.trim() : null;
 }
 
+const PROBE_MARK = 'agent-harness-python-ok';
+
+export interface PythonStubDeps {
+  platform: NodeJS.Platform;
+  path: string;
+  exists: (file: string) => boolean;
+  probe: (file: string) => boolean;
+}
+
+/** 在るか。WindowsApps のスタブは existsSync・statSync で見えない（stat は EACCES）ので lstatSync で見る */
+export function pythonExists(file: string): boolean {
+  try {
+    return !lstatSync(file).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/** probe の結果の読み方：標準出力に印があれば本物の Python */
+export function probeOk(r: { stdout?: unknown }): boolean {
+  return typeof r.stdout === 'string' && r.stdout.includes(PROBE_MARK);
+}
+
+const defaultStubDeps = (): PythonStubDeps => ({
+  platform: process.platform,
+  path: process.env.PATH ?? process.env.Path ?? '',
+  exists: pythonExists,
+  probe: (file) => {
+    try {
+      return probeOk(spawnSync(file, ['-c', `print('${PROBE_MARK}')`], { encoding: 'utf8', timeout: 5000 }));
+    } catch {
+      return false;
+    }
+  },
+});
+
+/** Windows で、コマンドの実体が Microsoft\WindowsApps の下の中身の無いスタブか（本物の Python・実体が無い・Windows 以外は false） */
+export function isWindowsPythonStub(command: string, deps: PythonStubDeps = defaultStubDeps()): boolean {
+  if (deps.platform !== 'win32') return false;
+  const withExe = (c: string): string[] => (/\.exe$/i.test(c) ? [c] : [c, `${c}.exe`]);
+  let found: string | undefined;
+  if (/[\\/]/.test(command)) {
+    found = withExe(command.replace(/^\/([A-Za-z])\//, '$1:/')).find((c) => deps.exists(c));
+  } else {
+    for (const dir of deps.path.split(';')) {
+      if (dir === '') continue;
+      const d = dir.replace(/[\\/]+$/, '');
+      found = withExe(command).map((n) => `${d}\\${n}`).find((c) => deps.exists(c));
+      if (found) break;
+    }
+  }
+  if (!found) return false;
+  if (!found.replace(/\\/g, '/').toLowerCase().includes('/microsoft/windowsapps/')) return false;
+  return !deps.probe(found);
+}
+
 /** hook の本体。直接起動したとき（import.meta.main）と、入口（run.mjs）から呼ばれたときに動く */
 export async function main(): Promise<void> {
   let raw = '';
   let decision: Decision;
+  const stubMemo = new Map<string, boolean>();
   try {
     for await (const chunk of process.stdin) raw += String(chunk);
     let ctx: GuardContext | null = null;
@@ -1192,6 +1258,14 @@ export async function main(): Promise<void> {
         protectedLabels: protectedLabelsOf(config, lib),
         currentBranch: gitBranch(cwd),
         branchAt: gitBranch,
+        pythonStub: (command) => {
+          let r = stubMemo.get(command);
+          if (r === undefined) {
+            r = isWindowsPythonStub(command);
+            stubMemo.set(command, r);
+          }
+          return r;
+        },
       };
     } catch {
       ctx = null;
