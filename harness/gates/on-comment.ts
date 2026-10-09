@@ -7,7 +7,8 @@ import { appLogin, LABELS, reasonMark, type ReasonCode } from '../lib/config.ts'
 import { delegateEligibility, delegateExcludeFiles, delegateModeName, delegatePlanGate, type DelegateState } from '../lib/delegate.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
-import { callJev } from '../lib/jev.ts';
+import { askJev, callJev } from '../lib/jev.ts';
+import { reusableModelRouting, routeModel } from '../lib/model-routing.ts';
 import { eligibility, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { critiqueClaimedBefore } from '../lib/facts.ts';
@@ -77,7 +78,7 @@ export async function onComment(ctx: GateContext): Promise<void> {
 
 async function onPlan(
   ctx: GateContext,
-  issue: { number: number; labels: { name: string }[]; state: string },
+  issue: { number: number; labels: { name: string }[]; state: string; title?: string; body?: string | null },
   comment: IssueComment,
   block: ReturnType<typeof extractBlock>,
   /** 決定の記録で判定し直すとき（harness/gates/plan-decision.ts）。Planner の申告を答え済みとして判定する */
@@ -133,13 +134,14 @@ async function onPlan(
   }
   // 批評の関所：critique が無い、または計画より前に段階 plan-critique の着手宣言が無い計画は止める（split の計画も同じ。auto mode でも止める）
   const comments = await ctx.gh.listComments(issue.number);
+  const previousGate = latestPlanGate(ctx.config, comments)?.value;
   const critique = evaluateCritiqueGate(judged, critiqueClaimedBefore(comments, comment.id));
   if (critique.reasons.length > 0) autoCandidate = false;
   gate = withCritiqueGate(gate, critique);
   // auto mode の危険の判定：ほかに止める理由が無いときだけ Jev に問う（同じ計画コメント・同じ本文の ok の記録は使い回す）
   let autoMode: PlanAutoMode | undefined;
   if (autoCandidate && autoSkips && autoState) {
-    const jev = autoKnown?.jev ?? reusablePlanJev(latestPlanGate(ctx.config, comments)?.value, comment.id, sha256(comment.body)) ?? (await askPlanJev(ctx, planBodyWithoutView(comment.body), plan.files, plan.authorView));
+    const jev = autoKnown?.jev ?? reusablePlanJev(previousGate, comment.id, sha256(comment.body)) ?? (await askPlanJev(ctx, planBodyWithoutView(comment.body), plan.files, plan.authorView));
     const danger = autoModeDanger(ctx.config, { jev });
     autoMode = { skipped: autoSkips, label: autoModeConfig(ctx.config).label, by: autoState.by, since: autoState.since, jev, hold: danger.hold, reasons: danger.reasons };
     if (!danger.hold) gate = { pass: true, reasons: [], ...(gate.critiqueProceeded ? { critiqueProceeded: gate.critiqueProceeded } : {}) };
@@ -151,6 +153,13 @@ async function onPlan(
   const delegated = gate.pass ? gate.delegated : undefined;
   if (delegated) record.delegated = delegated;
   if (autoMode) record.autoMode = autoMode;
+  // 実装に勧めるモデル（Jev。Issue #139）：split の計画には問わない。通過・停止のどちらでも記録だけ残し、ゲートの結果は変えない（同じ計画コメント・同じ本文の ok の記録は使い回す）
+  if (!plan.split) {
+    const routing =
+      reusableModelRouting(previousGate, comment.id, record.planBodySha256) ??
+      (await routeModel(ctx.config, ctx.secrets.jevApiKey, { title: issue.title ?? '', body: issue.body ?? '' }, plan.files, original.guardrail ?? [], ctx.askJev ?? askJev));
+    if (routing) record.modelRouting = routing;
+  }
   // 通るときは、前のゲートの停止の印を外してから今までの処理をする
   if (gate.pass && released) await ctx.gh.removeLabel(issue.number, LABELS.planReview);
   const releasedNote = !(gate.pass && released)

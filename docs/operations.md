@@ -88,6 +88,7 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 | --- | --- | --- |
 | `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker` は Orca があれば ship を Orca の worker で動かす（無ければ今の手順） |
 | `fleet.implementModel` | `sonnet` | fleet から起こされた ship が、実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル（`sonnet` か `opus`）。計画・判定・test-designer のモデルは変えない。人が付き添う単独の ship は切り替えない（ship の skill の節「実装のモデル（fleet から起こされた ship）」） |
+| `jev.modelRouting` | `shadow` | 計画ゲートで、実装に勧めるモデル（`opus` / `sonnet`）を Jev に問って記録（`plan-gate` の `modelRouting`）に残す。`off` は問わない。`shadow` は記録だけで、実装は `fleet.implementModel`。`enforce` はゲートを通った計画だけ勧めのモデルで実装し（`show-plan` の `modelRouting.use`）、ほかは `fleet.implementModel`。切り替えの基準は [plan.md](plan.md) の決定ログ（Q105）。`jev.mode` とは独立 |
 | `hq.maxFleets` | 2 | 同時に動かす fleet の数の上限（正の整数）。hq の人待ちのペインは超えると警告する |
 | `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
 | `hq.stuckMinutes` | 120 | AI の番の行がこれ以上同じ状態なら、進んでいないとみなす（正の整数、分） |

@@ -75,10 +75,11 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 
 ## 実装のモデル（fleet から起こされた ship）
 
-fleet から起こされた ship（節「サブエージェントの ship として動くとき」の入れ子のサブエージェントと、fleet が Orca の worker として起こした ship（fleet の `--spec` に、前置きの `ask` で fleet に聞き `worker_done` を送る指示がある））は、コードを書く部分だけを、`node harness/scripts/panes.ts config` の `implementModel`（`harness.config.json` の `fleet.implementModel`。既定 `sonnet`、`opus` に戻せる）のサブエージェントに任せる（Epic #446）。
+fleet から起こされた ship（節「サブエージェントの ship として動くとき」の入れ子のサブエージェントと、fleet が Orca の worker として起こした ship（fleet の `--spec` に、前置きの `ask` で fleet に聞き `worker_done` を送る指示がある））は、コードを書く部分だけを、`node harness/scripts/agent.ts show-plan <番号>` の出力の `modelRouting.use` のモデルのサブエージェントに任せる（Epic #446、Issue #139）。`use` は、`jev.modelRouting` が `enforce` で、計画ゲートを通った計画に Jev の勧めがあれば勧め、それ以外（`shadow`・`off`・勧めの記録なし）は `implementModel`（`harness.config.json` の `fleet.implementModel`。既定 `sonnet`、`opus` に戻せる）。implement だけでなく fix・sync の段階も同じ `show-plan` の結果を使う。
 
 - 見分け方：`fleet.shipMode` の値だけでは決めない。人が直接呼んだ ship は、`shipMode` が `worker` でも単独の ship として扱う。
-- 任せる部分：implement の手順4・5（計画の `files` の範囲で書き、`npm run check` を通す）、fix のコードを直す部分、sync の衝突を解く部分。Agent ツールで `subagent_type` を `general-purpose`、`model` を `implementModel` の値にして呼ぶ。
+- `show-plan` が止まる計画（`agent:plan-review` から人が進めると決めた計画）は、`node harness/scripts/panes.ts config` の `implementModel`（`fleet.implementModel`）を使う。
+- 任せる部分：implement の手順4・5（計画の `files` の範囲で書き、`npm run check` を通す）、fix のコードを直す部分、sync の衝突を解く部分。Agent ツールで `subagent_type` を `general-purpose`、`model` を上で決めたモデルにして呼ぶ。
 - 渡すもの：計画コメントの本文、Issue の AC、worktree の絶対パス、test-designer が先に書いたテストのパス（fix なら直す指摘、sync なら衝突のファイル）。
 - test-designer が先に書いたテストを合格の基準にする。サブエージェントはテストを弱めない・消さない（`agent/tests` の検査は変えない）。
 - 指示に次の文を入れる：「計画に無い設計の判断（新しいファイル・公開の形の変更・計画の `files` の外の変更）が要るなら、書かずに止まり、理由を返す。AskUserQuestion は使わない。commit・push はしない」。
@@ -87,7 +88,7 @@ fleet から起こされた ship（節「サブエージェントの ship とし
 - commit・push・PR・判定は ship が行う（implement の手順6から、fix・sync の push からは今のまま）。
 - 変えないもの：plan・plan-critic・judge の担当（reviewer・risk-agent・合体版のレビューの担当）・test-designer・fleet・hq のモデル。
 - 人が付き添う単独の ship（fleet の交互の方式を含む）はモデルを切り替えず、本体のセッションが自分で書く。
-- PR 本文（implement の手順10）に `実装のモデル: <model>` の1行を書く（任せたなら `implementModel` の値、単独の ship なら本体のモデル）。
+- PR 本文（implement の手順10）に `実装のモデル: <model>` の1行を書く（任せたなら使ったモデル、単独の ship なら本体のモデル）。
 
 ## 終わりの状態
 

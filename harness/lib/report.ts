@@ -50,6 +50,14 @@ export interface ReportRow {
   implementModel?: string | null;
   /** PR が Closes する Issue の着手宣言で、implement の次の宣言が plan だった回数（無ければ 0。planReturnsOf） */
   planReturns?: number;
+  /** 計画ゲートの記録の modelRouting が勧めたモデル（null は記録なし。Issue #139） */
+  recommendedModel?: 'opus' | 'sonnet' | null;
+  /** 勧めを読んだ計画ゲートの記録が通過か（勧めが無ければ null） */
+  recommendedGatePass?: boolean | null;
+  /** App の修正要求レビューのブロッキング指摘の合計 */
+  blockingFindings?: number;
+  /** PR の mutation のジョブのログの survived の数（読めなければ null） */
+  mutationSurvived?: number | null;
 }
 
 /**
@@ -616,6 +624,93 @@ export function renderImplementModelQuality(rows: ImplementModelRow[]): string {
           '| モデル | 件数 | 1回で合格 | 1回で合格の割合 | 修正の回数（合計） | 修正の回数（平均） | fix の PR がある PR | revert | 計画に返した回数 |',
           '| --- | --- | --- | --- | --- | --- | --- | --- | --- |',
           ...rows.map((r) => `| ${r.model} | ${r.count} | ${r.firstPass} | ${pct(r.firstPassRate)} | ${r.fixRequests} | ${num(r.fixRequestsAvg)} | ${r.fixedPrs} | ${r.reverted} | ${r.planReturns} |`),
+        ]),
+  ].join('\n');
+}
+
+// ---- 実装のモデルの勧めと結果（Issue #139） ----
+
+export interface ModelRoutingQualityRow {
+  gate: 'pass' | 'stopped' | 'none';
+  recommended: string;
+  model: string;
+  count: number;
+  firstPass: number;
+  firstPassRate: number | null;
+  fixRequestsAvg: number | null;
+  blockingAvg: number | null;
+  fixedPrs: number;
+  reverted: number;
+  mutationPrs: number;
+  mutationSurvivedAvg: number | null;
+}
+
+/** 勧めが無い行の勧めの欄 */
+const NO_ROUTING = '記録なし';
+
+/**
+ * 受け付け記録のある Agent PR を、計画ゲートの勧め（modelRouting）×使ったモデルごとに集計する。
+ * 並びは gate（pass→stopped→none）、勧め（opus→sonnet→記録なし）、モデル（名前の昇順、不明は最後）
+ */
+export function modelRoutingQuality(rows: ReportRow[]): ModelRoutingQualityRow[] {
+  interface Acc extends ModelRoutingQualityRow {
+    fixRequests: number;
+    blocking: number;
+    mutationSurvived: number;
+  }
+  const by = new Map<string, Acc>();
+  for (const r of rows) {
+    if (r.acceptance === null) continue;
+    const recommended = r.recommendedModel ?? null;
+    const gate: Acc['gate'] = recommended === null ? 'none' : r.recommendedGatePass === true ? 'pass' : 'stopped';
+    const recommendedName = recommended ?? NO_ROUTING;
+    const model = r.implementModel || UNKNOWN_IMPLEMENT_MODEL;
+    const key = [gate, recommendedName, model].join('/');
+    let e = by.get(key);
+    if (!e) {
+      e = { gate, recommended: recommendedName, model, count: 0, firstPass: 0, firstPassRate: null, fixRequestsAvg: null, blockingAvg: null, fixedPrs: 0, reverted: 0, mutationPrs: 0, mutationSurvivedAvg: null, fixRequests: 0, blocking: 0, mutationSurvived: 0 };
+      by.set(key, e);
+    }
+    e.count++;
+    if (r.fixRequests === 0) e.firstPass++;
+    e.fixRequests += r.fixRequests;
+    e.blocking += r.blockingFindings ?? 0;
+    if (r.fixedBy.length > 0) e.fixedPrs++;
+    if (r.reverted) e.reverted++;
+    if (typeof r.mutationSurvived === 'number') {
+      e.mutationPrs++;
+      e.mutationSurvived += r.mutationSurvived;
+    }
+  }
+  const gateRank = { pass: 0, stopped: 1, none: 2 };
+  const recRank = (m: string) => (m === 'opus' ? 0 : m === 'sonnet' ? 1 : 2);
+  const modelRank = (m: string) => (m === UNKNOWN_IMPLEMENT_MODEL ? 1 : 0);
+  const out: ModelRoutingQualityRow[] = [];
+  for (const e of by.values()) {
+    const { fixRequests, blocking, mutationSurvived, ...row } = e;
+    out.push({ ...row, firstPassRate: e.firstPass / e.count, fixRequestsAvg: fixRequests / e.count, blockingAvg: blocking / e.count, mutationSurvivedAvg: e.mutationPrs === 0 ? null : mutationSurvived / e.mutationPrs });
+  }
+  return out.sort(
+    (a, b) => gateRank[a.gate] - gateRank[b.gate] || recRank(a.recommended) - recRank(b.recommended) || modelRank(a.model) - modelRank(b.model) || (a.model < b.model ? -1 : a.model > b.model ? 1 : 0),
+  );
+}
+
+const GATE_LABELS = { pass: '通過', stopped: '停止', none: '-' } as const;
+
+export function renderModelRoutingQuality(rows: ModelRoutingQualityRow[]): string {
+  return [
+    '## 実装のモデルの勧めと結果',
+    '',
+    '勧めは計画ゲートの記録の modelRouting（App の記録）。モデルは PR 本文の `実装のモデル:` の行（セッションが書くので偽れる）。切り替えの基準は docs/plan.md の決定ログ。基準に数えるのはゲートを通過した計画だけ。mutation の survived は PR 側のコードが決めるので参考。',
+    '',
+    ...(rows.length === 0
+      ? ['対象の PR はありません']
+      : [
+          '| ゲート | 勧め | 使ったモデル | 件数 | 1回で合格 | 1回で合格の割合 | 修正の回数（平均） | ブロッキング指摘（平均） | fix の PR がある PR | revert | mutation の PR | mutation の survived（平均） |',
+          '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
+          ...rows.map(
+            (r) => `| ${GATE_LABELS[r.gate]} | ${r.recommended} | ${r.model} | ${r.count} | ${r.firstPass} | ${pct(r.firstPassRate)} | ${num(r.fixRequestsAvg)} | ${num(r.blockingAvg)} | ${r.fixedPrs} | ${r.reverted} | ${r.mutationPrs} | ${num(r.mutationSurvivedAvg)} |`,
+          ),
         ]),
   ].join('\n');
 }

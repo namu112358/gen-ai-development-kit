@@ -12,6 +12,9 @@ import {
   decisionRows,
   fixLinksFor,
   fixPrFilesOf,
+  fixRequestFindings,
+  modelRoutingQuality,
+  renderModelRoutingQuality,
   isFixPr,
   laterPassHead,
   panelComparison,
@@ -33,7 +36,9 @@ import {
   type PanelPairRow,
   type ReportRow,
 } from '../lib/report.ts';
-import { appRecords, closingIssues, fixRequestCount, isAgentPr, type PlanGateRecord, type PullRequest, type Review } from '../lib/state.ts';
+import { jobsOf, type Run } from '../lib/qa-retro.ts';
+import { MUTATION_JOB, parseSurvivedMutants } from '../lib/test-health.ts';
+import { appRecords, closingIssues, fixRequestCount, isAgentPr, latestPlanGate, type PlanGateRecord, type PullRequest, type Review } from '../lib/state.ts';
 import { autoModeConfig } from '../lib/auto-mode.ts';
 import { TEST_TAMPER_JEV_KIND, type TamperJevRecord } from '../lib/test-tamper-jev.ts';
 import { AUTO_MODE_TESTS_KIND, type AutoModeTestsRecord } from '../lib/auto-mode-tests.ts';
@@ -47,6 +52,7 @@ import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
  * ここでは GitHub から事実を集めて行にするだけ。集計と基準の判定は harness/lib/report.ts、基準の意味は docs/security.md の「Jev」。
  * 受け付けられなかった判定コメントも件数に出す。テストの改ざんの Jev の記録と人の判断（test:exempt・Merge した差分）の一致も数える（Q95）。
  * 実装のモデル（PR 本文の「実装のモデル:」の行）ごとに、1回で合格した割合・修正の回数・計画に返した回数を出す節も付ける（#473）。
+ * 勧め（計画ゲートの記録の modelRouting）×実装のモデルごとの結果の節も付ける（#139）。
  * 最後に合体版のレビューの記録と今の判定を比べる節（基準は docs/plan.md の Q91）と、人の決定の記録の Jev の判定と人の判断の一致率の節（Q93）、
  * auto mode の危険の問いの見解あり・なしの結論の比べ（shadow。#426）の節を出す。
  */
@@ -152,6 +158,26 @@ async function laterHeadFilesOf(pr: number, input: Pick<PanelCompareInput, 'comm
   return out;
 }
 
+/**
+ * PR の head の mutation のジョブのログから survived の数を読む（Issue #139）。ログの期限切れ・権限・ジョブが無いときは null（失敗で止めない）。
+ * 新しい実行から順に、mutation のジョブが走った（skipped・未完了でない）最初のログを読む
+ */
+async function mutationSurvivedOf(headSha: string): Promise<number | null> {
+  try {
+    const res = await gh.get<{ workflow_runs?: Run[] }>(`/actions/runs?head_sha=${headSha}&event=pull_request&per_page=20`);
+    const runs = (res?.workflow_runs ?? []).filter((r) => r.status === 'completed').sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime() || b.id - a.id);
+    for (const r of runs) {
+      const job = (await jobsOf(gh, `/actions/runs/${r.id}/jobs`)).find((j) => j.name === MUTATION_JOB && j.conclusion !== 'skipped' && j.conclusion !== null);
+      if (!job) continue;
+      const log = await gh.get<unknown>(`/actions/jobs/${job.id}/logs`, { raw: true });
+      return typeof log === 'string' ? parseSurvivedMutants(log).length : null;
+    }
+  } catch {
+    // 読めなければ null
+  }
+  return null;
+}
+
 const rows: ReportRow[] = [];
 const panelRows: PanelPairRow[] = [];
 const panelExcluded: Record<string, number> = {};
@@ -170,6 +196,17 @@ for (const pr of agentPrs) {
   const fixedBy = fixLinks.map((l) => l.pr);
   let planReturns = 0;
   for (const i of await closes(pr.number)) planReturns += planReturnsOf(await issueComments(i));
+  // 勧め（Issue #139）：PR が Closes する Issue の最新の計画ゲートの記録の modelRouting（ok で勧めがある最初のもの）
+  let recommendedModel: 'opus' | 'sonnet' | null = null;
+  let recommendedGatePass: boolean | null = null;
+  for (const i of await closes(pr.number)) {
+    const gate = latestPlanGate(config, await issueComments(i))?.value;
+    if (gate?.modelRouting?.status === 'ok' && gate.modelRouting.recommended) {
+      recommendedModel = gate.modelRouting.recommended;
+      recommendedGatePass = gate.pass;
+      break;
+    }
+  }
   rows.push({
     pr: pr.number,
     createdAt: pr.created_at,
@@ -196,11 +233,18 @@ for (const pr of agentPrs) {
     fixLinks,
     implementModel: implementModelOf(pr.body),
     planReturns,
+    recommendedModel,
+    recommendedGatePass,
   });
 
   // 合体版のレビューの記録と今の判定の組（App の fix-request と、レビューコメント）
   const row = rows.at(-1)!;
   const reviews = await gh.paginate<Review>(`/pulls/${pr.number}/reviews`);
+  row.blockingFindings = reviews
+    .filter((r) => r.user?.login === appLogin(config) && appMarkKind(r.body) === 'fix-request')
+    .reduce((n, r) => n + fixRequestFindings(r.body).length, 0);
+  // 勧めのある PR だけ mutation のログを読む（古い PR は読まない）
+  row.mutationSurvived = recommendedModel === null ? null : await mutationSurvivedOf(pr.head.sha);
   const reviewComments = await gh.paginate<{ path: string; created_at: string; author_association: string; user: { login: string } | null; body: string }>(
     `/pulls/${pr.number}/comments`,
   );
@@ -229,7 +273,9 @@ for (const pr of agentPrs) {
 
 console.log(`${renderReport(summarize(config, rows), rows, days)}\n\n${renderTokenRatios(tokenRatios(rows))}
 
-${renderImplementModelQuality(implementModelQuality(rows))}`);
+${renderImplementModelQuality(implementModelQuality(rows))}
+
+${renderModelRoutingQuality(modelRoutingQuality(rows))}`);
 console.log(`\n${renderPanelComparison(panelComparison(panelRows), panelRows, panelExcluded)}`);
 
 // 人の決定の記録（shadow の plan-decision）と人の判断の一致率。plan-decision の記録がある Issue だけ events と Closes する PR を読む
