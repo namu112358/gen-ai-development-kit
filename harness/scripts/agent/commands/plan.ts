@@ -11,7 +11,7 @@ import { localChangedFiles, scopeCheck } from '../../../lib/scope-check.ts';
 import { parsePreviousCritique, renderCriticInput, splitArgs } from '../../../lib/session-inputs.ts';
 import { latestPlanGate, type PlanGateRecord } from '../../../lib/state.ts';
 import { criticRepo, worktreeOptions } from '../../../lib/worktree.ts';
-import { type AgentCommand, checkFile, config, ensureOwnClaim, fail, type IssueItem, manualClaim, readBlockFile, renderClaim, renderPlan, writeTemp } from '../cli.ts';
+import { type AgentCommand, checkFile, config, currentSession, ensureOwnClaim, fail, type IssueItem, manualClaim, readBlockFile, renderClaim, renderPlan, writeTemp } from '../cli.ts';
 
 /**
  * 計画の段階（計画の投稿・決定の記録・通過した計画・範囲の確かめ・批評の入力）。
@@ -32,7 +32,7 @@ import { type AgentCommand, checkFile, config, ensureOwnClaim, fail, type IssueI
  *   node harness/scripts/agent.ts critic-input <issue> <plan-file> [--previous <critique.json>]  （このセッションの着手宣言が要る）
  *                                                           plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画。
  *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力。
- *                                                           先に git fetch し、origin/<既定ブランチ> の最新を含む読み先（Issue の worktree → 今の作業ディレクトリ → 無ければ base の detach の worktree）を「読み先のリポジトリ」に書く。決められなければ止まる
+ *                                                           先に git fetch し、origin/<既定ブランチ> の最新を含む読み先（Issue の worktree → 今の作業ディレクトリ → 無ければ base の、Issue とセッションごとの detach の worktree（使い終わったら標準エラーに出す worktree-remove <名前> で消す））を「読み先のリポジトリ」に書く。決められなければ止まる
  */
 
 async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
@@ -131,7 +131,10 @@ async function criticInput(gh: GitHub, args: string[]): Promise<string> {
   await ensureOwnClaim(gh, n);
   let repo;
   try {
-    repo = criticRepo(n, process.cwd(), worktreeOptions(config));
+    repo = criticRepo(n, process.cwd(), worktreeOptions(config), currentSession() ?? undefined);
+    if (repo.removeRef) {
+      console.error(`読み先の worktree（${repo.path}）は、使い終わったら node harness/scripts/agent.ts worktree-remove ${repo.removeRef} で消せます`);
+    }
   } catch (e) {
     fail([(e as Error).message]);
   }
