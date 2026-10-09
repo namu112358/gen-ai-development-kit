@@ -22,6 +22,7 @@
  * - hq todo|board|log：hq の3つのペイン（① Epic/Issue・② 人待ち・③ ログ（上から）。描き方は harness/lib/panes-hq.ts。Issue #402）。GitHub を読まない。
  *   数秒ごとに hq の控え（hq-state.ts の git の共通ディレクトリの下の hq-fleets.json。--fleets で別のパス）を読み直し、控えの fleets の
  *   session のスナップショットだけを読む（--session は渡さない。起こし直しで hq が控えの session を書き換えれば、ペインを作り直さずに追う）。
+ *   log は控えの隣の hq-heartbeat.json（hq-state.ts heartbeat-save）の古くない一言もまぜる（Issue #438）。
  *   board は標準入力が端末なら Tab・e・i でページ（Epic・Issue）を切り替える（q・Ctrl+C で終わる）。--once は1回だけ色なしで描いて終わる。
  * - fleets：渡した fleet のスナップショットを1回読み、進んでいないかの判定（harness/lib/hq-stall.ts の fleetStall。しきい値は
  *   hq.staleSnapshotMinutes・hq.stuckMinutes）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
@@ -43,7 +44,7 @@ import type { FleetStatusData } from '../lib/fleet.ts';
 import { CLEAR_SCREEN, HISTORY_LIMIT, PANE_STEPS, ago, locateRow, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
 import { hqWarning, nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type HqView } from '../lib/panes-hq.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
-import { gitCommonDir, ledgerPath, parseLedger, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
+import { HEARTBEAT_FILE, freshHeartbeats, gitCommonDir, ledgerPath, parseLedger, readHeartbeatAt, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
 import { projectTranscriptDir } from '../lib/usage.ts';
 
 export interface RunResult {
@@ -569,11 +570,12 @@ function mainHq(argv: string[], config: ReturnType<typeof loadConfig>): void {
     path = ledgerPath(common);
   }
   const ledgerFile = path;
+  const heartbeatFile = join(dirname(ledgerFile), HEARTBEAT_FILE);
   let page: BoardPage = 'epic';
   const draw = (view: HqView, now: number, width: number, height: number): string => {
     if (pane === 'todo') return renderHqTodo(view, now, width, maxFleets);
     if (pane === 'board') return renderHqBoard(view, page, now, width);
-    return renderHqLog(view, now, width, height);
+    return renderHqLog(view, now, width, height, freshHeartbeats(readHeartbeatAt(heartbeatFile), view.fleets.map((f) => f.fleet.theme), now, staleSnapshotMinutes));
   };
   const deps: HqRenderDeps = {
     readLedger: () => parseLedger(readJsonFile(ledgerFile)),
