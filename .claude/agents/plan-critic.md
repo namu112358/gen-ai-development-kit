@@ -55,6 +55,8 @@ tools: Read, Grep, Glob, Bash, Write
 
 返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。
 
+ブランチ・HEAD・作業ツリーを動かす git の操作（`checkout`・`switch`・`reset`・`stash`・`restore`・`merge`・`rebase`・`pull`・`commit` など）はしない。別の版のファイルを読むときは `git show <rev>:<path>` か `git diff` を使う。
+
 `fixes` の `severity`：
 
 - `must`（必須）：要件との食い違い、正しい入力・出力を壊す、安全を損なう、AC を確かめられない、触るファイルの漏れ、判断が実装に残っている（観点7）。

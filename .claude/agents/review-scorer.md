@@ -41,3 +41,5 @@ e. 100: Absolutely certain. The agent double checked the issue, and confirmed th
 ```
 
 返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。
+
+ブランチ・HEAD・作業ツリーを動かす git の操作（`checkout`・`switch`・`reset`・`stash`・`restore`・`merge`・`rebase`・`pull`・`commit` など）はしない。別の版のファイルを読むときは `git show <rev>:<path>` か `git diff` を使う。
