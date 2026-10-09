@@ -72,6 +72,25 @@ export function summarizeUsage(lines: string[]): UsageSummary {
   return summary;
 }
 
+/** 応答（assistant の行）の数。summarizeUsage と同じ読み方で、同じ message.id は1回、id の無い行は1行1回 */
+export function countCalls(lines: string[]): number {
+  const ids = new Set<string>();
+  let anonymous = 0;
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    let entry: { type?: string; message?: { id?: string; usage?: RawUsage } };
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const m = entry?.message;
+    if (entry?.type !== 'assistant' || !m?.usage) continue;
+    ids.add(m.id ?? `(no-id-${anonymous++})`);
+  }
+  return ids.size;
+}
+
 export function totalTokens(summary: UsageSummary): TokenCounts {
   const acc = zero();
   for (const c of Object.values(summary)) for (const k of KEYS) acc[k] += c[k];

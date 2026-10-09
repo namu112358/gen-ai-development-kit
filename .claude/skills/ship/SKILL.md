@@ -59,6 +59,9 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 
 fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md) の「入れ子の方式」）で、fleet からサブエージェントとして呼ばれたときは、手順1〜10を次のとおり変えて進める。人とは話さず、fleet に返す。
 
+- 1回の呼び出しでは、fleet から渡された段階だけ（1段階）を行う。段階は `plan`（計画ゲートの結果まで）・`implement`（Draft PR まで）・`judge`・`fix`（判定の受け付けと、合格なら手順6まで）・`sync`・`merged`（手順1の「Merge 済みで呼び直されたとき」。Close の見届けまで）。次の段階は fleet が `fleet-status` の表で決めて、新しいサブエージェントの ship を呼ぶので、続きの段階に進まない。
+- 始めるときは、会話ではなく、渡された引き継ぎのファイル・Issue と計画コメント（`show-plan`）・PR とその記録を読む。足りないもの・食い違い（例：`implement` を渡されたのに計画ゲートを通っていない）は推測で埋めず、材料を読み直すか、`status` を `return-to-human` にして返す。
+- 段階の終わりに、scratchpad の `handoff-<番号>-<段階>.md` に `agent-handoff` ブロック（[docs/formats.md](../../../docs/formats.md) の「引き継ぎ（agent-handoff）」）を書き、`node harness/scripts/agent.ts check <ファイル>` で確かめてから、ファイルのパスとブロックを返す本文に入れる。人に聞くこと・人がすることの項目・待つ理由はブロックに入れず、本文に書く。
 - 最初に、自分が Agent ツールを使えるかを確かめる。使えなければ何もせず（着手宣言もしない）「入れ子不可」と返す。
 - 各 skill が AskUserQuestion で人に聞くところ（plan-critic の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、引き継ぎ（`--takeover`）、計画の `files` の外の変更など）では聞かずに止まり、Issue 番号・段階・聞きたいこと・選択肢（おすすめを先頭）を返す。宣言の扱いは、人の判断待ちで止めるときと同じ（必要なら `release <番号>`）。fleet から答えを渡されて呼び直されたら、その答えを人の答えとして続きから進める。
 - plan の投稿の前の質問（plan の skill の手順3の「投稿の前に人に聞く」。計画ブロックに `openQuestions` か `needsHumanReasons` がある）でも、聞かずに止まる。計画を投稿せず、批評（plan の手順5）にも進まずに、Issue 番号・段階（投稿の前の質問）・質問と選択肢（おすすめを先頭）・書きかけの計画のファイルのパス（scratchpad）を fleet に返す。着手宣言は `plan` のまま残す（解除しない。答えの無いまま fleet が終えるときは fleet が `release <番号>` する）。批評の `revise` で直した計画に新しい質問が出たときも、同じように止まって fleet に返す。
@@ -68,7 +71,7 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 - ハーネスが更新されたとき：ship は fleet と同じセッション ID なので、自分では交代しない。段階を始める前に `harness-drift` で古いと分かったら、進めずに「待つ（読み込みが古い）」として fleet に返す（宣言の扱いは人の判断待ちで止めるときと同じ。必要なら `release <番号>`）。交代は fleet が行う。
 - Merge 済みの PR で呼び直されたら、手順1の「Merge 済みで呼び直されたとき」を行い、Close の見届けの結果を返す。
 - 手順9の振り分けはこの ship の記録（`incident list`）で行い、手順10の一覧は人に出さず、その項目（Merge・例外ラベル・setup の要否・Merge 後の確かめ・改善の候補）を返す。fleet がまとめて人に出す。
-- 返すもの：Issue 番号、PR 番号（あれば）、終わった状態（人の Merge 待ち・人の判断待ち・待つ・入れ子不可・人に返す条件に当たった・Merge 後の見届け済み（Close 済み）・Close されていない（理由。`Closes` の無い PR など））、人に聞くこと、人がすることの項目、待つ理由。
+- 返すもの：Issue 番号、PR 番号（あれば）、引き継ぎのファイルのパス、終わった状態（人の Merge 待ち・人の判断待ち・待つ・入れ子不可・人に返す条件に当たった・Merge 後の見届け済み（Close 済み）・Close されていない（理由。`Closes` の無い PR など））、人に聞くこと、人がすることの項目、待つ理由。
 
 ## 実装のモデル（fleet から起こされた ship）
 

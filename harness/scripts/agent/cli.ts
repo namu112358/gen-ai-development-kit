@@ -5,10 +5,11 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { type ApiCounter, CountingTransport } from '../../lib/api-count.ts';
 import { type AssigneeIo, checkAssignee } from '../../lib/assignee.ts';
-import { claudeMark, extractBlock, renderBlock, withClaudeMark } from '../../lib/blocks.ts';
+import { type BlockKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../../lib/blocks.ts';
 import { ensureOwnClaim as ownClaimError } from '../../lib/claim.ts';
 import { LABELS, loadConfig, REASON_CODES, type ReasonCode, reasonMark, riskLabel } from '../../lib/config.ts';
 import { parseDecision } from '../../lib/decision.ts';
+import { parseHandoff } from '../../lib/handoff.ts';
 import { GitHub, transportFromEnv } from '../../lib/github.ts';
 import { judgedHeadError, samePrPatch } from '../../lib/patch-id.ts';
 import { compareHarness, type DriftResult, harnessVersionsAt, loadedRecordPath, readLoadedRecord } from '../../lib/harness-drift.ts';
@@ -16,7 +17,7 @@ import { expectedPlanGate, parsePlan, type Plan, plannerRequestsHuman } from '..
 import { type Claim, CLAIM_STAGES, type ClaimStage } from '../../lib/queue.ts';
 import { transcriptSessionId } from '../../lib/session.ts';
 import { linkedIssues, type PullRequest, withStack } from '../../lib/state.ts';
-import { estimateCost, findSessionTranscriptsWithNote, summarizeUsage, totalTokens } from '../../lib/usage.ts';
+import { countCalls, estimateCost, findSessionTranscriptsWithNote, summarizeUsage, totalTokens } from '../../lib/usage.ts';
 import { parseVerdict } from '../../lib/verdict.ts';
 
 /**
@@ -190,16 +191,16 @@ export function readBlockFile(file: string): string {
   return withClaudeMark(body, currentSession());
 }
 
-export function checkFile(file: string): { kind: 'plan' | 'verdict' | 'decision'; errors: string[]; value?: unknown } {
+export function checkFile(file: string): { kind: 'plan' | 'verdict' | 'decision' | 'handoff'; errors: string[]; value?: unknown } {
   const body = readFileSync(file, 'utf8');
-  for (const kind of ['plan', 'verdict', 'decision'] as const) {
-    const b = extractBlock(body, `agent-${kind}`);
+  for (const kind of ['plan', 'verdict', 'decision', 'handoff'] as const) {
+    const b = extractBlock(body, `agent-${kind}` as BlockKind);
     if (!b.found) continue;
     if (!b.ok) return { kind, errors: [b.error] };
-    const parsed = kind === 'plan' ? parsePlan(b.value) : kind === 'verdict' ? parseVerdict(b.value) : parseDecision(b.value);
+    const parsed = kind === 'plan' ? parsePlan(b.value) : kind === 'verdict' ? parseVerdict(b.value) : kind === 'decision' ? parseDecision(b.value) : parseHandoff(b.value);
     return parsed.ok ? { kind, errors: [], value: parsed.value } : { kind, errors: parsed.errors };
   }
-  throw new Error('agent-plan / agent-verdict / agent-decision ブロックがありません');
+  throw new Error('agent-plan / agent-verdict / agent-decision / agent-handoff ブロックがありません');
 }
 
 /** 一時ディレクトリにファイルを書き、パスを返す */
@@ -233,11 +234,15 @@ export function usageReport(explicit?: string) {
   const summary = summarizeUsage(lines);
   if (Object.keys(summary).length === 0) return null;
   const cost = estimateCost(summary, config.pricing ?? {});
+  const total = totalTokens(summary);
+  const calls = countCalls(lines);
   return {
     files,
     bySession,
     perModel: Object.fromEntries(Object.entries(summary).map(([m, tokens]) => [m, { tokens, estimatedUsd: cost.perModel[m] ?? null }])),
-    total: totalTokens(summary),
+    total,
+    calls,
+    cacheReadPerCall: calls === 0 ? null : Math.round(total.cacheRead / calls),
     estimatedUsd: cost.totalUsd,
     note: [
       'API で動かした場合の推定料金（USD）。サブスク利用ではトークン単位の請求はない',
