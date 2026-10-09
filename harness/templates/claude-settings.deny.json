@@ -115,7 +115,7 @@
       "Bash(gh api *:exempt*)",
       "Bash(* gh api *:exempt*)",
       "Bash(git push * main)",
-      "Bash(git push * main:*)",
+      "Bash(git push * *:main)",
       "Bash(git push * HEAD:main)",
       "Bash(git push --force*)",
       "Bash(git push -f*)",
