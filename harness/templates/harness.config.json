@@ -84,6 +84,8 @@
     "decisionRelease": "shadow",
     "testTamper": "shadow",
     "modelRouting": "shadow",
+    "epicTriage": "shadow",
+    "epicTriagePerRun": 3,
     "thresholds": {
       "lowProbability": 0.9,
       "noulSafe": 0.9,
@@ -91,7 +93,9 @@
       "labelProbabilityByLabel": { "priority:medium": 0.5 },
       "decisionProbability": 0.9,
       "testTamperProbability": 0.9,
-      "autoModeTestsProbability": 0.9
+      "autoModeTestsProbability": 0.9,
+      "epicProbability": 0.9,
+      "epicMargin": 0.2
     }
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
