@@ -62,6 +62,7 @@
 | `state.ts` | GitHub 上の状態の読み取り。 | ○ |
 | `step.ts` | agent.ts step の判断（Issue #306）：GitHub の事実と段階のグラフ（flow.ts）から、今やってよいノードを1つだけ返す。 | ○ |
 | `test-health.ts` | 保守の観測（harness/scripts/observe.ts）のテストの健康：遅いテスト、不安定なテスト（同じ head で失敗の後に成功）、mutation で生き残ったミュータント。 | ○ |
+| `test-move-jev.ts` | テストファイルの削除の移し先を Jev に問う材料・要求・答えのまとめ・要約の節・記録の型（Epic #511、Issue #513）。 | ○ |
 | `test-prune-loop.ts` | test-prune を付き添いのセッションの `/loop` から回すときの、手元の状態と回の記録（純粋関数）。 | ○ |
 | `test-prune.ts` | 減らせるテストの材料（harness/scripts/test-prune.ts）の決まる集計。 | ○ |
 | `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えとテストの名前の変更を Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
