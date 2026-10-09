@@ -5,6 +5,7 @@
  *   node harness/scripts/panes.ts progress|todo|prs (--session <ID> | --snapshot <パス>)（todo は hq がいない間の控えの質問も出す）
  *   node harness/scripts/panes.ts hq [todo|board|log] [--once] [--fleets <控えのパス>]（ペインの名前が無ければ todo。todo だけ --json で1行の JSON を出す。Claude Code の mod が読む）
  *   node harness/scripts/panes.ts fleets --session <ID> [--session <ID>...]
+ *   node harness/scripts/panes.ts line (--session <ID> | --snapshot <パス>)（スナップショットを1回読み、「fleet #508 実装 · #517 ゲート（人）」の1行を出す。Claude Code の mod の status line が読む。スナップショットが無い・読めなければ何も出さず終了コード 0）
  *   node harness/scripts/panes.ts config
  *
  * - collect：GitHub と記録を読むのはこれだけ。harness.config.json の panes.collectIntervalSeconds（既定 180 秒）ごとに、
@@ -39,7 +40,7 @@ import type { IssueComment } from '../lib/github.ts';
 import { epicChildrenFromRecords } from '../lib/session-inputs.ts';
 import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
-import { CLEAR_SCREEN, HISTORY_LIMIT, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
+import { CLEAR_SCREEN, HISTORY_LIMIT, PANE_STEPS, ago, locateRow, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
 import { hqWarning, nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type HqView } from '../lib/panes-hq.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 import { gitCommonDir, ledgerPath, parseLedger, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
@@ -356,6 +357,20 @@ export function defaultSnapshotPath(tmp: string, session: string): string {
   return join(tmp, 'agent-harness-panes', `${session}.json`);
 }
 
+/** Claude Code の status line に出す1行。スナップショットが無い・status が無い・行が無ければ null。古ければ末尾に更新の時刻を足す */
+export function fleetStatusLine(snap: PaneSnapshot | null, now: number): string | null {
+  const rows = snap?.status?.rows ?? [];
+  if (!snap || rows.length === 0) return null;
+  const parts = rows.map((row) => {
+    const at = locateRow(row);
+    const step = typeof at.step === 'number' ? (PANE_STEPS[at.step] ?? '') : at.step === 'done' ? '済' : at.step === 'stopped' ? '停止' : 'Epic';
+    const mark = at.other ? '（他）' : at.who === 'human' ? '（人）' : at.who === 'wait' ? '（待ち）' : '';
+    return `#${row.issue} ${step}${mark}`;
+  });
+  const stale = now - Date.parse(snap.at) > snap.intervalSeconds * 3000;
+  return `fleet ${parts.join(' · ')}${stale ? ` · 更新 ${ago(snap.at, now)}` : ''}`;
+}
+
 // ---- CLI（import.meta.main の中だけで動く） ----
 
 function readSnapshotFile(path: string): PaneSnapshot | null {
@@ -426,10 +441,18 @@ function parseCli(args: string[]): CliArgs {
   return out;
 }
 
-const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | hq todo --json [--fleets <パス>] | fleets --session <ID>... | config';
+const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | hq todo --json [--fleets <パス>] | fleets --session <ID>... | line (--session <ID> | --snapshot <パス>) | config';
 
 function main(argv: string[]): void {
   const [mode, ...rest] = argv;
+  if (mode === 'line') {
+    const a = parseCli(rest);
+    const path = a.snapshot ?? (a.sessions[0] ? defaultSnapshotPath(tmpdir(), a.sessions[0]) : null);
+    if (!path) throw new Error(`--session か --snapshot を渡してください（${USAGE}）`);
+    const text = fleetStatusLine(readSnapshotFile(path), Date.now());
+    if (text !== null) console.log(text);
+    return;
+  }
   const config = loadConfig();
   const ship = shipModeConfig(config);
   if (mode === 'config') {
