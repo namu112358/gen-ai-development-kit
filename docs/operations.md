@@ -181,6 +181,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 
 - ダッシュボードの「ラベルが足りない Issue・PR」の節：定期実行のたびに、開いた Issue のうち `agent:*` か `epic` の付いたものと Agent PR を検査し、番号・タイトル・足りないもの・違反を1行ずつ出す（人がまだ整えていない Issue、人や bot の PR は出さない）。
 - `node harness/scripts/agent.ts label-audit [番号..]`：同じ検査の一覧を出す。番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲。ダッシュボードと同じ検査を人が手元で見るためのもので、セッションは走らせない。
+- `node harness/scripts/agent.ts label-fill <番号> --label <ラベル> [--label ..] --reason <根拠>`：最新の `label-triage` の記録の `notApplied` にある `priority:*`・`area:*` だけを、同じ種類のラベルが無いときに付け、理由（Jev の提案と確率・根拠）のコメントを Issue に書く。記録が無ければ何もしない。提案と違うラベルはこのコマンドでは付けられない。
 
 ## Epic（大きな課題を分ける）
 
