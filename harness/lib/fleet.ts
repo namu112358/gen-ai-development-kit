@@ -113,6 +113,8 @@ export interface FleetRow {
   /** 開いた PR（Merge 済みなら Merge された PR） */
   pr: number | null;
   note: string | null;
+  /** 判定が差し戻され、判定のやり直しが要る */
+  rejudge?: boolean;
 }
 
 const STOP_LABELS = [LABELS.hold, LABELS.blocked, LABELS.waiting];
@@ -158,7 +160,7 @@ function prNode(p: FleetPr, anyMerged: boolean): IssueNode {
   else if (acc && !acc.reviewPass) s = node('fix', p.number, 'ブロッキング指摘');
   else if (acc) s = node('merge-route-pending', p.number, '合格。App の Merge 経路（auto-merge か kind=human-review）待ち');
   else if (f.verdictAwaitingGate) s = node('verdict-pending', p.number, '判定の受け付け待ち');
-  else s = node('judge', p.number, null);
+  else s = node('judge', p.number, f.verdictRejected ? '判定が差し戻された（判定のやり直し）' : null);
   // 衝突や main の追従は何より先にする（衝突していると CI も判定の反映も進まない）。段階は残し、次にやることだけ sync にする
   if (f.conflicted) s = { ...s, sync: true, note: 'main と衝突' };
   else if (anyMerged && p.behindMain) s = { ...s, sync: true, note: 'Merge 済みの PR があり、main に追従していない' };
@@ -195,7 +197,9 @@ function issueStage(i: FleetIssue, anyMerged: boolean): Stage {
   const n = issueNode(i, anyMerged);
   const s = at(n.node, n.pr, n.note);
   if (n.humanPr) return { ...s, next: 'none' };
-  return n.sync ? { ...s, next: stepOf('sync') } : s;
+  if (n.sync) return { ...s, next: stepOf('sync') };
+  if (n.node === 'judge' && i.prs.find((p) => p.number === n.pr && !p.merged)?.facts?.verdictRejected) return { ...s, rejudge: true };
+  return s;
 }
 
 /** Issue ごとの段階と次にやること。Merge 済みの Issue があれば、main に追従していない残りの PR の次にやることを sync にする */
@@ -387,7 +391,7 @@ export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: nu
     const blocking = v.overlaps.map((n) => `#${n}`).join(', ');
     const shared = v.sharedOnlyOverlaps.map((n) => `#${n}`).join(', ');
     const overlap = [blocking, shared ? `共有ファイルのみ（並行可）：${shared}` : ''].filter((x) => x).join('。') || '—';
-    lines.push(`| #${r.issue} ${cell(r.title)} | ${r.pr === null ? '—' : `#${r.pr}`} | ${FLEET_STAGES[r.stage]} | ${NEXT_LABELS[r.next]} | ${cell(chosen)} | ${overlap} | ${cell(v.note)} |`);
+    lines.push(`| #${r.issue} ${cell(r.title)} | ${r.pr === null ? '—' : `#${r.pr}`} | ${FLEET_STAGES[r.stage]} | ${r.rejudge ? `${NEXT_LABELS[r.next]}（判定のやり直し）` : NEXT_LABELS[r.next]} | ${cell(chosen)} | ${overlap} | ${cell(v.note)} |`);
   }
   lines.push('', max === null ? `選んだ数：${sel.selected.length}（衝突しない範囲で本数を制限しない。絞るときは --max）` : `選んだ数：${sel.selected.length}/${max}（--max で指定した本数）`);
   if (mode) {
