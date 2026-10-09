@@ -18,7 +18,7 @@ Claude が人と一緒に作業するセッション。着手は `node harness/s
 
 ### queue
 
-App が次に Routine がやることを計算してダッシュボード Issue の本文に公開し、Routine がそれに従って処理する仕組み。公開し直すのは定期実行（1時間ごと）と手動の起動のときだけ。詳細：[formats.md](formats.md#app-の記録agent-app)
+App が次に Routine がやることを計算してダッシュボード Issue の本文に公開し、Routine がそれに従って処理する仕組み。公開し直すのは定期実行（1時間ごと）と手動の起動のときだけ（定期実行が `periodicCatchUpMinutes` 分以上来なければ、イベントで動いた gate が補う）。詳細：[formats.md](formats.md#app-の記録agent-app)
 
 ### `agent:ready`
 
@@ -148,7 +148,7 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ### ダッシュボード
 
-App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR、必須ラベルが足りない（または規則に反する）Issue・PR を1時間ごとに一覧にする。queue の節の後ろの「改善の候補」の節には、Routine がダッシュボードに書いたセッションの問題の記録（コラボレーターの `agent-incident` のコメント）のうち直近 7 日のものを新しい順に最大 20 件並べる（API の呼び出しを抑えるため、古いコメントは読まない）（表示だけで、ゲートの判断には使わない）。`gate.yml` は `agent-incident` のコメントでは起動しないので、この節はコメントの時点では変わらず、queue と同じく定期実行（1時間ごと）か手動の起動のときに更新される。詳細：[operations.md](operations.md#止める仕組み)
+App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR、必須ラベルが足りない（または規則に反する）Issue・PR を1時間ごとに一覧にする。queue の節の後ろの「改善の候補」の節には、Routine がダッシュボードに書いたセッションの問題の記録（コラボレーターの `agent-incident` のコメント）のうち直近 7 日のものを新しい順に最大 20 件並べる（API の呼び出しを抑えるため、古いコメントは読まない）（表示だけで、ゲートの判断には使わない）。`gate.yml` は `agent-incident` のコメントでは起動しないので、この節はコメントの時点では変わらず、queue と同じく定期実行（1時間ごと）か手動の起動のときに更新される（定期実行が `periodicCatchUpMinutes` 分以上来なければ、イベントで動いた gate が補う）。詳細：[operations.md](operations.md#止める仕組み)
 
 ## 外部
 
