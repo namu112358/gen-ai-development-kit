@@ -30,10 +30,14 @@ const HQ_SPEC: SkillSpec = {
     { step: 2, words: ['承認した案だけ', 'sub-issues', 'SendMessage', 'terminal create'] },
     // 手順4：fleet を起こす指示に heartbeat の一言（#425）
     { step: 4, words: ['heartbeat の本文に今の状況を一言入れる'] },
-    // 手順6：ペインの並びと開き方。ペインにセッションを渡さない（#402・#430）
+    // 手順6：ペインの並びと開き方。ペインにセッションを渡さない。確かめで閉じてよいのはそのとき分けたペインだけで、
+    // intel を起こした後は分け直さない（#402・#430・#448）
     {
       step: 6,
-      words: ['ORCA terminal split', '--direction vertical', '--direction horizontal', '左', '右', 'intel', 'intel のペインを開かずに進める'],
+      words: [
+        'ORCA terminal split', '--direction vertical', '--direction horizontal', '左', '右', 'intel', 'intel のペインを開かずに進める',
+        'そのとき分けたペインだけ', 'intel を起こした後', '分け直さない',
+      ],
       absent: ['--session'],
       order: ['node harness/scripts/panes.ts hq board', 'node harness/scripts/panes.ts hq todo', 'node harness/scripts/panes.ts hq log'],
     },
