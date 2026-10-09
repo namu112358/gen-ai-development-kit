@@ -53,7 +53,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 4. Merge 済みの Issue が出たら、次にやることが sync になった残りの PR に sync の skill をする（判定が引き継がれたかを確かめ、変わっていれば判定し直す）。
 5. 「選ぶ」の Issue が全部、人の Merge 待ち（Ready・人の Merge 待ち、自動 Merge 待ち）か人の判断待ち（plan-review、止まる印あり、各 skill の人に返す条件）になるまで、手順2〜4を繰り返す。その後、手順6〜9で一覧を出し、人の判断待ちだけが残ったのでなければ、終わらずに節「待つ間の読み直し」へ進む。
 6. ラベル（`priority:*`・`area:*`）は、ship の手順8と同じく、まず Jev に任せ、App の名義の `kind=label-triage` の記録の `notApplied` がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順9の一覧に書かず、人にも聞かない。
-7. `node harness/scripts/agent.ts usage` で、このセッションのトークン数と推定料金を読む（入れ子の方式の ship とその中の担当の記録も、このセッションの `subagents/` に置かれるので集計に入る）。
+7. `node harness/scripts/agent.ts usage` で、このセッションのトークン数と推定料金を読む（入れ子の方式の ship とその中の担当の記録も、このセッションの `subagents/` に置かれるので集計に入る）。費用の行には、呼び出しの回数 `calls` と1回あたりのキャッシュの読み込み量 `cacheReadPerCall` も書く（段階ごとに新しく呼ぶ前後の比べに使う）。
 8. 振り分け：ship の手順9と同じ振り分けを、Issue をまたいで1回行う（`node harness/scripts/agent.ts incident list` で記録を読み、入れ子の方式の ship は fleet と同じセッション ID なので同じ記録に入る。Issue の候補は `gh issue list --state open --search "<要点の語>"` で開いた Issue と照らし、無ければ `node harness/scripts/agent.ts incident render-issue <id>... --title <題>` で下書きを作る）。複数の Issue で同じ問題が出たら1つの候補にまとめる。起票・コメントは人が選んだものだけで、自動で起票しない。人が選んで起票した Issue のラベルは手順6と同じく Jev に任せる。
 9. 人に**人がすること**の一覧を1つにまとめて出す（Issue・PR ごとに ship の手順10と同じ項目）。
    - Merge：Human Merge の PR（Merge の順番に意味があれば順番も）。自動 Merge なら何もしない（止めたければ `agent:hold`）
@@ -70,11 +70,12 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 
 表の「進め方」の行が入れ子（orca）のときの、手順2〜5の代わり。手順1・6〜8と「選び方」はそのまま使う。
 
-1. 表の「選ぶ」の Issue ごとに、ship の skill を general-purpose のサブエージェントで呼ぶ。同時に動かすのは、表の「同時に動かす ship は <n> まで」の数まで（`--max` があれば `--max`、無ければ `fleet.maxParallelShips`）。残りは、1つ返るたびに表を読み直してから呼ぶ。
-   - 渡すもの：Issue 番号、「サブエージェントの ship として動く（ship の skill の「サブエージェントの ship として動くとき」の節に従う）」こと、fleet が `fleet-status` に渡した Issue 番号の集合と `--max`（ship が同じ引数で表を読むため）、呼び直すときは人の判断への答え（投稿の前の質問なら、その答えと、ship が返した書きかけの計画のパスも）。
+1. 表の「選ぶ」の Issue ごとに、ship の skill を general-purpose のサブエージェントで呼ぶ。ship は Issue ごと・段階ごとに新しいサブエージェントで呼び、前の ship を SendMessage で続けない（1回の呼び出しで1段階だけ進め、引き継ぎを返す）。同時に動かすのは、表の「同時に動かす ship は <n> まで」の数まで（`--max` があれば `--max`、無ければ `fleet.maxParallelShips`）。残りは、1つ返るたびに表を読み直してから呼ぶ。
+   - 渡すもの：Issue 番号、段階、その Issue の最後の引き継ぎ（`agent-handoff`）のファイルのパス（あれば）、「サブエージェントの ship として動く（ship の skill の「サブエージェントの ship として動くとき」の節に従う）」こと、fleet が `fleet-status` に渡した Issue 番号の集合と `--max`（ship が同じ引数で表を読むため）、呼び直すときは人の判断への答え（投稿の前の質問なら、その答えと、ship が返した書きかけの計画のパスも）。
+   - 段階の決め方：(a) 表の「次にやること」が `plan`・`implement`・`judge`・`fix`・`sync` なら同じ名前の段階で呼ぶ（`none` なら呼ばない。引き継ぎの `next` と表が食い違えば表に従う）。(b) 表の下の「Merge 後の見届けが済んでいない」の行が出たら、段階 `merged` で呼ぶ。(c) 人の判断・投稿の前の質問への答えを渡す呼び直しは、返った引き継ぎの `stage` と同じ段階で、そのファイルのパスと答えを渡す。(a)(b) では最後の引き継ぎのファイルがあれば渡す（無ければ渡さない。新しい ship は GitHub の事実から読む）。
    - worktree は ship が Issue ごとに作る。1つの worktree を複数の ship で共有しない。
    - 着手宣言は ship がこのセッションの ID で出す（入れ子のサブエージェントにも `AGENT_HARNESS_SESSION` が同じ値で渡るので、`critic-input`・`post-plan`・`worktree` は止まらない）。
-2. ship が返したら、その結果（状態・人に聞くこと・人がすることの項目・待つ理由）を控え、`fleet-status` を読み直して次を決める。セッションの記憶に頼らない。
+2. ship が返したら、その結果（引き継ぎ・状態・人に聞くこと・人がすることの項目・待つ理由）を控え、`fleet-status` を読み直して次を決める。セッションの記憶に頼らない。返った引き継ぎの `status` が `continue` なら、表を読み直して (a) で次の段階の ship を新しく呼ぶ。ほかの `status` は次の扱いのとおり。
    - 「入れ子不可」：Agent ツールが無く ship の中でサブエージェントを呼べない。以降はこのセッションで交互の方式（手順2〜5）に切り替える。
    - 人の判断待ち：手順9の前でも、たまったらまとめて AskUserQuestion で聞いてよい（1回に4問まで）。答えを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかったら、その Issue は人の判断待ちのまま一覧に書く。
    - 投稿の前の質問（ship が計画を投稿せずに返した Planner の質問）：ship の宣言が `plan` のまま残っているので、手順9を待たずに、返った質問を複数の Issue の分もまとめて AskUserQuestion で聞く（1回に4問まで。残りは次の回。おすすめを先頭）。答えと、ship が返した書きかけの計画のパスを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかった質問は「答え無し」として渡して呼び直す（ship は申告を残して投稿し、`post-plan` が宣言を解除する。同じ質問を繰り返さない）。聞けないまま、または呼び直せないままセッションを終えるときは、その Issue を `node harness/scripts/agent.ts release <番号>` で解除し、手順9の一覧に「投稿の前の質問に答えが無く、計画は投稿していない（次は plan から）」と書く。
@@ -214,9 +215,9 @@ App の計画ゲート・判定の受け付け・自動 Merge・CI を待つ間�
 
 1. **いつ**：選んだ Issue が全部「待つ」（App・CI 待ち）か人の Merge 待ち（`human-merge`・`auto-merge`）になったら、手順9の一覧を出した後も終わらずに、表の下の間隔（`harness.config.json` の `fleet.watch.intervalMinutes`、既定 3 分）ごとに `node harness/scripts/agent.ts fleet-status --watch <番号>...` を読み直す。待ち方は付き添いのセッションの中の道具（Bash の `run_in_background` の until ループ・Monitor など）で、schedule・Actions・クラウドの Routine は使わない。
 2. **交代の行もここで見る**：読み直すたびに、表の下の「このセッションの読み込みは古い」の行も見る（節「ハーネスが更新されたときの交代」）。
-3. **ship を呼び直す**：次にやることが出たら（plan-ok・fix など）、または表の下の「Merge 後の見届けが済んでいない」の行（Issue が開いている・`claude/issue-<番号>-` の worktree が残る。見張りの記録に頼らず事実で見分けるので、最初の読み直しでも交代の後の新しい fleet でも出る）が出たら、その Issue の ship を呼び直す（Merge の後は Epic #281 の決定どおり、ship が Merge 後の確かめ・worktree の片付け・Close の見届けをする）。
+3. **ship を呼び直す**：次にやることが出たら（plan-ok・fix など）、または表の下の「Merge 後の見届けが済んでいない」の行（Issue が開いている・`claude/issue-<番号>-` の worktree が残る。見張りの記録に頼らず事実で見分けるので、最初の読み直しでも交代の後の新しい fleet でも出る）が出たら、その Issue の ship を、入れ子の方式の手順1の (a)(b) の段階で新しいサブエージェントとして呼び直す（次にやることは (a)、見届けの行は (b)。Merge の後は Epic #281 の決定どおり、ship が Merge 後の確かめ・worktree の片付け・Close の見届けをする）。
 4. **「Close されていない」の扱い**：このセッションで既に呼び直して ship が「Close されていない（理由）」で返した Issue は、人の判断待ちとして手順9の一覧に載せ、同じ行が出続けても呼び直さない。この印はセッションの中で持ち、見張りの記録には残さない。交代の後の新しい fleet は最初の1回だけ呼び直す。終わり方の「人の判断待ちだけが残った」でもこの Issue を人の判断待ちに数える。
-5. **自分の PR の sync**：自分の行（`fleet-status` に渡した Issue の PR）の次にやることが `sync` になったら、`human-merge`・`auto-merge` の段階でも、その Issue の ship をすぐ呼び直して sync させる。fleet 自身は衝突を直さない（直すのは ship）。ほかのセッション・持ち主のいない PR は対象にしない。
+5. **自分の PR の sync**：自分の行（`fleet-status` に渡した Issue の PR）の次にやることが `sync` になったら、`human-merge`・`auto-merge` の段階でも、その Issue の ship を (a) の段階 `sync` で新しいサブエージェントとして呼び直して sync させる。fleet 自身は衝突を直さない（直すのは ship）。ほかのセッション・持ち主のいない PR は対象にしない。
 6. **App が動かないとき**：表の下に「App が動いていない」の行（`fleet.watch.appStallMinutes`、既定 20 分以上、計画ゲートの記録が付かない・auto-merge が付いたまま Merge されない）が出たら、人に知らせる（付き添いでは文章で。Orca の worker のときは節「Orca の worker として動くとき」のとおり hq に `escalation`）。同じ行を知らせるのは1回だけで、その後も読み直しを続ける。
 7. **終える**：読み直しを終えるのは、受け持つ Epic が Close したとき（`gh issue view <Epic番号> --json state`。その後に手順6〜9の最後の一覧を出す）と、人の判断待ち（`plan-review`・止まる印・各 skill の人に返す条件・上の 4）だけが残ったとき。受け持つ Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき。
 

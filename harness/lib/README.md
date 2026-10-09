@@ -27,6 +27,7 @@
 | `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |
 | `graphql-prefetch.ts` | まとめた GraphQL の問い合わせで Issue・PR の材料を先に読み、REST の形に直す先読みの仕組み（ダッシュボードと fleet-status・step が使う）。 | ○ |
 | `guardrail.ts` | ガードレール：Agent が自分を縛る仕組み（App が機械的に強制している部分）。 | ○ |
+| `handoff.ts` | 引き継ぎ（````agent-handoff````）：fleet の入れ子の ship が段階の終わりに fleet へ返す書式と検査（Issue #447）。 | ○ |
 | `harness-drift.ts` | 読み込みの記録：付き添いのセッションが始めたときに読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の版を、セッションごとに記録し、今の origin の既定ブランチの版と比べて「このセッションの読み込みは古い」かを決める（Issue #199）。 | ○ |
 | `hotspot.ts` | 保守の観測（harness/scripts/observe.ts）のホットスポット：直近の期間に変更の多い大きなファイル。 | ○ |
 | `hq-stall.ts` | hq が、動いてはいるが進んでいない fleet を見つける判定（Issue #287、人の決定はコメント 5905221457）。 | ○ |
