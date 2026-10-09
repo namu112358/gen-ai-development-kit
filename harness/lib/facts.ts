@@ -1,4 +1,4 @@
-import { extractBlock, hasClaudeMark } from './blocks.ts';
+import { appMarkKind, extractBlock, hasClaudeMark } from './blocks.ts';
 import { areaLimitLabels, describeFullAreas, fullAreas } from './concurrency.ts';
 import { appLogin, CHECKS, LABELS, REVIEW_EXEMPT_LABEL, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
@@ -189,6 +189,7 @@ export async function prFacts(gh: GitHub, cfg: HarnessConfig, pr: PullRequest, r
     headPushedAt: pushedAt,
     acceptance: acc && accRecord && applied ? { reviewPass: acc.reviewPass, at: accRecord.comment.created_at } : null,
     verdictAwaitingGate: verdictForHead && verdictFresh && noReplyYet,
+    verdictRejected: verdict !== null && lastGateReply !== undefined && lastGateReply.created_at >= verdict.created_at && appMarkKind(lastGateReply.body) === 'verdict-rejected',
     humanFeedbackSincePush: human.length,
   };
 }
