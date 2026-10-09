@@ -187,7 +187,7 @@ export function flakyTests(flaky: FlakyCiRun[], unreadableLogs: number, top: num
 
 /** mutation のログを読む実行の上限（新しい順） */
 const MAX_MUTATION_RUNS = 100;
-const MUTATION_JOB = 'mutation';
+export const MUTATION_JOB = 'mutation';
 
 /**
  * 期間内の CI の実行から、不安定なテストと生き残ったミュータントを集める（GET だけ）。

@@ -4,6 +4,7 @@ import { appMarkKind, extractBlock } from './blocks.ts';
 import { appLogin, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import type { GitHub, IssueComment } from './github.ts';
 import type { Acceptance } from './merge-route.ts';
+import type { ModelRoutingRecord } from './model-routing.ts';
 import type { PlanDelegation } from './plan.ts';
 import { classifyBase, stackOf } from './stack.ts';
 
@@ -104,6 +105,8 @@ export interface PlanGateRecord {
   critiqueProceeded?: { verdict: 'revise'; mustRemaining: number };
   /** auto mode の危険の判定をかけたとき（通した・保留にした）。harness/gates/auto-mode.ts と on-comment.ts の onPlan。古い記録には無い */
   autoMode?: PlanAutoMode;
+  /** 実装に勧めるモデル（Jev）。jev.modelRouting が off なら無い。古い記録には無い。Issue #139 */
+  modelRouting?: ModelRoutingRecord;
 }
 
 /** 計画ゲートで auto mode の危険の判定をかけた記録（plan-gate の記録の autoMode） */
