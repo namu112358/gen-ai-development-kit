@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 
 /**
  * diff テキストの `git patch-id --verbatim` を返す。空の diff は 'empty'。
@@ -14,6 +15,18 @@ export function patchId(diff: string): string {
   const ids = result.stdout.trim().split('\n').filter(Boolean).map((line) => line.split(' ')[0]);
   if (ids.length === 0) return 'empty';
   return ids.join('+');
+}
+
+/**
+ * diff から、PR が足した・消した行とファイルの見出しだけを取り出した sha256（hex）。残りが無ければ 'empty'。
+ * 文脈の行（先頭が空白）・`@@` の行・`index ` の行・空行を除くので、行番号・文脈・blob の sha の違いを無視する。
+ * main の取り込みの判定の引き継ぎ（harness/gates/main-merge-carry.ts）だけに使い、App の push と merge commit の親の確かめと組にする
+ * （単独では、同じ行を別の場所に動かした push を見分けられない）。
+ */
+export function changedLinesId(diff: string): string {
+  const kept = diff.split('\n').filter((l) => l !== '' && !l.startsWith(' ') && !l.startsWith('@@') && !l.startsWith('index '));
+  if (kept.length === 0) return 'empty';
+  return createHash('sha256').update(kept.join('\n')).digest('hex');
 }
 
 /** PR 自身の差分（`<base>...<head>` の3点比較）。手元の git の設定（color・外部 diff・textconv・noprefix）の影響を受けない形で取る */
