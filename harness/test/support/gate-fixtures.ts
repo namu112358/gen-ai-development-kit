@@ -1,5 +1,5 @@
 import { appMark, claudeMark, renderBlock } from '../../lib/blocks.ts';
-import { appLogin, delegateConfig, loadConfig } from '../../lib/config.ts';
+import { appLogin, delegateConfig, loadConfig, type HarnessConfig } from '../../lib/config.ts';
 import { GitHub, type RequestOptions, type Transport } from '../../lib/github.ts';
 import type { Claim, ClaimStage } from '../../lib/queue.ts';
 import { RISK_QUESTIONS, type Verdict } from '../../lib/verdict.ts';
@@ -39,7 +39,9 @@ export class FakeGitHub implements Transport {
   }
 }
 
-export const config = loadConfig();
+// ゲートのテストは Jev への問いの回数を数えるので、実装のモデルの問い（Issue #139）は既定で問わない。勧めの動きは gates-plan-model-routing.test.ts で shadow・enforce にして確かめる
+const loaded = loadConfig();
+export const config: HarnessConfig = { ...loaded, jev: { ...loaded.jev, modelRouting: 'off' } };
 export const APP = appLogin(config);
 export const HEAD = 'a'.repeat(40);
 export const DIFF = 'diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n+b\n';
@@ -225,6 +227,7 @@ export function delegateWorldFake(w: DelegateWorld): FakeGitHub {
       if (!found) throw new Error(`404 issues/comments/${m[1]}`);
       return found;
     })
+    .on('GET', /\/issues\/\d+\/sub_issues/, () => [])
     .on('GET', /\/issues\/(\d+)\/(events|timeline)/, (m) => issueEvents[Number(m[1])] ?? [])
     .on('GET', /\/repos\/o\/r$/, () => ({ allow_auto_merge: true }))
     .on('GET', /\/pulls\/(\d+)$/, (m) => {
