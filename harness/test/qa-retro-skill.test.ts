@@ -1,53 +1,40 @@
-// Issue #185：品質の振り返り（qa-retro）の skill の書式と、置き場所の一覧（CLAUDE.md・skills の README・risk-policy）への載せ方を確かめる。
+// qa-retro の skill（.claude/skills/qa-retro/SKILL.md）の文を、support/skill-text.ts の構造の表で確かめる（Issue #185。#490 で個別の test() を表にまとめた）。
+// 表（QA_RETRO_SPEC）は1つの test() で、足りないものを全部一度に示す。frontmatter・使うコマンドの実在と書き方・
+// 置き場所の一覧（CLAUDE.md・CLAUDE.harness.md・skills の README・risk-policy）への載せ方は、表にせず個別の test() に残す。
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { documentedAgentCommands } from './support/agent-source.ts';
+import { frontmatter, readText, ROOT, section, skillProblems, type SkillSpec } from './support/skill-text.ts';
 
-const root = join(import.meta.dirname, '..', '..');
-const HEADINGS = ['## 入力', '## 集計', '## 判断', '## 出力', '## やってはいけないこと'];
+const SKILL = '.claude/skills/qa-retro/SKILL.md';
+const skill = (): string => readText(SKILL);
 
-const skillPath = join(root, '.claude', 'skills', 'qa-retro', 'SKILL.md');
-const readRoot = (...parts: string[]): string => readFileSync(join(root, ...parts), 'utf8').replace(/\r\n/g, '\n');
-const skill = (): string => readFileSync(skillPath, 'utf8').replace(/\r\n/g, '\n');
+/** qa-retro の skill の構造の表 */
+const QA_RETRO_SPEC: SkillSpec = {
+  path: SKILL,
+  headings: ['## 入力', '## 集計', '## 判断', '## 出力', '## やってはいけないこと'],
+  words: ['人が選んだものだけ'],
+  parts: [
+    // 作る Issue に agent:ready を付けない・集計の結果を reviewer・risk-agent に渡さない
+    { section: '## やってはいけないこと', words: ['`agent:ready` を付けない', 'reviewer', 'risk-agent', '渡さない'] },
+  ],
+};
 
-/** 先頭の `---` で囲まれた frontmatter を key: value で読む（skills.test.ts と同じ） */
-function frontmatter(text: string): Record<string, string> {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!m) return {};
-  return Object.fromEntries(m[1]!.split('\n').map((l) => l.match(/^([a-z-]+):\s*(.*)$/)).filter((x) => x !== null).map((x) => [x[1]!, x[2]!.trim()]));
-}
-
-/** agent.ts とサブコマンド（harness/scripts/agent/commands/）の使い方のコメントに書かれたコマンド名（skills.test.ts と同じ） */
-function documentedCommands(): Set<string> {
-  return documentedAgentCommands();
-}
-
-/** 見出し（`## ` で始まる行）から次の同じ深さの見出しまでの本文。見出しが無ければ null */
-function section(text: string, heading: string): string | null {
-  const lines = text.split('\n');
-  const start = lines.indexOf(heading);
-  if (start < 0) return null;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((l) => /^## /.test(l));
-  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
-}
+test('qa-retro の skill の構造の表', () => {
+  assert.deepEqual(skillProblems(QA_RETRO_SPEC), []);
+});
 
 test('qa-retro の SKILL.md があり、frontmatter の name が qa-retro で description がある', () => {
-  assert.ok(existsSync(skillPath), 'qa-retro/SKILL.md がありません');
+  assert.ok(existsSync(join(ROOT, SKILL)), 'qa-retro/SKILL.md がありません');
   const fm = frontmatter(skill());
   assert.equal(fm.name, 'qa-retro');
   assert.ok(fm.description, 'description がありません');
 });
 
-test('入力・集計・判断・出力・やってはいけないことの見出しがある', () => {
-  const lines = skill().split('\n');
-  for (const h of HEADINGS) assert.ok(lines.includes(h), `「${h}」がありません`);
-});
-
 test('skill が使う agent.ts のコマンドは使い方のコメントに実在し、qa-retro-data を含む', () => {
-  const known = documentedCommands();
+  const known = documentedAgentCommands();
   assert.ok(known.has('qa-retro-data'), 'agent.ts の使い方のコメントに qa-retro-data がありません');
   const text = skill();
   const used = [...text.matchAll(/node harness\/scripts\/agent\.ts ([^\s`]+)/g)].map((m) => m[1]!);
@@ -57,41 +44,24 @@ test('skill が使う agent.ts のコマンドは使い方のコメントに実�
   assert.equal(text.split('agent.ts ').length - 1, used.length, 'agent.ts のコマンドは完全な形で書く');
 });
 
-test('作る Issue に agent:ready を付けないと書かれている', () => {
-  const lines = skill().split('\n');
-  assert.ok(lines.some((l) => l.includes('agent:ready') && l.includes('付けない')), '`agent:ready` を含み「付けない」がある行がありません');
-});
-
-test('Issue は人が選んだものだけを作ると書かれている', () => {
-  assert.ok(skill().includes('人が選んだものだけ'), '「人が選んだものだけ」がありません');
-});
-
-test('集計の結果を reviewer・risk-agent に渡さないと書かれている', () => {
-  const lines = skill().split('\n');
-  assert.ok(
-    lines.some((l) => l.includes('reviewer') && l.includes('risk-agent') && l.includes('渡さない')),
-    '「reviewer」「risk-agent」「渡さない」を同じ行に含む行がありません',
-  );
-});
-
 test('CLAUDE.md の構成の表の .claude/skills/ の行に qa-retro がある', () => {
-  const row = readRoot('CLAUDE.md').split('\n').find((l) => l.startsWith('| `.claude/skills/` |'));
+  const row = readText('CLAUDE.md').split('\n').find((l) => l.startsWith('| `.claude/skills/` |'));
   assert.ok(row, 'CLAUDE.md に `.claude/skills/` の行がありません');
   assert.ok(row.includes('qa-retro'), `CLAUDE.md の .claude/skills/ の行に qa-retro がありません: ${row}`);
 });
 
 test('harness/CLAUDE.harness.md の skill の表に qa-retro の行がある', () => {
-  const lines = readRoot('harness', 'CLAUDE.harness.md').split('\n');
+  const lines = readText('harness/CLAUDE.harness.md').split('\n');
   assert.ok(lines.some((l) => l.startsWith('| [qa-retro](../.claude/skills/qa-retro/SKILL.md) |')), 'harness/CLAUDE.harness.md に qa-retro の行がありません');
 });
 
 test('.claude/skills/README.md の表に qa-retro/ の行がある', () => {
-  const lines = readRoot('.claude', 'skills', 'README.md').split('\n');
+  const lines = readText('.claude/skills/README.md').split('\n');
   assert.ok(lines.some((l) => l.startsWith('| `qa-retro/` |')), '.claude/skills/README.md に `qa-retro/` の行がありません');
 });
 
 test('docs/risk-policy.md に見直しの手順の節があり、その中で qa-retro を案内している', () => {
-  const body = section(readRoot('docs', 'risk-policy.md'), '## 見直しの手順');
-  assert.ok(body !== null, 'docs/risk-policy.md に「## 見直しの手順」がありません');
+  const body = section(readText('docs/risk-policy.md'), '## 見直しの手順');
+  assert.ok(body !== '', 'docs/risk-policy.md に「## 見直しの手順」がありません');
   assert.ok(body.includes('qa-retro'), '「## 見直しの手順」の節に qa-retro がありません');
 });
