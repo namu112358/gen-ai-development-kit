@@ -15,6 +15,7 @@ import { endBypassMerge, onBypassSwitch } from './bypass-merge.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
 import { onDelegateSwitch } from './delegate-merge.ts';
 import { delegatedArm, delegatedRoute, delegationFor } from './delegation.ts';
+import { closeAsDone } from './epic-close.ts';
 import { applyAppLabels, triageLabels } from './label-apply.ts';
 
 /**
@@ -184,8 +185,7 @@ async function closeParentIfDone(ctx: GateContext, number: number): Promise<void
   if (!parent || parent.state !== 'OPEN' || parent.repository.nameWithOwner !== ctx.repository) return;
   if (parent.subIssues.totalCount > parent.subIssues.nodes.length) return;
   if (!parent.subIssues.nodes.every((s) => s.state === 'CLOSED')) return;
-  await appComment(ctx, parent.number, 'parent-closed', 'Sub-issues がすべて閉じたため、この Issue を閉じます。');
-  await ctx.gh.request('PATCH', `/issues/${parent.number}`, { body: { state: 'closed', state_reason: 'completed' } });
+  await closeAsDone(ctx, parent.number);
 }
 
 /**
