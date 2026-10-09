@@ -10,6 +10,7 @@ import type { HarnessConfig } from './config.ts';
  * （`../<リポジトリ名>.worktrees`）の順で `worktreeRoot` が決め、リポジトリの中になる値と本体を含む祖先は拒む
  * （作業中の変更やほかの作業ツリーがコミットに紛れ込まないように）。Issue のブランチの worktree には、Orca があれば
  * 表示名「#番号 短い名前」と Issue を付ける（`labelOrcaWorktree`。表示のためだけで、無い・失敗しても止めない）。
+ * plan-critic の読み先は `criticRepo` が決める（先に fetch し、origin/<既定ブランチ> の最新を含むパスを選ぶ。無ければ SHA の detach の worktree）。
  */
 
 /** 本体のリポジトリのルート（worktree の中から呼ばれても本体を返す） */
@@ -337,4 +338,54 @@ export function removeWorktree(ref: string, opts: Pick<WorktreeOptions, 'root' |
   }
   if (existsSync(path)) warn(`警告: ${path} が残りました（ほかのプロセスが使っている可能性があります。閉じてから手で消してください）`);
   if (r.status !== 0 && !cleared) throw new Error(`worktree を削除できませんでした: ${r.stderr.trim()}`);
+}
+
+/** plan-critic の読み先 */
+export interface CriticRepo {
+  path: string;
+  /** origin/<branch> の SHA */
+  base: string;
+  branch: string;
+  source: 'issue-worktree' | 'cwd' | 'snapshot';
+}
+
+/**
+ * plan-critic が読むリポジトリのパスを決める。先に origin の既定ブランチを fetch し、HEAD がその最新（base）を含む最初のものを使う：
+ * Issue のブランチ（`claude/issue-<番号>-`）の worktree → cwd の toplevel → 無ければ base の detach の worktree（addWorktree。npm ci はしない）。
+ * fetch の失敗・base を読めない・worktree を作れないときは、最新を読めるパスが無いとして投げる（批評を始める前に止める）
+ */
+export function criticRepo(issue: number, cwd: string, opts: WorktreeOptions): CriticRepo {
+  const { root, defaultBranch: branch } = opts;
+  const noPath = (why: string) => new Error(`origin/${branch} の最新を読めるパスがありません: ${why}`);
+  const fetched = run(root, ['fetch', '-q', 'origin', branch]);
+  if (fetched.status !== 0) throw noPath(`git fetch origin ${branch} に失敗しました: ${(fetched.stderr ?? '').trim()}`);
+  const parsed = run(root, ['rev-parse', '--verify', '-q', `refs/remotes/origin/${branch}^{commit}`]);
+  const base = parsed.status === 0 ? parsed.stdout.trim() : '';
+  if (!base) throw noPath(`origin/${branch} を読めません`);
+  const hasBase = (head: string) => head !== '' && run(root, ['merge-base', '--is-ancestor', base, head]).status === 0;
+
+  const prefix = `claude/issue-${issue}-`;
+  const trees = git(root, 'worktree', 'list', '--porcelain')
+    .split(/\n\n+/)
+    .map((block) => {
+      const lines = block.split('\n');
+      return {
+        path: lines.find((l) => l.startsWith('worktree '))?.slice('worktree '.length) ?? '',
+        head: lines.find((l) => l.startsWith('HEAD '))?.slice('HEAD '.length) ?? '',
+        branch: lines.find((l) => l.startsWith('branch '))?.slice('branch '.length).replace(/^refs\/heads\//, '') ?? null,
+      };
+    });
+  const found = trees.find((t) => t.path !== '' && t.branch?.startsWith(prefix) && hasBase(t.head));
+  if (found) return { path: found.path, base, branch, source: 'issue-worktree' };
+
+  const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
+  if (top.status === 0 && hasBase(run(top.stdout.trim(), ['rev-parse', 'HEAD']).stdout.trim())) {
+    return { path: top.stdout.trim(), base, branch, source: 'cwd' };
+  }
+
+  try {
+    return { path: addWorktree(base, true, opts), base, branch, source: 'snapshot' };
+  } catch (e) {
+    throw noPath((e as Error).message);
+  }
 }
