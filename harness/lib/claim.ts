@@ -1,3 +1,4 @@
+import { shortSession } from './blocks.ts';
 import { claimOf } from './facts.ts';
 import type { IssueComment } from './github.ts';
 import { claimBlocker, describeClaim, requireOwnClaim, SESSION_ID_MISSING, type Claim, type ClaimStage } from './queue.ts';
@@ -62,6 +63,11 @@ export async function postClaim(io: ClaimIo, n: number, opts: PostClaimOptions):
   await io.comment(n, opts.render({ ...rest, released: true }));
   const who = owner ? describeClaim(owner) : '';
   return { error: `#${n}: 先に宣言したセッションがあるため、この宣言を取り下げました${who ? `（${who}）` : ''}。この Issue は進めず、引き継ぐかは人が決めてください（引き継ぐなら --takeover）` };
+}
+
+/** 宣言が成功したときに出す1行（番号・段階・session の短い ID） */
+export function claimedLine(n: number, stage: ClaimStage | undefined, session: string): string {
+  return `#${n}: 着手を宣言しました（段階 ${stage ?? 'なし'}・session ${shortSession(session)}）`;
 }
 
 /**
