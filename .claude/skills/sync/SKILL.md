@@ -19,7 +19,7 @@ Routine の resolve-conflict（[.claude/routine.md](../../routine.md)）に、�
 3. `git fetch origin` のあと、前回の判定の head での PR 自身の差分の patch-id を控える：`git diff origin/<PR の base>...<前回の判定の head> | git patch-id --verbatim`（PR の base は `gh pr view <PR番号> --json baseRefName`。既定ブランチ宛ての PR は `main`。App の patch-id は PR の base からの差分で取るため）
 4. `git merge origin/<PR の base>` で base を取り込み、衝突を解消する（既定ブランチ宛ての PR は `git merge origin/main`）。Stacked PR の層は、下の層が変わったら下の層から順に取り込む（`main` を一番下の層に、下の層を上の層に）。rebase と force push はしない。App は既定ブランチへの push のたびに Agent PR を base に追従させる（update-branch＝merge）ので、この `git merge` と食い違わない。両方の変更の意図を残す（main 側の変更を消さない）。判断できない衝突は解消せず、人に返す。
 5. `npm run check` を通す。
-6. `git add <ファイル>` でファイルを指定して merge を commit し、`git push` する（force push しない）。
+6. `git add <ファイル>` でファイルを指定して merge を commit し、`git push origin <PR のブランチ>` で push する（`<PR のブランチ>` は手順2と同じ。force push しない）。
 7. 取り込み後の patch-id を同じ方法で取る：`git diff origin/<PR の base>...HEAD | git patch-id --verbatim`（`origin/<PR の base>` は手順3で取ってきたもの）。
 8. 手順3と比べる。
    - **同じ**：判定は作り直さない。App が前回の判定を引き継いだことを `gh pr view <PR番号> --json isDraft,statusCheckRollup` で確かめる（新しい head で `agent/review`・`agent/risk` が成功し、`isDraft` が false）。数分待っても引き継がれなければ judge（再レビュー）をやる。
