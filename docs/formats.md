@@ -9,6 +9,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-verdict ```` | Claude | PR コメント | `harness/lib/verdict.ts` |
 | ```` ```agent-claim ```` | Claude | Issue / PR コメント | `harness/lib/queue.ts` |
 | ```` ```agent-decision ```` | 付き添いのセッション（Routine は書かない） | Issue コメント | `harness/lib/decision.ts` |
+| ```` ```agent-handoff ```` | fleet の入れ子の ship | ship が fleet に返す本文とファイル（GitHub には書かない） | `harness/lib/handoff.ts` |
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
 | ```` ```agent-incident ```` | Routine（#187。付き添いのセッションは書かない） | ダッシュボード Issue のコメント | `harness/lib/incident.ts`（表示だけで信頼しない） |
 | ```` ```arch-review ```` | 付き添いのセッション（arch-review の skill） | ダッシュボード Issue のコメント | `harness/lib/arch-review.ts` |
@@ -238,6 +239,37 @@ fleet の待つ間の読み直し（`agent.ts fleet-status --watch`）が、git 
 
 - 鍵は `<Issue>:<PR か ->:<段階>`。段階や PR が変わった行・App 待ちでなくなった行は消える。`harness.config.json` の `fleet.watch.appStallMinutes` 分以上同じ状態の行を1回だけ知らせる。読めない・書式が違うファイルは無いものとして空から始める。
 - Merge 後の見届けが済んでいない Issue（段階が `merged` で、Issue が開いている、または `claude/issue-<番号>-` の worktree が残る）は、この記録を使わず、毎回の事実だけで決める。
+
+## 引き継ぎ（agent-handoff）
+
+fleet の入れ子の方式で、ship が段階の終わりに fleet へ返す引き継ぎ（Issue #447）。ship は 1 回の呼び出しで 1 段階だけ進め、scratchpad の `handoff-<番号>-<段階>.md` にこのブロックを書き、`node harness/scripts/agent.ts check <ファイル>` で確かめてから返す。fleet は次の段階を `fleet-status` の「次にやること」で決め、前の引き継ぎのファイルのパスを渡して新しい ship を呼ぶ。GitHub には書かない。
+
+```json
+{
+  "version": 1,
+  "issue": 447,
+  "stage": "implement",
+  "status": "continue",
+  "next": "judge",
+  "pr": 512,
+  "branch": "claude/issue-447-stage-ship",
+  "done": "Draft PR を出した。npm run check は通った",
+  "notes": ["#139 と ship の SKILL.md が重なる。sync のときに衝突を見る"]
+}
+```
+
+| フィールド | 型 | 意味 |
+| --- | --- | --- |
+| `version` | `1` | 書式の版 |
+| `issue` | 正の整数 | Issue 番号 |
+| `stage` | `plan` / `implement` / `judge` / `fix` / `sync` / `merged` | 今回行った段階 |
+| `status` | `continue` / `merge-wait` / `human-decision` / `wait` / `no-nesting` / `return-to-human` / `closed` / `not-closed` | 終わった状態。`continue` は次の段階へ、`merge-wait` は人の Merge 待ち、`human-decision` は人の判断待ち、`wait` は待つ、`no-nesting` は入れ子不可、`return-to-human` は人に返す条件、`closed` は Close 済み、`not-closed` は Close されていない |
+| `next` | 段階か `null` | `status` が `continue` のときだけ `plan` / `implement` / `judge` / `fix` / `sync`（`merged` は不可）。それ以外は `null` |
+| `pr` / `branch` | 正の整数か `null` / 空でない文字列か `null` | PR 番号とブランチ名。無ければ `null` |
+| `done` | 文字列 | 行ったこと。空でなく 2000 文字まで |
+| `notes` | 文字列の配列 | 気をつけること。20 件まで、各 2000 文字まで、空文字は不可 |
+
+人に聞くこと・人がすることの項目・待つ理由は、ブロックに入れず返す本文に書く。未知のキーは誤りにしない。
 
 ## 決定の記録（agent-decision）
 

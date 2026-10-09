@@ -48,7 +48,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 | `fleet.nesting` | 進め方 |
 | --- | --- |
-| `orca`（既定） | サブエージェントの中でさらにサブエージェントを呼べる環境（Orca）向け。Issue ごとに ship をサブエージェントとして並行に動かす（fleet > ship > plan-critic・test-designer・reviewer・risk-agent）。同時に動かす ship の数は `--max`、無ければ `fleet.maxParallelShips`（既定 3）。ship は人に聞かずに止まって fleet に返し、fleet がまとめて聞く。ship が入れ子にできない（Agent ツールが無い）と返したら、そのセッションは `flat` の進め方に切り替える |
+| `orca`（既定） | サブエージェントの中でさらにサブエージェントを呼べる環境（Orca）向け。Issue ごとに ship をサブエージェントとして並行に動かす（fleet > ship > plan-critic・test-designer・reviewer・risk-agent）。ship は段階ごとに新しいサブエージェントで呼び、段階の間は引き継ぎ（[formats.md](formats.md) の agent-handoff）と GitHub の事実で渡す。同時に動かす ship の数は `--max`、無ければ `fleet.maxParallelShips`（既定 3）。ship は人に聞かずに止まって fleet に返し、fleet がまとめて聞く。ship が入れ子にできない（Agent ツールが無い）と返したら、そのセッションは `flat` の進め方に切り替える |
 | `flat` | 1つのセッションで、ship の段階を Issue ごとに交互に進める |
 
 キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
