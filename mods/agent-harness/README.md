@@ -13,6 +13,8 @@ hq・fleet の状況を Claude Code の画面に出す mod。
 
 - 試す・開発：`claude --plugin-dir mods/agent-harness`（そのセッションだけ。保存で読み直す）。
 - 常に入れる：`/plugin install agent-harness --marketplace <owner>/<repo>`（リポジトリの root の `.claude-plugin/marketplace.json` を使う）。手元のフォルダを marketplace にするなら `claude plugin marketplace add <リポジトリのフォルダ>`。更新は `/reload-plugins`。
+- 更新のしかた：`claude plugin marketplace update agent-harness` の後に `claude plugin update agent-harness@agent-harness`（入れ直しは要らない）。
+- mod を変えたら `.claude-plugin/plugin.json` の `version` を上げる。上げないと「already at the latest version」になって届かない。`npm run check` が上げ忘れを落とす（CI は履歴が無いので見ない）。
 
 ## 機能の足し方
 
@@ -27,4 +29,4 @@ claude plugin validate mods/agent-harness
 claude plugin test mods/agent-harness
 ```
 
-CI には claude が無いので、変えたときは手元で流す。`npm run check` の対象ではない。
+CI には claude が無いので、変えたときは手元で流す。この2つは `npm run check` の対象ではない（版の上げ忘れだけは `npm run check` が見る）。
