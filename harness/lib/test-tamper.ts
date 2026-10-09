@@ -457,7 +457,7 @@ function parseDiff(diff: string): FileDiff[] {
       continue;
     }
     if (!cur) continue;
-    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$/);
+    const hunk = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)/);
     if (hunk) {
       cur.hunks.push({ old: [], new: [], section: (hunk[5] ?? '').trim() });
       oldNo = Number(hunk[1]);

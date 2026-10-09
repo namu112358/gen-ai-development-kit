@@ -91,3 +91,15 @@ test('字下げのある定義では、見出しが親の describe でも境目�
 test('名前を変えた定義より字下げが深い（子の）テスト定義の行は境目にせず、その後ろの本体の書き換えで止める', () => {
   assertStopped(multiHunkDiff([renameHunk('', 'describe'), { start: 40, lines: ["   it('child', () => {", ...bodyChange('  ')] }]));
 });
+
+// ---- 見出しの関数の文脈に行の区切りに見える文字があっても、hunk を読み飛ばさない ----
+
+test('hunk の見出しの関数の文脈に U+2028・U+2029・行の途中の CR があっても、アサーションの削除を見逃さない', () => {
+  const diffWith = (section: string) => multiHunkDiff([{ start: 10, section, lines: [' const x = f(1);', '-  assert.equal(x, 1);', ' });'] }]);
+  const expected = detectTestTampering(diffWith("test('plain', () => {"), P).map((f) => f.kind);
+  assert.ok(expected.length > 0);
+  for (const sep of ['\u2028', '\u2029', '\r']) {
+    const kinds = detectTestTampering(diffWith(`test('a${sep}b', () => {`), P).map((f) => f.kind);
+    assert.deepEqual(kinds, expected, JSON.stringify(sep));
+  }
+});
