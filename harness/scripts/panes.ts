@@ -40,9 +40,9 @@ import { LABELS, hqConfig, implementModelConfig, loadConfig, panesConfig, shipMo
 import type { IssueComment } from '../lib/github.ts';
 import { epicChildrenFromRecords } from '../lib/session-inputs.ts';
 import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
-import type { FleetStatusData, FleetStatusRow } from '../lib/fleet.ts';
+import type { FleetStatusData } from '../lib/fleet.ts';
 import { CLEAR_SCREEN, HISTORY_LIMIT, MARKS, PANE_STEPS, WHO_MARK, ago, locateRow, nextSince, renderProgress, renderPrs, renderTodo, shortTitle, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
-import { hqWarning, nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type HqView } from '../lib/panes-hq.ts';
+import { groupByEpic, hqWarning, nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type EpicGroup, type FleetRow, type HqView } from '../lib/panes-hq.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 import { HEARTBEAT_FILE, freshHeartbeats, gitCommonDir, ledgerPath, parseLedger, readHeartbeatAt, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
 import { projectTranscriptDir } from '../lib/usage.ts';
@@ -426,49 +426,7 @@ export interface HqBoardJson {
   }[];
 }
 
-type BoardRow = { view: HqView['fleets'][number]; row: FleetStatusRow };
-interface BoardGroup {
-  number: number;
-  title: string | null;
-  state: string | null;
-  children: { number: number; state: string }[] | null;
-  themes: Set<string>;
-  rows: BoardRow[];
-}
-
-/** harness/lib/panes-hq.ts の groupByEpic（ガードレールで export できない）と同じ集め方 */
-function boardGroups(view: HqView): { epics: BoardGroup[]; none: BoardRow[] } {
-  const epics = new Map<number, BoardGroup>();
-  const get = (n: number): BoardGroup => {
-    let g = epics.get(n);
-    if (!g) { g = { number: n, title: null, state: null, children: null, themes: new Set(), rows: [] }; epics.set(n, g); }
-    return g;
-  };
-  for (const v of view.fleets) {
-    for (const e of v.snap?.epics ?? []) {
-      const g = get(e.number);
-      g.title = e.title;
-      g.state = e.state;
-      g.children = e.children.map((c) => ({ number: c.number, state: c.state }));
-      g.themes.add(v.fleet.theme);
-    }
-    if (!v.snap && v.fleet.epic !== null) get(v.fleet.epic).themes.add(v.state === 'starting' ? `${v.fleet.theme}（起動中）` : v.fleet.theme);
-  }
-  const none: BoardRow[] = [];
-  for (const v of view.fleets) {
-    for (const row of v.snap?.status?.rows ?? []) {
-      const parent = v.snap?.issueEpic?.[String(row.issue)] ?? null;
-      if (parent !== null) {
-        const g = get(parent);
-        g.rows.push({ view: v, row });
-        g.themes.add(v.fleet.theme);
-      } else if (!epics.has(row.issue)) none.push({ view: v, row });
-    }
-  }
-  return { epics: [...epics.values()].sort((a, b) => a.number - b.number), none };
-}
-
-const allMerged = (rows: BoardRow[]): boolean => rows.length > 0 && rows.every(({ row }) => row.stage === 'merged');
+const allMerged = (rows: FleetRow[]): boolean => rows.length > 0 && rows.every(({ row }) => row.stage === 'merged');
 
 /** progressBar と同じ判定で、6つの段階の記号（色なし）を返す */
 function boardMarks(at: ReturnType<typeof locateRow>): string[] {
@@ -481,10 +439,10 @@ function boardMarks(at: ReturnType<typeof locateRow>): string[] {
   });
 }
 
-const todoCountOf = (rows: BoardRow[]): number => rows.filter(({ view: v, row }) => v.snap && todoItems(v.snap).some((it) => it.issue === row.issue)).length;
+const todoCountOf = (rows: FleetRow[]): number => rows.filter(({ view: v, row }) => v.snap && todoItems(v.snap).some((it) => it.issue === row.issue)).length;
 const byDone = <T>(items: T[], done: (t: T) => boolean): T[] => [...items.filter((t) => !done(t)), ...items.filter(done)];
 
-function boardRows(rows: BoardRow[], now: number): HqBoardJson['groups'][number]['rows'] {
+function boardRows(rows: FleetRow[], now: number): HqBoardJson['groups'][number]['rows'] {
   return rows
     .filter(({ row }) => row.stage !== 'merged')
     .map(({ view: v, row }) => {
@@ -508,11 +466,11 @@ function boardRows(rows: BoardRow[], now: number): HqBoardJson['groups'][number]
 export function hqBoardJson(view: HqView, now: number): HqBoardJson {
   const warning = hqWarning(view, now);
   if (!view.ledger) return { version: 1, ledger: false, warning, steps: [...PANE_STEPS], epics: [], none: null, groups: [] };
-  const { epics, none } = boardGroups(view);
-  const epicDone = (g: BoardGroup): boolean =>
+  const { epics, none } = groupByEpic(view);
+  const epicDone = (g: EpicGroup): boolean =>
     (g.children !== null && g.children.length > 0 && g.children.every((c) => c.state === 'CLOSED')) || allMerged(g.rows) || g.state === 'CLOSED';
   const noneDone = allMerged(none);
-  const merged = (rows: BoardRow[]): number[] => rows.filter(({ row }) => row.stage === 'merged').map(({ row }) => row.issue);
+  const merged = (rows: FleetRow[]): number[] => rows.filter(({ row }) => row.stage === 'merged').map(({ row }) => row.issue);
   const epicItems = epics.map((g) => ({ g, done: epicDone(g) }));
   const groups: HqBoardJson['groups'] = byDone(
     [
