@@ -3,7 +3,7 @@
  *
  *   node harness/scripts/panes.ts collect --session <fleet のセッション ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <fleet の作業ディレクトリ>] <Issue 番号>...
  *   node harness/scripts/panes.ts progress|todo|prs (--session <ID> | --snapshot <パス>)（todo は hq がいない間の控えの質問も出す）
- *   node harness/scripts/panes.ts hq [todo|board|log] [--once] [--fleets <控えのパス>]（ペインの名前が無ければ todo。todo だけ --json で1行の JSON を出す。Claude Code の mod が読む）
+ *   node harness/scripts/panes.ts hq [todo|board|log] [--once] [--fleets <控えのパス>]（ペインの名前が無ければ todo。todo・board だけ --json で1行の JSON を出す。Claude Code の mod が読む）
  *   node harness/scripts/panes.ts fleets --session <ID> [--session <ID>...]
  *   node harness/scripts/panes.ts line (--session <ID> | --snapshot <パス>)（スナップショットを1回読み、「fleet #508 実装 · #517 ゲート（人）」の1行を出す。Claude Code の mod の status line が読む。スナップショットが無い・読めなければ何も出さず終了コード 0）
  *   node harness/scripts/panes.ts config
@@ -40,8 +40,8 @@ import { LABELS, hqConfig, implementModelConfig, loadConfig, panesConfig, shipMo
 import type { IssueComment } from '../lib/github.ts';
 import { epicChildrenFromRecords } from '../lib/session-inputs.ts';
 import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
-import type { FleetStatusData } from '../lib/fleet.ts';
-import { CLEAR_SCREEN, HISTORY_LIMIT, PANE_STEPS, ago, locateRow, nextSince, renderProgress, renderPrs, renderTodo, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
+import type { FleetStatusData, FleetStatusRow } from '../lib/fleet.ts';
+import { CLEAR_SCREEN, HISTORY_LIMIT, MARKS, PANE_STEPS, WHO_MARK, ago, locateRow, nextSince, renderProgress, renderPrs, renderTodo, shortTitle, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
 import { hqWarning, nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type HqView } from '../lib/panes-hq.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 import { HEARTBEAT_FILE, freshHeartbeats, gitCommonDir, ledgerPath, parseLedger, readHeartbeatAt, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
@@ -409,6 +409,146 @@ export function hqTodoJson(view: HqView, now: number): HqTodoJson {
   return { version: 1, ledger: view.ledger, count: items.length, items, warning: hqWarning(view, now) };
 }
 
+/** hq board --json の出力（Claude Code の mod が読む。mods/agent-harness/types/index.d.ts の HqBoard と同じ形） */
+export interface HqBoardJson {
+  version: 1;
+  ledger: boolean;
+  warning: string | null;
+  steps: string[];
+  epics: { number: number; title: string | null; closed: number | null; total: number | null; waiting: number; themes: string[]; done: boolean }[];
+  none: { issues: number[]; done: boolean } | null;
+  groups: {
+    title: string;
+    epic: number | null;
+    done: boolean;
+    rows: { issue: number; title: string; marks: string[]; kind: keyof typeof MARKS; label: string; what: string; pr: number | null; since: string; waitReason: string | null }[];
+    merged: number[];
+  }[];
+}
+
+type BoardRow = { view: HqView['fleets'][number]; row: FleetStatusRow };
+interface BoardGroup {
+  number: number;
+  title: string | null;
+  state: string | null;
+  children: { number: number; state: string }[] | null;
+  themes: Set<string>;
+  rows: BoardRow[];
+}
+
+/** harness/lib/panes-hq.ts の groupByEpic（ガードレールで export できない）と同じ集め方 */
+function boardGroups(view: HqView): { epics: BoardGroup[]; none: BoardRow[] } {
+  const epics = new Map<number, BoardGroup>();
+  const get = (n: number): BoardGroup => {
+    let g = epics.get(n);
+    if (!g) { g = { number: n, title: null, state: null, children: null, themes: new Set(), rows: [] }; epics.set(n, g); }
+    return g;
+  };
+  for (const v of view.fleets) {
+    for (const e of v.snap?.epics ?? []) {
+      const g = get(e.number);
+      g.title = e.title;
+      g.state = e.state;
+      g.children = e.children.map((c) => ({ number: c.number, state: c.state }));
+      g.themes.add(v.fleet.theme);
+    }
+    if (!v.snap && v.fleet.epic !== null) get(v.fleet.epic).themes.add(v.state === 'starting' ? `${v.fleet.theme}（起動中）` : v.fleet.theme);
+  }
+  const none: BoardRow[] = [];
+  for (const v of view.fleets) {
+    for (const row of v.snap?.status?.rows ?? []) {
+      const parent = v.snap?.issueEpic?.[String(row.issue)] ?? null;
+      if (parent !== null) {
+        const g = get(parent);
+        g.rows.push({ view: v, row });
+        g.themes.add(v.fleet.theme);
+      } else if (!epics.has(row.issue)) none.push({ view: v, row });
+    }
+  }
+  return { epics: [...epics.values()].sort((a, b) => a.number - b.number), none };
+}
+
+const allMerged = (rows: BoardRow[]): boolean => rows.length > 0 && rows.every(({ row }) => row.stage === 'merged');
+
+/** progressBar と同じ判定で、6つの段階の記号（色なし）を返す */
+function boardMarks(at: ReturnType<typeof locateRow>): string[] {
+  return PANE_STEPS.map((_, i) => {
+    if (at.step === 'stopped') return MARKS.stopped.mark;
+    if (at.step === 'epic') return i === 0 ? MARKS.epic.mark : ' ';
+    if (at.step === 'done' || i < at.step) return MARKS.done.mark;
+    if (i === at.step) return MARKS[WHO_MARK[at.who]].mark;
+    return MARKS.todo.mark;
+  });
+}
+
+const todoCountOf = (rows: BoardRow[]): number => rows.filter(({ view: v, row }) => v.snap && todoItems(v.snap).some((it) => it.issue === row.issue)).length;
+const byDone = <T>(items: T[], done: (t: T) => boolean): T[] => [...items.filter((t) => !done(t)), ...items.filter(done)];
+
+function boardRows(rows: BoardRow[], now: number): HqBoardJson['groups'][number]['rows'] {
+  return rows
+    .filter(({ row }) => row.stage !== 'merged')
+    .map(({ view: v, row }) => {
+      const at = locateRow(row);
+      const kind = at.other ? 'ai' : WHO_MARK[at.who];
+      return {
+        issue: row.issue,
+        title: shortTitle(row.title),
+        marks: boardMarks(at),
+        kind,
+        label: at.other ? `${MARKS.ai.mark} ほかのセッションが作業中` : `${MARKS[kind].mark} ${MARKS[kind].meaning}`,
+        what: at.what,
+        pr: row.pr,
+        since: ago(v.snap?.since[String(row.issue)]?.at, now),
+        waitReason: !row.selected ? row.waitReason : null,
+      };
+    });
+}
+
+/** renderHqBoard の Epic のページ・Issue のページと同じ集め方を、色なしの JSON の形にする。終わったものは done にして下に回す */
+export function hqBoardJson(view: HqView, now: number): HqBoardJson {
+  const warning = hqWarning(view, now);
+  if (!view.ledger) return { version: 1, ledger: false, warning, steps: [...PANE_STEPS], epics: [], none: null, groups: [] };
+  const { epics, none } = boardGroups(view);
+  const epicDone = (g: BoardGroup): boolean =>
+    (g.children !== null && g.children.length > 0 && g.children.every((c) => c.state === 'CLOSED')) || allMerged(g.rows) || g.state === 'CLOSED';
+  const noneDone = allMerged(none);
+  const merged = (rows: BoardRow[]): number[] => rows.filter(({ row }) => row.stage === 'merged').map(({ row }) => row.issue);
+  const epicItems = epics.map((g) => ({ g, done: epicDone(g) }));
+  const groups: HqBoardJson['groups'] = byDone(
+    [
+      ...epicItems.map(({ g, done }) => ({
+        title: `#${g.number}${g.title ? ` ${shortTitle(g.title)}` : ''}（${[...g.themes].join('・')}）`,
+        epic: g.number as number | null,
+        done,
+        rows: boardRows(g.rows, now),
+        merged: merged(g.rows),
+      })),
+      ...(none.length > 0 ? [{ title: 'Epic なし', epic: null as number | null, done: noneDone, rows: boardRows(none, now), merged: merged(none) }] : []),
+    ],
+    (g) => g.done,
+  );
+  return {
+    version: 1,
+    ledger: true,
+    warning,
+    steps: [...PANE_STEPS],
+    epics: byDone(
+      epicItems.map(({ g, done }) => ({
+        number: g.number,
+        title: g.title,
+        closed: g.children ? g.children.filter((c) => c.state === 'CLOSED').length : null,
+        total: g.children ? g.children.length : null,
+        waiting: todoCountOf(g.rows),
+        themes: [...g.themes],
+        done,
+      })),
+      (e) => e.done,
+    ),
+    none: none.length > 0 ? { issues: none.map(({ row }) => row.issue), done: noneDone } : null,
+    groups,
+  };
+}
+
 interface CliArgs {
   sessions: string[];
   label: string | null;
@@ -442,7 +582,7 @@ function parseCli(args: string[]): CliArgs {
   return out;
 }
 
-const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | hq todo --json [--fleets <パス>] | fleets --session <ID>... | line (--session <ID> | --snapshot <パス>) | config';
+const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | hq todo|board --json [--fleets <パス>] | fleets --session <ID>... | line (--session <ID> | --snapshot <パス>) | config';
 
 function main(argv: string[]): void {
   const [mode, ...rest] = argv;
@@ -559,7 +699,7 @@ function mainHq(argv: string[], config: ReturnType<typeof loadConfig>): void {
   if (pane !== 'todo' && pane !== 'board' && pane !== 'log') throw new Error(USAGE);
   const args = parseCli(rest);
   if (args.sessions.length > 0 || args.snapshot || args.issues.length > 0) throw new Error(`hq のペインは --session・--snapshot・Issue 番号を受け付けません（hq の控えから今動いている fleet を読みます。${USAGE}）`);
-  if (args.json && pane !== 'todo') throw new Error(`--json は hq todo だけです（${USAGE}）`);
+  if (args.json && pane !== 'todo' && pane !== 'board') throw new Error(`--json は hq todo・hq board だけです（${USAGE}）`);
   const { maxFleets } = hqConfig(config);
   const { staleSnapshotMinutes } = hqStallConfig(config);
   const root = fileURLToPath(new URL('../..', import.meta.url));
@@ -594,7 +734,8 @@ function mainHq(argv: string[], config: ReturnType<typeof loadConfig>): void {
   };
   if (args.json) {
     const now = deps.now();
-    console.log(JSON.stringify(hqTodoJson(readHqView(deps.readLedger(), (s) => deps.readSnapshot(s), now, staleSnapshotMinutes), now)));
+    const view = readHqView(deps.readLedger(), (s) => deps.readSnapshot(s), now, staleSnapshotMinutes);
+    console.log(JSON.stringify(pane === 'board' ? hqBoardJson(view, now) : hqTodoJson(view, now)));
     return;
   }
   if (args.once) {

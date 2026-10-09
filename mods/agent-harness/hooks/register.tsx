@@ -1,6 +1,7 @@
 import type { Register } from 'claude-code'
 
 import { registerFleetStatusLine } from './fleet-status-line'
+import { registerHqBoard } from './hq-board'
 import { registerHqNotify } from './hq-notify'
 import { registerHqTodo } from './hq-todo'
 
@@ -9,4 +10,5 @@ export const register: Register = (on, options) => {
   registerHqTodo(on, options)
   registerFleetStatusLine(on, options)
   registerHqNotify(on, options)
+  registerHqBoard(on, options)
 }
