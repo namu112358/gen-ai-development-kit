@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, realpathSync, rmdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
@@ -10,7 +11,8 @@ import type { HarnessConfig } from './config.ts';
  * （`../<リポジトリ名>.worktrees`）の順で `worktreeRoot` が決め、リポジトリの中になる値と本体を含む祖先は拒む
  * （作業中の変更やほかの作業ツリーがコミットに紛れ込まないように）。Issue のブランチの worktree には、Orca があれば
  * 表示名「#番号 短い名前」と Issue を付ける（`labelOrcaWorktree`。表示のためだけで、無い・失敗しても止めない）。
- * plan-critic の読み先は `criticRepo` が決める（先に fetch し、origin/<既定ブランチ> の最新を含むパスを選ぶ。無ければ SHA の detach の worktree）。
+ * plan-critic の読み先は `criticRepo` が決める（先に fetch し、origin/<既定ブランチ> の最新を含むパスを選ぶ。無ければ SHA の detach の worktree。
+ * セッションを渡すと Issue とセッションごとの名前の worktree（並行するセッション・入れ子の ship の片付けで消えない））。
  */
 
 /** 本体のリポジトリのルート（worktree の中から呼ばれても本体を返す） */
@@ -215,9 +217,9 @@ function findWorktree(root: string, path: string): { head: string; branch: strin
  * SHA の名前のブランチを作らずに --detach を促して止める。
  * fetch の失敗は警告だけ出して手元の ref で続ける。
  */
-export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions): string {
+export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions, name?: string): string {
   const { root, defaultBranch, warn = console.error, removeEmptyDir = rmdirSync } = opts;
-  const path = worktreePath(root, ref, opts.worktreeRoot);
+  const path = worktreePath(root, name ?? ref, opts.worktreeRoot);
   if (existsSync(path) && isEmptyDir(path) && !findWorktree(root, path)) {
     // 消し残した空のディレクトリ（Windows でほかのプロセスが掴んでいた残りなど）は消して作り直す
     run(root, ['worktree', 'prune']);
@@ -347,14 +349,17 @@ export interface CriticRepo {
   base: string;
   branch: string;
   source: 'issue-worktree' | 'cwd' | 'snapshot';
+  /** snapshot の worktree を `worktree-remove` で消すときの名前（source が snapshot のときだけ） */
+  removeRef?: string;
 }
 
 /**
  * plan-critic が読むリポジトリのパスを決める。先に origin の既定ブランチを fetch し、HEAD がその最新（base）を含む最初のものを使う：
  * Issue のブランチ（`claude/issue-<番号>-`）の worktree → cwd の toplevel → 無ければ base の detach の worktree（addWorktree。npm ci はしない）。
+ * セッションを渡すと、その worktree は Issue とセッションごとの名前になる（並行するセッション・入れ子の ship の片付けで消えない）。
  * fetch の失敗・base を読めない・worktree を作れないときは、最新を読めるパスが無いとして投げる（批評を始める前に止める）
  */
-export function criticRepo(issue: number, cwd: string, opts: WorktreeOptions): CriticRepo {
+export function criticRepo(issue: number, cwd: string, opts: WorktreeOptions, session?: string): CriticRepo {
   const { root, defaultBranch: branch } = opts;
   const noPath = (why: string) => new Error(`origin/${branch} の最新を読めるパスがありません: ${why}`);
   const fetched = run(root, ['fetch', '-q', 'origin', branch]);
@@ -384,7 +389,11 @@ export function criticRepo(issue: number, cwd: string, opts: WorktreeOptions): C
   }
 
   try {
-    return { path: addWorktree(base, true, opts), base, branch, source: 'snapshot' };
+    if (session) {
+      const name = `critic-${issue}-${createHash('sha256').update(session).digest('hex').slice(0, 12)}-${base}`;
+      return { path: addWorktree(base, true, opts, name), base, branch, source: 'snapshot', removeRef: name };
+    }
+    return { path: addWorktree(base, true, opts), base, branch, source: 'snapshot', removeRef: base };
   } catch (e) {
     throw noPath((e as Error).message);
   }
