@@ -180,7 +180,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 | `kind` | 中身 |
 | --- | --- |
 | `node` | `node`（`plan`・`plan-critique`・`implement`・`judge`・`fix`・`sync`）と使う `skill`、宣言する番号と段階 `claim`（judge・fix・sync は PR 番号）、確かめ済みの前提 `preconditions`、使ってよい操作 `allowed`、読むもの `inputs`、出すものの書式 `output`、ブランチ `branch`（PR の head。無ければ null）と接頭辞 `branchPrefix`、計画ゲートの記録の計画の `files`（計画の前は null）。`step` がこの宣言を出す（同じ段階の自分の宣言があれば出さない） |
-| `wait` | `waitingFor`：`app`（計画ゲート・判定の受け付け・Merge の経路・auto-merge）、`human`（人の Merge 待ち、人の PR の修正・取り込み）、`area-limit`（`areaConcurrency` の上限。`--force` は付けず人・fleet が決める）、`done`（Merge 済み）と `detail`。宣言は変えない |
+| `wait` | `waitingFor`：`app`（計画ゲート・判定の受け付け・Merge の経路・auto-merge）、`human`（人の Merge 待ち、人の PR の修正・取り込み）、`area-limit`（`areaConcurrency` の上限。`--force`・`--fleet` は付けず人・fleet が決める）、`done`（Merge 済み）と `detail`。宣言は変えない |
 | `stop` | 理由コード `reason`、`detail`、このセッションの宣言を解除したか `released` |
 
 `stop` の理由コード：
