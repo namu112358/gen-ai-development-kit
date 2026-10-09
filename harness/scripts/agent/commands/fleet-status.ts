@@ -26,7 +26,7 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           Issue・PR の材料は GraphQL でまとめて読む（harness/lib/fleet-reads.ts。#249）
  *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする。
  *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
- *                                                           表の下に、このセッションの読み込みが古ければその1行を出す（harness/lib/harness-drift.ts の driftLine。記録が無い・古くなければ出さない。#199）。
+ *                                                           表の下に、このセッションの読み込みが古ければその1行を出す（harness/lib/harness-drift.ts の driftLine。記録が無い・古くなければ出さない。#199）。--json では比べない（git fetch もしない）。
  *                                                           --watch（fleet の待つ間の読み直し。#199）なら、見張りの記録（git の共通ディレクトリの下の agent-harness/watch/<セッションの ID>.json）を
  *                                                           読み書きし、App が fleet.watch.appStallMinutes 分以上動いていない行（1回だけ）と、Merge 後の見届けが済んでいない Issue
  *                                                           （Issue が開いている・claude/issue-<番号>- の worktree が残る）と、読み直しの間隔（fleet.watch.intervalMinutes）を表の下に足す
@@ -108,12 +108,12 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const me = requireAssignee(config) ? (await gh.get<{ login: string }>('/user')).login : null;
   const session = currentSession();
   const sel = selectFleet(config, facts, rows, max, session, me);
-  const drift = driftLine(harnessDrift());
   const watched = watchCfg ? watchNotes(rows, items, session, watchCfg) : null;
   if (json) {
     const data = fleetStatusData(facts, rows, sel, max, session, mode);
     return JSON.stringify(watched ? { ...data, watch: watched } : data, null, 2);
   }
+  const drift = driftLine(harnessDrift());
   const extra = [drift, ...(watched ? watched.lines : [])].filter((x) => x !== '');
   const table = renderFleetStatus(rows, sel, max, mode);
   return extra.length > 0 ? `${table}\n${extra.join('\n')}` : table;
@@ -136,7 +136,7 @@ function watchNotes(rows: FleetRow[], items: FleetIssueItem[], session: string |
     ...(followUps.length > 0 ? [`Merge 後の見届けが済んでいない：${followUps.map((n) => `#${n}`).join(' ')}（その Issue の ship を呼び直す）`] : []),
     `待つ間の読み直しは ${cfg.intervalMinutes} 分おき（harness.config.json の fleet.watch.intervalMinutes）`,
   ];
-  return { stalls, followUps, intervalMinutes: cfg.intervalMinutes, recorded: path !== null, lines };
+  return { stalls, followUps, intervalMinutes: cfg.intervalMinutes, lines };
 }
 
 /** step --critique の plan-critic の出力（verdict と必須の fixes の文）。読めなければ止める */
