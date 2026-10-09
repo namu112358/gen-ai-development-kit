@@ -6,6 +6,7 @@ hq・fleet の状況を Claude Code の画面に出す mod。
 - hq の人待ち：プロンプトの上の帯に「hq の人待ち N 件（/hq-todo で開く）」（1件以上のときだけ）。`/hq-todo` で全文をペインに出す。
 - hq の人待ちの通知：人待ちが増えたら OS の通知を1回（出せなければ toast）。hq と intel の両方で開いていても1回。止めるには設定 `notifyHqTodo` を false（`/config`。変えるとその場から効く）。
 - hq の Epic/Issue：`/hq-board` でペインを開き、ボタン（e・i）で Epic と Issue のページを切り替える。終わった Epic・テーマはグレーにして下に回す（消さない）。
+- 冒険者ギルド：`/guild` でペインを開き、hq board の中身をドット絵（Epic がクエスト、Issue がモンスター）で出して 0.1 秒ごとに動かす。人の Merge 待ちは「!」と「! #番号 PR #番号」の一覧。ペインが見えていない間は動かさず読み直さない。ターミナルと desktop で始めたセッションにあり、呼んだときだけ開く（desktop などターミナル以外の画面では「現在はターミナル版だけに対応しています」と文だけ）。
 - 中身は `node harness/scripts/panes.ts hq todo --json`（人待ち）と `hq board --json`（Epic/Issue。開いたときから）を15秒ごとに読んだもの（GitHub は読まない）。
 - 出るセッション：fleet の status line は fleet のセッション（collect のスナップショットがあるセッション。Issue の worktree でも出る）に出る。hq の人待ちの帯・`/hq-todo`・通知は main の checkout で動くセッション（hq・intel）だけに出て、fleet のワークスペース・Issue の worktree では出さず、人待ちの定期の読み直しも始めない。`/hq-board` は呼んだときだけペインを開き、自動では何も出さない（コマンドはどのセッションにもある。使うのは hq・intel）。
 
