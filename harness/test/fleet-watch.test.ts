@@ -1,11 +1,14 @@
 // Issue #199：fleet の待つ間の読み直し（harness/lib/fleet-watch.ts）。設定（fleet.watch の既定値と誤り）、App 待ちの行の見張り（updateWatch：
 // 最初に見た行は知らせない・appStallMinutes を過ぎた plan-gate・auto-merge の行だけを1回だけ知らせる・段階や PR が変われば数え直す・人の番は数えない）、
-// Merge 後の見届けが済んでいない行（pendingFollowUps：記録に頼らず事実だけで決める）、見張りの記録のパスと読み書き。
+// Merge 後の見届けが済んでいない行（pendingFollowUps：記録に頼らず事実だけで決める）、見張りの記録のパスと読み書き、
+// fleet-status.ts が --watch のときだけ updateWatch を呼ぶこと（#199。fleet-watch-skill.test.ts から移した）。
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { agentSourceFiles } from './support/agent-source.ts';
+import { readText } from './support/skill-text.ts';
 import {
   APP_WAIT_STAGES,
   FLEET_WATCH_DEFAULTS,
@@ -180,4 +183,31 @@ test('pendingFollowUps：見張りの記録を使わない（記録の有無・u
   updateWatch(null, rows, T0, CFG, SESSION);
   assert.deepEqual(pendingFollowUps(rows, facts), before);
   assert.deepEqual(before, [7]);
+});
+
+// ---- fleet-status.ts の --watch ----
+const FLEET_STATUS = 'harness/scripts/agent/commands/fleet-status.ts';
+
+test('fleet-status.ts：--watch を splitArgs の前に取り除き、使い方に [--watch] があり、--watch のときだけ updateWatch を呼ぶ', () => {
+  assert.ok(agentSourceFiles().includes(FLEET_STATUS));
+  const src = readText(FLEET_STATUS);
+  assert.ok(src.includes('[--watch]'), '使い方に [--watch] がありません');
+  assert.ok(src.includes("'--watch'"), '--watch を読んでいません');
+  const calls = [...src.matchAll(/updateWatch\(/g)].map((m) => m.index!);
+  assert.ok(calls.length > 0, 'updateWatch を呼んでいません');
+  /** --watch の分岐（watch・watchCfg などの変数の if・三項・&&）の直後か */
+  const guarded = (before: string): boolean => /if \(\s*watch\w*\b[^)]*\)\s*\{[^}]*$|\bwatch\w*\s*(\?|&&)\s*[^\n]*$/.test(before);
+  for (const i of calls) {
+    if (guarded(src.slice(Math.max(0, i - 600), i))) continue;
+    // 補助の関数の中で呼ぶなら、その関数を呼ぶ所がすべて --watch の分岐の中にあること
+    const fn = [...src.slice(0, i).matchAll(/function (\w+)\(/g)].at(-1)?.[1];
+    assert.ok(fn, 'updateWatch が --watch の分岐の中にありません');
+    const sites = [...src.matchAll(new RegExp(`(?<!function )\\b${fn}\\(`, 'g'))].map((m) => m.index!);
+    assert.ok(sites.length > 0, `${fn} を呼ぶ所がありません`);
+    for (const s of sites) {
+      const lineStart = src.lastIndexOf('\n', s) + 1;
+      assert.ok(guarded(src.slice(Math.max(0, s - 600), s)) || guarded(src.slice(lineStart, s)), `${fn}（updateWatch を呼ぶ）が --watch の分岐の外で呼ばれています`);
+    }
+  }
+  for (const w of ['pendingFollowUps(', 'fleetWatchConfig(', '--porcelain', 'watchRecordPath(']) assert.ok(src.includes(w), `fleet-status.ts に ${w} がありません`);
 });
