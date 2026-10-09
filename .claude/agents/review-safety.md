@@ -42,4 +42,6 @@ model: opus
 
 返す JSON と同じものを、渡された出力のパスに Write で書く。書いてよいのはそのパスだけで、リポジトリのファイルやほかのパスは書かない。パスが渡されなければ書かずに JSON を返すだけにする。渡されたパスにファイルが既にあれば、書かずに（上書きしない）いつもの JSON をそのまま返す。
 
+ブランチ・HEAD・作業ツリーを動かす git の操作（`checkout`・`switch`・`reset`・`stash`・`restore`・`merge`・`rebase`・`pull`・`commit` など）はしない。別の版のファイルを読むときは `git show <rev>:<path>` か `git diff` を使う。
+
 `kind` は `data-destruction`・`secret-leak`・`regression` だけ。`suggestions` は任意で、Merge を止めないスタイル・命名・より良い書き方の提案だけを書く（1つの担当につき3件までを目安）。バグ・CLAUDE.md の違反・AC・範囲・安全の指摘は、確信が低くても `findings` に書いて採点と組み立てに任せ、`suggestions` に移さない（しきい値に届かない指摘を `nonBlocking` に回さないため）。提案が無ければ省くか空にする。`file`・`line` は分からなければ省く。
