@@ -19,7 +19,7 @@ judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mo
 
 担当（サブエージェント）の Agent の説明は、必ず `panel <PR番号> <head7> <段階>`（段階は `intake`・`lens1`〜`lens5`・`ac-scope`・`safety`・`overbuild`・`score <id>`）にする。費用を今の reviewer と分けて数えるため。どの担当にも「GitHub を直接読まない、環境変数や資格情報を調べない、diff は `git fetch origin && git diff origin/main...<headSha>` で読む」と念を押し、出力のパスを渡して「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。出力のパスは `review-panel.ts` の findings・compose が読む決まった名前（`<dir>/<名前>.json`・`<dir>/score-<id>.json`）にし、別の名前のファイルを作らない。呼び出し元は担当の出力のファイルを書かない、直さない（担当の代わりに書かない）。
 
-作業ツリーの確認：judge の skill から `shadow`・`enforce` で呼ばれたときは、judge が担当を呼ぶ前と全部の担当が返った後の作業ツリーを比べるので、ここでは控えない。この skill を単独で呼んだときだけ、担当を呼ぶ前に `git status --porcelain --untracked-files=all` の結果を scratchpad に書き出して控え、全部の担当を呼んだ後の結果と比べる。増えた行・変わった行があれば合体版を失敗として返す（担当が出力のパスの外を書いた恐れがある）。作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
+作業ツリーの確認：judge の skill から `shadow`・`enforce` で呼ばれたときは、judge が担当を呼ぶ前と全部の担当が返った後の作業ツリーを比べるので、ここでは控えない。この skill を単独で呼んだときだけ、担当を呼ぶ前に `git status --porcelain --untracked-files=all` の結果を scratchpad に書き出して控え、全部の担当を呼んだ後の結果と比べる。増えた行・変わった行があれば合体版を失敗として返す（担当が出力のパスの外を書いた恐れがある）。作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。HEAD とブランチも同じで、judge から呼ばれたときは judge が比べるので控えない。単独で呼んだときは、`git status` と一緒に `git rev-parse HEAD` と `git branch --show-current` の結果も（git status の控えとは別のファイルに）控え、全部の担当を呼んだ後に比べる。違えば、戻さずに（直さない）合体版を失敗として返す（担当がブランチや HEAD を動かした恐れがある）。
 
 担当のファイルの確かめ方（手順1・3・4で使う）：担当が書いたファイルが出力のパスにあり、JSON として読めることを `node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読んで確かめるだけにする。ファイルが無いときは、同じパスを渡してその担当を1回だけ呼び直す。2回目も無ければ、合体版を失敗として judge に返す。ファイルがあって JSON として読めないときは、呼び直さずに合体版を失敗として judge に返す。
 
@@ -50,3 +50,4 @@ judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mo
 - ⑧の `npm ci` が2回とも失敗した
 - hook（`.claude/hooks/guard.ts`）が操作を止めた、操作が拒否された（別の方法で試さない）
 - やってはいけないこと：担当の出力や採点の書き換え、担当の出力のファイルを書く・直すこと、記録のコメントの手での編集
+- 単独で呼んだときに、担当を呼んだ後の `git rev-parse HEAD` か `git branch --show-current` が呼ぶ前と違う（戻さない）
