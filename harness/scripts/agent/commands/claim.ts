@@ -1,5 +1,5 @@
 import { checkAssignee } from '../../../lib/assignee.ts';
-import { postClaim } from '../../../lib/claim.ts';
+import { claimedLine, postClaim } from '../../../lib/claim.ts';
 import { countsTowardAreaLimit, describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
@@ -21,6 +21,7 @@ import { type AgentCommand, assigneeIo, claimBody, config, currentSession, ensur
  *                                                           （PR 番号なら PR が Close する Issue の Assignee。ensure-claim などの確かめも同じ。エージェントはアサインしない）
  *                                                           このセッションの読み込みが古い（harness-drift）とき、--stage judge は宣言を投稿せずに止まる（--force・--takeover でも。Issue #199）。
  *                                                           ほかの段階は宣言の後に標準エラーへ一言出すだけで止めない
+ *                                                           成功したら番号・段階・session の短い ID を1行、標準出力に出す
  *   node harness/scripts/agent.ts ensure-claim <番号>        このセッションの着手宣言（持ち主）があるかを確かめるだけ（PR を作る前に使う）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント（このセッションの ID が得られなければ止まる）
  */
@@ -55,8 +56,9 @@ async function claim(gh: GitHub, n: number, manual: boolean, skipAreaLimit: bool
     return full.length > 0 ? `${describeFullAreas(full)}。どれかが Merge されてから着手してください（急ぐなら --force。fleet は --fleet）` : null;
   };
   // 手動の宣言でなくても、Routine のセッション URL が無ければ手動の宣言として書く（claimBody と同じ）
+  const current = currentSession();
   const r = await postClaim(gh, n, {
-    current: currentSession(),
+    current,
     manual: manual || !sessionUrl(),
     takeover,
     stage,
@@ -66,6 +68,7 @@ async function claim(gh: GitHub, n: number, manual: boolean, skipAreaLimit: bool
     before,
   });
   if (r.error) fail([r.error]);
+  console.log(claimedLine(n, stage, current as string));
   const line = driftLine(readDrift());
   if (line) console.error(line);
 }
