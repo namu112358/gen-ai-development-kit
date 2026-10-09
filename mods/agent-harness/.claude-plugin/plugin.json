@@ -2,5 +2,13 @@
   "name": "agent-harness",
   "version": "0.1.0",
   "description": "hq・fleet の状況を Claude Code の画面に出す（試し：hq の人待ち）",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "notifyHqTodo": {
+      "type": "boolean",
+      "title": "hq の人待ちを OS の通知で知らせる",
+      "description": "false で通知を止める",
+      "default": true
+    }
+  }
 }
