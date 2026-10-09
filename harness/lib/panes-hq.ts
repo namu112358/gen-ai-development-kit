@@ -1,5 +1,5 @@
 /**
- * hq の3つのペイン（人待ち・Epic/Issue・ログ）の描き方と、hq の控えから今動いている fleet を見つけること。純粋関数だけ（Issue #402）。
+ * hq の3つのペイン（上から Epic/Issue・人待ち・ログ）の描き方と、hq の控えから今動いている fleet を見つけること。純粋関数だけ（Issue #402）。
  * CLI は harness/scripts/panes.ts の hq todo・hq board・hq log。
  * 入力は hq の控え（harness/scripts/hq-state.ts の hq-fleets.json）の fleets と、collect が書いた fleet のスナップショットだけで、gh・GitHub・ファイルを読まない。
  * 段階の読み替え・記号・人がすることは harness/lib/panes.ts と同じものを使う。
@@ -146,9 +146,9 @@ function heading(title: string, view: HqView, now: number, width: number): strin
   return out;
 }
 
-// ---- ① 人待ち ----
+// ---- ② 人待ち ----
 
-/** ① 人待ち：全 fleet の人がすること。無ければ「今はありません」と、AI・App が進行中の件数 */
+/** ② 人待ち：全 fleet の人がすること。無ければ「今はありません」と、AI・App が進行中の件数 */
 export function renderHqTodo(view: HqView, now: number, width: number, maxFleets: number): string {
   const out = heading('人待ち（全 fleet）', view, now, width);
   if (view.fleets.length > maxFleets) out.push(...wrapped(`⚠ fleet が ${view.fleets.length} 個あります（hq.maxFleets は ${maxFleets}）。同時に動かす fleet を減らしてください`, width, '', 'yellow'));
@@ -170,7 +170,7 @@ export function renderHqTodo(view: HqView, now: number, width: number, maxFleets
   return out.join('\n');
 }
 
-// ---- ② Epic/Issue ----
+// ---- ① Epic/Issue ----
 
 export type BoardPage = 'epic' | 'issue';
 
@@ -279,7 +279,7 @@ function issuePage(view: HqView, now: number, width: number): string[] {
   return out;
 }
 
-/** ② Epic/Issue：Epic のページ（Close の数・人待ちの数・Epic なしの件数）と Issue のページ（Epic ごとの6段階の横棒）を Tab・e・i で切り替える */
+/** ① Epic/Issue：Epic のページ（Close の数・人待ちの数・Epic なしの件数）と Issue のページ（Epic ごとの6段階の横棒）を Tab・e・i で切り替える */
 export function renderHqBoard(view: HqView, page: BoardPage, now: number, width: number): string {
   const title = page === 'epic' ? 'Epic（Tab・e・i で切り替え）' : 'Issue（Tab・e・i で切り替え）';
   const out = heading(title, view, now, width);
