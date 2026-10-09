@@ -30,13 +30,14 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 6. **plan-critic** サブエージェントを呼ぶ。
    - 批評の回ごとに、出力のパスを scratchpad の `critic-<番号>-<回数>.json` に決める。回数は Issue ごとに増やし続け、1 に戻さない（計画ゲートで止まった Issue への出し直しや、人の「直す」で手順5からやり直すときも続きの番号にする）。
    - plan-critic を呼ぶ前に、出力のパスにファイルが無いことを確かめる。あれば回数を進めて、まだ使っていない名前にする。呼び出し元はファイルを消さない（plan-critic は既にあるファイルを上書きしないので、古い批評をこの回の結果として取り違えないため）。
-   - 呼ぶ前に `git status --porcelain --untracked-files=all` の結果を scratchpad の `worktree-critic-<番号>-<回数>.txt` に書き出して控える。
+   - 呼ぶ前に `git status --porcelain --untracked-files=all` の結果を scratchpad の `worktree-critic-<番号>-<回数>.txt` に書き出して控える。あわせて `git rev-parse HEAD` と `git branch --show-current` の結果を、別のファイル scratchpad の `head-critic-<番号>-<回数>.txt` に書き出して控える（git status の控えと混ぜない）。critic-input の「読み先のリポジトリ」が作業ディレクトリと違うときは、そのパスでも（`git -C <パス>`）控える。
    - critic-input のファイルの中身と出力のパスを指示に含めて渡し（自分の推論は渡さない）、「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。
    - 返った後に、次を確かめる。呼び出し元は plan-critic の出力のファイルを書かない、直さない（plan-critic の代わりに書かない）。
      - plan-critic が書いたファイルが出力のパスにあり、JSON として読めること（`node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読むだけ）。
      - ファイルが無いときは、同じパスを渡して plan-critic を1回だけ呼び直す。2回目も無ければ人に返す。
      - ファイルがあって JSON として読めないときは、呼び直さずに人に返す。
      - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、批評を使わず人に返す（plan-critic が出力のパスの外を書いた恐れがある）。付き添いの作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
+     - 呼んだ後の `git rev-parse HEAD` と `git branch --show-current` の結果（読み先も控えたならそのパスも）を、呼ぶ前に控えた結果と比べる。違えば、戻さずに（直さない）批評を使わず人に返す（plan-critic がブランチや HEAD を動かした恐れがある）。読み先が detach の worktree のときは `git branch --show-current` の結果は空になり、空同士は同じとみなす。
 7. 判定はファイルの中身で決める。返事の本文とファイルの中身が食い違ったら、ファイルの中身を使う。判定ごとの扱いと止める条件は、[.claude/routine.md](../../routine.md) の plan の手順4と [.claude/agents/plan-critic.md](../../agents/plan-critic.md) の出力の節に従う（ここに写さない）。
    - `go`：計画ブロックに `critique`（`verdict` と `rounds`）を書いて次へ。
    - `revise`：指摘を反映して直し、手順5からやり直す。
@@ -60,6 +61,7 @@ Routine の plan（[.claude/routine.md](../../routine.md)）を、付き添い�
 - `critic-input` が読み先（origin/main の最新を含むパス）を決められずに止まった
 - plan-critic が出力のパスにファイルを書かなかった（同じパスで呼び直しても無い）、または書いたファイルが JSON として読めない
 - plan-critic を呼んだ後の `git status --porcelain --untracked-files=all` に、呼ぶ前と比べて増えた行・変わった行がある
+- plan-critic を呼んだ後の `git rev-parse HEAD` か `git branch --show-current` が、呼ぶ前と違う（戻さない）
 - 要件・AC を変えたほうがよい（Issue 本文は書き換えない。コメントで提案する）
 - `post-plan` が書式の誤りや権限で失敗した（拒否された操作は別の方法で試さない）
 - やってはいけないこと：`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し、Issue 本文の書き換え
