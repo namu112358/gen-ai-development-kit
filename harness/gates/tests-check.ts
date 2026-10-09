@@ -6,6 +6,7 @@ import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
 import { testsHumanMergeReasons, type Acceptance } from '../lib/merge-route.ts';
 import { renderTamperForHumanMerge, renderTamperSummary, type TamperFinding } from '../lib/test-tamper.ts';
 import { renderTamperJev, type TamperJevOutcome } from '../lib/test-tamper-jev.ts';
+import { renderTestMove, type TestMoveOutcome } from '../lib/test-move-jev.ts';
 import { changedFiles, isAgentPr, type PullRequest } from '../lib/state.ts';
 import { autoModeFor, autoModeRoute } from './auto-mode.ts';
 import { bypassFor, bypassRoute, type BypassState } from './bypass.ts';
@@ -52,23 +53,38 @@ export async function testsHumanMerge(ctx: GateContext, pr: PullRequest, accepta
 /** Jev が通した検出の種類ごとの件数（例：「アサーションの書き換え 2 件・テストの名前の変更 1 件」） */
 function jevPassedCounts(findings: TamperFinding[]): string {
   const count = (kind: TamperFinding['kind']) => findings.filter((f) => f.kind === kind).length;
-  const parts = [['アサーションの書き換え', count('assertion-changed')], ['テストの名前の変更', count('renamed-test')], ['テストの中身の書き換え', count('rewritten-test')]] as const;
+  const parts = [['テストファイルの削除', count('deleted-file')], ['アサーションの書き換え', count('assertion-changed')], ['テストの名前の変更', count('renamed-test')], ['テストの中身の書き換え', count('rewritten-test')]] as const;
   return parts.filter(([, n]) => n > 0).map(([label, n]) => `${label} ${n} 件`).join('・');
+}
+
+/** Jev の側で通るか（削除は test-move-jev、削除以外は jev.testTamper。どちらも enforce で問えて通すこと）。削除が無ければ jev.testTamper だけ */
+export function testsJevSidePasses(findings: TamperFinding[], jev?: TamperJevOutcome, move?: TestMoveOutcome): boolean {
+  const jevPasses = jev?.mode === 'enforce' && jev.asked && jev.allows;
+  if (!findings.some((f) => f.kind === 'deleted-file')) return !!jevPasses;
+  const movePasses = !!move && move.applies && move.asked && move.mode === 'enforce' && move.allows;
+  const restPasses = findings.every((f) => f.kind === 'deleted-file') || !!jevPasses;
+  return movePasses && restPasses;
 }
 
 /**
  * agent/tests の結論を決める（書き手は on-pr.ts の writeTestsCheck と apply.ts の rewriteTestsCheck・auto-merge の後の書き直し）。
- * 優先順：検出0件 → success／Human Merge の理由あり → neutral／jev.testTamper が enforce で、問えて Jev が通す → success
+ * 優先順：検出0件 → success／Human Merge の理由あり → neutral／削除があれば、削除が test-move-jev で通り（enforce・問えた・通す）、
+ * かつ削除以外の検出が0件か jev.testTamper の Jev が通す → success／削除が無く、jev.testTamper が enforce で、問えて Jev が通す → success
  * ／auto mode の経路で、Jev が妥当と答えた（autoMode の allows）→ success／それ以外 → failure。
  * jev（harness/gates/tests-jev.ts の tamperJevFor の結果）があれば、どの結論でも要約の末尾に Jev の節を足す。
  * autoMode（harness/gates/auto-mode-tests.ts の autoModeTestsFor の結果）が auto mode の経路の PR なら、その後に auto mode の判定の節を足す
- * （jev.testTamper の enforce で先に通したときは出さない）。どちらも渡さなければ今までと同じ出力。
+ * （jev.testTamper の enforce で先に通したときは出さない）。move（tests-move.ts の testMoveJevFor の結果）は、削除があるとき移し先の節を足す
+ * （問わなかったときは結論が failure のときだけ）。どれも渡さなければ今までと同じ出力。
  * test:exempt は書き手の側で先に扱う（ここには来ない）。
  */
-export function testsOutcome(findings: TamperFinding[], humanMergeReasons: string[], jev?: TamperJevOutcome, autoMode?: AutoModeTestsOutcome): TestsOutcome {
+export function testsOutcome(findings: TamperFinding[], humanMergeReasons: string[], jev?: TamperJevOutcome, autoMode?: AutoModeTestsOutcome, move?: TestMoveOutcome): TestsOutcome {
   if (findings.length === 0) return { conclusion: 'success', title: 'テストを弱める変更はありません', summary: '' };
-  const jevPasses = jev?.mode === 'enforce' && jev.asked && jev.allows;
-  const sections = [jev ? renderTamperJev(jev, jev.mode) : '', jevPasses || humanMergeReasons.length > 0 ? '' : renderAutoModeTests(autoMode)].filter((s) => s !== '');
+  const jevSidePasses = testsJevSidePasses(findings, jev, move);
+  const hasDeletion = findings.some((f) => f.kind === 'deleted-file');
+  const autoPasses = !!(autoMode?.applies && autoMode.asked && autoMode.allows);
+  const willFail = !jevSidePasses && humanMergeReasons.length === 0 && !autoPasses;
+  const moveSection = move?.applies && (move.asked || willFail) ? renderTestMove(move) : '';
+  const sections = [jev ? renderTamperJev(jev, jev.mode) : '', moveSection, jevSidePasses || humanMergeReasons.length > 0 ? '' : renderAutoModeTests(autoMode)].filter((s) => s !== '');
   const withJev = (summary: string) => [summary, ...sections].join('\n\n');
   if (humanMergeReasons.length > 0) {
     return {
@@ -81,12 +97,14 @@ export function testsOutcome(findings: TamperFinding[], humanMergeReasons: strin
       ].join('\n')),
     };
   }
-  if (jev?.mode === 'enforce' && jev.asked && jev.allows) {
+  if (jevSidePasses) {
+    const p = hasDeletion ? (move?.applies && move.asked ? move.probability : null) : jev?.mode === 'enforce' && jev.asked ? jev.probability : null;
+    const pText = p === null || p === undefined ? '-' : p.toFixed(2);
     return {
       conclusion: 'success',
-      title: `テストの行の変更を Jev が弱めていないと判定（P=${jev.probability.toFixed(2)}）`,
+      title: hasDeletion ? `テストファイルの削除の移し先を Jev が確かめた（P=${pText}）` : `テストの行の変更を Jev が弱めていないと判定（P=${pText}）`,
       summary: withJev([
-        `${jevPassedCounts(findings)}を、Jev が弱めていないと判定しました（\`jev.testTamper\` が enforce で、確率の最小値が下限以上）。`,
+        `${jevPassedCounts(findings)}を、Jev が${hasDeletion ? '確かめて通しました' : '弱めていないと判定しました'}（\`jev.testTamper\` が enforce で、確率の最小値が下限以上）。`,
         '',
         ...findings.map((f) => `- \`${f.file}${f.line === undefined ? '' : `:${f.line}`}\`${f.after ? ` → \`:${f.after.line}\`` : ''}`),
       ].join('\n')),
