@@ -56,3 +56,5 @@ Node 24（`.node-version`）。TypeScript をビルドせずに実行する。No
 npm ci
 npm run check
 ```
+
+Claude Code の画面に hq・fleet の状況を出す mod は [mods/agent-harness/README.md](mods/agent-harness/README.md)。
