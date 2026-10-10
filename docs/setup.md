@@ -100,12 +100,14 @@ Routine の環境には `gh` も API 用のトークンもない。GitHub の操
 
 ## 8. プラグイン（全員に同じ版で入れる）
 
-`.claude/settings.json` の `extraKnownMarketplaces`・`enabledPlugins` で、マーケットプレイスをコミットに固定（`autoUpdate: false`）してメンバー全員に同じ版のプラグインを入れる。
+`.claude/settings.json` の `extraKnownMarketplaces`・`enabledPlugins` で、マーケットプレイスを版（コミットかタグ）に固定（`autoUpdate: false`）してメンバー全員に同じ版のプラグインを入れる。
 
-| マーケットプレイス | source | 固定するコミット | 有効にするプラグイン | 用途 |
+| マーケットプレイス | source | 固定する版 | 有効にするプラグイン | 用途 |
 | --- | --- | --- | --- | --- |
-| `typesafe-ai` | github `typesafe-ai/skills` | `65a39f393687675ce170e6094757de20370365b9` | `typesafe` | Jev の問い・criteria・しきい値を書く計画・実装で使う |
+| `typesafe-ai` | github `typesafe-ai/skills` | `v0.5.7`（コミット `65a39f393687675ce170e6094757de20370365b9`） | `typesafe` | Jev の問い・criteria・しきい値を書く計画・実装で使う |
 | `claude-plugins-official` | github `anthropics/claude-plugins-official` | `fa59bc9037741ecfa131aa27938272605710d7b2` | `skill-creator`、`pr-review-toolkit` | `skill-creator` はこのリポジトリの skill（ship・fleet など）の作成・改善と eval。`pr-review-toolkit` は判定（reviewer → App）の外での観点別の補助レビュー（判定コメントの材料にはしない） |
+
+`extraKnownMarketplaces` の `ref` に書けるのはブランチかタグだけで、SHA を書くと clone が失敗して登録されない（Claude Code の marketplace reference の Marketplace sources）。typesafe-ai はタグで固定する。claude-plugins-official は、入らない原因が同じかを確かめていないので SHA のまま残す（別 Issue で調べる）。
 
 **入り方**：リポジトリを信頼した対話のセッションで、上のマーケットプレイスが背景で登録され、次のセッション（または `/reload-plugins`）から使える。`/plugin` の Installed・Errors で確かめる。個人で外すときは `.claude/settings.local.json` に `false` を書く。クラウドのセッション・Routine では入らない（Non-goal のまま）。
 
@@ -117,8 +119,8 @@ Routine の環境には `gh` も API 用のトークンもない。GitHub の操
 
 **更新の手順（3つ共通）**：
 
-1. 新しいコミットを選び、固定中のコミットとの差分（`typesafe` は `SKILL.md`、公式2つは `plugins/skill-creator/`・`plugins/pr-review-toolkit/` と `.claude-plugin/marketplace.json` の該当項目）を人が読む
-2. Issue を立て、PR で `.claude/settings.json` の `ref` と `harness/test/settings-plugins.test.ts` の期待値を上げる（ガードレールなので人が Merge する）
+1. 新しいコミット（typesafe はタグ）を選び、タグなら指すコミットを確かめて、固定中のコミットとの差分（`typesafe` は `SKILL.md`、公式2つは `plugins/skill-creator/`・`plugins/pr-review-toolkit/` と `.claude-plugin/marketplace.json` の該当項目）を人が読む
+2. Issue を立て、PR で `.claude/settings.json` の `ref`（typesafe はタグ）と `harness/test/settings-plugins.test.ts` の期待値を上げる（ガードレールなので人が Merge する）
 3. Merge 後、main を取り込んだセッションで `/plugin` の一覧に出ることを確かめる
 
 `autoUpdate` は `true` にしない。
