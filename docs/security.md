@@ -16,7 +16,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | PR のコード | ゲートは既定ブランチを checkout し、PR の head は checkout も実行もしない。diff は API で読む |
 | 埋め込み | イベントの中身は `GITHUB_EVENT_PATH` から読み、`${{ }}` で run に埋め込まない |
 | コメントの作成者 | ゲートは `author_association` が OWNER / MEMBER / COLLABORATOR のコメントだけ受け付ける |
-| 秘密 | App と Jev の鍵は Environment `gate` の Secret。`gate` は既定ブランチからの実行に限定。ログ・コメントは伏せ字にする |
+| 秘密 | App と Jev の鍵は Environment `gate` の Secret。`gate` は既定ブランチからの実行に限定。ログ・コメントは伏せ字にする。例外は incident の振り分け（shadow）だけで、人がセッションの環境に置いた `JEV_API_KEY` でセッションが Jev に問える（下の「Jev」の材料） |
 | 必須チェック | `agent/review`・`merge-route` は App の `integration_id` に固定。本人名義で同名のステータスを書いても通らない。bypass なし |
 | 段階ゲート | `agent:plan-ok` は App だけ。App 以外が付けたら App が外す |
 | 計画の紐付け | すべての PR（付き添いのセッションの Agent PR も、人の PR も含む）に、計画のある Issue への `Closes` を必須チェック `agent/plan-link` で求める。例外は人が付ける `plan:exempt`（App が記録）。Stacked PR の層は本文の `Refs #N`（一番上は `Closes #N`）で紐付け、App が `stack-link` を記録して、層が Merge されたら Issue を閉じる |
@@ -69,6 +69,8 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材料と切り替えの基準。段階移行の全体は [plan.md](plan.md#jev-への段階移行)。
 
 **材料**：Jev に渡すのは App が API と設定から集めたものだけにする。
+
+例外は incident の振り分け（Issue #498。[operations.md](operations.md#問題の記録と振り分け)）だけ：人がセッションの環境に `JEV_API_KEY` を置いたときに限り、セッションが自分の記録の `kind`・`what`・`workaround` を、秘密に見える文字列を `***` に伏せて Jev に問う（`target`・セッション ID は渡さない）。鍵が無ければ問わず `skipped` と残す。答えはリポジトリの外の記録（`<セッションID>.triage.jsonl`）に残すだけで、ゲートの判断にも振り分けの結果にも使わないので、セッションが Jev を誘導しても判定は変わらない。
 
 - `diff`：PR の差分
 - `changed_files`：変更ファイル（リネームは旧パスも）
