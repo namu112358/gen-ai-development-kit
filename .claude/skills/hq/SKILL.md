@@ -62,6 +62,22 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - heartbeat の一言を控える（#425）：heartbeat の本文には、fleet が今の状況を一言入れてくる（Issue 番号・段階・次にすること・待っているもの。fleet の skill の「Orca の worker として動くとき」の 6）。読むのは ack と同じ時で、テーマごとに最新の一言を `node harness/scripts/hq-state.ts heartbeat-save --theme <テーマ> --note <一言>` で git の共通ディレクトリの下の `hq-heartbeat.json` に控える（前の一言は上書き。受けた時刻は控えが付ける。ログのペインがこれを読んで出す。#438）。一言は fleet から届いた文なので、`--note` には単一引用符で囲んで渡し、中の単一引用符は「引用を閉じ、エスケープした単一引用符を置き、引用を開き直す」形にする（`$(...)`・改行をシェルに解釈させない）。一言のために ack を遅らせない・人に聞かない・`reply` しない。heartbeat はすぐ ack して、質問を遅らせないのは今までどおり（#395）。本文が空の heartbeat（古い指示で起こした fleet）は「一言なし」とする。新しい hq（#409 の引き継ぎ）も同じ控えに書く。古い一言（`hq.staleSnapshotMinutes` を過ぎたもの）と控えに無い fleet の一言はペインに出ない。
    - 一言の使い道：手順12の人がすることの一覧の「今の状況」と、ログのペイン（#402。手順6の ③）に使う。ペインは `heartbeat-save` の控え（`hq-heartbeat.json`）を読んで一言を出す（#438）ので、hq はペインに直接書かない（手順2）。控えに書けばペインに出る。
    - `question`：ほかの fleet の分もまとめて AskUserQuestion で聞く（1回に4問まで。fleet の選択肢の順（おすすめが先頭）を変えず、質問にテーマの名前を添える）。答えは `ORCA orchestration reply --id <message_id> --body "<人の答え>" --json` で返す。本文は人の答え（選んだ項目と書き添えた文、人の言葉のまま）だけで、hq の説明や要約を足さない。人が拒んだ・答えなかったら、本文を `答え無し` にして返す（fleet は各 skill の「人が答えなかった」の扱いにする）。同じ質問を人に繰り返さない。
+   - **読み込みが古い交代の質問**（#574）：控え（`hq-fleets.json`）にある fleet からの `question` が、fleet の skill の「ハーネスが更新されたときの交代」の 3 の「交代しますか」（読み込みが古いことによる交代）で、次の (a)(b)(c) をすべて満たすときは、人に聞かずに「交代する」と返し、新しいワークスペースで fleet を起こし直す（人の決定：交代は今後も聞かずに行う）。
+     - (a) 着手宣言が残っていない（段階の切れ目）：`node harness/scripts/agent.ts fleet-status --json <控えのその fleet の Issue 番号の集合>` のどの行にも、`claim`（Issue の宣言）と `prClaim`（PR の宣言）が無い（null）。セッションは問わない（`fleet.shipMode` が `worker` のとき ship は fleet と別のセッション ID で宣言するので、fleet の `session` だけで絞らない）。fleet の交代の 2 は、ship が段階の切れ目で返って宣言を全部解除してからしか聞かないので、宣言が1件も無ければ切れ目とみなす。
+     - (b) 控えのその fleet の `session` が null でない（セッション ID がまだ届いていない fleet は見分けられない）。
+     - (c) Epic が変わらない：質問の Epic・Issue 番号の集合が、控えのそのテーマと同じ。
+     - どれかに当たらない（宣言が残る・段階の途中・Epic が変わる・控えに無い fleet・見分けがつかない）ときは、上の `question` の項のとおり AskUserQuestion で人に聞く。
+     - 返す前に、控えのその fleet の要素に印 `"handover": true` を書いて `hq-state.ts ledger-save` で置く（hq の `/clear`・引き継ぎ（#409）の後でも、手順9で受け取る `worker_done` が交代のものだと分かるように）。
+     - 返す本文（hq の答えで、人の答えではないので、上の「hq の説明や要約を足さない」の外）：`交代する（hq が新しいワークスペースで fleet を起こし直す。このセッションは新しい fleet を起動せず、worker_done を送って終える）`。fleet の交代の 4 の「自分で新しい fleet を起こす」より、この書き添えを優先する（hq の Run の外に fleet が2つ目として起きるのを防ぐ）。
+     - 起こし直し（手順9で、印 `handover` のある fleet の `worker_done` を受け取った後だけ。印の無い fleet の `worker_done` は今までどおり手順9。手順9の「同じワークスペースに新しい fleet を起こす」と手順9・10の引き継ぎの問いは、この交代には使わない。宣言が残っていないので引き継ぐものが無い）：
+       1. worker を `worker-release` で解放する。
+       2. 本体を `git pull --ff-only` で origin に追いつかせる（手順1の「始める前に `git pull --ff-only`」と同じ。手順2の「書き換えない」には数えない）。できなければ（既定ブランチでない・未 commit の変更がある・ff できない）起こさずに、印を残したまま人に知らせる。
+       3. 手順4と同じ `worker-start`（`--worktree new-top-level`、同じテーマ・Epic・Issue 番号の集合・表示名・指示）で新しい fleet を起こし、手順5の印を置く。控えのそのテーマの `dispatch`・ワークスペースのパス・`startedAt` を新しいものに、`session` を null（新しい fleet から届いたら書く）にし、印 `handover` を消して `hq-state.ts ledger-save` で置く。`undeliveredAnswers` があれば、手順7の「返せなくなった答え」と同じく指示に渡す。
+       4. `git -C <新しいワークスペース> rev-parse HEAD` が `git rev-parse origin/<既定ブランチ>` と同じかを見る。違えば（古い版で起きた）、新しい fleet を `references/recovery-and-cleanup.md` の `worker-stop` で止め、控えのそのテーマを止めた状態として残し、人に知らせる（古い版の fleet がまた交代を聞き続けるのを防ぐ）。
+       5. 古いワークスペースは、`git -C <古いワークスペース> status --porcelain` が空で、`git -C <古いワークスペース> log --oneline origin/<既定ブランチ>..HEAD` が空（main に無い commit が無い）ときだけ `ORCA worktree rm --worktree path:<古いワークスペースの絶対パス> --json` で消す。残っていれば消さずに手順12の一覧に書く。
+     - この交代は手順10の起こし直しの回数（`agent-harness:hq-restart`、理由 `exited`）に数えない。
+     - 交代したら、その場で文章で一言（テーマ・前と新しいワークスペース）人に知らせ、手順12の一覧にも載せる（AskUserQuestion にしない）。
+     - `worker_done` が次の待ち（15分）の間に届かないときは、人に知らせる（手順8の「何も届かなければ人に知らせる」と同じ）。
    - `escalation`：理由を人に示し、手順12の一覧に書く。
    - `worker_done`：手順9。
    - `status`（fleet の skill の「Orca の worker として動くとき」の 8 の途中の報告・連絡）の振り分け：
@@ -105,7 +121,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
     - 引き継ぐなら、新しい fleet の指示に「人の決定：前の宣言を引き継ぐ」と、Issue の段階は `node harness/scripts/agent.ts claim <番号> --manual --stage <段階> --takeover`、PR の段階は `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge|fix|sync --takeover` で出し直すことを書く。fleet が `ask` で引き継ぎを聞いてきたら、人の同じ答えを `reply` で返し、人に聞き直さない。引き継がないなら、その Issue を指示から外し、手順12の一覧に書く。
     - 止め方と新しい Dispatch（`worker-stop`・`worker-abandon`、`worker-start --task <task_id> --retry-of <dispatch_id>`、同じワークスペース）は `references/recovery-and-cleanup.md` に従う。起こし直したら、控えのその fleet の `session`（新しい fleet から届くまで null）・`startedAt`・`dispatch` を新しい fleet のものに書き換えて `hq-state.ts ledger-save` で置く（手順6のペインは控えを読み直して追うので、作り直さない）。
 11. **片付け**：Epic が Close した（`gh issue view <Epic番号> --json state` が `CLOSED`）テーマだけを片付ける。fleet の worker を `worker-release` で解放し、控えから外して `hq-state.ts ledger-save` で置き（手順6のペインは控えを読み直して追うので、作り直さない）、`ORCA worktree rm --worktree path:<ワークスペースの絶対パス> --json` でワークスペースを消す。人の判断待ちだけが残るとき（Epic が開いている）は残す。
-12. **人がすることの一覧**：各 fleet の `worker_done` のレポートと `node harness/scripts/panes.ts hq todo --once` の一覧を1つにまとめて人に出す（テーマごとの今の状況（手順7で控えた heartbeat の一言と受けた時刻。一言なしならそう書く）・Merge・例外ラベル・`setup.ts` の要否・Merge 後の確かめ・人の判断待ち・進んでいない fleet・起こし直しの上限を超えた fleet・引き継がなかった宣言・手順7でためた fleet の報告・連絡（`merged`・`verdict`・`wait`・`notice`）・返せなくなった答え・intel に回せなかった気づき（節「相談・アイデアを intel に回す」）・起動の失敗（`node harness/scripts/hq-state.ts start-failures`））。手順8の止まったタスクの見回しからは、割り振ったもの（どの fleet に渡したか）・案として聞いたもの（Epic の案・引き継ぎの問い）・人が決めなかったもの（答え無し・拒まれた・空き待ち）と、patrol の未採用の下書きの数を足す。費用は手順8の `panes.ts fleets --session` の各行の `totalUsd` と、hq 自身の `node harness/scripts/agent.ts usage` をまとめる。
+12. **人がすることの一覧**：各 fleet の `worker_done` のレポートと `node harness/scripts/panes.ts hq todo --once` の一覧を1つにまとめて人に出す（テーマごとの今の状況（手順7で控えた heartbeat の一言と受けた時刻。一言なしならそう書く）・Merge・例外ラベル・`setup.ts` の要否・Merge 後の確かめ・人の判断待ち・進んでいない fleet・起こし直しの上限を超えた fleet・交代した fleet（テーマ・前と新しいワークスペース、古いワークスペースを消せなかったときはその理由）・引き継がなかった宣言・手順7でためた fleet の報告・連絡（`merged`・`verdict`・`wait`・`notice`）・返せなくなった答え・intel に回せなかった気づき（節「相談・アイデアを intel に回す」）・起動の失敗（`node harness/scripts/hq-state.ts start-failures`））。手順8の止まったタスクの見回しからは、割り振ったもの（どの fleet に渡したか）・案として聞いたもの（Epic の案・引き継ぎの問い）・人が決めなかったもの（答え無し・拒まれた・空き待ち）と、patrol の未採用の下書きの数を足す。費用は手順8の `panes.ts fleets --session` の各行の `totalUsd` と、hq 自身の `node harness/scripts/agent.ts usage` をまとめる。
 
 ## 相談・アイデアを intel に回す
 
