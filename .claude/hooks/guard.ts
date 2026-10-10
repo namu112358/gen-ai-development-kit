@@ -98,6 +98,8 @@ interface Word {
   /** 変数・コマンド置換など、展開しないと値が分からない部分を含む */
   dynamic: boolean;
   quoted: boolean;
+  /** 最初の `$名前`（波かっこなし）の展開が終わる text の位置。引用符の境目で名前が切れた（`"$W"o`）かを見分ける */
+  nameEnd?: number;
 }
 
 interface Segment {
@@ -312,6 +314,7 @@ export function parseScript(src: string): Segment[] {
     const m = src.slice(k + 1).match(/^(?:[A-Za-z_]\w*|[0-9@*#?$!-])/);
     if (m) {
       x.text += `$${m[0]}`;
+      x.nameEnd ??= x.text.length;
       x.dynamic = true;
       return k + 1 + m[0].length;
     }
