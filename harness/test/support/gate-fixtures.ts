@@ -40,8 +40,9 @@ export class FakeGitHub implements Transport {
 }
 
 // ゲートのテストは Jev への問いの回数を数えるので、実装のモデルの問い（Issue #139）は既定で問わない。勧めの動きは gates-plan-model-routing.test.ts で shadow・enforce にして確かめる
+// 定期実行のテストが Epic の振り分けの API（sub_issues・parent）を呼ばないよう、Epic の振り分け（Issue #565）も既定で off にする。動きは gates-epic-triage.test.ts で shadow・enforce にして確かめる
 const loaded = loadConfig();
-export const config: HarnessConfig = { ...loaded, jev: { ...loaded.jev, modelRouting: 'off' } };
+export const config: HarnessConfig = { ...loaded, jev: { ...loaded.jev, modelRouting: 'off', epicTriage: 'off' } };
 export const APP = appLogin(config);
 export const HEAD = 'a'.repeat(40);
 export const DIFF = 'diff --git a/docs/a.md b/docs/a.md\n--- a/docs/a.md\n+++ b/docs/a.md\n@@ -1 +1 @@\n-a\n+b\n';

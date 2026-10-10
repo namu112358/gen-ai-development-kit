@@ -32,7 +32,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
    - それ以外（終了コード 2 など、JSON が出ずに終わった。引数・git・GitHub のエラー）：照合できていないので、範囲の外が無い扱いにせず、PR を作らずに人に返す。
    - `untracked` にあるファイルは PR にまだ入っていない。入れるものは手順6に戻って commit する。
 9. PR を作る前に `node harness/scripts/agent.ts ensure-claim <番号>` で、このセッションの着手宣言が今も持ち主かを確かめる。止まったら PR を出さずに人に返す（ほかのセッションが先に宣言していた、または引き継いだ）。
-10. `gh pr create --draft --base main` で **Draft** PR を出す。タイトルは Issue のタイトル。本文は [.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、ひとことで、あなたに確かめてほしいこと、動きの変化、リスクと戻し方。`<details>` の中に計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変えたファイル、AC ごとの対応、範囲外の変更、テスト）。
+10. `gh pr create --draft --base main` で **Draft** PR を出す。タイトルは Issue のタイトル。本文は [.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、ひとことで、あなたに確かめてほしいこと、動きの変化、リスクと戻し方。`<details>` の中に計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変えたファイル、AC ごとの対応、範囲外の変更、テスト）。Jev に関わる実装（問い・criteria・しきい値）で `typesafe` の skill を使えなかったときは、PR を出す前に手で書いた問いを docs.typesafe.ai（`WebFetch(domain:docs.typesafe.ai)` は許可済み）と `harness/lib/jev.ts` の `criteria` の形に照らして確かめ、本文の「あなたに確かめてほしいこと」に「typesafe の skill を使えなかった」と、手で書いた問い・criteria のファイルと行を書く（照合は実装のセッションが行い、記載は人が読む）。入れ方は docs/setup.md の節8。
 11. `node harness/scripts/agent.ts release <番号>` で着手を解除する。
 12. `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` は、続けて judge・fix をしないときだけ行う。
 

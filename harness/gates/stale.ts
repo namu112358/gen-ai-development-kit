@@ -17,6 +17,7 @@ import { AUTO_MODE_MERGE_END_TEXT, autoModeArm, autoModeFor, autoModeRoute, type
 import { bypassArm, bypassFor, type BypassState } from './bypass.ts';
 import { appComment, disableAutoMerge, getPr, judgingHold, updateBranchIfBehind, type GateContext } from './context.ts';
 import { delegatedArm, delegationFor } from './delegation.ts';
+import type { EpicUnassignedRow } from './epic-triage.ts';
 import { reviewAutoModePlans, reviewDelegatedPlans } from './on-comment.ts';
 
 /**
@@ -34,6 +35,7 @@ import { reviewAutoModePlans, reviewDelegatedPlans } from './on-comment.ts';
  * 「引き継ぐか決める」の行でも出す（判定は lib/unowned-conflict.ts。引き継ぐかは人が決める）。
  * judge・fix・sync の着手宣言の後に routine.stalledClaimMinutes 分動きの無い Agent PR を「止まっていそうな着手宣言」の節に出す（判定は lib/stalled-claim.ts。知らせるだけ）。
  * 宣言が無く今の差分の判定の受け付けも無い Agent PR を「担当のいない判定待ちの PR」の節に出す（判定は lib/unclaimed-judge.ts。知らせるだけ。Issue #493）。
+ * 引数 opts.epicUnassigned があるときだけ、Epic に入っていない Issue を Jev の一番高い Epic つきで「Epic に入っていない Issue」の節に出す（Issue #565）。
  */
 
 interface IssueItem {
@@ -413,7 +415,7 @@ async function unclaimedJudgeInputs(ctx: GateContext, prs: PullRequest[], now: D
   return inputs;
 }
 
-export async function onSchedule(ctx: GateContext, now: Date = new Date()): Promise<void> {
+export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts: { epicUnassigned?: EpicUnassignedRow[] } = {}): Promise<void> {
   // 計画の委任が有効なら、ゲートの停止で止まっている計画を判定し直す。失敗してもダッシュボードの更新は止めない
   const found = await findDashboard(ctx.gh, ctx.config);
   const delegation = await readDelegation(ctx, found, now);
@@ -489,6 +491,9 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     ...section(`担当のいない判定待ちの PR（宣言なしで ${stalledMinutes} 分動きなし）`, unclaimed),
     ...section('停滞している Issue', stale.map((i) => line(i))),
     ...section('ラベルが足りない Issue・PR', labelProblems),
+    ...(opts.epicUnassigned
+      ? section('Epic に入っていない Issue', opts.epicUnassigned.map((r) => line(r, r.epic !== null ? ` — Jev の一番高い Epic: #${r.epic}（${r.probability === null ? '-' : `${Math.round(r.probability * 100)}%`}）` : ' — 未判定')))
+      : []),
     ...(delegatedRows === null
       ? [`### 委任承認で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, '', '読めませんでした', '']
       : section(`委任承認で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, delegatedRows)),

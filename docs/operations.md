@@ -42,6 +42,8 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 付き添いのセッションで人の判断が要るとき（計画の批評の「進める／直す／やめる」、`agent:plan-review` で進めてよいか、要件・AC の変更、引き継ぎ、計画の外の変更など）は、セッションが AskUserQuestion で選択肢つきで聞く（おすすめが先頭、1回に4問まで）。拒んだり答えなかったりすると、セッションは同じ質問を繰り返さず、要点を文章で示して止まる。規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md) の進め方。
 
+開いた Issue をまとめて見るときは backlog の skill（[.claude/skills/backlog/SKILL.md](../.claude/skills/backlog/SKILL.md)）を使う。`node harness/scripts/agent.ts backlog-scan` が事実（対象・触りそうなファイルの重なり・似た組）を出し（読むだけ）、重複か・どちらを先にするか・AC の書き直しの案・着手順の案は skill が決めて人に一覧で示す。Issue にコメントするのは人が AskUserQuestion で選んだ提案だけで、Issue の本文・ラベルは触らない。着手順の案は理由（依存・重なり・今の `priority:*`）だけを書き、ラベルの不足としては書かない。
+
 複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（番号を渡さなければ、`agent:ready`・`agent:plan-ok`・`agent:plan-review` の Issue と、`agent:*` の無い、コラボレーターか App（Epic の子課題など）が立てた Issue（作ったまま計画に進んでいないもの。次にやることは plan）が対象。衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで（`harness.config.json` の `fleet.sharedFiles` だけが重なる組は待たない。人の判断待ちの `plan-review` の Issue は、ほかの Issue を待たせる相手にしない）、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship を Issue ごとに進めて、人がすることを1つの一覧にする。
 
 進め方は `harness.config.json` の `fleet` で決まり、`fleet-status` の表の末尾の「進め方」の行に出る。
