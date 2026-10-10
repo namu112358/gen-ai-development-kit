@@ -9,6 +9,7 @@ import { appRecords, isAgentPr, lastLabeled, latestPlanGate, type PlanGateRecord
 import { parseTitle, TITLE_TYPES } from '../lib/title.ts';
 import { appComment, type GateContext } from './context.ts';
 import { closeDoneEpics } from './epic-close.ts';
+import { epicTriage, type EpicUnassignedRow } from './epic-triage.ts';
 import { onSchedule } from './stale.ts';
 
 /**
@@ -386,6 +387,7 @@ export async function labelApply(ctx: GateContext): Promise<void> {
 /**
  * 定期実行（schedule・workflow_dispatch）の入口：label-apply を onSchedule（ダッシュボード）より先に動かす。
  * 続けて、子が全部閉じた Epic を閉じる（付け替え・外しの後に残ったもの。epic-close.ts）。
+ * その後、Epic に入っていない Issue の Epic を Jev に問う（epic-triage.ts。閉じた Epic を使わないよう Epic の Close の後）。
  * 付与や Epic の Close に失敗してもダッシュボードは書き、最初の失敗を最後に投げ直す（ジョブを失敗にする）
  */
 export async function onScheduleWithLabels(ctx: GateContext, now: Date = new Date()): Promise<void> {
@@ -400,6 +402,14 @@ export async function onScheduleWithLabels(ctx: GateContext, now: Date = new Dat
   } catch (e) {
     failed ??= e;
   }
-  await onSchedule(ctx, now);
+  let epicUnassigned: EpicUnassignedRow[] | undefined;
+  try {
+    const result = await epicTriage(ctx);
+    epicUnassigned = result?.unassigned;
+    if (result && result.failures.length > 0) failed ??= new Error(`Epic の振り分けに失敗しました: ${result.failures.join('; ')}`);
+  } catch (e) {
+    failed ??= e;
+  }
+  await onSchedule(ctx, now, { epicUnassigned });
   if (failed) throw failed;
 }
