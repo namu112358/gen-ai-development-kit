@@ -1,5 +1,6 @@
 import { claudeMark } from '../../../lib/blocks.ts';
 import { type PullRequest } from '../../../lib/state.ts';
+import { findRepoRoot, missingCompanions, repoAt } from '../../plan-companions.ts';
 import { type AgentCommand, blockBody, checkFile, claimBody, currentSession, fail, parseStage, renderPlan, renderVerdict, sessionUrl, usageReport } from '../cli.ts';
 
 /**
@@ -12,7 +13,7 @@ import { type AgentCommand, blockBody, checkFile, claimBody, currentSession, fai
  *                                                           GitHub を読まないので、計画より前の段階 plan-critique の宣言は確かめない）
  *   node harness/scripts/agent.ts render-verdict <pr> <headSha> <file>    判定コメントを検査し本文を出力
  *   node harness/scripts/agent.ts render-metrics <stage> <model> <minutes> [tokens]  PR に残すメトリクスのコメント本文（トークン数と推定料金は usage と同じ記録から自動で記入。読めなければ tokens か unknown。最も新しい記録に戻ったときは本文にそう書く）
- *   node harness/scripts/agent.ts check <file>                            plan / verdict / decision ブロックの書式検査のみ
+ *   node harness/scripts/agent.ts check <file>                            plan / verdict / decision ブロックの書式検査のみ（plan は一緒に変えるファイルの抜けも確かめる。抜けは終了コード 1）
  *   node harness/scripts/agent.ts footer <pr> <stage> <model> <minutes> <tokens>  PR 本文のメトリクス表に1行追記
  */
 
@@ -55,6 +56,15 @@ export const commands: AgentCommand[] = [
     run: (args) => {
       const r = checkFile(args[0]!);
       if (r.errors.length) fail(r.errors);
+      if (r.kind === 'plan') {
+        const files = (r.value as { files: string[]; split?: unknown }).files;
+        const missing = (r.value as { split?: unknown }).split ? [] : missingCompanions(files, repoAt(findRepoRoot(process.cwd())));
+        if (missing.length > 0) {
+          console.error('計画の files に一緒に変えるファイルが抜けています（files に足して出し直す）:');
+          for (const m of missing) console.error(`- ${m.file}：${m.reason}`);
+          process.exit(1);
+        }
+      }
       console.log(`OK (${r.kind})`);
     },
   },
