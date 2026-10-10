@@ -19,10 +19,10 @@ function readSettings(): Settings {
   return JSON.parse(readFileSync(join(root, '.claude', 'settings.json'), 'utf8')) as Settings;
 }
 
-test('extraKnownMarketplaces に typesafe-ai がコミット固定・autoUpdate false で登録されている', () => {
+test('extraKnownMarketplaces に typesafe-ai がタグ固定（v0.5.7 = 65a39f3）・autoUpdate false で登録されている', () => {
   const settings = readSettings();
   assert.deepEqual(settings.extraKnownMarketplaces?.['typesafe-ai'], {
-    source: { source: 'github', repo: 'typesafe-ai/skills', ref: '65a39f393687675ce170e6094757de20370365b9' },
+    source: { source: 'github', repo: 'typesafe-ai/skills', ref: 'v0.5.7' },
     autoUpdate: false,
   });
 });
@@ -44,17 +44,17 @@ test('enabledPlugins が typesafe・skill-creator・pr-review-toolkit の3件だ
   });
 });
 
-test('enabledPlugins の各マーケットプレイスが extraKnownMarketplaces に存在し、コミット SHA 固定で autoUpdate が false になっている', () => {
+test('enabledPlugins の各マーケットプレイスが extraKnownMarketplaces に存在し、コミット SHA かタグで固定され autoUpdate が false になっている', () => {
   const settings = readSettings();
   const enabled = settings.enabledPlugins ?? {};
   const marketplaces = settings.extraKnownMarketplaces ?? {};
-  const shaPattern = /^[0-9a-f]{40}$/;
+  const shaPattern = /^(?:[0-9a-f]{40}|v\d+\.\d+\.\d+)$/;
   for (const key of Object.keys(enabled)) {
     const marketplaceName = key.split('@')[1];
     assert.ok(marketplaceName, `${key} からマーケットプレイス名が取れません`);
     const entry = marketplaces[marketplaceName as string];
     assert.ok(entry, `${key} のマーケットプレイス ${marketplaceName} が extraKnownMarketplaces にありません`);
-    assert.match(entry?.source?.ref ?? '', shaPattern, `${marketplaceName} の ref がコミット SHA（40桁の16進）ではありません`);
+    assert.match(entry?.source?.ref ?? '', shaPattern, `${marketplaceName} の ref がコミット SHA（40桁の16進）かタグ（v<数>.<数>.<数>）で固定されていません`);
     assert.equal(entry?.autoUpdate, false, `${marketplaceName} の autoUpdate が false ではありません`);
   }
 });
