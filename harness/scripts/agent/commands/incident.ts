@@ -1,4 +1,6 @@
 import { appendIncident, groupByKind, type Incident, INCIDENT_KIND_LABELS, INCIDENT_KINDS, type IncidentKind, isIncidentKind, isValidSession, listSessions, readIncidents, renderIncidentComment, renderIssueDraft } from '../../../lib/incident.ts';
+import { loadConfig } from '../../../lib/config.ts';
+import { INCIDENT_TRIAGE_CLASSES, isIncidentTriageClass, listTriageSessions, readTriage, triageIncident, triageStats } from '../../../lib/incident-triage.ts';
 import { parseTitle } from '../../../lib/title.ts';
 import { type AgentCommand, fail } from '../cli.ts';
 
@@ -13,6 +15,9 @@ import { type AgentCommand, fail } from '../cli.ts';
  *   node harness/scripts/agent.ts incident sessions                      記録のあるセッション ID を新しい順に出す
  *   node harness/scripts/agent.ts incident render-issue <id>... --title <題> [--session <id>]...
  *                                                           選んだ記録から Issue Form の形の下書きの本文を出す（id は数字か <セッションID>:<数字>。題は Conventional Commits）
+ *   node harness/scripts/agent.ts incident triage <id> --as <harness|environment|once> [--session <id>]
+ *                                                           記録1件の振り分けを Jev に問い、セッションの振り分けと並べて <セッションID>.triage.jsonl に残す（shadow。振り分けは変えない。JEV_API_KEY が無ければ skipped。#498）
+ *   node harness/scripts/agent.ts incident triage-stats [--json]  全セッションの振り分けの記録を集計して出す（一致の割合・組み合わせ）
  *   node harness/scripts/agent.ts incident render-comment [--session <id>]...  Routine がダッシュボードに書くコメント本文（```agent-incident。#187）
  */
 
@@ -25,7 +30,7 @@ interface Parsed {
   json: boolean;
 }
 
-const VALUE_FLAGS = ['--kind', '--what', '--target', '--workaround', '--title'];
+const VALUE_FLAGS = ['--kind', '--what', '--target', '--workaround', '--title', '--as'];
 
 function parseArgs(args: string[]): Parsed {
   const out: Parsed = { positional: [], sessions: [], flags: new Map(), json: false };
@@ -113,6 +118,36 @@ function renderComment(p: Parsed): void {
   console.log(renderIncidentComment(sessions[0] ?? null, readAll(sessions)));
 }
 
+async function triage(p: Parsed): Promise<void> {
+  const [session] = sessionsOf(p);
+  const as = p.flags.get('--as');
+  if (!isIncidentTriageClass(as)) fail([`--as は ${INCIDENT_TRIAGE_CLASSES.join(' / ')} のいずれか`]);
+  const ref = p.positional[0];
+  if (!ref || !/^\d+$/.test(ref)) fail(['記録の id（数字）を1つ渡してください']);
+  const incident = readIncidents(session!, process.env).find((i) => i.id === Number(ref));
+  if (!incident) fail([`記録が見つかりません: ${session}:${ref}`]);
+  const r = await triageIncident(loadConfig(), process.env.JEV_API_KEY, session!, incident, as, process.env);
+  const jev = r.jev.status === 'ok' ? `${r.jev.top}（${Math.round(r.jev.probabilities[r.jev.top] * 100)}%）、${r.agree ? '一致' : '不一致'}` : `${r.jev.status}（${r.jev.detail}）`;
+  console.log(`[${session}:${r.incidentId}] セッション: ${r.session} / Jev: ${jev}`);
+}
+
+function triageStatsCommand(p: Parsed): void {
+  const rows = listTriageSessions(process.env).flatMap((session) => readTriage(session, process.env).map((record) => ({ session, record })));
+  const s = triageStats(rows);
+  if (p.json) {
+    console.log(JSON.stringify(s, null, 2));
+    return;
+  }
+  if (s.total === 0) {
+    console.log('振り分けの記録はありません');
+    return;
+  }
+  const pct = s.ok === 0 ? '-' : `${Math.round((s.agree / s.ok) * 100)}%`;
+  const lines = [`振り分けの記録 ${s.total} 件：Jev の答えあり ${s.ok}（一致 ${s.agree}、一致率 ${pct}）、skipped ${s.skipped}、error ${s.error}`];
+  for (const [k, n] of Object.entries(s.pairs).sort()) lines.push(`- セッション→Jev ${k}：${n}`);
+  console.log(lines.join('\n'));
+}
+
 export const commands: AgentCommand[] = [
   {
     name: 'incident',
@@ -127,12 +162,16 @@ export const commands: AgentCommand[] = [
             return list(p);
           case 'sessions':
             return void console.log(listSessions(process.env).join('\n'));
+          case 'triage':
+            return triage(p).catch((e) => fail([(e as Error).message]));
+          case 'triage-stats':
+            return triageStatsCommand(p);
           case 'render-issue':
             return renderIssue(p);
           case 'render-comment':
             return renderComment(p);
           default:
-            fail(['incident のサブコマンドは add / list / sessions / render-issue / render-comment']);
+            fail(['incident のサブコマンドは add / list / sessions / triage / triage-stats / render-issue / render-comment']);
         }
       } catch (e) {
         fail([(e as Error).message]);
