@@ -1,11 +1,11 @@
 import { appMarkKind, extractBlock, hasClaudeMark } from './blocks.ts';
+import { claimTimeline } from './facts.ts';
 import { appLogin, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import type { IssueComment } from './github.ts';
 import { JEV_QUESTION_SET, jevFailures } from './jev.ts';
 import type { Acceptance, JevRecord } from './merge-route.ts';
 import type { ExemptRecord } from './exempt.ts';
 import { parsePanelRecord, type PanelRecord } from './review-panel.ts';
-import type { Claim } from './queue.ts';
 import { isTrustedComment } from './state.ts';
 import { tamperAllows, tamperJevThreshold, type TamperJevRecord } from './test-tamper-jev.ts';
 import { autoModeConfig, type AutoModeJevRecord } from './auto-mode.ts';
@@ -556,19 +556,15 @@ export function implementModelOf(body: string | null | undefined): string {
 
 /**
  * Issue のコメントの着手宣言で、implement の次の（解除でない）宣言が plan だった回数（実装が計画に返した回数。表示用）。
- * 読むのは Claude の目印があり、コラボレーターが書いた読める agent-claim だけ。id の昇順で見て、持ち主・セッションでは絞らない。
+ * 読むのは Claude の目印があり、コラボレーターが書いた読める agent-claim だけ（history の段階も1つずつ数える）。id の昇順で見て、持ち主・セッションでは絞らない。
  */
 export function planReturnsOf(comments: IssueComment[]): number {
   let prev: string | undefined;
   let count = 0;
-  for (const c of [...comments].sort((a, b) => a.id - b.id)) {
-    if (!hasClaudeMark(c.body) || !isTrustedComment(c)) continue;
-    const b = extractBlock(c.body, 'agent-claim');
-    if (!b.found || !b.ok) continue;
-    const claim = b.value as Claim;
-    if (claim.released) continue;
-    if (prev === 'implement' && claim.stage === 'plan') count++;
-    prev = claim.stage;
+  for (const item of claimTimeline([...comments].sort((a, b) => a.id - b.id))) {
+    if (item.kind !== 'claim' || item.claim!.released) continue;
+    if (prev === 'implement' && item.claim!.stage === 'plan') count++;
+    prev = item.claim!.stage;
   }
   return count;
 }
