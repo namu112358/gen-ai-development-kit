@@ -188,7 +188,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 1つの PR に収まらない課題は、Claude が計画に `split`（子課題の一覧。書式は [formats.md](formats.md#子課題に分けるsplit)）を書いて Epic にする。分け方は人が承認しない。
 
 1. 計画ゲートが `split` を検査する（タイトルの形式、各子課題の `files` の規則、兄弟どうしの `files` の重なり、依存の順序）。Risk と空の `files` では止めない。通らなければ `agent:plan-review`（理由コード `split-invalid`）。
-2. 通ったら App が親に `epic` を付け（`agent:plan-ok` は付けない）、子 Issue を Issue Form の見出しで作り、Sub-issues と依存（blocked by）を登録する。親の停止（`agent:hold`・`agent:blocked`・`agent:waiting`）と、親の開いた blocker（同じリポジトリのもの）は全部の子に引き継ぐ。その後で子に親の `agent:ready` と `priority:*` を付け、最後に `kind=epic-split` の記録を親に残す。
+2. 通ったら App が親に `epic` を付け（`agent:plan-ok` は付けない）、親の `type:*` のうち App が付けたもの（events API でそのラベルを最後に付けた actor が App）を外し（人が付けたものは外さず、定期実行の `label-mismatch` で知らせる）、子 Issue を Issue Form の見出しで作り、Sub-issues と依存（blocked by）を登録する。親の停止（`agent:hold`・`agent:blocked`・`agent:waiting`）と、親の開いた blocker（同じリポジトリのもの）は全部の子に引き継ぐ。その後で子に親の `agent:ready` と `priority:*` を付け、最後に `kind=epic-split` の記録を親に残す。
 3. 途中で失敗したら、App が親に `agent:blocked`（理由コード `split-failed`）を付け、実行を失敗にする。人が原因を直して `agent:blocked` を外し、失敗した実行をやり直すと続きから作る（本文の目印 `<!-- agent-harness:epic-child parent=N index=i -->` で子 Issue を見つけて使い回し、二重に作らない）。
 4. 既に子課題に分けた親（`epic-split` の記録か、App が作った目印付きの子がある）に別の計画が来て検査を通っても、分け直さずに `agent:plan-review`（理由コード `resplit`）で止める。既存の子課題をどうするかは人が決める。同じ計画コメントの再実行は分け直しとみなさない。
 5. 子 Issue はふつうの Issue として、それぞれ計画ゲート・批評・判定を通る。分け方の誤りはそこで拾う。queue は `epic` の親を飛ばす。

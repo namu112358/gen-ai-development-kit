@@ -2,8 +2,9 @@ import { appLogin, LABELS, reasonMark } from '../lib/config.ts';
 import { parseChildMarker, renderChildBody, type SplitChild } from '../lib/epic.ts';
 import type { IssueComment } from '../lib/github.ts';
 import type { Plan } from '../lib/plan.ts';
-import { appRecords, type PlanGateRecord } from '../lib/state.ts';
+import { appRecords, type PlanGateRecord, type TimelineEvent } from '../lib/state.ts';
 import { appComment, type GateContext } from './context.ts';
+import { appLabeledSet, wrongTypeLabels } from './label-apply.ts';
 
 /**
  * Epic の子 Issue を作り、Sub-issues と依存を登録する。
@@ -85,6 +86,7 @@ export async function splitEpic(
   await ctx.gh.removeLabel(parent, LABELS.planOk);
   await ctx.gh.addLabels(parent, [LABELS.epic]);
   try {
+    await removeAppTypeLabels(ctx, parent, issue.labels);
     await createChildren(ctx, issue, comment, plan, record, state);
   } catch (e) {
     try {
@@ -105,6 +107,16 @@ export async function splitEpic(
     }
     throw e;
   }
+}
+
+/** Epic にした親から、App が付けた type:* を外す（人が付けたものは残し、定期実行の label-mismatch が知らせる） */
+async function removeAppTypeLabels(ctx: GateContext, parent: number, labels: { name: string }[]): Promise<void> {
+  const types = wrongTypeLabels({ kind: 'issue', title: '', labels: [...labels.map((l) => l.name), LABELS.epic] });
+  if (types.length === 0) return;
+  const appLabeled = appLabeledSet(ctx.config, await ctx.gh.paginate<TimelineEvent>(`/issues/${parent}/events`), types);
+  const removed = types.filter((l) => appLabeled.has(l));
+  for (const l of removed) await ctx.gh.removeLabel(parent, l);
+  if (removed.length > 0) ctx.log(`#${parent} の type:* を外しました（Epic）: ${removed.join(', ')}`);
 }
 
 async function createChildren(
