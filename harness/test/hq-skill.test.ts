@@ -27,7 +27,7 @@ const HQ_SPEC: SkillSpec = {
   parts: [
     { section: '## 手順', order: ['テーマの案', 'worker-start', 'reply', 'Epic が Close'] },
     // 手順2：するのは…だけ（#407・#396）
-    { step: 2, words: ['承認した案だけ', 'sub-issues', 'SendMessage', 'terminal create'] },
+    { step: 2, words: ['sub-issues', 'SendMessage', 'terminal create'] },
     // 手順4：fleet を起こす指示に heartbeat の一言（#425）
     { step: 4, words: ['heartbeat の本文に今の状況を一言入れる', 'start-failure-save'] },
     // 手順6：ペインの並びと開き方。ペインにセッションを渡さない。確かめで閉じてよいのはそのとき分けたペインだけで、
@@ -50,13 +50,13 @@ const HQ_SPEC: SkillSpec = {
       words: [
         '進んでいない fleet を見つける', '止まったタスクの見回し', 'ダッシュボード', 'patrol', 'fleet-status',
         '担当のいない PR', '止まった宣言', 'どの fleet にも入っていない', 'Epic に入っていない', 'sub-issues',
-        'send', 'hq.maxFleets', '人の承認', '引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel', '承認した案だけ',
+        'send', 'hq.maxFleets', '人の承認', '引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel',
       ],
     },
     // 手順12：人がすることの一覧（#402・#407・#425・#396）
     {
       step: 12,
-      words: ['panes.ts hq todo --once', '割り振ったもの', '案として聞いたもの', '人が決めなかったもの', '今の状況', 'heartbeat の一言', 'intel に回せなかった気づき'],
+      words: ['panes.ts hq todo --once', '割り振ったもの', '人が決めなかったもの', '今の状況', 'heartbeat の一言', 'intel に回せなかった気づき'],
     },
     // 相談・アイデアを intel に回す（#396）
     {
