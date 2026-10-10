@@ -101,6 +101,8 @@ interface Word {
 }
 
 interface Segment {
+  /** 直前の文との区切りの文字（`;`・改行・`&&`・`|`・`(` など。空白・コメントを除いて続けたもの。最初の文は先頭からの区切り） */
+  before: string;
   words: Word[];
   /** `$(...)`・バッククォートなどの中身（再帰して調べる） */
   subs: string[];
@@ -256,7 +258,8 @@ function findSubs(body: string): string[] {
 export function parseScript(src: string): Segment[] {
   const segs: Segment[] = [];
   const n = src.length;
-  let cur: Segment = { words: [], subs: [], heredocs: [], herestrings: [] };
+  let cur: Segment = { before: '', words: [], subs: [], heredocs: [], herestrings: [] };
+  let pending = '';
   let word: Word | null = null;
   let skipNextWord = false;
   let herestringNext = false;
@@ -281,8 +284,12 @@ export function parseScript(src: string): Segment[] {
     skipNextWord = false;
     herestringNext = false;
     pendingDelim = null;
-    if (cur.words.length > 0 || cur.subs.length > 0) segs.push(cur);
-    cur = { words: [], subs: [], heredocs: [], herestrings: [] };
+    if (cur.words.length > 0 || cur.subs.length > 0) {
+      cur.before = pending;
+      pending = '';
+      segs.push(cur);
+    }
+    cur = { before: '', words: [], subs: [], heredocs: [], herestrings: [] };
   };
 
   /** `$` から始まる展開を読む。展開でなければ k をそのまま返す */
@@ -377,11 +384,13 @@ export function parseScript(src: string): Segment[] {
       i++;
     } else if (c === '\n') {
       endSeg();
+      pending += c;
       i = readHeredocs(i + 1);
     } else if (c === '#' && !word) {
       while (i < n && src[i] !== '\n') i++;
     } else if (c === ';' || c === '|' || c === '(' || c === ')') {
       endSeg();
+      pending += c;
       i++;
     } else if (c === '&') {
       if (src[i + 1] === '>') {
@@ -390,6 +399,7 @@ export function parseScript(src: string): Segment[] {
         skipNextWord = true;
       } else {
         endSeg();
+        pending += c;
         i++;
       }
     } else if (c === '<' || c === '>') {
