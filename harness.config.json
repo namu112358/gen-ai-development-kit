@@ -69,6 +69,7 @@
     "limit": 3
   },
   "staleHours": 24,
+  "periodicCatchUpMinutes": 90,
   "dashboardIssueTitle": "Agent ダッシュボード",
   "reviewPanel": { "mode": "enforce" },
   "fleet": {

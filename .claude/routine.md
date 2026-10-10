@@ -21,7 +21,7 @@
 2. MCP ツールで、タイトルが `harness.config.json` の `dashboardIssueTitle` の open Issue を探す。**作成者が `<appSlug>[bot]`（`appSlug` も同じファイル）であること**を確かめる。違えば何もせず終了する。
 3. 本文の `<!-- agent-harness:queue:start -->` と `<!-- agent-harness:queue:end -->` の間にある ```` ```agent-app ```` の JSON（`kind: "queue"`）を読む。`actions` を上から順に処理する。空なら要約を出力して終了する。
 
-各アクションの前に、MCP で対象の現在の状態を読み直す。queue は App の定期実行（1時間ごと）と手動の起動のときだけ公開し直すので最長1時間古いことがあり、次の場合は queue より現在の状態に従う。
+各アクションの前に、MCP で対象の現在の状態を読み直す。queue は App の定期実行（1時間ごと）と手動の起動のとき（定期実行が来なければ periodicCatchUpMinutes 分おきにイベントの gate が補うとき）だけ公開し直すので古いことがあり、次の場合は queue より現在の状態に従う。
 
 - ラベルが変わった、PR の head が `headSha` と違う、既に計画や判定が投稿済み → そのアクションは飛ばす
 - 別の実行の着手宣言（`agent-claim`、解除されておらず 90 分以内）がある → 飛ばす
