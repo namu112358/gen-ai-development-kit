@@ -1,5 +1,5 @@
 import { autoModeConfig, autoModeDanger, type AutoModeState } from '../lib/auto-mode.ts';
-import { appMark } from '../lib/blocks.ts';
+import { appMark, hasClaudeMark } from '../lib/blocks.ts';
 import { bypassMergeConfig, delegateConfig, LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
 import type { DelegateState } from '../lib/delegate.ts';
 import { labelAuditRows, renderAuditLines } from '../lib/label-rules.ts';
@@ -7,9 +7,10 @@ import type { IssueComment } from '../lib/github.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { claimOf } from '../lib/facts.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
-import { acceptanceForPatch, appRecords, autoMergeMode, findDashboard, hasLabel, isAgentPr, latestPlanGate, linkedIssues, prDiff, type DashboardIssue, type PullRequest } from '../lib/state.ts';
+import { acceptanceForPatch, appRecords, autoMergeMode, findDashboard, hasLabel, isAgentPr, isTrustedComment, latestPlanGate, linkedIssues, prDiff, type DashboardIssue, type PullRequest } from '../lib/state.ts';
 import { classifyBase } from '../lib/stack.ts';
 import { renderStalledClaimLine, stalledCandidate, stalledClaimMinutes, stalledClaims, type StalledClaimInput } from '../lib/stalled-claim.ts';
+import { renderUnclaimedJudgeLine, unclaimedJudgeCandidate, unclaimedJudgePrs, type UnclaimedJudgeInput } from '../lib/unclaimed-judge.ts';
 import { renderUnownedConflictLine, unownedConflicts, type UnownedConflictInput } from '../lib/unowned-conflict.ts';
 import { enforceBase, refreshMergeRoute, resumeFromOrphan, rewriteTestsCheck, writeAutoModeEnd } from './apply.ts';
 import { AUTO_MODE_MERGE_END_TEXT, autoModeArm, autoModeFor, autoModeRoute, type AutoModeMergeEndReason } from './auto-mode.ts';
@@ -32,6 +33,7 @@ import { reviewAutoModePlans, reviewDelegatedPlans } from './on-comment.ts';
  * 衝突している Agent PR のうち持ち主のいないもの（PR と Close する Issue の着手宣言が期限切れか無い）は、人の対応待ちに
  * 「引き継ぐか決める」の行でも出す（判定は lib/unowned-conflict.ts。引き継ぐかは人が決める）。
  * judge・fix・sync の着手宣言の後に routine.stalledClaimMinutes 分動きの無い Agent PR を「止まっていそうな着手宣言」の節に出す（判定は lib/stalled-claim.ts。知らせるだけ）。
+ * 宣言が無く今の差分の判定の受け付けも無い Agent PR を「担当のいない判定待ちの PR」の節に出す（判定は lib/unclaimed-judge.ts。知らせるだけ。Issue #493）。
  */
 
 interface IssueItem {
@@ -377,6 +379,40 @@ async function stalledClaimInputs(ctx: GateContext, prs: PullRequest[], now: Dat
   return inputs;
 }
 
+/**
+ * Agent PR ごとに、宣言・ラベル・衝突を先に見て、残ったものだけ head の commit の時刻を読み、時間を過ぎたものだけ差分の受け付けを読む（lib/unclaimed-judge.ts）。
+ * 読めなかった PR はログに残して出さない（ダッシュボードの更新は止めない）
+ */
+async function unclaimedJudgeInputs(ctx: GateContext, prs: PullRequest[], now: Date, minutes: number, prComments: Map<number, IssueComment[]>): Promise<UnclaimedJudgeInput[]> {
+  const inputs: UnclaimedJudgeInput[] = [];
+  for (const pr of prs) {
+    const ref = { number: pr.number, title: pr.title, html_url: pr.html_url };
+    try {
+      let comments = prComments.get(pr.number);
+      if (!comments) {
+        comments = await ctx.gh.listComments(pr.number);
+        prComments.set(pr.number, comments);
+      }
+      const claim = claimOf(comments);
+      const labels = (pr.labels ?? []).map((l) => l.name);
+      const conflicted = pr.mergeable_state === 'dirty';
+      if (claim !== null || conflicted || labels.includes(LABELS.hold) || labels.includes(LABELS.blocked)) continue;
+      const base: UnclaimedJudgeInput = { pr: ref, claim, labels, conflicted, headCommitAt: null, lastClaudeAt: null, accepted: null };
+      const commit = await ctx.gh.get<{ commit?: { committer?: { date?: string | null } | null } }>(`/commits/${pr.head.sha}`);
+      const headCommitAt = commit.commit?.committer?.date ?? null;
+      const times = comments.filter((c) => hasClaudeMark(c.body) && isTrustedComment(c)).map((c) => new Date(c.created_at).getTime()).filter((t) => !Number.isNaN(t));
+      const lastClaudeAt = times.length > 0 ? new Date(Math.max(...times)).toISOString() : null;
+      const timed = { ...base, headCommitAt, lastClaudeAt };
+      if (!unclaimedJudgeCandidate(timed, now, minutes)) continue;
+      const acceptance = acceptanceForPatch(ctx.config, comments, patchId(await prDiff(ctx.gh, pr)));
+      inputs.push({ ...timed, accepted: acceptance !== null });
+    } catch (e) {
+      ctx.log(`#${pr.number} の判定の材料を読めませんでした（担当のいない判定待ちの PR に出しません）: ${(e as Error).message}`);
+    }
+  }
+  return inputs;
+}
+
 export async function onSchedule(ctx: GateContext, now: Date = new Date()): Promise<void> {
   // 計画の委任が有効なら、ゲートの停止で止まっている計画を判定し直す。失敗してもダッシュボードの更新は止めない
   const found = await findDashboard(ctx.gh, ctx.config);
@@ -429,6 +465,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   const prComments = new Map<number, IssueComment[]>();
   const stalledMinutes = stalledClaimMinutes(ctx.config.routine);
   const stalled = stalledClaims(await stalledClaimInputs(ctx, agentPrs, now, stalledMinutes, prComments), now, stalledMinutes).map((r) => renderStalledClaimLine(r, now));
+  const unclaimed = unclaimedJudgePrs(await unclaimedJudgeInputs(ctx, agentPrs, now, stalledMinutes, prComments), now, stalledMinutes).map((r) => renderUnclaimedJudgeLine(r, now));
   const unowned = unownedConflicts(await conflictClaims(ctx, conflicts, prComments), now, ctx.config.routine).map(renderUnownedConflictLine);
   const labelProblems = renderAuditLines(labelAuditRows(ctx.config, ctx.repository, issues, prs));
   const delegatedRows = await delegatedMerged(ctx, now, staleMs);
@@ -449,6 +486,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
     ...section('コンフリクトしている Agent PR（CI が動きません）', conflicts.map((p) => line(p))),
     ...section('停滞している Agent PR', stalePrs.map((p) => line(p))),
     ...section(`止まっていそうな着手宣言（judge・fix・sync で ${stalledMinutes} 分動きなし）`, stalled),
+    ...section(`担当のいない判定待ちの PR（宣言なしで ${stalledMinutes} 分動きなし）`, unclaimed),
     ...section('停滞している Issue', stale.map((i) => line(i))),
     ...section('ラベルが足りない Issue・PR', labelProblems),
     ...(delegatedRows === null
@@ -476,5 +514,5 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date()): Prom
   // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
   const kept = queueStart >= 0 ? `${withMode}\n\n${existing.slice(queueStart)}` : withMode;
   await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: kept } });
-  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} unowned=${unowned.length} stalePRs=${stalePrs.length} stalledClaims=${stalled.length} staleIssues=${stale.length} labelProblems=${labelProblems.length} autoModeHeld=${(autoPlans?.held.length ?? 0) + (autoHeldPrs?.length ?? 0)}`);
+  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} unowned=${unowned.length} stalePRs=${stalePrs.length} stalledClaims=${stalled.length} unclaimedJudge=${unclaimed.length} staleIssues=${stale.length} labelProblems=${labelProblems.length} autoModeHeld=${(autoPlans?.held.length ?? 0) + (autoHeldPrs?.length ?? 0)}`);
 }
