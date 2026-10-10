@@ -94,12 +94,12 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - 次の待ち（15分）の間にその fleet から何も届かなければ、人に知らせる（テーマ・何が古い／長いか・経った時間）。窓口は hq。
    - **止まったタスクの見回し**（同じ回に、fleet の外で止まっているものを見つけて割り振る。#407）：
      - 読むもの（GitHub の API を使いすぎないため、この3つだけ。Issue・PR を1件ずつ `gh` で読みに行かない）：
-       - ダッシュボードの節：ダッシュボード Issue（`harness.config.json` の `dashboardIssueTitle`）の本文を1回読む。使うのは「人の対応待ち」の「引き継ぐか決める」（#371）・「停滞している Agent PR」・「停滞している Issue」と、止まった着手宣言の節（#391。まだ無ければ読まない）。
+       - ダッシュボードの節：ダッシュボード Issue（`harness.config.json` の `dashboardIssueTitle`）の本文を1回読む。使うのは「人の対応待ち」の「引き継ぐか決める」（#371）・「停滞している Agent PR」・「停滞している Issue」と、止まった着手宣言の節（#391。まだ無ければ読まない）、「担当のいない判定待ちの PR」の節（#493。まだ無ければ読まない）。
        - patrol の結果（#370）：`node harness/scripts/agent.ts arch-review-pending` と `node harness/scripts/qa-retro-loop.ts pending` の未採用の下書きの数。hq は割り振らず、数を手順12の一覧に出すだけ（Issue にするかは今までどおり人が「〜の下書きを選ぶ」で決める）。
        - `fleet-status` の結果：番号を渡さない `node harness/scripts/agent.ts fleet-status --json` と、控えの各 fleet の Issue 番号の集合。番号なしの対象は `fleetTargets`（`agent:ready`・`agent:plan-ok`・`agent:plan-review` と、`agent:*` の無い開いた Issue）だけで、`agent:blocked`・`agent:hold`・`agent:waiting` などの Issue は入らない（下の「どの fleet にも入っていない開いた Issue」はこの範囲。止まった宣言・担当のいない PR はダッシュボードの節で拾う）。
        - 上の3つの外の読み取りは、開いた Epic の子の一覧（App の記録 `kind=epic-split` と GitHub の sub-issues）だけ。「Epic に入っていない単発の Issue」を見つけるのに要る。`fleet-status` の行に「どの fleet にも入っていない」候補があるときだけ、開いた Epic ごとに1回読み、控えに残して、次の回は Epic の数か更新が変わったときだけ読み直す。
      - 見つけるもの4つ：
-       - **担当のいない PR**：着手宣言が無い・解除された・古い開いた Agent PR（ダッシュボードの「引き継ぐか決める」「停滞している Agent PR」と、`fleet-status` の行の PR の着手宣言）
+       - **担当のいない PR**：着手宣言が無い・解除された・古い開いた Agent PR（ダッシュボードの「引き継ぐか決める」「停滞している Agent PR」「担当のいない判定待ちの PR」と、`fleet-status` の行の PR の着手宣言）
        - **止まった宣言**：ダッシュボードの止まった宣言の節（#391）と、`fleet-status` のメモの着手宣言のうち、控えのどの fleet のセッションでもないもの
        - **どの fleet にも入っていない開いた Issue**：`fleet-status --json` の行のうち、控えのどの fleet の Issue 番号の集合にも無いもの
        - **Epic に入っていない単発の Issue**：開いた Epic の子（`kind=epic-split` と sub-issues）に無いもの。fleet で進んでいても sub-issues に無いもの（#373 の例）も含む
