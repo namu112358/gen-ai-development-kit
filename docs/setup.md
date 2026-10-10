@@ -109,7 +109,16 @@ Routine の環境には `gh` も API 用のトークンもない。GitHub の操
 
 `extraKnownMarketplaces` の `ref` に書けるのはブランチかタグだけで、SHA を書くと clone が失敗して登録されない（Claude Code の marketplace reference の Marketplace sources）。typesafe-ai はタグで固定する。claude-plugins-official は、入らない原因が同じかを確かめていないので SHA のまま残す（別 Issue で調べる）。
 
-**入り方**：リポジトリを信頼した対話のセッションで、上のマーケットプレイスが背景で登録され、次のセッション（または `/reload-plugins`）から使える。`/plugin` の Installed・Errors で確かめる。個人で外すときは `.claude/settings.local.json` に `false` を書く。クラウドのセッション・Routine では入らない（Non-goal のまま）。
+**入り方**：プロジェクトの `enabledPlugins` だけでは、入っていないマシンにプラグインは入らない。また `extraKnownMarketplaces` は、フォルダの信頼の確認に答えた対話のセッションでだけ使われ、`claude -p` など確認の出ない起動では使われない。なので利用者ごとに1回、user スコープで入れる（Orca のワークスペース・Issue の worktree・サブエージェントのどれでも読み込まれる）。
+
+```sh
+claude plugin marketplace add "typesafe-ai/skills#v0.5.7"
+claude plugin install typesafe@typesafe-ai --scope user
+claude plugin install skill-creator@claude-plugins-official --scope user
+claude plugin install pr-review-toolkit@claude-plugins-official --scope user
+```
+
+確かめ方：`claude plugin list` に出る、`claude plugin details typesafe@typesafe-ai` が見つかる、新しいセッションの skill の一覧に `typesafe:typesafe-ai` が出る。個人で外すときは `.claude/settings.local.json` に `false` を書く。クラウドのセッション・Routine では入らない（Non-goal のまま）。
 
 **導入先への引き継ぎ**：節1で `.claude/` をコピーすると、3つの登録と `WebFetch(domain:docs.typesafe.ai)` の許可も導入先に入る。要らなければ導入先の `.claude/settings.json` から `extraKnownMarketplaces`・`enabledPlugins`・`WebFetch(domain:docs.typesafe.ai)` の行を消す（その場合は `harness/test/settings-plugins.test.ts` も消す）。
 
