@@ -26,8 +26,7 @@ import {
   summarize,
   tamperDecision,
   autoModeTestsDecision,
-  autoModeViewRecords,
-  autoModeViewShift,
+  autoModeViewShiftOf,
   renderAutoModeViewShift,
   tokenRatios,
   type DecisionRow,
@@ -39,7 +38,6 @@ import {
 import { jobsOf, type Run } from '../lib/qa-retro.ts';
 import { MUTATION_JOB, parseSurvivedMutants } from '../lib/test-health.ts';
 import { appRecords, closingIssues, fixRequestCount, isAgentPr, latestPlanGate, type PlanGateRecord, type PullRequest, type Review } from '../lib/state.ts';
-import { autoModeConfig } from '../lib/auto-mode.ts';
 import { TEST_TAMPER_JEV_KIND, type TamperJevRecord } from '../lib/test-tamper-jev.ts';
 import { AUTO_MODE_TESTS_KIND, type AutoModeTestsRecord } from '../lib/auto-mode-tests.ts';
 import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
@@ -296,4 +294,4 @@ for (const i of issues) {
   decisionRowsAll.push(...decisionRows(config, i.number, comments, events, data.repository.issue.closedByPullRequestsReferences.nodes));
 }
 console.log(`\n${renderDecisionAgreement(decisionAgreement(decisionRowsAll), decisionRowsAll)}`);
-console.log(`\n${renderAutoModeViewShift(autoModeViewShift(autoModeConfig(config).dangerSafe, autoModeViewRecords(viewPlanGates, viewAcceptances)))}`);
+console.log(`\n${renderAutoModeViewShift(autoModeViewShiftOf(config, viewPlanGates, viewAcceptances))}`);

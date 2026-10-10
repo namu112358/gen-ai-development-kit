@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { claudeMark, extractBlock, hasClaudeMark, renderBlock } from './blocks.ts';
 import { CHECKS, type HarnessConfig } from './config.ts';
 import type { IssueComment } from './github.ts';
@@ -442,6 +443,11 @@ export interface ComposeArgs {
 }
 
 const COMPOSE_USAGE = 'compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>] [--author-view <file>]';
+
+/** --author-view のファイルを読み、前後の空白を除く（空なら空文字。誤りにするのは composeVerdict・parseVerdict。#426・#449） */
+export function readAuthorViewFile(file: string): string {
+  return readFileSync(file, 'utf8').trim();
+}
 
 /** compose-verdict の引数を読む（--judge-input・--model・--author-view の位置に関わらず） */
 export function parseComposeArgs(args: string[]): Parsed<ComposeArgs> {
