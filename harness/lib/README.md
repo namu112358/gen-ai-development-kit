@@ -70,6 +70,7 @@
 | `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えとテストの名前の変更を Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |
 | `title.ts` | Issue・PR のタイトルの形式（Conventional Commits）。 | ○ |
+| `unclaimed-judge.ts` | 担当のいない判定待ちの PR の判定（ダッシュボードの節「担当のいない判定待ちの PR」、Issue #493）。 | ○ |
 | `unowned-conflict.ts` | 持ち主のいない衝突した Agent PR の判定（ダッシュボードの「引き継ぐか決める」の行）。 | ○ |
 | `usage.ts` | Claude Code のセッション記録（jsonl）からトークン数を集計し、API で動かした場合の料金を見積もる。 | 対象外 |
 | `validate.ts` | 依存なしの小さな検証ヘルパー。 | ○ |

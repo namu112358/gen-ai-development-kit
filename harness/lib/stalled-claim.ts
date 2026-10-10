@@ -64,7 +64,7 @@ export function stalledClaims(inputs: StalledClaimInput[], now: Date, minutes: n
 }
 
 /** 経過の表記：1時間未満は「59分」、以上は「4時間12分」（分は切り捨て） */
-function elapsedText(from: string, now: Date): string {
+export function elapsedText(from: string, now: Date): string {
   const total = Math.max(0, Math.floor(minutesSince(from, now)));
   const hours = Math.floor(total / 60);
   return hours > 0 ? `${hours}時間${total % 60}分` : `${total}分`;
