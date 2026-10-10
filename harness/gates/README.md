@@ -16,6 +16,7 @@
 | `delegation.ts` | 委任承認の今の状態と、PR を委任（計画＋Merge）で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |
 | `epic-close.ts` | 子課題が全部閉じた Epic を App が閉じる。 | ○ |
 | `epic-split.ts` | Epic の子 Issue を作り、Sub-issues と依存を登録する。 | ○ |
+| `epic-triage.ts` | 定期実行：開いた Epic に入っていない Issue の Epic を Jev に問い、App の記録 epic-triage を残す（Epic #436・Issue #565）。 | ○ |
 | `label-apply.ts` | 足りないラベルを付ける（docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `main-merge-carry.ts` | main の取り込み（App の update-branch）の push で、PR 自身の変更（追加・削除の行）が前と同じなら、合格の判定を新しい patch-id に引き継ぐ（Issue #397）。 | ○ |
 | `on-comment.ts` | issue_comment（created）：計画ゲートと判定の受け付け | ○ |
