@@ -39,7 +39,7 @@ export interface HarnessConfig {
     routineClaimTakeoverMinutes: number;
     /** 判定コメントへの App の返答をこれ以上待たない時間（分。過ぎたら判定し直す）。無ければ 30（harness/lib/facts.ts。Issue #272） */
     gateReplyTimeoutMinutes?: number;
-    /** judge・fix・sync の着手宣言の後に動きが無ければ、ダッシュボードの「止まっていそうな着手宣言」に出すまでの時間（分）。無ければ 60（harness/lib/stalled-claim.ts。Issue #391） */
+    /** judge・fix・sync の着手宣言の後に動きが無ければ、ダッシュボードの「止まっていそうな着手宣言」に出すまでの時間（分）。無ければ 60（harness/lib/stalled-claim.ts。Issue #391）。ダッシュボードの「担当のいない判定待ちの PR」（harness/lib/unclaimed-judge.ts。Issue #493）にも効く */
     stalledClaimMinutes?: number;
   };
   /**
