@@ -339,6 +339,19 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 - 弱い assert の追加（`assert.ok(true)` など。行の追加は検出しない）。
 - JS 以外の書き方（`test(` / `it(` / `describe(` / `assert` / `expect(` 以外のテスト定義やアサーション）。
 
+## 判定の⑨の Jev（`jev.overbuild`）
+
+判定の受け付けで、⑨（`over-implementation`・`over-testing`・`over-engineering`）のブロッキング指摘ごとに、Jev に「Merge を止めるべきか」と「直近の修正で変わった行への指摘か」を問う（`harness/lib/overbuild-jev.ts`・`harness/gates/overbuild-jev.ts`。Epic #497、Issue #584）。
+
+- 材料は PR の diff・⑨の指摘・recent_diff だけ。判定の facts・rationale・authorView・PR 本文は渡さない。⑨以外の指摘は問わない。
+- `jev.overbuild`（`jev.mode` とは独立。無ければ `shadow`）：
+  - `off`：問わない。
+  - `shadow`（既定）：答えを受け付けの記録の `overbuildJev` と、受け付けの表の「⑨の Jev」の行に残すだけで、reviewPass・修正の依頼・修正の回数は変えない。
+  - `enforce`：「Merge を止める」確率が `jev.thresholds.overbuildBlockProbability` 未満の⑨をブロッキングから外して提案に回し、reviewPass・修正の依頼・修正の回数をその結果で決める。下限が無い・問わなかった（skipped）・エラー・答えの欠けは外さない。判定コメントは書き換えない。
+- 問わない場合：`JEV_API_KEY` が無い、⑨が5件を超える、diff と recent_diff の文字数が `jev.maxDiffChars` を超える（記録は `status: skipped` で残る）。⑨が0件のときは記録を作らない。
+- 限界：recent_diff は前回の受け付けの head から今の head への compare なので、間に main の取り込みがあると main の変更も入る。recent（直近の修正で変わった行への指摘か）は記録だけで、合否には使わない。
+- このリポジトリは `shadow` のまま。`enforce` にするかは、記録を見て人が決める。
+
 ## 例外ラベルの効く範囲
 
 `test:exempt`（`agent/tests`）と `review:exempt`（`agent/review`）は、人が付けた時点の PR の差分にだけ効く。人が見ていない後からの変更まで例外で通さないため（判定の引き継ぎと同じく、差分の `git patch-id --verbatim` で比べる）。`plan:exempt` は PR の差分ではなく紐付けの例外なので対象外。
@@ -429,6 +442,7 @@ ship・fleet は、セッションで起きた問題を記録し、終わりに�
 - **置き場所**：リポジトリの外の、セッションごとの JSON Lines。ディレクトリは `AGENT_HARNESS_INCIDENT_DIR`、無ければホームの下の `.agent-harness/incidents/`（TMPDIR は使わない）。ファイルは `<セッションID>.jsonl`（ディレクトリ 0700・ファイル 0600）。セッション ID は `--session <id>`、無ければ `AGENT_HARNESS_SESSION`（英数字と `-` `_` だけ）。置き場所の決め方は `harness/lib/incident.ts` の `incidentFile` の1か所で、hook（#187）も同じものを使う。秘密に見える文字列（`ghp_`・`github_pat_`・`sk-ant-`・`Bearer`・`token=` の値など）は記録するときと下書きを出すときに `***` に置き換える。
 - **`/clear` で記録が分かれたら**：セッション ID が変わると記録のファイルも変わる。`node harness/scripts/agent.ts incident sessions` で記録のあるセッション ID を新しい順に出し、`incident list --session <今の ID> --session <前の ID>` のように `--session` を重ねて前の記録も読む（`render-issue` も同じ）。
 - **振り分けの3つ**：ハーネスの不具合・手順の抜けは Issue の候補（`gh issue list --state open --search` で開いた Issue を探し、同じものがあればコメントの案、無ければ `incident render-issue <id>... --title <題>` で Issue Form の形の下書き）。このパソコンの環境は docs の候補か何もしない。一度きりのミスは記録だけ。
+- **Jev への振り分けの問い（shadow、#498）**：ship の手順9で1件ずつ `node harness/scripts/agent.ts incident triage <id> --as <harness|environment|once> [--session <id>]` を流す。セッションの振り分け（`harness`＝ハーネスの不具合・手順の抜け、`environment`＝環境、`once`＝一度きり）と、同じ記録を Jev に問うた答え（確率・一番の種類・一致）を、`<セッションID>.triage.jsonl`（同じディレクトリ、0600）に並べて残す。振り分けの結果は今までどおりセッションが決め、Jev の答えは使わない。Jev に渡す材料は記録の `kind`・`what`・`workaround` だけで、秘密に見える文字列は `***` に伏せ、`target` は渡さない。鍵（`JEV_API_KEY`）がセッションの環境に無い・`jev.mode` が `off`・材料が `jev.maxDiffChars` を超えるときは問わずに `skipped` と残す（[security.md](security.md#jev) に例外として書いてある）。`node harness/scripts/agent.ts incident triage-stats [--json]` で全セッションの記録を集計し（同じセッション・同じ id は最後の行だけ）、一致の割合と組み合わせを見る。Jev の答えで振り分けを決める enforce にするかは、人がそれを見て決める。
 - **起票は人が選ぶ**：起票・コメントは人が選んだものだけで、自動で起票しない。起票した Issue のラベルは Jev に任せる（[ラベル](#ラベル)）。
 - **付き添いのセッションは GitHub に自動で書かない**：記録はファイルに残るだけ。`incident render-comment`（`agent-incident` ブロックのコメント本文、[formats.md](formats.md#問題の記録agent-incident)）は Routine がダッシュボードに書くためのもの（#187）で、ship・fleet は使わない。
 

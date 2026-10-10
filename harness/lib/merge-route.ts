@@ -11,6 +11,7 @@
  * 順番は 自動 Merge の対象 → 委任 → auto mode → bypass。
  */
 import type { AutoModeJevRecord } from './auto-mode.ts';
+import type { OverbuildJevRecord } from './overbuild-jev.ts';
 
 /** 受け付け時にまとめる、委任承認（計画＋Merge）なら自動経路に乗せてよいか（harness/lib/delegate.ts の delegateEligibility） */
 export interface DelegateRecord {
@@ -75,6 +76,8 @@ export interface Acceptance {
   bypass?: BypassRecord;
   /** auto mode なら自動経路に乗せてよいか（無い古い記録は auto mode の対象外） */
   autoMode?: AutoModeRecord;
+  /** 判定の⑨のブロッキング指摘を Jev に問うた記録（jev.overbuild が off・⑨が0件なら無い。harness/gates/overbuild-jev.ts。古い記録には無い） */
+  overbuildJev?: OverbuildJevRecord;
 }
 
 export interface JevRecord {
