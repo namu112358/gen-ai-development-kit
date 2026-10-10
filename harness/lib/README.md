@@ -10,6 +10,7 @@
 | `assignee.ts` | 担当（Issue の Assignee）の確かめ（Issue #172）。 | ○ |
 | `auto-mode-tests.ts` | auto mode（Epic #339）の間、agent/tests が見つけたテストを弱める変更が妥当かを Jev に問う材料と、答えのまとめ（Issue #349）。 | ○ |
 | `auto-mode.ts` | auto mode（Epic #339）の設定・今の状態・Jev の危険の問い・保留するかの判断。 | ○ |
+| `backlog.ts` | 開いた Issue をまとめて見る backlog の skill の、決まる部分（Issue #183）。 | ○ |
 | `blocks.ts` | コメントに埋め込む構造化データと目印。 | ○ |
 | `claim.ts` | 着手宣言の投稿と読み直し（Issue #171）。 | ○ |
 | `classify.ts` | PR の分類ラベル（表示用）。 | 対象外 |
