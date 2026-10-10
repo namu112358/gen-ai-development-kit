@@ -319,6 +319,19 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 - 弱い assert の追加（`assert.ok(true)` など。行の追加は検出しない）。
 - JS 以外の書き方（`test(` / `it(` / `describe(` / `assert` / `expect(` 以外のテスト定義やアサーション）。
 
+## 判定の⑨の Jev（`jev.overbuild`）
+
+判定の受け付けで、⑨（`over-implementation`・`over-testing`・`over-engineering`）のブロッキング指摘ごとに、Jev に「Merge を止めるべきか」と「直近の修正で変わった行への指摘か」を問う（`harness/lib/overbuild-jev.ts`・`harness/gates/overbuild-jev.ts`。Epic #497、Issue #584）。
+
+- 材料は PR の diff・⑨の指摘・recent_diff だけ。判定の facts・rationale・authorView・PR 本文は渡さない。⑨以外の指摘は問わない。
+- `jev.overbuild`（`jev.mode` とは独立。無ければ `shadow`）：
+  - `off`：問わない。
+  - `shadow`（既定）：答えを受け付けの記録の `overbuildJev` と、受け付けの表の「⑨の Jev」の行に残すだけで、reviewPass・修正の依頼・修正の回数は変えない。
+  - `enforce`：「Merge を止める」確率が `jev.thresholds.overbuildBlockProbability` 未満の⑨をブロッキングから外して提案に回し、reviewPass・修正の依頼・修正の回数をその結果で決める。下限が無い・問わなかった（skipped）・エラー・答えの欠けは外さない。判定コメントは書き換えない。
+- 問わない場合：`JEV_API_KEY` が無い、⑨が5件を超える、diff と recent_diff の文字数が `jev.maxDiffChars` を超える（記録は `status: skipped` で残る）。⑨が0件のときは記録を作らない。
+- 限界：recent_diff は前回の受け付けの head から今の head への compare なので、間に main の取り込みがあると main の変更も入る。recent（直近の修正で変わった行への指摘か）は記録だけで、合否には使わない。
+- このリポジトリは `shadow` のまま。`enforce` にするかは、記録を見て人が決める。
+
 ## 例外ラベルの効く範囲
 
 `test:exempt`（`agent/tests`）と `review:exempt`（`agent/review`）は、人が付けた時点の PR の差分にだけ効く。人が見ていない後からの変更まで例外で通さないため（判定の引き継ぎと同じく、差分の `git patch-id --verbatim` で比べる）。`plan:exempt` は PR の差分ではなく紐付けの例外なので対象外。
