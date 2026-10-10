@@ -260,7 +260,7 @@ function readJson(path: string): unknown {
 }
 
 /** 一時ファイルに書いてから名前を変える（読む側が書きかけを読まない） */
-function writeJson(path: string, v: unknown): void {
+export function writeJson(path: string, v: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
   const tmp = `${path}.${process.pid}.tmp`;
   writeFileSync(tmp, `${JSON.stringify(v, null, 2)}\n`);
