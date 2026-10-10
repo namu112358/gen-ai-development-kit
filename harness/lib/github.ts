@@ -3,7 +3,8 @@ import { spawnSync } from 'node:child_process';
 /**
  * GitHub REST / GraphQL の最小クライアント。
  * - Actions：App のトークンで fetch（FetchTransport）
- * - Routine・手元：`gh api`（GhTransport。Routine では GitHub プロキシ経由で認証される）
+ * - 手元：`gh api`（GhTransport）
+ * - クラウドのセッション（CLAUDE_CODE_REMOTE=true）：`GITHUB_TOKEN` があっても `gh api`（GhTransport）。クラウドの `GITHUB_TOKEN` は GitHub proxy が送信時に本物へ差し替える仮の値で、Node の fetch は proxy を通らず 401 になる
  */
 
 export interface RequestOptions {
@@ -256,9 +257,13 @@ export interface IssueComment {
   user: { login: string; type: string } | null;
 }
 
-/** opts（onResponse）は選んだ Transport に渡す。渡さなければ今までと同じ */
-export function transportFromEnv(opts: TransportOptions = {}): Transport {
-  const token = process.env.GH_APP_TOKEN ?? process.env.GITHUB_TOKEN;
-  if (token) return new FetchTransport(token, process.env.GITHUB_API_URL ?? 'https://api.github.com', opts);
+/**
+ * opts（onResponse）は選んだ Transport に渡す。渡さなければ今までと同じ。
+ * env は既定で process.env（テストで差し替える）。クラウドのセッション（CLAUDE_CODE_REMOTE=true）ではトークンの有無にかかわらず gh api（GITHUB_TOKEN は proxy 用の仮の値で、fetch では 401 になる）
+ */
+export function transportFromEnv(opts: TransportOptions = {}, env: NodeJS.ProcessEnv = process.env): Transport {
+  if (env.CLAUDE_CODE_REMOTE === 'true') return new GhTransport(opts);
+  const token = env.GH_APP_TOKEN ?? env.GITHUB_TOKEN;
+  if (token) return new FetchTransport(token, env.GITHUB_API_URL ?? 'https://api.github.com', opts);
   return new GhTransport(opts);
 }
