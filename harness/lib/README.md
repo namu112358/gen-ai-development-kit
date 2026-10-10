@@ -35,6 +35,7 @@
 | `issue-form.ts` | Issue Forms（.github/ISSUE_TEMPLATE/agent-task.yml）が出力する本文の読み取り。 | ○ |
 | `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。 | 対象外 |
 | `jev.ts` | TypeSafe AI の Jev（https://docs.typesafe.ai/api）で、Risk ポリシーの8問に1回の呼び出しで答えさせる。 | ○ |
+| `label-fill.ts` | 付き添いのセッションが、Jev の提案のラベルを付ける（agent.ts label-fill、Issue #538）。 | ○ |
 | `label-rules.ts` | 必須ラベルの検査（docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `model-routing.ts` | 実装のモデル（Opus / Sonnet）を Jev に問い、計画ゲートの記録と show-plan・集計で使う形にする（Issue #139）。 | ○ |
