@@ -44,6 +44,6 @@ export type HqBoard = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'agent-harness': { hqTodo: HqTodo | null; hqBoard: HqBoard | null; boardPage: 'epic' | 'issue' }
+    'agent-harness': { hqTodo: HqTodo | null; hqBoard: HqBoard | null; boardPage: 'epic' | 'issue'; guildBoard: HqBoard | 'unreadable' | null; guildIntelOpen: boolean; guildIntelResult: string | null }
   }
 }

@@ -8,6 +8,7 @@ import { auditLabels } from '../lib/label-rules.ts';
 import { appRecords, isAgentPr, lastLabeled, latestPlanGate, type PlanGateRecord, type PullRequest, type TimelineEvent } from '../lib/state.ts';
 import { parseTitle, TITLE_TYPES } from '../lib/title.ts';
 import { appComment, type GateContext } from './context.ts';
+import { closeDoneEpics } from './epic-close.ts';
 import { onSchedule } from './stale.ts';
 
 /**
@@ -384,7 +385,8 @@ export async function labelApply(ctx: GateContext): Promise<void> {
 
 /**
  * 定期実行（schedule・workflow_dispatch）の入口：label-apply を onSchedule（ダッシュボード）より先に動かす。
- * 付与に失敗してもダッシュボードは書き、失敗は最後に投げ直す（ジョブを失敗にする）
+ * 続けて、子が全部閉じた Epic を閉じる（付け替え・外しの後に残ったもの。epic-close.ts）。
+ * 付与や Epic の Close に失敗してもダッシュボードは書き、最初の失敗を最後に投げ直す（ジョブを失敗にする）
  */
 export async function onScheduleWithLabels(ctx: GateContext, now: Date = new Date()): Promise<void> {
   let failed: unknown = null;
@@ -392,6 +394,11 @@ export async function onScheduleWithLabels(ctx: GateContext, now: Date = new Dat
     await labelApply(ctx);
   } catch (e) {
     failed = e;
+  }
+  try {
+    await closeDoneEpics(ctx);
+  } catch (e) {
+    failed ??= e;
   }
   await onSchedule(ctx, now);
   if (failed) throw failed;

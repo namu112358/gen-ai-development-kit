@@ -30,6 +30,7 @@
 | `usage*.test.ts`・`api-*.test.ts`・`gh-*.test.ts`・`graphql-*.test.ts`・`npm-*.test.ts` | usage の集計、API の呼び出しの数え方、`gh` の呼び出し方と GraphQL の読み取りを REST の形にそろえる変換、npm のコマンド |
 | `agent-*.test.ts`・`config-*.test.ts`・`settings-*.test.ts`・`managed*.test.ts`・`setup-*.test.ts`・`ruleset*.test.ts`・`gitattributes*.test.ts` | `agent.ts` の入口、設定（`harness.config.json`・`.claude/settings.json`）のキーと上限、導入先に配るファイルの一覧、setup・Ruleset、改行コードの設定 |
 | `harness-drift*.test.ts` | 読み込みの記録（`harness/lib/harness-drift.ts`）：版の比べ方、記録の読み書き、`fleet-status`・`step`・`claim` の配線 |
+| `mod-*.test.ts` | mod（`mods/agent-harness/`）：変えたら `plugin.json` の version を main より上げているか（上げないと `claude plugin update` で届かない） |
 | `incident*.test.ts` | 問題の記録（`harness/lib/incident.ts`・`agent.ts incident`）：記録の置き場所と権限、種類ごとのまとめ、秘密に見える文字列の置き換え、Issue Form の形の下書きと `agent-incident` のコメント本文 |
 | `readme-*.test.ts`・`overview-*.test.ts` | 各ディレクトリの README の表と、`overview.html` のラベル表示が、実物と食い違っていないかの検査 |
 | `support/` | テストが共有する補助（テストとしては動かない） |

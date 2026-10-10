@@ -57,7 +57,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 待つ間の読み直し（#199）：fleet は、選んだ Issue が App・CI や人の Merge を待つだけになっても終わらず、`fleet.watch.intervalMinutes` 分おきに `fleet-status --watch` を読み直す（schedule・Actions・Routine は使わず、付き添いのセッションの中で待つ）。Merge・plan-ok などで次にやることが出たら ship を呼び直し、自分の PR の次にやることが `sync` になったら Merge 待ちでも ship を呼び直して sync させる。App が `fleet.watch.appStallMinutes` 分以上動かない行は1回だけ人に知らせる。fleet が終わるのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（手順は fleet の SKILL.md の「待つ間の読み直し」。記録の書式は [formats.md](formats.md) の「見張りの記録」）。
 
-worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <ブランチ>` が作る worktree の置き場所は、既定では本体の隣の `../<リポジトリ名>.worktrees/<ブランチ名を安全にした名前>`。全員で変えるなら `harness.config.json` の `worktreeRoot`、そのパソコンだけ変えるなら環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（例：WSL の中の FS。環境変数が設定より優先）。書き方は、`~/` はホーム、相対パスは本体のルートから、`{repo}` はリポジトリ名に置き換える（複数のリポジトリで同じ場所を使うなら `{repo}` を入れる。入れないと、ダッシュボードがほかのリポジトリの worktree のセッションも拾いうる）。リポジトリの中になる値と、本体を含む祖先（`..` など）は拒む（`worktree`・`worktree-remove`・合体版のレビューの⑧・ダッシュボードが同じ関数（`harness/lib/worktree.ts` の `worktreeRoot`）で決め、同じく止まる）。本体の `.git` は元の場所に残るので、速くなるのは作業ツリーの分だけ。置き場所を変える前に作った worktree は `worktree-remove` が見つけられないので、先に消しておくか `git worktree remove <パス>` で消す。Orca があっても worktree は `agent.ts worktree` で作り、Orca はその worktree での起動と監視に使う（規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md)）。Orca があれば `worktree` が Issue のブランチ（`claude/issue-<番号>-<短い名前>`）の worktree に表示名「#番号 短い名前」と Issue を付ける（親子は付けない。表示のためだけ）。Orca が無ければ何もせず、失敗したときは警告だけで続ける（Orca のアプリは起動しない）。
+worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <ブランチ>` が作る worktree の置き場所は、既定では本体の隣の `../<リポジトリ名>.worktrees/<ブランチ名を安全にした名前>`。全員で変えるなら `harness.config.json` の `worktreeRoot`、そのパソコンだけ変えるなら環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（例：WSL の中の FS。環境変数が設定より優先）。書き方は、`~/` はホーム、相対パスは本体のルートから、`{repo}` はリポジトリ名に置き換える（複数のリポジトリで同じ場所を使うなら `{repo}` を入れる。入れないと、ダッシュボードがほかのリポジトリの worktree のセッションも拾いうる）。リポジトリの中になる値と、本体を含む祖先（`..` など）は拒む（`worktree`・`worktree-remove`・合体版のレビューの⑧・ダッシュボードが同じ関数（`harness/lib/worktree.ts` の `worktreeRoot`）で決め、同じく止まる）。本体の `.git` は元の場所に残るので、速くなるのは作業ツリーの分だけ。置き場所を変える前に作った worktree は `worktree-remove` が見つけられないので、先に消しておくか `git worktree remove <パス>` で消す。Orca があっても worktree は `agent.ts worktree` で作り、Orca はその worktree での起動と監視に使う（規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md)）。Orca があれば `worktree` が Issue のブランチ（`claude/issue-<番号>-<短い名前>`）の worktree に表示名「#番号 短い名前」（短い名前は Issue のタイトルから `type(scope): ` を除いて24字までに詰めたもの。タイトルが取れなければブランチの後ろ）と Issue を付ける（親子は付けない。表示のためだけ）。Orca が無ければ何もせず、失敗したときは警告だけで続ける（Orca のアプリは起動しない）。
 
 ### hq（テーマごとの fleet をまとめる）
 
@@ -70,7 +70,7 @@ Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.cla
 - hq のワークスペース（本体）のペインは、左に hq の Claude、真ん中の列に上から ① Epic/Issue（`panes.ts hq board`。Tab・`e`・`i` で、Epic ごとの子課題の Close の数・人待ちの数・Epic に入っていない Issue の件数を出す Epic のページと、Epic ごとに Issue の6段階の横棒を出し Merge 済みを1行に畳む Issue のページを切り替える）→ ② 人待ち（`node harness/scripts/panes.ts hq todo`。全 fleet の人がすること。無ければ「今はありません」と AI・App が進行中の件数）→ ③ ログ（`panes.ts hq log`。状態が変わった Issue と、fleet の heartbeat の一言（控えの隣の `hq-heartbeat.json`。hq が `hq-state.ts heartbeat-save` で書く。`hq.staleSnapshotMinutes` より古いものと控えに無い fleet のものは出さない。#438）を新しい順に、ペインの高さに収まる分だけ）、右に intel の Claude（intel の skill が無い・起こせなければ開かない）。3つのペインは `--session` を受け取らず、数秒ごとに hq の控え（下の `hq-fleets.json` の `fleets`）を読み直して、各 fleet の `session` のスナップショットだけを読む（ログはその隣の `hq-heartbeat.json` も読む）。fleet を起こし直して控えの `session` が変われば、ペインを作り直さずに新しい fleet を出す。`session` がまだ無い fleet と、起こした直後（`startedAt` から `hq.staleSnapshotMinutes` 以内）でスナップショットが無い fleet は「起動中」、それより長く無い・古い・読めなかったものがあるスナップショットは各ペインの見出しの下に1行の注意で出る。Epic は collect が開いた `epic` のラベルの Issue を一覧し、Epic ごとに子課題（sub-issues と App の `epic-split` の記録）を読んでスナップショットに入れ（1つの Epic が読めなくてもほかは出る。読めなかった Epic は前回の値を使い、前回が無ければその子は Epic なしに出て、見出しの下の注意に「Epic #番号 が読めませんでした」と出る。呼び出しは Epic あたり2〜3回）、描くペインは GitHub を読まない。`epic` のラベルの無い Epic は拾えない（label-apply が子を持つ Issue に付ける前提）。タイトルは省略せずに幅で折り返す（英数字の語は途中で切らない）。手順は hq の SKILL.md の手順6（#402）。
 - fleet の `ask` は hq がまとめて AskUserQuestion で人に聞き、`reply` の本文には人の答えだけを載せる。人が拒んだ・答えなかったら本文は `答え無し`。
 - fleet は途中の報告・連絡を `orchestration send --type status` の件名（`ready-<PR>`・`merged-<PR>`・`verdict-<PR>`・`wait-<Issue>`・`notice`）で hq に送り、hq は人の Merge 待ち（`ready-<PR>`）と人の判断が要る `notice` を人にすぐ伝え、ほかは人がすることの一覧にためる（#395）。相談は今までどおり `ask`。fleet は hq に聞いて答えを待っている Issue があるうちは `worker_done` しない。
-- hq の待ち（`check --wait`）では heartbeat を読んだらすぐ ack して待ちに戻り、後ろに並んだ question・escalation・worker_done を遅らせない（`check` は一番古い便りを ack されるまで返し続けるため）。fleet は heartbeat の本文に今の状況を一言（Issue 番号・段階・次にすること・待っているもの）入れ、hq はそれを人がすることの一覧の「今の状況」に使う（ログのペインにも出る。#438）。手順は hq の SKILL.md の手順7と、fleet の SKILL.md の「Orca の worker として動くとき」の6〜8。
+- hq はターンを終える前に必ず見張り（`harness/scripts/hq-watch.ts`）を run_in_background で置く。heartbeat だけの束は見張りが一言を控えて ack し、hq を起こさない。question・escalation・worker_done・status が届くと hq が起きて処理し、見張りを置き直す。fleet は heartbeat の本文に今の状況を一言（Issue 番号・段階・次にすること・待っているもの）入れ、hq はそれを人がすることの一覧の「今の状況」に使う（ログのペインにも出る。#438）。手順は hq の SKILL.md の手順7と、fleet の SKILL.md の「Orca の worker として動くとき」の6〜8。
 - 進んでいない fleet（ペインのスナップショットの `at` が `hq.staleSnapshotMinutes` より古い、AI の番の行が `hq.stuckMinutes` より長い）は起こし直さず、`orchestration send` で状況を聞き、答えが無ければ人に知らせる。hq がまだ答えていない質問のある Issue は、人の答え待ちなので数えない。判定は `node harness/scripts/panes.ts fleets --session <ID>...`。
 - 止まった fleet を起こし直すのは、`orca orchestration worker-list` で `exited` と確かめたときだけ（`unverifiable` は止まった証拠にしない）。同じ fleet は1時間に2回まで（Epic への hq の記録のコメントで数える）、超えたら人に知らせる。起こし直すときは、前の fleet の着手宣言を新しい fleet に引き継ぐかを1問で人に聞き、引き継ぐなら新しい fleet が `--takeover` で出し直す。
 - fleet が人の Merge 待ちで終わっても、Epic が開いていればワークスペースを残す。片付け（worker の解放とワークスペースの削除）は Epic が Close したとき。
@@ -129,7 +129,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | `agent:bypass-merge` | 人のみ | ダッシュボード専用。ブロッキング指摘の無い Agent PR の Merge を App に任せる「bypass モード」のスイッチ（`harness.config.json` の `bypassMerge`）。セッションは付け外ししない（hook と deny で止める）。付けている間（期限なし）、ブロッキング指摘が無く範囲照合と `agent/tests` を通る Agent PR に、Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev の理由を飛ばして auto-merge を付ける（[risk-policy.md](risk-policy.md#bypass-モード)）。外す・停止スイッチで、bypass で付けた auto-merge を外して人にレビューを依頼する |
 | `agent:auto-mode` | 人のみ | ダッシュボード専用。計画ゲートと Merge の両方を App に任せ、危険なものだけを人の判断に保留する「auto mode」のスイッチ（`harness.config.json` の `autoMode`）。セッションは付け外ししない。有効な条件は bypass と同じ（人が付けたもの、期限なし、停止スイッチが優先）。危険の判定は Jev だけに問い（`autoMode.jev` の問いと下限。Claude には問わない、#382）、Jev が危険と答えた、記録が無い・読めないときは保留する。付けている間、ガードレール・Risk・`delegateMergeExclude` を理由に止まる計画と Agent PR も、ほかの条件を満たし保留にならなければ App が通して自動 Merge する。詳細は [risk-policy.md](risk-policy.md#auto-mode) |
 
-着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。queue は定期実行（1時間ごと）と手動の起動のときだけ公開し直すので、宣言の変化もそのときに queue へ出る（今すぐ出したいときは gate の手動実行。下の「ゲートの失敗」）。今の宣言は `claim`・`fleet-status` がコメントから直接読む。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
+着手中かどうかと PR の有無はラベルにしない。着手宣言コメントと、Issue を `Closes` する開いた PR から App が判断し、ダッシュボードの queue に出す。queue は定期実行（1時間ごと）と手動の起動のときだけ公開し直す（定期実行が `periodicCatchUpMinutes` 分以上来なければ、イベントで動いた gate が補う）ので、宣言の変化もそのときに queue へ出る（今すぐ出したいときは gate の手動実行。下の「ゲートの失敗」）。今の宣言は `claim`・`fleet-status` がコメントから直接読む。Agent PR に Claude の commit（`Claude-Session` か Claude の `Co-Authored-By` の trailer がある）が push されたとき、push の時点で有効な宣言が無い、または宣言のセッションと食い違えば、App が PR にコメント（`kind=unclaimed-push`）で知らせる（止めない）。
 
 止めた理由は、`agent:blocked` / `agent:plan-review` を付けるコメントに理由コード（`<!-- agent-harness:reason code=… -->`）で残す。ダッシュボードの「人の対応待ち」は理由別に並び、理由が無いものは「要確認」になる。main と衝突していて持ち主のいない Agent PR（PR と Close する Issue の着手宣言が期限切れ（`routine.humanClaimStaleHours`）か、宣言が無い）も「引き継ぐか決める」の1行で出る（PR・Issue・宣言のセッションの短い ID と時刻）。引き継ぐかは人が決め、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う（hq は見回しで見つけて人に聞くが、自分では引き継がない。fleet は拾いに行かない。#371・#407）。
 
@@ -181,6 +181,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 
 - ダッシュボードの「ラベルが足りない Issue・PR」の節：定期実行のたびに、開いた Issue のうち `agent:*` か `epic` の付いたものと Agent PR を検査し、番号・タイトル・足りないもの・違反を1行ずつ出す（人がまだ整えていない Issue、人や bot の PR は出さない）。
 - `node harness/scripts/agent.ts label-audit [番号..]`：同じ検査の一覧を出す。番号を渡せばその Issue・PR だけ、渡さなければダッシュボードと同じ範囲。ダッシュボードと同じ検査を人が手元で見るためのもので、セッションは走らせない。
+- `node harness/scripts/agent.ts label-fill <番号> --label <ラベル> [--label ..] --reason <根拠>`：最新の `label-triage` の記録の `notApplied` にある `priority:*`・`area:*` だけを、同じ種類のラベルが無いときに付け、理由（Jev の提案と確率・根拠）のコメントを Issue に書く。記録が無ければ何もしない。提案と違うラベルはこのコマンドでは付けられない。
 
 ## Epic（大きな課題を分ける）
 
@@ -191,7 +192,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 3. 途中で失敗したら、App が親に `agent:blocked`（理由コード `split-failed`）を付け、実行を失敗にする。人が原因を直して `agent:blocked` を外し、失敗した実行をやり直すと続きから作る（本文の目印 `<!-- agent-harness:epic-child parent=N index=i -->` で子 Issue を見つけて使い回し、二重に作らない）。
 4. 既に子課題に分けた親（`epic-split` の記録か、App が作った目印付きの子がある）に別の計画が来て検査を通っても、分け直さずに `agent:plan-review`（理由コード `resplit`）で止める。既存の子課題をどうするかは人が決める。同じ計画コメントの再実行は分け直しとみなさない。
 5. 子 Issue はふつうの Issue として、それぞれ計画ゲート・批評・判定を通る。分け方の誤りはそこで拾う。queue は `epic` の親を飛ばす。
-6. 子 Issue がすべて閉じると、App が親を閉じる。
+6. 子 Issue がすべて閉じると、App が親を閉じる。子を付け替え・外した後に、子が1件以上あって全部閉じている Epic が残ったときは、定期実行（1時間ごと）で閉じる（子が0件の Epic は閉じない）。
 
 ## Stacked PR
 
@@ -212,7 +213,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは、同じリポジトリの Agent PR（`agentBranchPrefix` のブランチ）のうち Draft のもの（判定の前で、まだ push が続く PR）だけ。Ready になった PR（人の Merge 待ちも自動 Merge 待ちも）、人の PR、fork の PR は数えない。App が「Draft＝判定前、Ready＝判定に合格して Merge 待ち」を保つので、PR の一覧の `draft` だけで判定の前かが分かる。ガードレールに触れる PR は人の Merge を待つ間 Ready のままたまるので、それを数えると上限を超えたままになり、止める役に立たない。
 
 - 上限に達した領域に計画の触るファイルが入る Issue は、queue が implement を出さずに skip にする（理由はダッシュボードに出る）。
-- 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。急ぐときは `--force` を付ける。fleet が領域の上限を越えて宣言し直すときは `--fleet` を付ける（飛ばすのは領域の上限だけで、`--force` と同じ）。ほかのセッションの着手宣言があるときも止まり、こちらは `--force` では越えない。引き継ぐのは人が決めたときだけで、`--takeover` を付ける。
+- 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。急ぐときは `--force` を付ける。fleet が領域の上限を越えて宣言し直すときは `--fleet` を付ける（飛ばすのは領域の上限だけで、`--force` と同じ）。ほかのセッションの着手宣言があるときも止まり、こちらは `--force`・`--fleet` では越えない。引き継ぐのは人が決めたときだけで、`--takeover` を付ける。
 - 修正の上限（`agent:blocked`、理由コード `fix-limit`）で止まった Agent PR は Draft のまま人を待つので、数え続ける。人が片付けるまで、同じ領域の新しい着手は止まる。
 - 計画・判定・修正の段階は止めない。
 
@@ -230,6 +231,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `areaConcurrency` | `{"harness": 3}` | 領域ごとに同時に開いてよい判定前の Agent PR の数（節「同時に開ける PR の数」） | ゲート（queue）・セッション（`claim`） |
 | `fixLoop.normalLimit`・`criticalLimit` | 2・3 | 修正の上限（`criticalLimit` は `normalLimit` 以上） | ゲート・セッション（`agent.ts step`） |
 | `syncLoop.limit` | 3 | sync ⇄ judge のループの上限 | セッション（`agent.ts step`） |
+| `periodicCatchUpMinutes` | 90 | 定期実行（schedule）が来なくても、イベントで動いた gate が定期の仕事（label-apply・停滞検知とダッシュボード・queue の公開）を補うまでの、前回の定期の仕事からの分（#418。rerun-failed は補わない） | ゲート（`run.ts`） |
 | `staleHours` | 24 | 停滞とみなす時間・ダッシュボードで見返す期間 | ゲート（`stale`） |
 | `jev.maxDiffChars` | 80000 | Jev に渡す diff の文字数の上限 | ゲート |
 | `jev.decisionMaxTargets`・`decisionMaxAnswerChars` | 20・20000 | 決定の記録を Jev に問う項目の数・答えの文字数の上限（超えれば問わない） | ゲート |
@@ -389,7 +391,7 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 | 判定が古い | App の `verdict-rejected` | 何もしない（次の実行で判定し直す） |
 | コンフリクト・停滞 | ダッシュボードの各一覧。持ち主のいない衝突した Agent PR は「人の対応待ち」に「引き継ぐか決める」で出る。judge・fix・sync の宣言の後に動きの無い PR は「止まっていそうな着手宣言」に出る | 人が解消する。持ち主のいない衝突した PR は、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで sync」と言う。止まっていそうな着手宣言は、引き継ぐかを人が決め、引き継ぐならどのセッションにでも「#<PR番号> を引き継いで <段階>」と言う（引き継がないなら何もしない） |
 | ラベルの不足・違反 | ダッシュボードの「ラベルが足りない Issue・PR」、`agent.ts label-audit` | セッションは聞かない（Jev が下限未満で付けなかった `priority:*`・`area:*` はセッションが決めて付け、理由をコメントに残す）。それでも足りないものと違反は、人がダッシュボードを見て、足りないラベルを付け、違反を直す（Epic の `type:*` を外す、優先度を1つにする、タイトルか `type:*` を直す）。セッションが付けたラベルを直すのも人 |
-| ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる。計画・判定・決定の記録のコメントで起動して失敗した実行は、次の定期実行（1時間ごと）か手動の起動でジョブ `rerun-failed` が1回だけやり直す（直近6時間・1回目の実行・まだ処理されていないものだけ。やり直した実行と飛ばした理由はそのジョブのログにある）。2回目も失敗した実行と、「acceptance の後で失敗」で飛ばした実行（受け付けは書かれたが Ready・auto-merge などの続きが済んでいない。定期照合は auto-merge の付いた PR しか見ないので直らない）は、人が `gh run rerun` するか判定し直す |
+| ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる。計画・判定・決定の記録のコメントで起動して失敗した実行は、次の定期実行（1時間ごと）か手動の起動でジョブ `rerun-failed` が1回だけやり直す（直近6時間・1回目の実行・まだ処理されていないものだけ。やり直した実行と飛ばした理由はそのジョブのログにある）。2回目も失敗した実行と、「acceptance の後で失敗」で飛ばした実行（受け付けは書かれたが Ready・auto-merge などの続きが済んでいない。定期照合は auto-merge の付いた PR しか見ないので直らない）は、人が `gh run rerun` するか判定し直す。定期実行が来ないときにイベントの gate が定期の仕事を補う仕組み（`periodicCatchUpMinutes`）は、`rerun-failed` を行わない（`actions: write` を定期実行・手動の起動のジョブだけに持たせるため） |
 
 判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。集計のしかたと切り替えの基準は [security.md](security.md#jev) を見る。同じ集計の最後に、合体版のレビューの記録と今の判定を比べる節（「合体版のレビュー（記録だけの期間の比較）」）が出る。その切り替えの基準は [plan.md](plan.md) の決定ログの Q91。
 

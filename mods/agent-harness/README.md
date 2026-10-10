@@ -6,6 +6,8 @@ hq・fleet の状況を Claude Code の画面に出す mod。
 - hq の人待ち：プロンプトの上の帯に「hq の人待ち N 件（/hq-todo で開く）」（1件以上のときだけ）。`/hq-todo` で全文をペインに出す。
 - hq の人待ちの通知：人待ちが増えたら OS の通知を1回（出せなければ toast）。hq と intel の両方で開いていても1回。止めるには設定 `notifyHqTodo` を false（`/config`。変えるとその場から効く）。
 - hq の Epic/Issue：`/hq-board` でペインを開き、ボタン（e・i）で Epic と Issue のページを切り替える。終わった Epic・テーマはグレーにして下に回す（消さない）。
+- 冒険者ギルド：`/guild` でペインを開き、hq board の中身をドット絵（Epic がクエスト、Issue がモンスター）で出して 0.1 秒ごとに動かす。人の Merge 待ちは「!」と「! #番号 PR #番号」の一覧。ペインが見えていない間は動かさず読み直さない。ターミナルと desktop で始めたセッションにあり、呼んだときだけ開く（desktop などターミナル以外の画面では「現在はターミナル版だけに対応しています」と文だけ）。
+- ギルドの情報屋：/guild のペインで「情報屋に送る」（m）を押すと入力欄が開き、Enter で intel に送る（先頭に「[ギルドの画面から人が送った]」。Issue を作る承認にはならない）。intel がいないと送れなかったことを出す。terminal だけ。
 - 中身は `node harness/scripts/panes.ts hq todo --json`（人待ち）と `hq board --json`（Epic/Issue。開いたときから）を15秒ごとに読んだもの（GitHub は読まない）。
 - 出るセッション：fleet の status line は fleet のセッション（collect のスナップショットがあるセッション。Issue の worktree でも出る）に出る。hq の人待ちの帯・`/hq-todo`・通知は main の checkout で動くセッション（hq・intel）だけに出て、fleet のワークスペース・Issue の worktree では出さず、人待ちの定期の読み直しも始めない。`/hq-board` は呼んだときだけペインを開き、自動では何も出さない（コマンドはどのセッションにもある。使うのは hq・intel）。
 
@@ -13,6 +15,8 @@ hq・fleet の状況を Claude Code の画面に出す mod。
 
 - 試す・開発：`claude --plugin-dir mods/agent-harness`（そのセッションだけ。保存で読み直す）。
 - 常に入れる：`/plugin install agent-harness --marketplace <owner>/<repo>`（リポジトリの root の `.claude-plugin/marketplace.json` を使う）。手元のフォルダを marketplace にするなら `claude plugin marketplace add <リポジトリのフォルダ>`。更新は `/reload-plugins`。
+- 更新のしかた：`claude plugin marketplace update agent-harness` の後に `claude plugin update agent-harness@agent-harness`（入れ直しは要らない）。
+- mod を変えたら `.claude-plugin/plugin.json` の `version` を上げる。上げないと「already at the latest version」になって届かない。`npm run check` が上げ忘れを落とす（CI は履歴が無いので見ない）。
 
 ## 機能の足し方
 
@@ -27,4 +31,4 @@ claude plugin validate mods/agent-harness
 claude plugin test mods/agent-harness
 ```
 
-CI には claude が無いので、変えたときは手元で流す。`npm run check` の対象ではない。
+CI には claude が無いので、変えたときは手元で流す。この2つは `npm run check` の対象ではない（版の上げ忘れだけは `npm run check` が見る）。

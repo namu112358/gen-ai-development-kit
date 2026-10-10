@@ -1272,15 +1272,16 @@ export interface AutoModeViewShift {
 /**
  * 計画ゲートの記録（計画コメントごと）と受け付けの記録（patch-id ごと）から、auto mode の Jev の記録を1件ずつ取り出す。
  * 同じ計画コメント・同じ patch-id の記録が何回出し直されても、最後の1件だけを数える（記録は使い回されるので同じ問いを重ねて数えない）。jev の無いものは除く。
+ * main の取り込みで引き継いだ受け付け（carriedFrom あり）は、同じ Jev の記録の写しなので数えない。
  */
 export function autoModeViewRecords(
   planGates: { planCommentId: number; autoMode?: { jev?: AutoModeJevRecord } }[],
-  acceptances: { patchId: string; autoMode?: { jev?: AutoModeJevRecord } }[],
+  acceptances: { patchId: string; carriedFrom?: unknown; autoMode?: { jev?: AutoModeJevRecord } }[],
 ): AutoModeJevRecord[] {
   const plans = new Map<number, AutoModeJevRecord | undefined>();
   for (const g of planGates) plans.set(g.planCommentId, g.autoMode?.jev);
   const prs = new Map<string, AutoModeJevRecord | undefined>();
-  for (const a of acceptances) prs.set(a.patchId, a.autoMode?.jev);
+  for (const a of acceptances) if (!a.carriedFrom) prs.set(a.patchId, a.autoMode?.jev);
   return [...plans.values(), ...prs.values()].filter((j): j is AutoModeJevRecord => j !== undefined);
 }
 
