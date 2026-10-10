@@ -10,6 +10,7 @@ import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
 import { askJev, callJev } from '../lib/jev.ts';
 import { reusableModelRouting, routeModel } from '../lib/model-routing.ts';
 import { eligibility, type Acceptance } from '../lib/merge-route.ts';
+import { applyOverbuildJev, renderOverbuildJevRow } from '../lib/overbuild-jev.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { critiqueClaimedBefore } from '../lib/facts.ts';
 import { evaluateCritiqueGate, evaluatePlanGate, parsePlan, planReviewOrigin, PRIOR_PLAN_REVIEW_REASON_PREFIX, priorPlanReviewReleased, recordedOrigin, withCritiqueGate, type GateResult, type Plan } from '../lib/plan.ts';
@@ -43,6 +44,7 @@ import { applyAcceptance } from './apply.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
 import { bypassEligibility, bypassFor, bypassRoute, type BypassState } from './bypass.ts';
 import { askPlanJev, askPrJev, autoModeEligibility, autoModeFor, autoModePlanSkips, autoModeRoute, autoModeRequired, reusablePlanJev, reusablePrJev } from './auto-mode.ts';
+import { overbuildJevFor } from './overbuild-jev.ts';
 import { onDecision } from './plan-decision.ts';
 import { planAreaLabels, riskLabelChanges, singleAreaLabel } from './label-apply.ts';
 
@@ -374,7 +376,11 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
     return;
   }
 
-  const acceptance = await buildAcceptance(ctx, pr.number, verdict, comment.id, currentPatch, diff, isAgentPr(ctx.config, pr, ctx.repository), classifyBase(pr, ctx.config.defaultBranch));
+  // ⑨のブロッキング指摘を Jev に問う。enforce のときだけ、下限未満の⑨を外した判定（effective）で合否・修正の依頼を決める（判定コメントは書き換えない）
+  const overbuildJev = await overbuildJevFor(ctx, pr.number, verdict, diff);
+  const effective = applyOverbuildJev(verdict, overbuildJev);
+  const acceptance = await buildAcceptance(ctx, pr.number, effective, comment.id, currentPatch, diff, isAgentPr(ctx.config, pr, ctx.repository), classifyBase(pr, ctx.config.defaultBranch));
+  if (overbuildJev) acceptance.overbuildJev = overbuildJev;
   // Jev の呼び出し中などに push されていたら、新しい head の差分でも同じときだけ続ける
   const current = await getPr(ctx, prNumber);
   if (current.head.sha !== pr.head.sha && patchId(await prDiff(ctx.gh, current)) !== currentPatch) {
@@ -386,9 +392,9 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
   if (!acceptance.reviewPass) {
     const count = await fixRequestCount(ctx.gh, ctx.config, prNumber);
     await convertToDraft(ctx, current);
-    if (fixAllowed(count, hasCriticalBlocking(verdict), ctx.config.fixLoop)) {
+    if (fixAllowed(count, hasCriticalBlocking(effective), ctx.config.fixLoop)) {
       await ctx.gh.request('POST', `/pulls/${prNumber}/reviews`, {
-        body: { event: 'REQUEST_CHANGES', commit_id: current.head.sha, body: renderBlockingReview(verdict, count + 1) },
+        body: { event: 'REQUEST_CHANGES', commit_id: current.head.sha, body: renderBlockingReview(effective, count + 1) },
       });
     } else {
       limitExceeded = true;
@@ -398,7 +404,7 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
   }
   // 受け付けた判定で乗る乗り方（委任・auto mode・bypass）を、コメントの前に1回だけ読む。読んだ状態は applyAcceptance に渡す（読み直さない）
   const rode = await rideFor(ctx, acceptance, new Date());
-  const posted = await appComment(ctx, prNumber, 'acceptance', renderAcceptance(acceptance, verdict, comment.html_url, rode.ride), acceptance);
+  const posted = await appComment(ctx, prNumber, 'acceptance', renderAcceptance(acceptance, effective, comment.html_url, rode.ride), acceptance);
   ctx.log(`acceptance comment ${posted.id}${limitExceeded ? ' (fix limit exceeded)' : ''}`);
   if (limitExceeded) {
     await appComment(ctx, prNumber, 'fix-limit', `${reasonMark('fix-limit')}\n修正回数の上限に達したため \`agent:blocked\` にしました。指摘を確認して人が直すか、Close してください。`);
@@ -567,6 +573,7 @@ function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string, ride: R
     `| --- | --- |`,
     `| 経路 | ${route} |`,
     `| Reviewer | ${a.reviewPass ? '合格' : `ブロッキング ${v.review.blocking.length} 件`} |`,
+    ...renderOverbuildJevRow(a.overbuildJev),
     `| Risk（Claude） | ${a.riskLevel}${a.riskOk ? '' : '（自動 Merge 不可）'} |`,
     `| 範囲照合 | ${a.scopeOk ? 'OK' : `範囲外: ${a.outside.join(', ')}`} |`,
     `| ガードレール | ${a.guardrail?.length ? `触れる（Human Merge）: ${a.guardrail.join(', ')}` : '触れない'} |`,

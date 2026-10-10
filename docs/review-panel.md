@@ -33,6 +33,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 
 - 採点の無い指摘・同じ ID の採点が2つ・指摘に無い ID の採点・0〜100 の外や整数でない点数・未知の観点は、組み立てを止める（黙って捨てない）。
 - 再レビュー（judge-input に「前回の判定」がある）：ブロッキングにしてよいのは、前回の head からの変わった行（`git diff -U0 <前回の head> <headSha>`）に当たる指摘、⑥⑦の `unfixedPrevious: true`（前回の指摘が直っていない）、⑧だけ。ほかは `nonBlocking`（⑥⑦は `humanNotes.concerns` にも。⑨は①〜⑤と同じく入れない）。reviewer.md の再レビューと同じ決まり。
+- App が `jev.overbuild` の `enforce` で外した⑨も、判定コメントは書き換えないので次の再レビューの「前回の判定」には前回のブロッキングとして渡るが、⑨は変わった行に当たるものだけブロッキングになる（[operations.md](operations.md#判定の⑨の-jevjevoverbuild)）。
 - ⑨で計画の方針ごと過剰（`planLevel: true`）なものは、ブロッキングでも `nonBlocking` でも `humanNotes.checkPoints` にも入れる。
 - ⑨の出力が無くても組み立ては止めない（`humanNotes.concerns` に「⑨の記録なし」を残す）。そのため⑨の出力が欠けた判定は、⑨のブロッキングが無いまま合格しうる。
 - ⑨の `over-*` の種類は今の reviewer が出さないので、report の合体版と今の reviewer の比較では合体版だけの指摘（`panelOnly`）に数えられる。

@@ -22,6 +22,7 @@
 | `on-issue.ts` | Issue の出来事ごとの処理。 | ○ |
 | `on-main-push.ts` | main に push されたときの処理。 | ○ |
 | `on-pr.ts` | PR の出来事（作成・push・編集・ラベル）ごとの処理。 | ○ |
+| `overbuild-jev.ts` | 判定の受け付けで⑨のブロッキング指摘を Jev に問い、受け付けの記録の overbuildJev を作る。 | ○ |
 | `periodic-catch-up.ts` | イベントで動いた gate が、前回の定期の仕事（label-apply → stale の onSchedule → queue の公開）からしきい値以上空いていれば、定期の仕事を1回補う（Issue #418）。 | ○ |
 | `plan-decision.ts` | 決定の記録（````agent-decision````）の受け付け。 | ○ |
 | `plan-link.ts` | 必須チェック agent/plan-link：PR が計画のある Issue に紐付いているか（本文の `Closes #N`、Stacked PR の層は `Refs #N` も）。 | ○ |
