@@ -4,13 +4,15 @@ import { existsSync, readdirSync, realpathSync, rmdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { HarnessConfig } from './config.ts';
+import { parseTitle } from './title.ts';
 
 /**
  * 作業用の git worktree（リポジトリの外の作業場所）の作成（`node_modules` が無ければ `npm ci` まで）と削除、置き場所の決め方、Orca の表示名。
  * 作業は常に git worktree で行う。置き場所は環境変数 `AGENT_HARNESS_WORKTREE_ROOT` → 設定の `worktreeRoot` → 既定
  * （`../<リポジトリ名>.worktrees`）の順で `worktreeRoot` が決め、リポジトリの中になる値と本体を含む祖先は拒む
  * （作業中の変更やほかの作業ツリーがコミットに紛れ込まないように）。Issue のブランチの worktree には、Orca があれば
- * 表示名「#番号 短い名前」と Issue を付ける（`labelOrcaWorktree`。表示のためだけで、無い・失敗しても止めない）。
+ * 表示名「#番号 短い名前」と Issue を付ける（`labelOrcaWorktree`。短い名前は Issue のタイトルを短くしたもので、取れなければ
+ * ブランチの後ろ。表示のためだけで、無い・失敗しても止めない）。
  * plan-critic の読み先は `criticRepo` が決める（先に fetch し（失敗したら手元の origin/<既定ブランチ> で続けて警告を出す）、origin/<既定ブランチ> を含むパスを選ぶ。無ければ SHA の detach の worktree。
  * セッションを渡すと Issue とセッションごとの名前の worktree（並行するセッション・入れ子の ship の片付けで消えない））。
  */
@@ -123,10 +125,24 @@ export function worktreeOptions(
   return { root, defaultBranch: config.defaultBranch, worktreeRoot: worktreeRoot(root, config, env) };
 }
 
-/** Orca の表示名と Issue（`claude/issue-<番号>-<短い名前>` のブランチだけ。短い名前はブランチの後ろをそのまま使う） */
-export function orcaWorktreeLabel(ref: string): { issue: number; displayName: string } | null {
+/** Orca の表示名の短い名前に使う、Issue のタイトルの説明（`type(scope)!: ` を除き、空白を詰めて 24 字まで。超えたら `…`）。空なら null */
+export function orcaShortTitle(title: string | null | undefined): string | null {
+  if (typeof title !== 'string') return null;
+  const parsed = parseTitle(title);
+  const text = (parsed.ok ? parsed.subject : title).replace(/\s+/g, ' ').trim();
+  if (text === '') return null;
+  const chars = Array.from(text);
+  return chars.length > 24 ? `${chars.slice(0, 24).join('')}…` : text;
+}
+
+/**
+ * Orca の表示名と Issue（`claude/issue-<番号>-<短い名前>` のブランチだけ）。短い名前は Issue のタイトルを短くしたもの
+ * （`orcaShortTitle`）で、タイトルが無い・空ならブランチの後ろをそのまま使う
+ */
+export function orcaWorktreeLabel(ref: string, title?: string | null): { issue: number; displayName: string } | null {
   const m = ref.match(/^claude\/issue-(\d+)-(.+)$/);
-  return m ? { issue: Number(m[1]), displayName: `#${m[1]} ${m[2]}` } : null;
+  if (!m) return null;
+  return { issue: Number(m[1]), displayName: `#${m[1]} ${orcaShortTitle(title) ?? m[2]}` };
 }
 
 /**
@@ -152,6 +168,8 @@ export interface OrcaLabelDeps {
   env?: Record<string, string | undefined>;
   run?: (command: string, args: string[]) => OrcaRunResult;
   warn?: (message: string) => void;
+  /** Issue のタイトル（呼び出し元が取ったもの。無ければ表示名はブランチの後ろ） */
+  title?: string | null;
 }
 
 /** 既定の起動。shell を通さない（表示名の文字を解釈させない）。出力は標準出力に流さない。15 秒で打ち切る */
@@ -160,12 +178,13 @@ function defaultOrcaRun(command: string, args: string[]): OrcaRunResult {
 }
 
 /**
- * Issue のブランチの worktree に、Orca の表示名と Issue を付ける。1回だけ動かし、投げない。
+ * Issue のブランチの worktree に、Orca の表示名と Issue を付ける。1回だけ動かし、投げない。表示名の短い名前は
+ * `deps.title`（Issue のタイトル）を短くしたもので、無ければブランチの後ろ。
  * ラベルが無ければ skipped、CLI が無い（ENOENT）なら何も言わずに absent、0 以外・タイムアウト・その他の起動エラー
  * （Windows で .cmd を shell なしで起動した EINVAL など）は警告1行で failed。Orca が動いていなくても起動（open）はしない
  */
 export function labelOrcaWorktree(path: string, ref: string, deps: OrcaLabelDeps = {}): 'labeled' | 'skipped' | 'absent' | 'failed' {
-  const label = orcaWorktreeLabel(ref);
+  const label = orcaWorktreeLabel(ref, deps.title);
   if (!label) return 'skipped';
   const { platform = process.platform, env = process.env, run = defaultOrcaRun, warn = console.error } = deps;
   try {

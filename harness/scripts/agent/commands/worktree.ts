@@ -21,7 +21,8 @@ import { type AgentCommand, type CommandContext, config, ensureOwnClaim } from '
  *
  * 置き場所は worktreeOptions（環境変数 AGENT_HARNESS_WORKTREE_ROOT → 設定の worktreeRoot → ../<リポジトリ名>.worktrees）で決め、
  * リポジトリの中になる値なら終了コード 1 で止まる。worktree は、--detach でも --routine でもなければ、Orca があれば
- * 表示名「#番号 短い名前」と Issue を付ける（親子は付けない。Orca が無い・失敗しても止めない）。
+ * 表示名「#番号 短い名前」と Issue を付ける（短い名前は GitHub から取った Issue のタイトルを短くしたもので、取れなければ
+ * ブランチの後ろ。親子は付けない。Orca が無い・タイトルが取れない・失敗しても止めない）。
  */
 
 /** worktree・worktree-remove。claude/issue-<番号>- のブランチなら、作る前にこのセッションの着手宣言を確かめる */
@@ -34,6 +35,7 @@ async function worktreeCommand(cmd: 'worktree' | 'worktree-remove', args: string
     process.exit(1);
   }
   const { ref, detach, routine } = parsed;
+  let title: string | null = null;
   if (cmd === 'worktree') {
     const target = worktreeClaimIssue(ref, detach, args.includes('--routine'));
     if (target !== null) {
@@ -41,6 +43,13 @@ async function worktreeCommand(cmd: 'worktree' | 'worktree-remove', args: string
       // fix・sync は PR 番号に宣言するので、そのブランチの開いた PR があれば PR の宣言を見る
       const open = await gh.get<PullRequest[]>(`/pulls?state=open&head=${encodeURIComponent(`${gh.owner}:${ref}`)}`);
       await ensureOwnClaim(gh, open[0]?.number ?? target);
+      // Orca の表示名に使う Issue のタイトル。取れなければブランチの後ろを使うので、失敗しても止めない
+      try {
+        const issue = await gh.get<{ title?: unknown }>(`/issues/${target}`);
+        if (typeof issue.title === 'string') title = issue.title;
+      } catch {
+        title = null;
+      }
     }
   }
   try {
@@ -48,7 +57,7 @@ async function worktreeCommand(cmd: 'worktree' | 'worktree-remove', args: string
     if (cmd === 'worktree') {
       const path = addWorktree(ref, detach, opts);
       ensureNodeModules(path);
-      if (!detach && !routine) labelOrcaWorktree(path, ref);
+      if (!detach && !routine) labelOrcaWorktree(path, ref, { title });
       return void console.log(path);
     }
     return removeWorktree(ref, opts);
