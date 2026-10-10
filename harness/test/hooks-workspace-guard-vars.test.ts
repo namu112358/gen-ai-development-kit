@@ -66,6 +66,34 @@ test('AC2：値が main の checkout なら、覚えた上で今までどおり 
   assertDenyWhy(decide(bash(cmd, issueWt), ctx), cmd, ['main の checkout']);
 });
 
+test('AC2：引用符の境目で名前が切れる使い方（"$W"o）は、別の変数（Wo）として読まずに止める', () => {
+  const { main, issueWt, ctx } = s;
+  const wt = sh(issueWt);
+  const cmds = [
+    `Wo=${wt}; cd "$W"o && git merge x`,
+    `Wo=${wt}; cd "$W"'o' && git merge x`,
+    `W=${wt}; cd "\${W}"o && git merge x`,
+  ];
+  for (const cmd of cmds) assertDenyWhy(decide(bash(cmd, main), ctx), cmd);
+  // 名前の後が / で始まる使い方は今までどおり読む
+  const ok = `W=${wt}; cd "$W"/src && git commit -m x`;
+  assertAllow(decide(bash(ok, main), ctx), ok);
+});
+
+test('AC2：関数の定義・trap・readonly・declare などの文の後は、覚えた代入の値を信用せずに止める', () => {
+  const { main, issueWt, ctx } = s;
+  const wt = sh(issueWt);
+  const m = sh(main);
+  const cmds = [
+    `f() { W=${m}; }; W=${wt}; f; cd "$W" && git merge x`,
+    `function f { W=${m}; }; W=${wt}; f; cd "$W" && git merge x`,
+    `trap 'W=${m}' DEBUG; W=${wt}; cd "$W" && git merge x`,
+    `readonly W=${m}; W=${wt}; cd "$W" && git merge x`,
+    `declare -n W=Z; W=${wt}; Z=${m}; cd "$W" && git merge x`,
+  ];
+  for (const cmd of cmds) assertDenyWhy(decide(bash(cmd, main), ctx), cmd);
+});
+
 // ---- guard.ts の parseScript の before ----
 
 test('parseScript：各文に直前の区切り（before）を入れる', () => {
