@@ -4,9 +4,8 @@
  * 済んでいない行（Issue が開いている・worktree が残る）を返す。GitHub も git も呼ばない（事実は呼び出し元が渡す）。
  * 見張りの記録は git の共通ディレクトリの下の `agent-harness/watch/<セッションの ID>.json`（書式は docs/formats.md の「見張りの記録」）。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { TRANSCRIPT_SESSION_ID } from './session.ts';
+import { readFileSync } from 'node:fs';
+import { sessionFilePath, writeLocalJson } from './local-state.ts';
 
 /** 待つ間の読み直しの既定値（harness.config.json の fleet.watch で変えられる） */
 export const FLEET_WATCH_DEFAULTS = { intervalMinutes: 3, appStallMinutes: 20 } as const;
@@ -55,8 +54,7 @@ export interface WatchStall {
 
 /** 見張りの記録のパス。ID が記録のファイル名に使える形でなければ null */
 export function watchRecordPath(gitCommonDir: string, session: string | null): string | null {
-  if (!session || !TRANSCRIPT_SESSION_ID.test(session)) return null;
-  return join(gitCommonDir, 'agent-harness', 'watch', `${session}.json`);
+  return sessionFilePath(gitCommonDir, 'watch', session);
 }
 
 /** 見張りの記録を読む。無い・読めない・書式が違えば null（空から始める） */
@@ -76,10 +74,7 @@ export function readWatchRecord(path: string): WatchRecord | null {
 
 /** 見張りの記録を書く（途中で読まれても壊れた中身が見えないよう、一時ファイルから置き換える） */
 export function writeWatchRecord(path: string, record: WatchRecord): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(record, null, 2)}\n`);
-  renameSync(tmp, path);
+  writeLocalJson(path, record);
 }
 
 const keyOf = (r: WatchRow): string => `${r.issue}:${r.pr ?? '-'}:${r.stage}`;

@@ -32,7 +32,7 @@
  * 段階の読み替えと描き方は harness/lib/panes.ts・harness/lib/panes-hq.ts。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -43,6 +43,7 @@ import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
 import { CLEAR_SCREEN, HISTORY_LIMIT, MARKS, PANE_STEPS, WHO_MARK, ago, locateRow, nextSince, renderProgress, renderPrs, renderTodo, shortTitle, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
 import { groupByEpic, hqWarning, nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type EpicGroup, type FleetRow, type HqView } from '../lib/panes-hq.ts';
+import { writeLocalFile } from '../lib/local-state.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 import { HEARTBEAT_FILE, freshHeartbeats, gitCommonDir, ledgerPath, parseLedger, readHeartbeatAt, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
 import { projectTranscriptDir } from '../lib/usage.ts';
@@ -385,10 +386,7 @@ function readSnapshotFile(path: string): PaneSnapshot | null {
 
 /** 一時ファイルに書いてから名前を変える（読む側が書きかけを読まない） */
 function writeSnapshotFile(path: string, snap: PaneSnapshot): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, JSON.stringify(snap));
-  renameSync(tmp, path);
+  writeLocalFile(path, JSON.stringify(snap));
 }
 
 /** hq todo --json の出力（Claude Code の mod が読む。mods/agent-harness/types/index.d.ts の HqTodo と同じ形） */

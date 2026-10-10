@@ -7,6 +7,7 @@ import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSna
 import { type FleetIssue, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
 import { fleetWatchConfig, pendingFollowUps, readWatchRecord, updateWatch, watchRecordPath, writeWatchRecord } from '../../../lib/fleet-watch.ts';
 import { GitHub } from '../../../lib/github.ts';
+import { gitCommonDir } from '../../../lib/local-state.ts';
 import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
 import { fixRequestFindings } from '../../../lib/report.ts';
 import { splitArgs } from '../../../lib/session-inputs.ts';
@@ -124,7 +125,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
  * Merge 後の見届けが済んでいない Issue と、読み直しの間隔を返す。判断は harness/lib/fleet-watch.ts の純粋関数
  */
 function watchNotes(rows: FleetRow[], items: FleetIssueItem[], session: string | null, cfg: { intervalMinutes: number; appStallMinutes: number }) {
-  const commonDir = spawnGit(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const commonDir = gitCommonDir(process.cwd());
   const path = commonDir ? watchRecordPath(commonDir, session) : null;
   const { record, stalls } = updateWatch(path ? readWatchRecord(path) : null, rows, new Date(), cfg, session ?? '');
   if (path) writeWatchRecord(path, record);
@@ -213,7 +214,7 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
   // agent:blocked の理由：App か Claude の目印のあるコメントの最新の reasonMark
   const blockedReason = reasonComments.filter((c) => isAppComment(config, c) || hasClaudeMark(c.body)).map((c) => reasonOf(c.body)).filter((r): r is ReasonCode => r !== null).at(-1) ?? null;
 
-  const commonDir = spawnGit(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const commonDir = gitCommonDir(process.cwd());
   const path = commonDir ? stageFilePath(commonDir, session) : null;
   const gateAt = issue.facts.gate?.at ?? null;
   const full = issue.planFiles !== null ? fullAreas(config, issue.planFiles, openPrLabels) : [];

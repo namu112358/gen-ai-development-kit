@@ -22,6 +22,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
+import { gitCommonDir, harnessStateDir } from '../lib/local-state.ts';
 import { collectQaRetro } from '../lib/qa-retro.ts';
 import { adoptDraft, advanceLoopState, loopPeriod, parseLoopState, pendingDrafts, QA_RETRO_LOOP_LAG_DAYS, type LoopState } from '../lib/qa-retro-loop.ts';
 
@@ -94,12 +95,18 @@ function parseArgs(args: string[]): { positional: string[]; state?: string; draf
   return out;
 }
 
+function defaultStatePath(): string {
+  const commonDir = gitCommonDir(ROOT);
+  if (commonDir === null) fail([`git の共通ディレクトリが分かりません: ${ROOT}`]);
+  return join(harnessStateDir(commonDir), 'qa-retro-loop.json');
+}
+
 const USAGE = 'node harness/scripts/qa-retro-loop.ts data|advance|pending|adopt …（使い方はファイルの先頭のコメント）';
 
 async function main(): Promise<void> {
   const [sub, ...rest] = process.argv.slice(2);
   const args = parseArgs(rest);
-  const statePath = args.state ?? join(git(['rev-parse', '--path-format=absolute', '--git-common-dir']).trim(), 'agent-harness', 'qa-retro-loop.json');
+  const statePath = args.state ?? defaultStatePath();
   const positional = (n: number): void => {
     if (args.positional.length !== n) fail([`${sub} の位置引数は ${n} 個です（${args.positional.length} 個）`, USAGE]);
   };

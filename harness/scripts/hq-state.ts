@@ -12,20 +12,22 @@
  *   node harness/scripts/hq-state.ts start-failure-save --dispatch <ID> --theme <テーマ> --stage <Orca の stage> --screen-file <worker-read の JSON> [--resent accepted|unobserved|none]（起動の失敗の画面。#551）
  *   node harness/scripts/hq-state.ts start-failures
  *
- * - 置き場所は `git rev-parse --path-format=absolute --git-common-dir` の下の agent-harness/hq/（本体・fleet のワークスペース・
+ * - 置き場所は git の共通ディレクトリ（harness/lib/local-state.ts の gitCommonDir）の下の agent-harness/hq/（本体・fleet のワークスペース・
  *   Issue の worktree から同じ場所。作業ツリーの外で commit されない）。hq の控えは hq-fleets.json、fleet の控えは pending/<セッション ID>.json。
  * - 書き換えの場所の見張りの hook は .git の中への Write を止めるので、hq・fleet は Write で直接書かずにこのスクリプトで書く。
- * - 書くときは一時ファイルに書いてから名前を変える。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
+ * - 書くときは一時ファイルに書いてから名前を変える（harness/lib/local-state.ts。失敗したら一時ファイルを残さない）。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
-import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { gitCommonDir, harnessStateDir, writeLocalJson } from '../lib/local-state.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
+
+export { gitCommonDir } from '../lib/local-state.ts';
 
 export const HQ_STATE_COMMANDS: readonly string[] = ['path', 'ledger', 'ledger-save', 'pending', 'pending-add', 'pending-answer', 'pending-remove', 'heartbeat-save', 'start-failure-save', 'start-failures'];
 
 export function hqStateDir(commonDir: string): string {
-  return join(commonDir, 'agent-harness', 'hq');
+  return join(harnessStateDir(commonDir), 'hq');
 }
 
 export function ledgerPath(commonDir: string): string {
@@ -259,25 +261,15 @@ function readJson(path: string): unknown {
   }
 }
 
-/** 一時ファイルに書いてから名前を変える（読む側が書きかけを読まない） */
+/** 一時ファイルに書いてから名前を変える（読む側が書きかけを読まない。harness/lib/local-state.ts） */
 export function writeJson(path: string, v: unknown): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(v, null, 2)}\n`);
-  renameSync(tmp, path);
+  writeLocalJson(path, v);
 }
 
 export const readLedgerFile = (commonDir: string): HqLedger | null => parseLedger(readJson(ledgerPath(commonDir)));
 export const readHeartbeatAt = (path: string): HeartbeatFile | null => parseHeartbeat(readJson(path));
 export const readStartFailuresAt = (path: string): StartFailuresFile | null => parseStartFailures(readJson(path));
 export const readPendingFile = (commonDir: string, session: string): PendingFile | null => parsePending(readJson(pendingPath(commonDir, session)));
-
-/** git の共通ディレクトリ。取れなければ null */
-export function gitCommonDir(cwd: string): string | null {
-  const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
-  const out = r.status === 0 ? (r.stdout ?? '').trim() : '';
-  return out ? out : null;
-}
 
 // ---- CLI（import.meta.main の中だけで動く） ----
 

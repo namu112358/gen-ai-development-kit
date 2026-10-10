@@ -8,9 +8,9 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { TRANSCRIPT_SESSION_ID } from './session.ts';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { sessionFilePath, writeLocalFileOnce } from './local-state.ts';
 
 /** 記録するハーネスのファイル。`/` で終わるものはその下の全部 */
 export const HARNESS_PATHS: readonly string[] = ['CLAUDE.md', 'harness/CLAUDE.harness.md', '.claude/agents/', '.claude/skills/', '.claude/settings.json'];
@@ -42,8 +42,7 @@ export interface LoadedRecord {
 
 /** 読み込みの記録のパス。ID が記録のファイル名に使える形でなければ null（書かない・読まない） */
 export function loadedRecordPath(gitCommonDir: string, session: string | null): string | null {
-  if (!session || !TRANSCRIPT_SESSION_ID.test(session)) return null;
-  return join(gitCommonDir, 'agent-harness', 'loaded', `${session}.json`);
+  return sessionFilePath(gitCommonDir, 'loaded', session);
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -65,10 +64,8 @@ export function readLoadedRecord(path: string): LoadedRecord | null {
 
 /** 読み込みの記録を書く。同じパスが既にあれば書かず false（resume・compact で上書きして「新しい」に見せない） */
 export function writeLoadedRecordOnce(path: string, record: LoadedRecord): boolean {
-  mkdirSync(dirname(path), { recursive: true });
   try {
-    writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`, { flag: 'wx' });
-    return true;
+    return writeLocalFileOnce(path, `${JSON.stringify(record, null, 2)}\n`);
   } catch {
     return false;
   }

@@ -17,7 +17,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.ts';
 import { GitHub } from '../lib/github.ts';
-import { worktreeRoot } from '../lib/worktree.ts';
+import { mainRepoRoot, worktreeRoot } from '../lib/worktree.ts';
 import { buildGraph, diffGraphs, type Graph, type GraphEvent } from './dashboard/graph.ts';
 import { DashboardData, ReadOnlyTransport, UpdateWatcher } from './dashboard/github.ts';
 import { limitFetch, RateLimitedTransport, RateLimitState } from './dashboard/rate-limit.ts';
@@ -136,7 +136,7 @@ async function main(args: string[]): Promise<void> {
   const { port, intervalMs, minRemaining } = parseOptions(args);
   const config = loadConfig();
   const repo = repository();
-  const repoRoot = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { encoding: 'utf8' }).stdout.trim().replace(/\/\.git$/, '');
+  const repoRoot = mainRepoRoot();
   // worktree の置き場所は起動時に1回だけ決める（リポジトリの中なら、サーバーを立てずに止まる）
   const worktreesDir = worktreeRoot(repoRoot, config, process.env);
   const projectsDir = join(homedir(), '.claude', 'projects');

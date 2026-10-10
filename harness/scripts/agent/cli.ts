@@ -12,6 +12,7 @@ import { parseDecision } from '../../lib/decision.ts';
 import { parseHandoff } from '../../lib/handoff.ts';
 import { GitHub, transportFromEnv } from '../../lib/github.ts';
 import { judgedHeadError, samePrPatch } from '../../lib/patch-id.ts';
+import { gitCommonDir } from '../../lib/local-state.ts';
 import { compareHarness, type DriftResult, harnessVersionsAt, loadedRecordPath, readLoadedRecord } from '../../lib/harness-drift.ts';
 import { expectedPlanGate, parsePlan, type Plan, plannerRequestsHuman } from '../../lib/plan.ts';
 import { type Claim, CLAIM_STAGES, type ClaimStage } from '../../lib/queue.ts';
@@ -65,7 +66,7 @@ export interface HarnessDrift extends DriftResult {
  */
 export function harnessDrift(): HarnessDrift | null {
   const session = transcriptSessionId(process.env);
-  const commonDir = spawnGit(['rev-parse', '--path-format=absolute', '--git-common-dir']);
+  const commonDir = gitCommonDir(process.cwd());
   const path = commonDir ? loadedRecordPath(commonDir, session) : null;
   const record = path ? readLoadedRecord(path) : null;
   if (!record) return null;

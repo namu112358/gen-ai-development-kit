@@ -12,10 +12,10 @@
  * 観測の写しは状態のファイルと同じディレクトリの <状態のファイル名>-observe.json。書き込みは一時ファイルに書いてから名前を変える。
  * 状態のファイルが壊れている・version が違うときは誤りで止まり、上書きしない。GitHub は読まない。決め方と状態のロジックは harness/lib/patrol.ts。終了コードは誤りで 1。
  */
-import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitCommonDir, harnessStateDir } from '../lib/local-state.ts';
 import { checkObserveReport, parsePatrolArgs, parsePatrolState, recordRound, selectReviews, type PatrolState } from '../lib/patrol.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -36,9 +36,9 @@ function readText(path: string): string | null {
 }
 
 function defaultStatePath(): string {
-  const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: ROOT, encoding: 'utf8' });
-  if (r.status !== 0) fail([`git rev-parse が失敗しました: ${(r.stderr ?? '').trim()}`]);
-  return join(r.stdout.trim(), 'agent-harness', 'patrol.json');
+  const commonDir = gitCommonDir(ROOT);
+  if (commonDir === null) fail([`git の共通ディレクトリが分かりません: ${ROOT}`]);
+  return join(harnessStateDir(commonDir), 'patrol.json');
 }
 
 function loadState(path: string): PatrolState | null {
