@@ -87,6 +87,8 @@
     "modelRouting": "shadow",
     "epicTriage": "shadow",
     "epicTriagePerRun": 3,
+    "issueOverlap": "shadow",
+    "issueOverlapMaxCandidates": 5,
     "thresholds": {
       "lowProbability": 0.9,
       "noulSafe": 0.9,
@@ -96,7 +98,8 @@
       "testTamperProbability": 0.9,
       "autoModeTestsProbability": 0.9,
       "epicProbability": 0.9,
-      "epicMargin": 0.2
+      "epicMargin": 0.2,
+      "issueOverlapProbability": 0.9
     }
   },
   "autoMergeStopLabel": "agent:auto-merge-stopped",
