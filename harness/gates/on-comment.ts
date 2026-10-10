@@ -40,9 +40,9 @@ import { appComment, convertToDraft, getPr, type GateContext } from './context.t
 import { inspectEpic, splitEpic, type EpicState } from './epic-split.ts';
 import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
-import { delegationFor } from './delegation.ts';
-import { bypassEligibility } from './bypass.ts';
-import { askPlanJev, askPrJev, autoModeEligibility, autoModeFor, autoModePlanSkips, autoModeRequired, reusablePlanJev, reusablePrJev } from './auto-mode.ts';
+import { delegatedRoute, delegationFor } from './delegation.ts';
+import { bypassEligibility, bypassFor, bypassRoute, type BypassState } from './bypass.ts';
+import { askPlanJev, askPrJev, autoModeEligibility, autoModeFor, autoModePlanSkips, autoModeRoute, autoModeRequired, reusablePlanJev, reusablePrJev } from './auto-mode.ts';
 import { onDecision } from './plan-decision.ts';
 import { planAreaLabels, riskLabelChanges, singleAreaLabel } from './label-apply.ts';
 
@@ -396,12 +396,14 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
       acceptance.reasons.push('修正回数の上限に達しました（`agent:blocked`、人の対応が必要）');
     }
   }
-  const posted = await appComment(ctx, prNumber, 'acceptance', renderAcceptance(acceptance, verdict, comment.html_url), acceptance);
+  // 受け付けた判定で乗る乗り方（委任・auto mode・bypass）を、コメントの前に1回だけ読む。読んだ状態は applyAcceptance に渡す（読み直さない）
+  const rode = await rideFor(ctx, acceptance, new Date());
+  const posted = await appComment(ctx, prNumber, 'acceptance', renderAcceptance(acceptance, verdict, comment.html_url, rode.ride), acceptance);
   ctx.log(`acceptance comment ${posted.id}${limitExceeded ? ' (fix limit exceeded)' : ''}`);
   if (limitExceeded) {
     await appComment(ctx, prNumber, 'fix-limit', `${reasonMark('fix-limit')}\n修正回数の上限に達したため \`agent:blocked\` にしました。指摘を確認して人が直すか、Close してください。`);
   }
-  await applyAcceptance(ctx, current, acceptance, { fresh: true, diff });
+  await applyAcceptance(ctx, current, acceptance, { fresh: true, diff, delegation: rode.delegation, autoMode: rode.autoMode, bypass: rode.bypass });
   // 受け付けた判定の Risk を PR の risk:* にする（ほかの risk:* は外す）。受け付けの書き込みの後に置く
   const risk = riskLabelChanges(current.labels.map((l) => l.name), verdict.risk.level);
   for (const l of risk.remove) await ctx.gh.removeLabel(prNumber, l);
@@ -527,8 +529,37 @@ function renderAutoMode(a: Acceptance): string {
   return m.eligible ? `可（飛ばす理由: ${cell(m.skipped)}）` : `不可: ${cell(m.reasons)}`;
 }
 
-function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string {
-  const route = !a.reviewPass ? '修正へ（Draft のまま）' : a.autoEligible ? '自動 Merge（auto-merge を設定）' : 'Human Merge（人のレビュー待ち）';
+type Ride = 'delegate' | 'autoMode' | 'bypass';
+
+type RideResult = { ride: Ride | null; delegation?: DelegateState; autoMode?: AutoModeState; bypass?: BypassState };
+
+const RIDE_NAME: Record<Ride, string> = { delegate: '委任承認（計画＋Merge）', autoMode: 'auto mode', bypass: 'bypass モード' };
+
+/** 自動 Merge の対象外で、委任 → auto mode → bypass の順に乗れるものを決める（apply.ts の applyAcceptance の冒頭と同じ条件・順番）。読んだ状態は返して applyAcceptance に渡す */
+async function rideFor(ctx: GateContext, acceptance: Acceptance, now: Date): Promise<RideResult> {
+  if (!acceptance.reviewPass || acceptance.autoEligible) return { ride: null };
+  let delegation: DelegateState | undefined;
+  if (acceptance.delegate !== undefined) {
+    delegation = await delegationFor(ctx, now);
+    if (delegatedRoute(delegation, acceptance).ok) return { ride: 'delegate', delegation };
+  }
+  let autoMode: AutoModeState | undefined;
+  if (acceptance.autoMode !== undefined) {
+    autoMode = await autoModeFor(ctx);
+    if (autoModeRoute(autoMode, acceptance).ok) return { ride: 'autoMode', delegation, autoMode };
+  }
+  let bypass: BypassState | undefined;
+  if (acceptance.bypass !== undefined) {
+    bypass = await bypassFor(ctx);
+    if (bypassRoute(bypass, acceptance).ok) return { ride: 'bypass', delegation, autoMode, bypass };
+  }
+  return { ride: null, delegation, autoMode, bypass };
+}
+
+function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string, ride: Ride | null): string {
+  const auto = ride === 'delegate' ? '自動 Merge（委任承認（計画＋Merge）で auto-merge を設定）' : ride === 'autoMode' ? '自動 Merge（auto mode で auto-merge を設定）' : ride === 'bypass' ? '自動 Merge（bypass モードで auto-merge を設定）' : 'Human Merge（人のレビュー待ち）';
+  const route = !a.reviewPass ? '修正へ（Draft のまま）' : a.autoEligible ? '自動 Merge（auto-merge を設定）' : auto;
+  const reasonsHead = ride ? `自動 Merge の対象外の理由（${RIDE_NAME[ride]}で飛ばして自動経路に乗せます）:` : '自動 Merge しない理由:';
   return [
     `[判定](${verdictUrl})を受け付けました（head ${v.headSha.slice(0, 7)}、patch-id ${a.patchId.slice(0, 12)}）。`,
     '',
@@ -544,6 +575,6 @@ function renderAcceptance(a: Acceptance, v: Verdict, verdictUrl: string): string
     `| 委任承認（計画＋Merge） | ${renderDelegate(a)} |`,
     `| auto mode | ${renderAutoMode(a)} |`,
     `| bypass | ${renderBypass(a)} |`,
-    ...(a.reasons.length > 0 ? ['', '自動 Merge しない理由:', ...a.reasons.map((r) => `- ${r}`)] : []),
+    ...(a.reasons.length > 0 ? ['', reasonsHead, ...a.reasons.map((r) => `- ${r}`)] : []),
   ].join('\n');
 }
