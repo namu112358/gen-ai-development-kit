@@ -200,7 +200,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 | `harness-stale` | judge の前で、このセッションの読み込みが古い（節「読み込みの記録」。開いた PR があるときだけ比べる。#199） | 解除する |
 
 - 批評の止まり方（`critique-limit`・批評の `repeated-finding`・`drop`）は、Issue の Requirements の「stop のときは自分の宣言だけを解除する」の例外で、宣言を残す。有人セッションで人が「進める」と決めれば `post-plan` で投稿し、`post-plan` は `ensureOwnClaim` でこのセッションの宣言を確かめるため。「やめる」なら skill の手順で `release` する。ほかの stop で `step` が解除した後は、`release` を呼ばなくてよい。
-- 計画の段階は、段階のファイルの中だけで進む：`--plan <file>` は計画を書いた後（`agent.ts check` と同じ検査。通れば宣言を `plan-critique` にして node `plan-critique`、誤りがあれば node `plan` の `inputs` に誤り）、`--critique <file>` は plan-critic の出力を渡すとき（`go`・`split` なら node `plan-critique` の `allowed` に `post-plan`、`revise` は上限と繰り返しを見て node `plan`）。
+- 計画の段階は、段階のファイルの中だけで進む：`--plan <file>` は計画を書いた後（`agent.ts check` と同じ書式の検査。一緒に変えるファイルの抜けは `check` だけ。通れば宣言を `plan-critique` にして node `plan-critique`、誤りがあれば node `plan` の `inputs` に誤り）、`--critique <file>` は plan-critic の出力を渡すとき（`go`・`split` なら node `plan-critique` の `allowed` に `post-plan`、`revise` は上限と繰り返しを見て node `plan`）。
 - `--proceed` は、人が `agent:plan-review` の計画を進めると決めたとき（計画コメントがあれば node `implement`）。人の答えが Planner の申告への答えなら、先に決定の記録（`post-decision`）を残す。implement の前に、人の「進める」を `proceed` の決定の記録（[決定の記録](#決定の記録agent-decision)）で残す（委任・bypass の範囲照合に使えるようにする）。
 - `step` は1件の Issue で読むので、自分の PR が開いている間は「Merge 済みの PR があり main に追従していない」の sync は起きず、sync は main と衝突したときだけ（fleet は `fleet-status` で集合を見て決める）。
 - `sync ⇄ judge` の上限は `harness.config.json` の `"syncLoop": { "limit": 3 }`（正の整数。無ければ 3。`harness/lib/config.ts` の `syncLoopConfig`。書式が違えば `step` は GitHub を読む前にエラー）。
