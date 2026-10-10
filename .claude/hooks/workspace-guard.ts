@@ -572,7 +572,7 @@ function analyze(script: string, where: Where, ctx: WorkspaceContext, depth: num
 
 /** 後の代入の値を信用できなくする文の頭（関数の定義・DEBUG などの trap・読み取り専用・nameref） */
 const UNTRACKABLE = new Set(['function', 'trap', 'readonly', 'declare', 'typeset', 'local']);
-const BLOCK_OPEN =new Set(['if', 'while', 'until', 'for', 'case', 'select', '{']);
+const BLOCK_OPEN = new Set(['if', 'while', 'until', 'for', 'case', 'select', '{']);
 const BLOCK_CLOSE = new Set(['fi', 'done', 'esac', '}']);
 const LEADING_KEYWORDS = new Set([...KEYWORDS, 'for', 'case', 'select', 'esac']);
 
