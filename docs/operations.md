@@ -76,7 +76,7 @@ Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.cla
 - 進んでいない fleet（ペインのスナップショットの `at` が `hq.staleSnapshotMinutes` より古い、AI の番の行が `hq.stuckMinutes` より長い）は起こし直さず、`orchestration send` で状況を聞き、答えが無ければ人に知らせる。hq がまだ答えていない質問のある Issue は、人の答え待ちなので数えない。判定は `node harness/scripts/panes.ts fleets --session <ID>...`。
 - 止まった fleet を起こし直すのは、`orca orchestration worker-list` で `exited` と確かめたときだけ（`unverifiable` は止まった証拠にしない）。同じ fleet は1時間に2回まで（Epic への hq の記録のコメントで数える）、超えたら人に知らせる。起こし直すときは、前の fleet の着手宣言を新しい fleet に引き継ぐかを1問で人に聞き、引き継ぐなら新しい fleet が `--takeover` で出し直す。
 - fleet が人の Merge 待ちで終わっても、Epic が開いていればワークスペースを残す。片付け（worker の解放とワークスペースの削除）は Epic が Close したとき。
-- 15分ごとの確かめのついでに、fleet の外で止まっているタスク（担当のいない PR・止まった宣言・どの fleet にも入っていない開いた Issue・Epic に入っていない単発の Issue）を見つける（#407）。読むのはダッシュボードの節・patrol の未採用の下書きの数・番号なしの `fleet-status --json` と、候補があるときだけ開いた Epic の子の一覧。今の fleet の Epic に入るものはその fleet に `orchestration send` で渡し、入らないものは `hq.maxFleets` に空きがあれば新しい fleet の案にする。引き継ぎは人が決め、Epic の案（「単発の #… を Epic #… に」「この3件で新しい Epic を」）と一緒に1回にまとめて聞く。承認されたら Epic の Issue は intel か hq が作り、sub-issues には人が承認した案だけ hq が足す。
+- 15分ごとの確かめのついでに、fleet の外で止まっているタスク（担当のいない PR・止まった宣言・どの fleet にも入っていない開いた Issue・Epic に入っていない単発の Issue）を見つける（#407）。読むのはダッシュボードの節・patrol の未採用の下書きの数・番号なしの `fleet-status --json` と、候補があるときだけ開いた Epic の子の一覧。今の fleet の Epic に入るものはその fleet に `orchestration send` で渡し、入らないものは `hq.maxFleets` に空きがあれば新しい fleet の案にする。引き継ぎは人が決め、1回にまとめて聞く。Epic に入っていない単発の Issue は、ダッシュボードの節「Epic に入っていない Issue」（App の振り分けの結果。下の「Epic の振り分け」）を読んで人がすることの一覧に出すだけで、hq は人に聞かず、sub-issues に足さず、新しい Epic も作らない。
 - 相談・アイデアの振り分け（#396）：人の判断が要る相談（fleet の `ask`・`agent:plan-review` で進めてよいか・引き継ぎなど、今の進め方を決めるもの）は、今までどおり hq が人に聞く。今すぐの判断が要らない気づき・改善案・Issue の種は、hq も fleet も intel（本体のタブ。`SendMessage` の `to: intel`）に回す（fleet は hq を通さない）。人が hq に言ったアイデアは hq が intel に回し、次からは intel のタブに直接送るよう案内する。intel のタブは hq が本体に起こす（既にいれば起こさない。auto mode で起きなければ閉じる）。intel がいなければ、hq の人がすることの一覧（fleet なら `worker_done` のレポート）に書く。
 - hq の控え（hq の Run・hq の Claude の端末・ペイン・fleet の対応）は、git の共通ディレクトリの下の `agent-harness/hq/hq-fleets.json` に `node harness/scripts/hq-state.ts ledger-save` で置く（scratchpad ではないので、hq が落ちても新しい hq が読める）。heartbeat の一言は同じディレクトリの `hq-heartbeat.json` に `hq-state.ts heartbeat-save` で置く（#438）。起動の失敗は同じディレクトリの `hq-start-failures.json` に `hq-state.ts start-failure-save` で置く（#551）。hq はペインを閉じる前に、閉じる handle が自分の Claude の端末（控えの `hqHandle`）でないことを確かめ、本体に `orca terminal close --tab`・`--all` を使わない（#409）。
 - **hq がいない間の見方と戻し方**（#409。hq が落ちた・タブが閉じられた）：
@@ -197,6 +197,26 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 4. 既に子課題に分けた親（`epic-split` の記録か、App が作った目印付きの子がある）に別の計画が来て検査を通っても、分け直さずに `agent:plan-review`（理由コード `resplit`）で止める。既存の子課題をどうするかは人が決める。同じ計画コメントの再実行は分け直しとみなさない。
 5. 子 Issue はふつうの Issue として、それぞれ計画ゲート・批評・判定を通る。分け方の誤りはそこで拾う。queue は `epic` の親を飛ばす。
 6. 子 Issue がすべて閉じると、App が親を閉じる。子を付け替え・外した後に、子が1件以上あって全部閉じている Epic が残ったときは、定期実行（1時間ごと）で閉じる（子が0件の Epic は閉じない）。
+
+### Epic の振り分け
+
+Epic に入っていない Issue を、App の定期実行（label-apply の後）が Jev に問い、Epic の sub-issues に足す（Epic #436。判断は `harness/lib/epic-triage.ts`、組み込みは `harness/gates/epic-triage.ts`）。人にもセッションにも聞かない。
+
+- 対象：開いた Issue から、PR・ダッシュボード・Epic（`epic` のラベル）・子（Sub-issues）を持つ Issue・既にいずれかの開いた Epic の子（sub-issues か `epic-split` の記録の子）を除く。開いた Epic が無ければ問わない。
+- Epic ごとに独立に問う：1件の Issue につき開いた Epic ごとに「その Epic の目的を直接進める子課題か」を1問ずつ問い、Epic どうしを比べさせない。材料は App が API から集めた Issue のタイトルと本文、Epic のタイトル・Goal・子課題のタイトルだけ。
+- 一度だけ問う：`epic-triage` の記録にある Issue と Epic の組は、答えが無くても問い済み。後から開いた Epic だけを問う。1回の定期実行で問う Issue は `jev.epicTriagePerRun` 件まで、残りは次の実行。`JEV_API_KEY` が無ければ問わない。
+- 下限と差：前の記録と今回の答えを合わせ、今開いている Epic の中で確率の一番高い Epic が `jev.thresholds.epicProbability` 以上で、2番目との差が `jev.thresholds.epicMargin` 以上のときだけ足すと判定する。下限が 0〜1 の数として読めなければ足さない。
+- shadow と enforce：`jev.epicTriage` が `off` なら問わず、節も出ない。`shadow`（既定）は記録だけで sub-issues を変えない。`enforce` は判定した Epic の sub-issues に App が足し、理由のコメント（Epic・確率・2番目の Epic と確率・外し方）を残す。shadow から enforce に切り替えた後は、Jev に問い直さずに記録の確率で判定して足す。
+- 足さないとき：Issue に親がある。記録の `added` にある組（前に足した Epic）は、人・セッションが外しても入れ直さない。人・セッションが足した・外した sub-issues を App は変えない。
+- 新しい Epic は作らない：どの Epic にも足さなかった Issue は、ダッシュボードの節「Epic に入っていない Issue」に、Jev の一番高い Epic と確率（記録が無ければ「未判定」）とともに出る。hq はこの節を読んで人がすることの一覧に出すだけ。
+- 記録の形は [formats.md](formats.md) の `epic-triage`。
+
+| キー | 既定 | 内容 |
+| --- | --- | --- |
+| `jev.epicTriage` | `shadow` | `off` / `shadow` / `enforce`。`jev.mode` とは独立。読めない値は `off` |
+| `jev.epicTriagePerRun` | 3 | 1回の定期実行で問う Issue の数の上限（正の整数） |
+| `jev.thresholds.epicProbability` | 0.9 | 足す Epic の確率の下限（0〜1） |
+| `jev.thresholds.epicMargin` | 0.2 | 1番目と2番目の確率の差の下限（0〜1） |
 
 ## Stacked PR
 
