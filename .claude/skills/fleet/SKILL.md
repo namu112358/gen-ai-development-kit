@@ -52,7 +52,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - `--max` の本数で待つ Issue は、ほかが Merge されるまで進めない。
 4. Merge 済みの Issue が出たら、次にやることが sync になった残りの PR に sync の skill をする（判定が引き継がれたかを確かめ、変わっていれば判定し直す）。
 5. 「選ぶ」の Issue が全部、人の Merge 待ち（Ready・人の Merge 待ち、自動 Merge 待ち）か人の判断待ち（plan-review、止まる印あり、各 skill の人に返す条件）になるまで、手順2〜4を繰り返す。その後、手順6〜9で一覧を出し、人の判断待ちだけが残ったのでなければ、終わらずに節「待つ間の読み直し」へ進む。
-6. ラベル（`priority:*`・`area:*`）は、ship の手順8と同じく、まず Jev に任せ、App の名義の `kind=label-triage` の記録の `notApplied` がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順9の一覧に書かず、人にも聞かない。
+6. ラベル（`priority:*`・`area:*`）は、ship の手順8と同じく、まず Jev に任せ、App の名義の `kind=label-triage` の記録の `notApplied` がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す（`node harness/scripts/agent.ts label-fill` で付ける。`gh issue edit` は使わない）。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順9の一覧に書かず、人にも聞かない。
 7. `node harness/scripts/agent.ts usage` で、このセッションのトークン数と推定料金を読む（入れ子の方式の ship とその中の担当の記録も、このセッションの `subagents/` に置かれるので集計に入る）。費用の行には、呼び出しの回数 `calls` と1回あたりのキャッシュの読み込み量 `cacheReadPerCall` も書く（段階ごとに新しく呼ぶ前後の比べに使う）。
 8. 振り分け：ship の手順9と同じ振り分けを、Issue をまたいで1回行う（`node harness/scripts/agent.ts incident list` で記録を読み、入れ子の方式の ship は fleet と同じセッション ID なので同じ記録に入る。Issue の候補は `gh issue list --state open --search "<要点の語>"` で開いた Issue と照らし、無ければ `node harness/scripts/agent.ts incident render-issue <id>... --title <題>` で下書きを作る）。複数の Issue で同じ問題が出たら1つの候補にまとめる。起票・コメントは人が選んだものだけで、自動で起票しない。人が選んで起票した Issue のラベルは手順6と同じく Jev に任せる。
 9. 人に**人がすること**の一覧を1つにまとめて出す（Issue・PR ごとに ship の手順10と同じ項目）。
