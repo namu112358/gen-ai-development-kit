@@ -16,7 +16,7 @@
 | `label*.test.ts`・`priority*.test.ts`・`classify*.test.ts` | ラベルの定義と規則、Jev に任せる手順、セッションが決めて付ける手順、優先度・領域の付け方 |
 | `jev*.test.ts` | Jev の問い・言語・使用量 |
 | `claim*.test.ts`・`rules-*.test.ts`・`push-*.test.ts`・`assignee*.test.ts`・`session-*.test.ts` | 着手宣言（持ち主の決め方・読み直し・段階・必須の場面）と担当（Assignee）の判定、セッションの ID と目印の規則 |
-| `queue*.test.ts`・`publish-*.test.ts`・`concurrency*.test.ts`・`unowned-*.test.ts`・`stalled-*.test.ts` | queue の組み方と公開、領域ごとの同時の本数、持ち主のいない衝突した Agent PR の判定、止まっていそうな着手宣言（judge・fix・sync）の判定 |
+| `queue*.test.ts`・`publish-*.test.ts`・`concurrency*.test.ts`・`unowned-*.test.ts`・`stalled-*.test.ts`・`unclaimed-*.test.ts` | queue の組み方と公開、領域ごとの同時の本数、持ち主のいない衝突した Agent PR の判定、止まっていそうな着手宣言（judge・fix・sync）の判定、担当のいない判定待ちの PR の判定 |
 | `flow*.test.ts`・`step-*.test.ts`・`stage-*.test.ts`・`sync-*.test.ts` | 段階のグラフのデータ（`harness/lib/flow.ts`）と queue・fleet の判断の食い違い、`agent.ts step` が返すノード、段階のファイル、`syncLoop` の設定 |
 | `fleet*.test.ts` | fleet の選び方（重なり・PR 同士の衝突・着手宣言の扱い）と、進め方（入れ子の orca／交互の flat） |
 | `worktree*.test.ts`・`panes*.test.ts`・`orca-*.test.ts` | worktree の置き場所と作り方、Orca の表示名、fleet と hq のワークスペースのペイン表示、Orca の skill の入口の固定 |
