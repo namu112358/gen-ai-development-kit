@@ -15,6 +15,8 @@
  * `--separate-git-dir` で git のディレクトリが離れていても見分ける。linked worktree・submodule は「git-common-dir の親」と比べる）。
  * 作業ツリーの一番上で比べるので、main の checkout の中の `.claude/worktrees/` の worktree や `../<リポジトリ名>.worktrees/` は通る。
  * 判定できないとき（入力が読めない・パスが無い・git が失敗する・git の作業場所が静的に決まらない）は止める。
+ * ただし、同じコマンドの中で必ず実行される形で文字のまま代入した変数（`W=/path; cd "$W" && git merge …`）を、引用符の中で使ったときは、その値で読む（Issue #539）。
+ * 展開を含む値・条件付き・パイプ・サブシェル・ブロックの中の代入、引用符の無い使い方などは今までどおり止める。
  *
  * 拾いきれない経路（抜け道。docs/security.md）：Bash のリダイレクト（`>`）・`sed -i`・`rm`・`cp` などの git 以外の書き換え、
  * スクリプトや別のプロセス（`node harness/scripts/agent.ts` など）の中で動く git、xargs・find -exec などで動かす git、印を消すこと、
@@ -196,6 +198,22 @@ interface Where {
   dir: string | undefined;
   /** 同じコマンドの中で、git の設定の読み先・設定を変えたかもしれない（hook が読んだ pull の設定と実際が食い違いうる） */
   configChanged?: boolean;
+  /** 同じコマンドの中で、必ず実行され同じシェルに残る形で文字のまま代入した変数（名前 → 値）。Map は作り直して使い、書き換えない */
+  vars?: ReadonlyMap<string, string>;
+  /** IFS を変えた。以後、変数は覚えない */
+  varsOff?: boolean;
+}
+
+/** 変数の値を、引用符の中の `$名前`・`${名前}` で読む。読めない（覚えていない・引用符が無い・ほかの展開が混ざる・値が分割や展開されうる）ときは undefined */
+function resolveVar(arg: Word, vars: ReadonlyMap<string, string> | undefined): string | undefined {
+  if (vars === undefined || !arg.quoted) return undefined;
+  const m = /^\$([A-Za-z_]\w*)/.exec(arg.text) ?? /^\$\{([A-Za-z_]\w*)\}/.exec(arg.text);
+  if (m === null) return undefined;
+  const rest = arg.text.slice(m[0].length);
+  if (/[$`\\]/.test(rest)) return undefined;
+  const value = vars.get(m[1]!);
+  if (value === undefined || /[\s*?[]/.test(value)) return undefined;
+  return value + rest;
 }
 
 /** git の設定の読み先に効く環境変数（HOME・XDG_CONFIG_HOME・GIT_CONFIG で始まるもの） */
@@ -258,8 +276,9 @@ const WRITES = new Set(['commit', 'add', 'rm', 'mv', 'stash', 'reset', 'checkout
 function moveTo(where: Where, arg: Word | undefined, ctx: WorkspaceContext): Where {
   const o = ops(ctx);
   if (arg === undefined) return { ...where, dir: homedir() };
-  if (arg.dynamic || arg.text === '-') return { ...where, dir: undefined };
-  const t = fromMsys(o, expandHome(o, arg.text));
+  const resolved = arg.dynamic ? resolveVar(arg, where.vars) : undefined;
+  if ((arg.dynamic && resolved === undefined) || arg.text === '-') return { ...where, dir: undefined };
+  const t = fromMsys(o, expandHome(o, resolved ?? arg.text));
   if (o.p.isAbsolute(t)) return { ...where, dir: o.p.resolve(t) };
   return { ...where, dir: where.dir !== undefined ? o.p.resolve(where.dir, t) : undefined };
 }
@@ -435,18 +454,24 @@ function checkSegment(seg: Segment, where: Where, ctx: WorkspaceContext, depth: 
       break;
     }
     // 子のシェルの中で立った印は外に戻さない（子の環境は親に戻らない）
-    if (cflag) return script ? analyze(script.text, inner(), ctx, depth + 1) : ALLOW;
+    // 変数も子に渡さない（export していない変数は子に届かない）
+    if (cflag) return script ? analyze(script.text, { ...inner(), vars: undefined }, ctx, depth + 1) : ALLOW;
     for (const body of seg.heredocs) {
-      const d = analyze(body, inner(), ctx, depth + 1);
+      const d = analyze(body, { ...inner(), vars: undefined }, ctx, depth + 1);
       if (d.deny) return d;
     }
     return ALLOW;
   }
   if (name === 'eval') {
     // eval は同じシェルで動くので、中で立った印を外の後の文に引き継ぐ
+    // 前置きの代入の名前は、eval の中では前置きの値になるので、渡す変数からも外に戻す変数からも外す
+    const prefixed = assigns.map((a) => a.slice(0, a.indexOf('=')).replace(/\+$/, ''));
     const w = inner();
+    w.vars = dropVars(where.vars, prefixed);
     const d = analyze(args.map((a) => a.text).join(' '), w, ctx, depth + 1);
     if (w.configChanged) where.configChanged = true;
+    where.vars = dropVars(w.vars, prefixed);
+    if (w.varsOff) where.varsOff = true;
     return d;
   }
   if (name === 'git') {
@@ -469,15 +494,107 @@ function analyze(script: string, where: Where, ctx: WorkspaceContext, depth: num
     const message = e instanceof Error ? e.message : String(e);
     return mentionsGit(script) ? unknownDeny(`コマンドを字句に分けられない（${message}）`) : ALLOW;
   }
-  for (const seg of segs) {
+  /** 区切りの `(` と `)` の深さ、`if`・`while`・`{` などで開いたブロックの深さ。負になったら（`case` のパターンの `a)` など）以後は覚えない */
+  let parenDepth = 0;
+  let blockDepth = 0;
+  let broken = false;
+  for (let idx = 0; idx < segs.length; idx++) {
+    const seg = segs[idx]!;
+    for (const c of seg.before) {
+      if (c === '(') parenDepth++;
+      else if (c === ')' && --parenDepth < 0) broken = true;
+    }
+    const lead = leadingWords(seg.words);
+    blockDepth += lead.delta;
+    if (blockDepth < 0) broken = true;
+    const next = segs[idx + 1]?.before ?? '';
+    // 必ず実行され（&&・|| の後でない）、同じシェルに残る（パイプ・背景・括弧・ブロックの中でない）
+    const certain =
+      !broken &&
+      where.varsOff !== true &&
+      /^[;\n]*$/.test(seg.before) &&
+      parenDepth === 0 &&
+      blockDepth === 0 &&
+      !/^\|(?!\|)/.test(next) &&
+      !/^&(?!&)/.test(next) &&
+      !next.startsWith('(');
     for (const s of seg.subs) {
       const d = analyze(s, { ...where }, ctx, depth + 1);
       if (d.deny) return d;
     }
+    const { start, assigns } = commandStart(seg.words, where);
+    if (assigns.some((a) => a.startsWith('IFS=') || a.startsWith('IFS+=')) || lead.assignWords.some((w) => /^IFS\+?=/.test(w.text))) {
+      where.varsOff = true;
+      where.vars = undefined;
+    }
+    if (lead.assignOnly) {
+      for (const w of lead.assignWords) {
+        const m = /^([A-Za-z_]\w*)(\+?)=([\s\S]*)$/.exec(w.text)!;
+        const value = m[3]!;
+        const ok = certain && !w.dynamic && m[2] === '' && value !== '' && !value.includes('~') && where.varsOff !== true;
+        setVar(where, m[1]!, ok ? value : undefined);
+      }
+    }
+    const head = seg.words[start];
+    let name = head === undefined ? '' : baseName(head.text);
+    let rest = seg.words.slice(start + 1);
+    if (name === 'builtin' && rest[0] !== undefined) {
+      name = baseName(rest[0].text);
+      rest = rest.slice(1);
+    }
+    if (head !== undefined && (head.dynamic || ASSIGNING.has(name) || name === 'let' || name === 'source' || name === '.' || (name === 'printf' && rest.some((a) => a.text === '-v')))) {
+      where.vars = undefined;
+    }
     const d = checkSegment(seg, where, ctx, depth);
     if (d.deny) return d;
+    // eval の中の代入は、eval 自身が必ず実行され同じシェルに残るときだけ外に残す
+    if (name === 'eval' && (!certain || rest.some((a) => a.dynamic))) where.vars = undefined;
   }
   return ALLOW;
+}
+
+const BLOCK_OPEN = new Set(['if', 'while', 'until', 'for', 'case', 'select', '{']);
+const BLOCK_CLOSE = new Set(['fi', 'done', 'esac', '}']);
+const LEADING_KEYWORDS = new Set([...KEYWORDS, 'for', 'case', 'select', 'esac']);
+
+/** 文の頭の、キーワード（ブロックの開き・閉じ）と代入の語。assignOnly は、キーワードと代入だけの文 */
+function leadingWords(words: Word[]): { delta: number; assignWords: Word[]; assignOnly: boolean } {
+  let delta = 0;
+  const assignWords: Word[] = [];
+  let stopped = false;
+  for (const w of words) {
+    if (!w.quoted && !w.dynamic && LEADING_KEYWORDS.has(w.text)) {
+      if (BLOCK_OPEN.has(w.text)) delta++;
+      if (BLOCK_CLOSE.has(w.text)) delta--;
+      if (w.text === 'for' || w.text === 'case' || w.text === 'select') {
+        stopped = true;
+        break;
+      }
+      continue;
+    }
+    if (/^[A-Za-z_]\w*\+?=/.test(w.text)) {
+      assignWords.push(w);
+      continue;
+    }
+    stopped = true;
+    break;
+  }
+  return { delta, assignWords, assignOnly: !stopped && assignWords.length > 0 };
+}
+
+/** 変数を足す・消す（Map は作り直す。value が undefined なら消す） */
+function setVar(where: Where, name: string, value: string | undefined): void {
+  const m = new Map(where.vars ?? []);
+  if (value === undefined) m.delete(name);
+  else m.set(name, value);
+  where.vars = m;
+}
+
+function dropVars(vars: ReadonlyMap<string, string> | undefined, names: string[]): ReadonlyMap<string, string> | undefined {
+  if (vars === undefined) return undefined;
+  const m = new Map(vars);
+  for (const n of names) m.delete(n);
+  return m;
 }
 
 // ---------------------------------------------------------------- 入口
