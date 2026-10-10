@@ -42,6 +42,7 @@
 | `model-routing.ts` | 実装のモデル（Opus / Sonnet）を Jev に問い、計画ゲートの記録と show-plan・集計で使う形にする（Issue #139）。 | ○ |
 | `observe-docs.ts` | 保守の観測（harness/scripts/observe.ts）の docs の照合。 | ○ |
 | `observe.ts` | 保守の観測（harness/scripts/observe.ts）のまとめ。 | ○ |
+| `overbuild-jev.ts` | 判定の⑨（over-implementation・over-testing・over-engineering）のブロッキング指摘を Jev に問う材料・要求・答えのまとめ・enforce での判定の組み替え・受け付けの表の行。 | ○ |
 | `panes-hq.ts` | hq の3つのペイン（上から Epic/Issue・人待ち・ログ）の描き方と、hq の控えから今動いている fleet を見つけること。 | ○ |
 | `panes.ts` | fleet のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。 | ○ |
 | `past-pr-reads.ts` | judge-input の過去の PR の節の材料（変更ファイルを触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント）を GraphQL でまとめて読む。 | ○ |
