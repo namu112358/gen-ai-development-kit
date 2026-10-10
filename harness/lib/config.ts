@@ -92,6 +92,8 @@ export interface HarnessConfig {
   /** sync ⇄ judge のループの上限（agent.ts step。PR の main からの取り込みの数）。無ければ既定値（syncLoopConfig）。Issue #306 */
   syncLoop?: { limit?: number };
   staleHours: number;
+  /** イベントで動いた gate が定期の仕事を補うまでの、前回の定期の仕事からの分。無ければ 90。Issue #418 */
+  periodicCatchUpMinutes?: number;
   dashboardIssueTitle: string;
   reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
   /**
@@ -149,6 +151,7 @@ const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
   { path: 'fixLoop.criticalLimit', kind: 'positiveInteger', required: true },
   { path: 'syncLoop.limit', kind: 'positiveInteger', required: false },
   { path: 'staleHours', kind: 'positive', required: true },
+  { path: 'periodicCatchUpMinutes', kind: 'positive', required: false },
   { path: 'delegateMerge.hours', kind: 'positive', required: false },
   { path: 'delegateMerge.minRemainingMinutes', kind: 'nonNegative', required: false },
   { path: 'fleet.maxParallelShips', kind: 'positiveInteger', required: false },
