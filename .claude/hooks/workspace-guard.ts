@@ -17,6 +17,7 @@
  * 判定できないとき（入力が読めない・パスが無い・git が失敗する・git の作業場所が静的に決まらない）は止める。
  * ただし、同じコマンドの中で必ず実行される形で文字のまま代入した変数（`W=/path; cd "$W" && git merge …`）を、引用符の中で使ったときは、その値で読む（Issue #539）。
  * 展開を含む値・条件付き・パイプ・サブシェル・ブロックの中の代入、引用符の無い使い方などは今までどおり止める。
+ * 引用符の境目で名前が切れる使い方（`"$W"o`）と、関数の定義・trap・readonly・declare などの文の後も、変数を読まずに止める。
  *
  * 拾いきれない経路（抜け道。docs/security.md）：Bash のリダイレクト（`>`）・`sed -i`・`rm`・`cp` などの git 以外の書き換え、
  * スクリプトや別のプロセス（`node harness/scripts/agent.ts` など）の中で動く git、xargs・find -exec などで動かす git、印を消すこと、
@@ -204,12 +205,18 @@ interface Where {
   varsOff?: boolean;
 }
 
-/** 変数の値を、引用符の中の `$名前`・`${名前}` で読む。読めない（覚えていない・引用符が無い・ほかの展開が混ざる・値が分割や展開されうる）ときは undefined */
+/**
+ * 変数の値を、引用符の中の `$名前`・`${名前}` で読む。読めない（覚えていない・引用符が無い・ほかの展開が混ざる・値が分割や展開されうる）ときは undefined。
+ * 名前の後は、空か `/` で始まるときだけ読む（`"$W"o` は名前が W で切れるので、字句の上の `$Wo` を Wo と読まない）
+ */
 function resolveVar(arg: Word, vars: ReadonlyMap<string, string> | undefined): string | undefined {
   if (vars === undefined || !arg.quoted) return undefined;
   const m = /^\$([A-Za-z_]\w*)/.exec(arg.text) ?? /^\$\{([A-Za-z_]\w*)\}/.exec(arg.text);
   if (m === null) return undefined;
+  // 波かっこなしの名前は、字句が読んだ名前の終わりと合わないと読まない
+  if (!m[0].startsWith('${') && arg.nameEnd !== m[0].length) return undefined;
   const rest = arg.text.slice(m[0].length);
+  if (rest !== '' && !rest.startsWith('/')) return undefined;
   if (/[$`\\]/.test(rest)) return undefined;
   const value = vars.get(m[1]!);
   if (value === undefined || /[\s*?[]/.test(value)) return undefined;
@@ -504,6 +511,11 @@ function analyze(script: string, where: Where, ctx: WorkspaceContext, depth: num
       if (c === '(') parenDepth++;
       else if (c === ')' && --parenDepth < 0) broken = true;
     }
+    // 関数の定義（`f() { … }`）の後は、呼ぶたびに値が変わりうるので変数を覚えない
+    if (seg.before.includes('()')) {
+      where.varsOff = true;
+      where.vars = undefined;
+    }
     const lead = leadingWords(seg.words);
     blockDepth += lead.delta;
     if (blockDepth < 0) broken = true;
@@ -545,6 +557,11 @@ function analyze(script: string, where: Where, ctx: WorkspaceContext, depth: num
     if (head !== undefined && (head.dynamic || ASSIGNING.has(name) || name === 'let' || name === 'source' || name === '.' || (name === 'printf' && rest.some((a) => a.text === '-v')))) {
       where.vars = undefined;
     }
+    // 値が変わる・代入が効かない形を作る文（関数・trap・readonly・declare -n など）の後は、変数を覚えない
+    if (head !== undefined && UNTRACKABLE.has(name)) {
+      where.varsOff = true;
+      where.vars = undefined;
+    }
     const d = checkSegment(seg, where, ctx, depth);
     if (d.deny) return d;
     // eval の中の代入は、eval 自身が必ず実行され同じシェルに残るときだけ外に残す
@@ -553,6 +570,8 @@ function analyze(script: string, where: Where, ctx: WorkspaceContext, depth: num
   return ALLOW;
 }
 
+/** 後の代入の値を信用できなくする文の頭（関数の定義・DEBUG などの trap・読み取り専用・nameref） */
+const UNTRACKABLE = new Set(['function', 'trap', 'readonly', 'declare', 'typeset', 'local']);
 const BLOCK_OPEN = new Set(['if', 'while', 'until', 'for', 'case', 'select', '{']);
 const BLOCK_CLOSE = new Set(['fi', 'done', 'esac', '}']);
 const LEADING_KEYWORDS = new Set([...KEYWORDS, 'for', 'case', 'select', 'esac']);
