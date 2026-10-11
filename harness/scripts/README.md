@@ -5,6 +5,7 @@
 <!-- readme:generated start -->
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
+| `actions-usage.ts` | Actions の使用分（ジョブごとに分単位で切り上げた分）を、ワークフロー・ジョブ・ci のきっかけごとに数える（読むだけ、Issue #624）。 |  |
 | `agent.ts` | Routine と人のセッションが使う CLI。 | ○ |
 | `agent/` | `harness/scripts/agent.ts` のサブコマンドの実装（`commands/`）と、コマンドが共有する補助（`cli.ts`）。 | ○ |
 | `dashboard.ts` | エージェントの状態をグラフで見る、手元の読み取り専用のダッシュボード（GitHub には書かない）。 |  |
