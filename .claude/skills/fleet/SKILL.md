@@ -40,7 +40,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - `claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue を飛ばして次の Issue へ進み、最後の一覧に「#番号 は session … が着手中」と載せる（引き継ぐかは人が決める）。
    - 着手宣言（`claim <番号> --manual`）が領域の上限で止まったら、`--fleet` を付けて宣言する（fleet は領域の上限を見ないため）。
 2. 「選ぶ」の Issue ごとに（選択が「待つ」の行は、次にやること（fix・judge など）が出ていても進めない）、表の「次にやること」の段階を ship と同じ判断（ship の手順2〜6）で1つ進める。
-   - plan：plan の skill。批評（plan-critic）は Issue ごとに並行して呼んでよい。Planner の質問（`openQuestions`・`needsHumanReasons`）は plan の skill の手順3どおり投稿の前に AskUserQuestion で聞く（複数の Issue の質問を1回にまとめてよい。1回に4問まで）。入れ子の方式では ship が投稿せずに質問を返すので、「入れ子の方式」の手順2でまとめて聞き、答えを渡して ship を呼び直す。計画ゲートが `agent:plan-review` で止めた Issue は、ship の手順2と同じく、宣言が残っていれば `release <番号>` で解除してから、進めてよいかを聞く（手順9でまとめて聞いてよい）。Planner の申告で止まったら、ship の手順2どおり人の答えを `post-decision` で記録する。人が「進める」と答えたら、plan の skill の手順10どおり、その言葉を進める記録（`agent-decision` の `proceed`、`post-decision`）で残してから implement に進める（入れ子の方式では、答えを渡して呼び直した ship が記録する）。
+   - plan：plan の skill。批評（plan-critic）は Issue ごとに並行して呼んでよい。Planner の質問（`openQuestions`・`needsHumanReasons`）は plan の skill の手順3どおり投稿の前に AskUserQuestion で聞く（複数の Issue の質問を1回にまとめてよい。1回に4問まで）。入れ子の方式では ship が投稿せずに質問を返すので、「入れ子の方式」の手順2でまとめて聞き、答えを渡して ship を呼び直す。計画ゲートが `agent:plan-review` で止めた Issue は、auto mode の Jev の保留なら先に節「auto mode の保留の検討会」を行い、そうでなければ ship の手順2と同じく、宣言が残っていれば `release <番号>` で解除してから、進めてよいかを聞く（手順9でまとめて聞いてよい）。Planner の申告で止まったら、ship の手順2どおり人の答えを `post-decision` で記録する。人が「進める」と答えたら、plan の skill の手順10どおり、その言葉を進める記録（`agent-decision` の `proceed`、`post-decision`）で残してから implement に進める（入れ子の方式では、答えを渡して呼び直した ship が記録する）。
    - implement：implement の skill。worktree は Issue ごとに分ける。test-designer・実装は並行してよい。
    - judge：judge の skill。Reviewer・Risk Agent は Issue ごとに並行して呼んでよい。
    - fix：fix の skill。
@@ -71,7 +71,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 表の「進め方」の行が入れ子（orca）のときの、手順2〜5の代わり。手順1・6〜8と「選び方」はそのまま使う。
 
 1. 表の「選ぶ」の Issue ごとに、ship の skill を general-purpose のサブエージェントで呼ぶ。ship は Issue ごと・段階ごとに新しいサブエージェントで呼び、前の ship を SendMessage で続けない（1回の呼び出しで1段階だけ進め、引き継ぎを返す）。同時に動かすのは、表の「同時に動かす ship は <n> まで」の数まで（`--max` があれば `--max`、無ければ `fleet.maxParallelShips`）。残りは、1つ返るたびに表を読み直してから呼ぶ。
-   - 渡すもの：Issue 番号、段階、その Issue の最後の引き継ぎ（`agent-handoff`）のファイルのパス（あれば）、「サブエージェントの ship として動く（ship の skill の「サブエージェントの ship として動くとき」の節に従う）」こと、fleet が `fleet-status` に渡した Issue 番号の集合と `--max`（ship が同じ引数で表を読むため）、呼び直すときは人の判断への答え（投稿の前の質問なら、その答えと、ship が返した書きかけの計画のパスも）。
+   - 渡すもの：Issue 番号、段階、その Issue の最後の引き継ぎ（`agent-handoff`）のファイルのパス（あれば）、「サブエージェントの ship として動く（ship の skill の「サブエージェントの ship として動くとき」の節に従う）」こと、fleet が `fleet-status` に渡した Issue 番号の集合と `--max`（ship が同じ引数で表を読むため）、呼び直すときは人の判断への答え（投稿の前の質問なら、その答えと、ship が返した書きかけの計画のパスも）。計画ゲートの記録の `autoMode.hold` が真、または受け付けの `autoMode.reasons` に Jev の保留があれば、検討会を開かず、`plan-review-check` の `riskOnly` が真でも聞かずに進めると決めず、`node harness/scripts/agent.ts release <番号>` してから「Jev の保留」として返すよう伝える。
    - 段階の決め方：(a) 表の「次にやること」が `plan`・`implement`・`judge`・`fix`・`sync` なら同じ名前の段階で呼ぶ（`none` なら呼ばない。引き継ぎの `next` と表が食い違えば表に従う）。(b) 表の下の「Merge 後の見届けが済んでいない」の行が出たら、段階 `merged` で呼ぶ。(c) 人の判断・投稿の前の質問への答えを渡す呼び直しは、返った引き継ぎの `stage` と同じ段階で、そのファイルのパスと答えを渡す。(a)(b) では最後の引き継ぎのファイルがあれば渡す（無ければ渡さない。新しい ship は GitHub の事実から読む）。
    - worktree は ship が Issue ごとに作る。1つの worktree を複数の ship で共有しない。
    - 着手宣言は ship がこのセッションの ID で出す（入れ子のサブエージェントにも `AGENT_HARNESS_SESSION` が同じ値で渡るので、`critic-input`・`post-plan`・`worktree` は止まらない）。
@@ -79,9 +79,34 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - 「入れ子不可」：Agent ツールが無く ship の中でサブエージェントを呼べない。以降はこのセッションで交互の方式（手順2〜5）に切り替える。
    - 人の判断待ち：人に上げる場面（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）だけ。聞かずに決めてよい場面は ship が決めて `post-judgment` で残しているので、ここでは聞かない。手順9の前でも、たまったらまとめて AskUserQuestion で聞いてよい（1回に4問まで。質問ごとに「なぜ人が要るか」を1行で添える）。答えを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかったら、その Issue は人の判断待ちのまま一覧に書く。
    - 投稿の前の質問（ship が計画を投稿せずに返した Planner の質問）：ship の宣言が `plan` のまま残っているので、手順9を待たずに、返った質問を複数の Issue の分もまとめて AskUserQuestion で聞く（1回に4問まで。残りは次の回。おすすめを先頭）。答えと、ship が返した書きかけの計画のパスを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかった質問は「答え無し」として渡して呼び直す（ship は申告を残して投稿し、`post-plan` が宣言を解除する。同じ質問を繰り返さない）。聞けないまま、または呼び直せないままセッションを終えるときは、その Issue を `node harness/scripts/agent.ts release <番号>` で解除し、手順9の一覧に「投稿の前の質問に答えが無く、計画は投稿していない（次は plan から）」と書く。
+   - Jev の保留：節「auto mode の保留の検討会」で3つの担当に調べさせ、結論を出す。
    - 待つ（重なり・PR 同士の衝突・`--max` の本数・領域の上限）：表で「選ぶ」に戻るまで呼び直さない。領域の上限で待つ Issue は、fleet が `claim <番号> --manual --stage implement --fleet` で宣言し直してから呼び直してよい（fleet は領域の上限を見ないため）。
    - Merge 済みの Issue が出たら、次にやることが sync になった残りの PR の ship を呼び直す。
 3. 「選ぶ」の Issue が全部、人の Merge 待ちか人の判断待ちになるまで、1〜2を繰り返す。その後、手順6〜9に進み（手順9の一覧は、ship が返した人がすることの項目をまとめる）、人の判断待ちだけが残ったのでなければ、終わらずに節「待つ間の読み直し」へ進む。
+
+## auto mode の保留の検討会
+
+auto mode で Jev の危険の判定が計画か PR を保留にしたとき、fleet が3つの担当に調べさせて結論を出す（Issue #681）。保留は検討会では解かない。人に上げるか、`files` が変わる計画に出し直して Jev に問い直させるだけ。結論の記録の書式と、その後の数え方は [docs/operations.md](../../../docs/operations.md#auto-mode-の保留の検討会)。
+
+- **見つけ方**：計画は、Issue の App の最新の計画ゲートの記録（`kind=plan-gate`）の `autoMode.hold` が真（停止のコメントに「auto mode（…）の危険の判定で保留にしました」）。PR は、受け付けの記録（`kind=acceptance`）に `autoMode.jev` があり、`autoMode.reasons` に Jev の危険の判定での保留がある（Human Merge の依頼 `kind=human-review` が付く）。
+- **開くのは fleet**：サブエージェント（general-purpose）を3つ並行に呼ぶ。新しいワークスペース・Orca の worker は開かない。入れ子の方式で保留を見つけた ship は検討会を開かず fleet に返す（入れ子の方式の手順1の「渡すもの」）。交互の方式では fleet が自分で見つけて開く。
+- **3つの担当**：
+  - 安全の担当：その計画・差分が、守り（ゲート・必須チェック・hook・deny・ラベルの権限・Secret）を本当に弱める・外すか、データを戻せない形で壊すか、auto mode が保留にするものを減らすかを調べる。
+  - 分け方の担当：守りに触れる部分を別の Issue に分けられるか、範囲を小さくできるか、守りを確かめるテストを足して守りを強められるかを調べる。案は `files` の集合で示す。
+  - 反対役：Jev が正しいと仮定して、ほかの2つが見落とした弱め方を探す。
+- **渡す材料**：Jev に渡ったのと同じもの（計画は計画コメントの本文から `authorView` を除いたものと `files`。PR は `gh pr diff` の差分と変更ファイル）、Issue の本文と AC、App の停止・受け付けの記録（Jev の確率と保留の線）、読み先のリポジトリのパス。作業した側の見解（計画の `authorView`、判定の Risk Agent の `facts`・Reviewer の要約、PR の説明、ship の引き継ぎの所見）は渡さず、結論の根拠にしない（#426）。
+- **担当の答え**：各担当は scratchpad の `council-<Issue番号か PR番号>-<担当>.json` に `{ role, verdict: "weakens" | "not-weakens" | "unsure", evidence: [ファイル・行か AC], proposal? }` を書く。`proposal` は分け方の担当だけで、`{ kind: "split" | "narrow" | "guard-test" | "none", files: [...] }`。リポジトリのファイルは書かない・commit しない。
+- **3つの結論（決め方）**：
+  - (1) 計画を変える：安全の担当か反対役が `weakens` と答え、分け方の担当の案が `files` の集合を変え、その案で弱める部分が消えると安全の担当の答えから言える計画の保留。ship を段階 `plan` で呼び直し、案を渡して計画を出し直す（plan の skill の出し直しの扱い。批評・投稿・計画ゲートは今までどおりで、App が新しい計画を Jev に問い直す）。案の `kind` が `split` なら、出し直す計画は `agent-plan` の `split`（子課題に分け、守りに触れる部分を別の子課題にする。子課題はそれぞれの計画でゲートと Jev がもう一度見る）にする。案の `files` が保留した計画の `files` と集合として同じなら（保留を引き継ぐので）出し直さず、(3) として人に上げる。1つの Issue で「計画を変える」は1回まで。その Issue に `conclusion` が `change-plan` の `agent-hold-council` のコメントが既にあれば (3) にする（セッションの記憶に頼らず GitHub の記録で見分ける）。PR の保留はこの結論にしない。変え方の案を3行の3行目に添えて人に上げる（PR の差分を人の判断なしに書き換えて保留の対象を変えないため）。人が「直す」と言えば ship を段階 `fix`、範囲の外が要るなら `plan` で呼び直す。
+  - (2) 誤検知らしい：どの担当も `weakens` と答えず、安全の担当と反対役が `not-weakens`。保留のまま、3行で人に上げる。
+  - (3) 本当に危険：それ以外（`unsure` を含む）。保留のまま、3行で人に上げる。
+- **人に上げる3行の形**：
+  1. 保留：<計画コメントの URL か PR #N（patch-id の先頭12文字）>・Jev の危険の確率 <yes>%（保留の線 <1−dangerSafe>%）。Jev が `skipped`・`error`・確率なしで保留にしたときは「Jev：確率なし（<status>）」と書く。
+  2. 結論：誤検知らしい／本当に危険（／PR の変え方の案）— <一番強い根拠を1文。ファイル・行か AC>
+  3. 見落とし：<反対役の見つけたこと。無ければ「無し」>。人がすること：進める／直させる／閉じる
+  - 人に上げる経路は手順2の人の判断待ちと同じ（付き添いなら AskUserQuestion、hq の worker なら hq に `ask`）。
+- **記録**：結論を決めたら、人に上げる前・出し直す前に、[docs/operations.md](../../../docs/operations.md#auto-mode-の保留の検討会) の書式で、計画なら Issue、PR なら PR にコメントを残す（`gh issue comment <番号> --body-file <ファイル>` か `gh pr comment`）。
+- **しないこと**：保留を解かない。`agent:plan-review` を外さない。`plan-review-check` の `riskOnly` が真でも、聞かずに「進める」と決めない。`post-judgment` の `risk-only` を出さない。人の答えの無い `proceed` の記録を出さない。Jev の問い・保留の線・ラベルは変えない。
 
 ## Orca の worker で ship を動かすとき
 
