@@ -28,7 +28,7 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）。
  *                                                           Issue・PR の材料は GraphQL でまとめて読む（harness/lib/fleet-reads.ts。#249）
  *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする。
- *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
+ *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言（時刻と期限切れか：at・stale。#639）・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
  *                                                           表の末尾（進め方の行の後）に bypass・委任承認の今の状態の2行（有効・無効・計画のみ・読めない）を出し、--json は merge に入れる
  *                                                           （ダッシュボードを1回探し、bypass か委任のラベルがあるときだけ timeline を読む。読めなければ readable: false。harness/lib/fleet.ts の mergeStateLines）
  *                                                           表の下に、このセッションの読み込みが古ければその1行を出す（harness/lib/harness-drift.ts の driftLine。記録が無い・古くなければ出さない。#199）。--json では比べない（git fetch もしない）。
@@ -138,7 +138,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const merge = await fleetMergeState(gh);
   const watched = watchCfg ? watchNotes(rows, items, session, watchCfg) : null;
   if (json) {
-    const data = fleetStatusData(facts, rows, sel, max, session, mode, merge);
+    const data = fleetStatusData(facts, rows, sel, max, session, mode, merge, { now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours, routineClaimTakeoverMinutes: config.routine.routineClaimTakeoverMinutes });
     return JSON.stringify(watched ? { ...data, watch: watched } : data, null, 2);
   }
   const drift = driftLine(harnessDrift());
