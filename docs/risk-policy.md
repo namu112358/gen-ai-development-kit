@@ -122,7 +122,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 
 ### 保留と終わり
 
-- 保留にした計画は、理由（Jev の確率と下限）をコメントに書いて `agent:plan-review` にする。人が進めると決めたら、ほかの停止と同じく決定の記録（`agent-decision` の `proceed`）で残す。
+- 保留にした計画は、理由（Jev の危険の確率と保留の線）をコメントに書いて `agent:plan-review` にする。人が進めると決めたら、ほかの停止と同じく決定の記録（`agent-decision` の `proceed`）で残す。
 - 保留にした PR は、受け付けの記録の `autoMode.reasons` に理由を残し、Human Merge の依頼（`kind=human-review`）にする。
 - 終わり：ラベルを外す・停止スイッチを入れると、auto mode で付けた auto-merge を外し、記録（`auto-mode-merge-end`）と人へのレビュー依頼を出す（停止スイッチのときも出す）。停止スイッチ以外では、委任・bypass で乗り続ける PR は auto-merge を外さずに引き継ぐ（順番は委任 → bypass。前の乗り方の終わりの記録を書き、人へのレビュー依頼は出さない）。今の差分が自動 Merge の対象の PR には何もしない。終わりを取りこぼしても、定期照合が外す。
 - 窓：付けた auto-merge は、次のゲートの起動（PR・Issue のイベントか定期実行）までは外れない。
