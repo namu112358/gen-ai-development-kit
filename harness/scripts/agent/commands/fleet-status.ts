@@ -2,9 +2,11 @@ import { spawnSync } from 'node:child_process';
 import { checkAssignee, requireAssignee } from '../../../lib/assignee.ts';
 import { appMarkKind, hasClaudeMark } from '../../../lib/blocks.ts';
 import { describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
-import { fleetConfig, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
+import { bypassState } from '../../../gates/bypass.ts';
+import { bypassMergeConfig, delegateConfig, fleetConfig, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
 import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../../../lib/fleet-reads.ts';
-import { type FleetIssue, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
+import { delegateState } from '../../../lib/delegate.ts';
+import { type FleetIssue, type FleetMergeState, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
 import { fleetWatchConfig, pendingFollowUps, readWatchRecord, updateWatch, watchRecordPath, writeWatchRecord } from '../../../lib/fleet-watch.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { gitCommonDir } from '../../../lib/local-state.ts';
@@ -12,7 +14,7 @@ import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
 import { fixRequestFindings } from '../../../lib/report.ts';
 import { splitArgs } from '../../../lib/session-inputs.ts';
 import { carriedCritique, type CritiqueRound, readStageFile, stageFilePath, writeStageFile } from '../../../lib/stage-file.ts';
-import { isAppComment, type PullRequest } from '../../../lib/state.ts';
+import { findDashboard, hasLabel, isAppComment, type PullRequest, timeline } from '../../../lib/state.ts';
 import { applyStepClaims, decideStep, type StepLocal, type StepResult } from '../../../lib/step.ts';
 import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail, harnessDrift, readJson, renderClaim, spawnGit } from '../cli.ts';
 
@@ -26,7 +28,9 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           本数は --max を渡したときだけ制限する（既定は制限しない）。
  *                                                           Issue・PR の材料は GraphQL でまとめて読む（harness/lib/fleet-reads.ts。#249）
  *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする。
- *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
+ *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言（時刻と期限切れか：at・stale。#639）・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
+ *                                                           表の末尾（進め方の行の後）に bypass・委任承認の今の状態の2行（有効・無効・計画のみ・読めない）を出し、--json は merge に入れる
+ *                                                           （ダッシュボードを1回探し、bypass か委任のラベルがあるときだけ timeline を読む。読めなければ readable: false。harness/lib/fleet.ts の mergeStateLines）
  *                                                           表の下に、このセッションの読み込みが古ければその1行を出す（harness/lib/harness-drift.ts の driftLine。記録が無い・古くなければ出さない。#199）。--json では比べない（git fetch もしない）。
  *                                                           --watch（fleet の待つ間の読み直し。#199）なら、見張りの記録（git の共通ディレクトリの下の agent-harness/watch/<セッションの ID>.json）を
  *                                                           読み書きし、App が fleet.watch.appStallMinutes 分以上動いていない行（1回だけ）と、Merge 後の見届けが済んでいない Issue
@@ -65,6 +69,28 @@ function prConflicts(issues: FleetIssue[]): PrConflict[] {
     }
   }
   return out;
+}
+
+/**
+ * bypass・委任承認の今の状態を読む（表示だけ。判定は gates の bypassState と lib の delegateState）。
+ * ダッシュボードに bypass か委任のラベルがあるときだけ timeline を読む。読めなければ readable: false
+ */
+async function fleetMergeState(gh: GitHub): Promise<FleetMergeState> {
+  try {
+    const dashboard = await findDashboard(gh, config);
+    const { planLabel, mergeLabel } = delegateConfig(config);
+    const labels = [bypassMergeConfig(config).label, planLabel, mergeLabel];
+    const events = dashboard && labels.some((l) => hasLabel(dashboard, l)) ? await timeline(gh, dashboard.number) : [];
+    const b = bypassState(dashboard, events, config);
+    const d = delegateState(dashboard, events, config, new Date());
+    return {
+      readable: true,
+      bypass: { active: b.active, by: b.by, since: b.since, reason: b.reason },
+      delegate: { mode: d.mode, active: d.active, planActive: d.planActive, by: d.by, since: d.since, reason: d.reason },
+    };
+  } catch (e) {
+    return { readable: false, error: (e as Error).message };
+  }
 }
 
 /** fleet の事実を GitHub から読み（書き込みはしない）、段階・選び方の表を返す。判断は harness/lib/fleet.ts の純粋関数 */
@@ -109,14 +135,15 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const me = requireAssignee(config) ? (await gh.get<{ login: string }>('/user')).login : null;
   const session = currentSession();
   const sel = selectFleet(config, facts, rows, max, session, me);
+  const merge = await fleetMergeState(gh);
   const watched = watchCfg ? watchNotes(rows, items, session, watchCfg) : null;
   if (json) {
-    const data = fleetStatusData(facts, rows, sel, max, session, mode);
+    const data = fleetStatusData(facts, rows, sel, max, session, mode, merge, { now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours, routineClaimTakeoverMinutes: config.routine.routineClaimTakeoverMinutes });
     return JSON.stringify(watched ? { ...data, watch: watched } : data, null, 2);
   }
   const drift = driftLine(harnessDrift());
   const extra = [drift, ...(watched ? watched.lines : [])].filter((x) => x !== '');
-  const table = renderFleetStatus(rows, sel, max, mode);
+  const table = renderFleetStatus(rows, sel, max, mode, merge);
   return extra.length > 0 ? `${table}\n${extra.join('\n')}` : table;
 }
 

@@ -43,7 +43,7 @@ import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
 import { bypassEligibility, bypassFor, bypassRoute, type BypassState } from './bypass.ts';
-import { askPlanJev, askPrJev, autoModeEligibility, autoModeFor, autoModePlanSkips, autoModeRoute, autoModeRequired, reusablePlanJev, reusablePrJev } from './auto-mode.ts';
+import { askPlanJev, askPrJev, autoModeEligibility, autoModeFor, autoModePlanSkips, autoModeRoute, autoModeRequired, inheritedPlanJev, reusablePlanJev, reusablePrJev } from './auto-mode.ts';
 import { overbuildJevFor } from './overbuild-jev.ts';
 import { onDecision } from './plan-decision.ts';
 import { planAreaLabels, riskLabelChanges, singleAreaLabel } from './label-apply.ts';
@@ -145,10 +145,14 @@ async function onPlan(
   gate = withCritiqueGate(gate, critique);
   // auto mode の危険の判定：ほかに止める理由が無いときだけ Jev に問う（同じ計画コメント・同じ本文の ok の記録は使い回す）
   let autoMode: PlanAutoMode | undefined;
+  let inherited: ReturnType<typeof inheritedPlanJev> = null;
   if (autoCandidate && autoSkips && autoState) {
-    const jev = autoKnown?.jev ?? reusablePlanJev(previousGate, comment.id, sha256(comment.body)) ?? (await askPlanJev(ctx, planBodyWithoutView(comment.body), plan.files, plan.authorView));
+    const reused = autoKnown?.jev ?? reusablePlanJev(previousGate, comment.id, sha256(comment.body));
+    // files が前に保留した計画と同じなら Jev に問い直さず保留を引き継ぐ（Issue #680）
+    inherited = reused ? null : inheritedPlanJev(ctx.config, comments, plan.files);
+    const jev = reused ?? inherited?.jev ?? (await askPlanJev(ctx, planBodyWithoutView(comment.body), plan.files, plan.authorView));
     const danger = autoModeDanger(ctx.config, { jev });
-    autoMode = { skipped: autoSkips, label: autoModeConfig(ctx.config).label, by: autoState.by, since: autoState.since, jev, hold: danger.hold, reasons: danger.reasons };
+    autoMode = { skipped: autoSkips, label: autoModeConfig(ctx.config).label, by: autoState.by, since: autoState.since, jev, hold: danger.hold, reasons: danger.reasons, ...(inherited ? { inheritedFrom: { planCommentId: inherited.planCommentId } } : {}) };
     if (!danger.hold) gate = { pass: true, reasons: [], ...(gate.critiqueProceeded ? { critiqueProceeded: gate.critiqueProceeded } : {}) };
   }
   const record = { version: 1, planCommentId: comment.id, planBodySha256: sha256(comment.body), pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan; planBodySha256: string };
@@ -211,6 +215,7 @@ async function onPlan(
         '',
         ...gate.reasons.map((r) => `- ${autoRouteReason(r, route)}`),
         ...(autoMode?.hold ? ['', `auto mode（\`${autoMode.label}\`）の危険の判定で保留にしました。`, ...autoMode.reasons.map((r) => `- ${r}`)] : []),
+        ...(autoMode?.hold && inherited ? [`files が前に保留した計画（${inherited.planUrl ? `[コメント](${inherited.planUrl})` : `コメント ${inherited.planCommentId}`}）と同じなので、Jev に問い直さずにその判定を引き継ぎました。`] : []),
         ...(area ? ['', `計画の files が1つの領域に収まるので \`${area}\` を付けました。`] : []),
       ].join('\n'),
       record,
@@ -316,7 +321,7 @@ async function reviewDelegatedPlan(ctx: GateContext, issue: OpenIssue, state: De
 }
 
 /**
- * auto mode で、App のゲートの停止で止まっている Issue を判定し直す（呼び出しは auto mode のラベルを付けたとき（#346）と定期実行（#347）が足す）。
+ * auto mode で、App のゲートの停止で止まっている Issue を判定し直す（auto mode のラベルを付けたとき（auto-mode-merge.ts）と、定期実行（stale.ts の onSchedule。委任の判定し直しの後）に呼ぶ）。
  * 対象は reviewDelegatedPlans と同じ形で、agent:plan-review の付いた開いた Issue のうち、最新の plan-gate の記録が pass:false・planReviewOrigin:gate で
  * 記録に計画と sha256 があり、批評の関所を通り、止めた理由が auto mode で飛ばせる理由だけで、最後に agent:plan-review を付けたのが App で、
  * 計画コメントが信頼できる作成者のまま本文も変わっていないもの。
@@ -353,7 +358,7 @@ async function reviewAutoModePlan(ctx: GateContext, issue: OpenIssue, state: Aut
   if (lastLabeled(events, LABELS.planReview)?.actor?.login !== appLogin(ctx.config)) return;
   const planComment = comments.find((c) => c.id === record.planCommentId);
   if (!planComment || !isTrustedComment(planComment) || sha256(planComment.body) !== record.planBodySha256) return;
-  const jev = reusablePlanJev(record, planComment.id, record.planBodySha256) ?? (await askPlanJev(ctx, planBodyWithoutView(planComment.body), record.plan.files, record.plan.authorView));
+  const jev = reusablePlanJev(record, planComment.id, record.planBodySha256) ?? inheritedPlanJev(ctx.config, comments, record.plan.files)?.jev ?? (await askPlanJev(ctx, planBodyWithoutView(planComment.body), record.plan.files, record.plan.authorView));
   if (autoModeDanger(ctx.config, { jev }).hold) return;
   const block = extractBlock(planComment.body, 'agent-plan');
   await onPlan(ctx, issue, planComment, block, decisionComment ? { commentId: decisionComment.id, url: decisionComment.html_url } : undefined, undefined, { state, jev });

@@ -15,12 +15,12 @@ Routine の fix（[.claude/routine.md](../../routine.md)）を、付き添いの
 
 ## 手順
 
-1. `node harness/scripts/agent.ts claim <PR番号> --manual --stage fix` で着手を宣言する（`worktree` は PR の宣言を確かめる）。
+1. `node harness/scripts/agent.ts claim <PR番号> --manual --stage fix` で着手を宣言する（`worktree` は PR の宣言を確かめる）。PR が Merge 済み・Closed なら `claim` は宣言せずに止まる。そのときは worktree を作らず push せずに終え、人がすることの一覧に「PR #N は Merge 済み（Closed）のため fix をしなかった」と書く。
 2. `node harness/scripts/agent.ts worktree <PR のブランチ>` で worktree を作り（出力がパス）、そこで作業する。
 3. 指摘を直す。計画の `files` の範囲で直す。
 4. テストの assert の行を書き換える・消す必要があるときは、書き方を変えて改ざん検査（`agent/tests`）を逃れない。理由を Issue か PR にコメントする。自動 Merge の対象の PR のときは、人に `test:exempt` を付けてもらうよう頼む（自分では付けない）。Human Merge の PR では `test:exempt` は要らない（`agent/tests` は neutral になり、人が Merge の前に理由と行を確かめる）。
 5. `npm run check` を通す。
-6. `git add <ファイル>` でファイルを指定して commit し、`git push origin <PR のブランチ>` で push する（`<PR のブランチ>` は手順2と同じ。force push しない。main への追従が要るなら sync の手順で merge する）。
+6. push の前に `node harness/scripts/agent.ts ensure-claim <PR番号>` を流す（宣言の持ち主と、PR が開いていることを確かめる）。止まったら push せずに `release <PR番号>` して終え、一覧に同じく書く。流せたら `git add <ファイル>` でファイルを指定して commit し、`git push origin <PR のブランチ>` で push する（`<PR のブランチ>` は手順2と同じ。force push しない。main への追従が要るなら sync の手順で merge する）。
 7. 何を直したかを PR にコメントする（先頭に `<!-- agent-harness:claude -->`）。
 8. `node harness/scripts/agent.ts release <PR番号>` で着手を解除する。
 9. judge の手順で判定をやり直す（再レビュー。前回の判定の head からの差分と前回の指摘だけがブロッキングの対象）。
@@ -32,6 +32,7 @@ Routine の fix（[.claude/routine.md](../../routine.md)）を、付き添いの
 
 ## 人に返す条件
 
+- PR が Merge 済み・Closed（`claim` か `ensure-claim` が止まった。push しない）
 - 指摘が要件・AC の変更を求めている、または指摘どうし・計画と食い違う
 - 自動 Merge の対象の PR で、テストの assert を変える必要がある（`test:exempt` を頼む。Human Merge の PR では理由を PR に書けば返さなくてよい）
 - 計画の `files` の外を変える必要がある

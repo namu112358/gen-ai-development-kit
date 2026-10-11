@@ -134,3 +134,25 @@ export async function ensureOwnClaim(io: Pick<ClaimIo, 'listComments'>, n: numbe
   const stop = assignee ? await assignee() : null;
   return { error: stop || null };
 }
+
+/** PR の状態（REST の /pulls/<n>。一覧の API には merged が無いので merged_at も見る） */
+export interface PullState {
+  number: number;
+  state: string;
+  merged?: boolean;
+  merged_at?: string | null;
+}
+
+/** PR が Merge 済み・Closed なら止める文、開いている（か PR でない）なら null（Issue #638） */
+export function closedPrStop(pr: PullState | null): string | null {
+  if (!pr) return null;
+  const how = pr.merged === true || (typeof pr.merged_at === 'string' && pr.merged_at !== '') ? 'Merge 済み' : pr.state === 'closed' ? 'Closed' : null;
+  if (!how) return null;
+  return `PR #${pr.number} は ${how}です。fix・sync は push せずに終えてください（消えたブランチを作り直さないため）。人がすることの一覧に書いてください`;
+}
+
+/** 段階が fix・sync のときだけ PR を読み、Merge 済み・Closed なら止める文を返す。ほかの段階では PR を読まない */
+export async function prStageStop(getPull: (n: number) => Promise<PullState | null>, n: number, stage: ClaimStage | undefined): Promise<string | null> {
+  if (stage !== 'fix' && stage !== 'sync') return null;
+  return closedPrStop(await getPull(n));
+}

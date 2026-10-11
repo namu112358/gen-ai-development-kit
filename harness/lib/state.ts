@@ -123,6 +123,8 @@ export interface PlanAutoMode {
   hold: boolean;
   /** 危険の判定の理由（Jev の1行） */
   reasons: string[];
+  /** files が前に保留した計画と同じため、Jev に問い直さずにその計画の保留を引き継いだときの元の計画コメント（Issue #680）。古い記録・引き継がなかった記録には無い */
+  inheritedFrom?: { planCommentId: number };
 }
 
 export function latestPlanGate(config: HarnessConfig, comments: IssueComment[]): { comment: IssueComment; value: PlanGateRecord } | null {
@@ -178,6 +180,7 @@ export interface DashboardIssue {
   user: { login: string } | null;
   labels: { name: string }[];
   pull_request?: unknown;
+  body?: string | null;
 }
 
 /** patrol のまとめの Issue の題の既定値 */
