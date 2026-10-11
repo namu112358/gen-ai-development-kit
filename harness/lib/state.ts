@@ -180,6 +180,19 @@ export interface DashboardIssue {
   pull_request?: unknown;
 }
 
+/** patrol のまとめの Issue の題の既定値 */
+export const DEFAULT_PATROL_ISSUE_TITLE = 'patrol のまとめ';
+
+/** patrol のまとめの Issue の題（設定が無い・空なら既定） */
+export function patrolIssueTitle(config: HarnessConfig): string {
+  return config.patrolIssueTitle || DEFAULT_PATROL_ISSUE_TITLE;
+}
+
+/** ハーネス自身の Issue（ダッシュボードか patrol のまとめの Issue）の題か。作業の Issue の選別から除くのに使う */
+export function isHarnessIssueTitle(config: HarnessConfig, title: string): boolean {
+  return title === config.dashboardIssueTitle || title === patrolIssueTitle(config);
+}
+
 /** App が作ったダッシュボード Issue（無ければ null） */
 export async function findDashboard(gh: GitHub, config: HarnessConfig): Promise<DashboardIssue | null> {
   const mine = await gh.paginate<DashboardIssue>(`/issues?state=open&creator=${encodeURIComponent(appLogin(config))}`, 5);

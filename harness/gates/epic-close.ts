@@ -1,3 +1,4 @@
+import { isHarnessIssueTitle } from '../lib/state.ts';
 import { appComment, type GateContext } from './context.ts';
 
 /**
@@ -39,7 +40,7 @@ export async function closeDoneEpics(ctx: GateContext): Promise<number> {
   let closed = 0;
   const issues = await ctx.gh.paginate<OpenIssue>('/issues?state=open', 10);
   for (const i of issues) {
-    if (i.pull_request || i.title === ctx.config.dashboardIssueTitle) continue;
+    if (i.pull_request || isHarnessIssueTitle(ctx.config, i.title)) continue;
     const total = i.sub_issues_summary?.total ?? 0;
     if (total < 1 || i.sub_issues_summary?.completed !== total) continue;
     try {

@@ -19,7 +19,7 @@ import {
   type OpenEpic,
 } from '../lib/epic-triage.ts';
 import { askJev, measureRequest } from '../lib/jev.ts';
-import { appRecords } from '../lib/state.ts';
+import { appRecords, isHarnessIssueTitle } from '../lib/state.ts';
 import { appComment, type GateContext } from './context.ts';
 import type { EpicSplitRecord } from './epic-split.ts';
 
@@ -101,7 +101,7 @@ export async function epicTriage(ctx: GateContext): Promise<{ unassigned: EpicUn
       subIssues: i.sub_issues_summary?.total ?? 0,
     })),
     epics,
-    ctx.config.dashboardIssueTitle,
+    (t) => isHarnessIssueTitle(ctx.config, t),
   );
   const apiKey = ctx.secrets.jevApiKey;
   let asked = 0;

@@ -95,6 +95,8 @@ export interface HarnessConfig {
   /** イベントで動いた gate が定期の仕事を補うまでの、前回の定期の仕事からの分。無ければ 90。Issue #418 */
   periodicCatchUpMinutes?: number;
   dashboardIssueTitle: string;
+  /** patrol の Routine が状態と下書きを置くまとめの Issue の題。無ければ「patrol のまとめ」（Epic #634） */
+  patrolIssueTitle?: string;
   reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
   /**
    * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、

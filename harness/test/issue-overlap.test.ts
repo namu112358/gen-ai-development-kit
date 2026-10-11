@@ -77,10 +77,10 @@ test('selectOverlapCandidates：(2) 候補は設定の上限の数までで、PR
   ];
 
   assert.deepEqual(
-    selectOverlapCandidates(draft, issues, config.dashboardIssueTitle, max).map((i) => i.number),
+    selectOverlapCandidates(draft, issues, (t) => t === config.dashboardIssueTitle, max).map((i) => i.number),
     [1, 120, 119, 118, 117],
   );
-  const all = selectOverlapCandidates(draft, issues, config.dashboardIssueTitle, 100).map((i) => i.number);
+  const all = selectOverlapCandidates(draft, issues, (t) => t === config.dashboardIssueTitle, 100).map((i) => i.number);
   assert.deepEqual([...all].sort((a, b) => a - b), [1, ...overlapping.map((i) => i.number)]);
 });
 

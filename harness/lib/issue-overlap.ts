@@ -80,10 +80,10 @@ export function overlapScore(a: string, b: string): number {
   return score;
 }
 
-/** 候補の Issue。PR・ダッシュボード・Epic・重なり0を除き、重なりの多い順（同じなら番号の大きい順）に max 件まで */
-export function selectOverlapCandidates(draft: OverlapDraft, issues: OpenIssue[], dashboardTitle: string, max: number): OpenIssue[] {
+/** 候補の Issue。PR・ダッシュボードと patrol のまとめの Issue（isExcludedTitle）・Epic・重なり0を除き、重なりの多い順（同じなら番号の大きい順）に max 件まで */
+export function selectOverlapCandidates(draft: OverlapDraft, issues: OpenIssue[], isExcludedTitle: (title: string) => boolean, max: number): OpenIssue[] {
   return issues
-    .filter((i) => !i.isPullRequest && i.title !== dashboardTitle && !i.labels.includes(LABELS.epic))
+    .filter((i) => !i.isPullRequest && !isExcludedTitle(i.title) && !i.labels.includes(LABELS.epic))
     .map((issue) => ({ issue, score: overlapScore(draft.title, issue.title) }))
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score || b.issue.number - a.issue.number)

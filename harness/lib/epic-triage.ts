@@ -63,8 +63,8 @@ export interface OpenEpic {
   splitChildren: number[];
 }
 
-/** Epic の振り分けを問う対象。PR・ダッシュボード・Epic・子を持つ Issue・すでに Epic の子のものを除き、入力の順を保つ */
-export function selectTriageTargets(issues: TriageIssue[], epics: OpenEpic[], dashboardTitle: string): TriageIssue[] {
+/** Epic の振り分けを問う対象。PR・ダッシュボードと patrol のまとめの Issue（isExcludedTitle）・Epic・子を持つ Issue・すでに Epic の子のものを除き、入力の順を保つ */
+export function selectTriageTargets(issues: TriageIssue[], epics: OpenEpic[], isExcludedTitle: (title: string) => boolean): TriageIssue[] {
   const excluded = new Set<number>();
   for (const e of epics) {
     excluded.add(e.number);
@@ -72,7 +72,7 @@ export function selectTriageTargets(issues: TriageIssue[], epics: OpenEpic[], da
     for (const n of e.splitChildren) excluded.add(n);
   }
   return issues.filter(
-    (i) => !i.isPullRequest && i.title !== dashboardTitle && !i.labels.includes(LABELS.epic) && i.subIssues <= 0 && !excluded.has(i.number),
+    (i) => !i.isPullRequest && !isExcludedTitle(i.title) && !i.labels.includes(LABELS.epic) && i.subIssues <= 0 && !excluded.has(i.number),
   );
 }
 
