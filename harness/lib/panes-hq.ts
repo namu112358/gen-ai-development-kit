@@ -8,7 +8,7 @@
 import type { FleetStatusRow } from './fleet.ts';
 import {
   MARKS, MARK_COLOR, PANE_STEPS, WHO_MARK, ago, charWidth, displayWidth, locateRow, paint, progressBar, rule, shortTitle, todoItems,
-  type PaneSnapshot, type TodoItem,
+  type Color, type PaneSnapshot, type TodoItem,
 } from './panes.ts';
 
 /** 控えの fleet 1つ（hq が起こした fleet。session は fleet から届くまで null） */
@@ -224,10 +224,89 @@ export function groupByEpic(view: HqView): { epics: EpicGroup[]; none: FleetRow[
 
 const todoCount = (rows: FleetRow[]): number => rows.filter(({ view, row }) => view.snap && todoItems(view.snap).some((it) => it.issue === row.issue)).length;
 
-function closeBar(closed: number, total: number): string {
-  const cells = Math.min(total, 10);
-  const filled = total === 0 ? 0 : Math.round((closed / total) * cells);
-  return `${paint('green', '■'.repeat(filled))}${paint('gray', '□'.repeat(cells - filled))}`;
+/** Epic の棒の1マスの状態（Issue #501。並びは EPIC_BAR_ORDER） */
+export type EpicBarKind = 'done' | 'ai' | 'app' | 'human' | 'wait' | 'todo';
+
+/** Epic の棒の記号・色・意味。凡例もこの表から作る（色は panes.ts の MARK_COLOR とそろえる） */
+export const EPIC_BAR: Record<EpicBarKind, { mark: string; color: Color; meaning: string }> = {
+  done: { mark: '■', color: 'green', meaning: 'Close' },
+  ai: { mark: '■', color: 'blue', meaning: 'AI が作業中' },
+  app: { mark: '■', color: 'yellow', meaning: 'App の番' },
+  human: { mark: '■', color: 'magenta', meaning: '人の番' },
+  wait: { mark: '■', color: 'gray', meaning: '待ち' },
+  todo: { mark: '□', color: 'gray', meaning: 'まだ' },
+};
+
+export const EPIC_BAR_ORDER: readonly EpicBarKind[] = ['done', 'ai', 'app', 'human', 'wait', 'todo'];
+
+const zeroCounts = (): Record<EpicBarKind, number> => ({ done: 0, ai: 0, app: 0, human: 0, wait: 0, todo: 0 });
+
+/**
+ * Epic の子課題ごとの状態の件数。CLOSED は Close、開いたものは同じ番号の最初の fleet の行を locateRow で読む
+ * （ほかのセッションの宣言は AI、Merge 済みでまだ開いているものは App の番）。行が無ければ「まだ」。子課題に無い行は数えない
+ */
+export function epicChildKinds(g: EpicGroup): Record<EpicBarKind, number> {
+  const counts = zeroCounts();
+  for (const c of g.children ?? []) {
+    if (c.state === 'CLOSED') { counts.done += 1; continue; }
+    const fr = g.rows.find(({ row }) => row.issue === c.number);
+    if (!fr) { counts.todo += 1; continue; }
+    const at = locateRow(fr.row);
+    counts[at.other || at.who === 'ai' ? 'ai' : at.who === 'done' ? 'app' : at.who] += 1;
+  }
+  return counts;
+}
+
+/**
+ * 件数をマスの並びにする。合計が maxCells 以下なら1件1マス。超えたら maxCells マスに最大剰余法で配り、
+ * 1件以上の色は少なくとも1マス出す（はみ出した分は、割合より多くもらっている色のうち一番多い色から減らす）。同点は並びの前の色
+ */
+export function epicBarCells(counts: Record<EpicBarKind, number>, maxCells = 10): EpicBarKind[] {
+  const total = EPIC_BAR_ORDER.reduce((n, k) => n + counts[k], 0);
+  const cells = zeroCounts();
+  if (total <= maxCells) {
+    for (const k of EPIC_BAR_ORDER) cells[k] = counts[k];
+  } else {
+    const quota = (k: EpicBarKind): number => (counts[k] * maxCells) / total;
+    for (const k of EPIC_BAR_ORDER) cells[k] = Math.floor(quota(k));
+    let left = maxCells - EPIC_BAR_ORDER.reduce((n, k) => n + cells[k], 0);
+    const byRemainder = [...EPIC_BAR_ORDER].sort((a, b) => (quota(b) - cells[b]) - (quota(a) - cells[a]));
+    for (const k of byRemainder) { if (left <= 0) break; cells[k] += 1; left -= 1; }
+    for (const k of EPIC_BAR_ORDER) if (counts[k] > 0 && cells[k] === 0) cells[k] = 1;
+    let over = EPIC_BAR_ORDER.reduce((n, k) => n + cells[k], 0) - maxCells;
+    while (over > 0) {
+      const can = EPIC_BAR_ORDER.filter((k) => cells[k] > 1);
+      const pool = can.filter((k) => cells[k] > quota(k));
+      const from = (pool.length > 0 ? pool : can).reduce((a, b) => (cells[b] > cells[a] ? b : a));
+      cells[from] -= 1;
+      over -= 1;
+    }
+  }
+  return EPIC_BAR_ORDER.flatMap((k) => Array<EpicBarKind>(cells[k]).fill(k));
+}
+
+function epicBar(counts: Record<EpicBarKind, number>): string {
+  return epicBarCells(counts).map((k) => paint(EPIC_BAR[k].color, EPIC_BAR[k].mark)).join('');
+}
+
+const legendItem = (k: EpicBarKind): string => `${paint(EPIC_BAR[k].color, EPIC_BAR[k].mark)} ${EPIC_BAR[k].meaning}`;
+
+/** Epic のページの凡例の1行（記号をその色で塗る） */
+export function epicLegend(): string {
+  return EPIC_BAR_ORDER.map(legendItem).join('  ');
+}
+
+/** 凡例を幅に収める。収まれば1行、狭ければ項目の切れ目で折り返す */
+function legendLines(width: number): string[] {
+  const out: string[] = [];
+  let line = '';
+  for (const k of EPIC_BAR_ORDER) {
+    const item = legendItem(k);
+    const next = line === '' ? item : `${line}  ${item}`;
+    if (line !== '' && displayWidth(next) > width) { out.push(line); line = item; } else line = next;
+  }
+  if (line !== '') out.push(line);
+  return out;
 }
 
 function epicPage(view: HqView, width: number): string[] {
@@ -240,13 +319,14 @@ function epicPage(view: HqView, width: number): string[] {
     if (g.children) {
       const total = g.children.length;
       const closed = g.children.filter((c) => c.state === 'CLOSED').length;
-      out.push(`${closeBar(closed, total)}  ${paint('bold', `${closed}/${total}`)}  ${paint(waiting > 0 ? 'magenta' : 'gray', `人待ち ${waiting}`)}  ${paint('bold', `#${g.number}`)}  ${paint('cyan', themes)}`);
+      out.push(`${epicBar(epicChildKinds(g))}  ${paint('bold', `${closed}/${total}`)}  ${paint(waiting > 0 ? 'magenta' : 'gray', `人待ち ${waiting}`)}  ${paint('bold', `#${g.number}`)}  ${paint('cyan', themes)}`);
     } else {
       out.push(`${paint('gray', 'まだ読めていない')}  ${paint('bold', `#${g.number}`)}  ${paint('cyan', themes)}`);
     }
     if (g.title) out.push(...wrapped(shortTitle(g.title), width, '    ', 'dim'));
   }
   if (none.length > 0) out.push('', `${paint('bold', `Epic なし ${none.length} 件`)}  ${paint('gray', none.map(({ row }) => `#${row.issue}`).join(' '))}`);
+  if (epics.length > 0) out.push('', ...legendLines(width));
   return out;
 }
 
@@ -282,7 +362,7 @@ function issuePage(view: HqView, now: number, width: number): string[] {
   return out;
 }
 
-/** ① Epic/Issue：Epic のページ（Close の数・人待ちの数・Epic なしの件数）と Issue のページ（Epic ごとの6段階の横棒）を Tab・e・i で切り替える */
+/** ① Epic/Issue：Epic のページ（子課題の状態ごとに色分けした棒・Close の数・人待ちの数・Epic なしの件数・凡例。#501）と Issue のページ（Epic ごとの6段階の横棒）を Tab・e・i で切り替える */
 export function renderHqBoard(view: HqView, page: BoardPage, now: number, width: number): string {
   const title = page === 'epic' ? 'Epic（Tab・e・i で切り替え）' : 'Issue（Tab・e・i で切り替え）';
   const out = heading(title, view, now, width);
