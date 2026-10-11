@@ -1,3 +1,4 @@
+import { delegateModeName } from './delegate.ts';
 import { assigneeExclusion, requireAssignee } from './assignee.ts';
 import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
 import { patternsOverlap } from './epic.ts';
@@ -377,11 +378,37 @@ function rowView(r: FleetRow, sel: FleetSelection): { selected: boolean; waitRea
 /** 入れ子のときに同時に動かす ship の数。--max があれば --max、無ければ maxParallelShips */
 const parallelShips = (max: number | null, mode: FleetMode): number => max ?? mode.maxParallelShips;
 
+/** fleet-status の末尾と --json に出す、bypass と委任承認の今の状態（読めないときは readable: false） */
+export type FleetMergeState =
+  | {
+    readable: true;
+    bypass: { active: boolean; by: string | null; since: string | null; reason: string };
+    delegate: { mode: 'off' | 'plan' | 'plan+merge'; active: boolean; planActive: boolean; by: string | null; since: string | null; reason: string };
+  }
+  | { readable: false; error: string };
+
+/** 末尾の2行（bypass、委任承認の順）。文の組み立てだけで、判定は bypassState・delegateState */
+export function mergeStateLines(s: FleetMergeState): string[] {
+  if (!s.readable) return [`bypass：読めない（${s.error}）`, `委任承認：読めない（${s.error}）`];
+  const who = (by: string | null): string => (by === null ? '付けた人は不明' : `@${by}`);
+  const bypass = s.bypass.active
+    ? `bypass：有効（${who(s.bypass.by)}）。critical・ガードレールも、判定に合格すれば App が自動 Merge する`
+    : `bypass：無効（${s.bypass.reason}）`;
+  const d = s.delegate;
+  const delegate = d.mode === 'plan+merge'
+    ? `委任承認：${delegateModeName(d.mode)}（${who(d.by)}）。delegateMergeExclude に当たらなければ、合格すれば App が自動 Merge する`
+    : d.mode === 'plan'
+      ? `委任承認：${delegateModeName(d.mode)}（${who(d.by)}）。計画ゲートは委任で通ることがあるが、Merge は委ねていない`
+      : `委任承認：${delegateModeName(d.mode)}（${d.reason}）`;
+  return [bypass, delegate];
+}
+
 /**
  * fleet-status の表（Markdown）。mode（fleetConfig）を渡すと、末尾に進め方の行を足す。
+ * merge を渡すと、その後に bypass・委任承認の2行を足す。
  * 入れ子（orca）で同時に動かす ship の数は、--max があれば --max、無ければ maxParallelShips
  */
-export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: number | null, mode?: FleetMode): string {
+export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: number | null, mode?: FleetMode, merge?: FleetMergeState): string {
   const cell = (s: string): string => s.replace(/\|/g, '\\|');
   const lines = [
     '| Issue | PR | 段階 | 次にやること | 選択 | 重なり | メモ |',
@@ -401,6 +428,7 @@ export function renderFleetStatus(rows: FleetRow[], sel: FleetSelection, max: nu
       ? `進め方：入れ子（orca）。ship をサブエージェントで並行に動かす。同時に動かす ship は ${parallelShips(max, mode)} まで`
       : '進め方：交互（flat）。1つのセッションで段階を交互に進める');
   }
+  if (merge) lines.push(...mergeStateLines(merge));
   return lines.join('\n');
 }
 
@@ -411,6 +439,25 @@ export interface FleetClaimInfo {
   session: string | null;
   /** このセッションの手動の宣言か（isOwnClaim） */
   own: boolean;
+  /** 宣言の最後の段階の時刻（claimAge を渡したときだけ。Issue #639） */
+  at?: string;
+  /** 期限（手動 humanClaimStaleHours 時間・Routine routineClaimTakeoverMinutes 分）を過ぎたか。hq の見回しが止まった宣言の判定に使う（claimAge を渡したときだけ。Issue #639） */
+  stale?: boolean;
+}
+
+/** 着手宣言の期限の数え方の材料（Issue #639） */
+export interface ClaimAge {
+  now: Date;
+  humanClaimStaleHours: number;
+  routineClaimTakeoverMinutes: number;
+}
+
+/** 宣言が期限を過ぎたか（ちょうどで true。時刻が読めなければ true）。数え方は queue.ts の holdsMainFollow・claimBlocker に倣う */
+export function claimStale(claim: Claim, age: ClaimAge): boolean {
+  const ms = age.now.getTime() - Date.parse(claim.at);
+  if (Number.isNaN(ms)) return true;
+  if (claim.by === 'manual') return Math.floor(ms / 3_600_000) >= age.humanClaimStaleHours;
+  return ms / 60_000 >= age.routineClaimTakeoverMinutes;
 }
 
 /** fleet-status --json の1行。表の1行と同じ中身 */
@@ -449,18 +496,25 @@ export interface FleetStatusData {
   max: number | null;
   /** 進め方。parallel は入れ子で同時に動かす ship の数（表の進め方の行と同じ）。mode を渡さなければ null */
   mode: { nesting: 'orca' | 'flat'; parallel: number } | null;
+  /** bypass・委任承認の今の状態。渡したときだけ鍵が入る */
+  merge?: FleetMergeState;
 }
 
-function claimInfo(claim: Claim | null, currentSession: string | null): FleetClaimInfo | null {
+function claimInfo(claim: Claim | null, currentSession: string | null, age?: ClaimAge): FleetClaimInfo | null {
   if (claim === null || claim.released) return null;
-  return { by: claim.by, stage: claim.stage ?? null, session: claim.session ?? null, own: isOwnClaim(claim, currentSession) };
+  const info: FleetClaimInfo = { by: claim.by, stage: claim.stage ?? null, session: claim.session ?? null, own: isOwnClaim(claim, currentSession) };
+  if (age) {
+    info.at = claim.at;
+    info.stale = claimStale(claim, age);
+  }
+  return info;
 }
 
 /**
  * fleet-status の表（renderFleetStatus）と同じ中身を、機械が読める形で返す（fleet-status --json）。
  * 表示のペインや hq が Markdown の表を読み直さずに済むようにする。並び順・理由・重なり・メモは表と同じ関数から作る。
  */
-export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetSelection, max: number | null, currentSession: string | null, mode?: FleetMode): FleetStatusData {
+export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetSelection, max: number | null, currentSession: string | null, mode?: FleetMode, merge?: FleetMergeState, claimAge?: ClaimAge): FleetStatusData {
   const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
   return {
     version: 1,
@@ -480,13 +534,14 @@ export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetS
         overlaps: v.overlaps,
         sharedOnlyOverlaps: v.sharedOnlyOverlaps,
         note: v.note === '' ? null : v.note,
-        claim: claimInfo(i?.facts.claim ?? null, currentSession),
-        prClaim: claimInfo(prClaim, currentSession),
+        claim: claimInfo(i?.facts.claim ?? null, currentSession, claimAge),
+        prClaim: claimInfo(prClaim, currentSession, claimAge),
       };
     }),
     selectedCount: sel.selected.length,
     selected: [...sel.selected],
     max,
     mode: mode ? { nesting: mode.nesting, parallel: parallelShips(max, mode) } : null,
+    ...(merge ? { merge } : {}),
   };
 }
