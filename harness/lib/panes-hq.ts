@@ -225,7 +225,7 @@ export function groupByEpic(view: HqView): { epics: EpicGroup[]; none: FleetRow[
 const todoCount = (rows: FleetRow[]): number => rows.filter(({ view, row }) => view.snap && todoItems(view.snap).some((it) => it.issue === row.issue)).length;
 
 /** Epic の棒の1マスの状態（Issue #501。並びは EPIC_BAR_ORDER） */
-export type EpicBarKind = 'done' | 'ai' | 'app' | 'human' | 'wait' | 'todo';
+export type EpicBarKind = 'done' | 'ai' | 'app' | 'human' | 'wait' | 'rest';
 
 /** Epic の棒の記号・色・意味。凡例もこの表から作る（色は panes.ts の MARK_COLOR とそろえる） */
 export const EPIC_BAR: Record<EpicBarKind, { mark: string; color: Color; meaning: string }> = {
@@ -234,12 +234,12 @@ export const EPIC_BAR: Record<EpicBarKind, { mark: string; color: Color; meaning
   app: { mark: '■', color: 'yellow', meaning: 'App の番' },
   human: { mark: '■', color: 'magenta', meaning: '人の番' },
   wait: { mark: '■', color: 'gray', meaning: '待ち' },
-  todo: { mark: '□', color: 'gray', meaning: 'まだ' },
+  rest: { mark: '□', color: 'gray', meaning: 'まだ' },
 };
 
-export const EPIC_BAR_ORDER: readonly EpicBarKind[] = ['done', 'ai', 'app', 'human', 'wait', 'todo'];
+export const EPIC_BAR_ORDER: readonly EpicBarKind[] = ['done', 'ai', 'app', 'human', 'wait', 'rest'];
 
-const zeroCounts = (): Record<EpicBarKind, number> => ({ done: 0, ai: 0, app: 0, human: 0, wait: 0, todo: 0 });
+const zeroCounts = (): Record<EpicBarKind, number> => ({ done: 0, ai: 0, app: 0, human: 0, wait: 0, rest: 0 });
 
 /**
  * Epic の子課題ごとの状態の件数。CLOSED は Close、開いたものは同じ番号の最初の fleet の行を locateRow で読む
@@ -250,7 +250,7 @@ export function epicChildKinds(g: EpicGroup): Record<EpicBarKind, number> {
   for (const c of g.children ?? []) {
     if (c.state === 'CLOSED') { counts.done += 1; continue; }
     const fr = g.rows.find(({ row }) => row.issue === c.number);
-    if (!fr) { counts.todo += 1; continue; }
+    if (!fr) { counts.rest += 1; continue; }
     const at = locateRow(fr.row);
     counts[at.other || at.who === 'ai' ? 'ai' : at.who === 'done' ? 'app' : at.who] += 1;
   }

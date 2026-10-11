@@ -64,13 +64,13 @@ test('renderHqBoard（epic）：子課題の状態ごとに、Close・AI・App�
 });
 
 const k = (n: number, kind: EpicBarKind): EpicBarKind[] => Array<EpicBarKind>(n).fill(kind);
-const counts = (c: Partial<Record<EpicBarKind, number>>): Record<EpicBarKind, number> => ({ done: 0, ai: 0, app: 0, human: 0, wait: 0, todo: 0, ...c });
+const counts = (c: Partial<Record<EpicBarKind, number>>): Record<EpicBarKind, number> => ({ done: 0, ai: 0, app: 0, human: 0, wait: 0, rest: 0, ...c });
 
 const CELL_CASES: { name: string; c: Record<EpicBarKind, number>; want: EpicBarKind[] }[] = [
-  { name: '10 件ちょうどは1件1マス', c: counts({ done: 4, ai: 3, todo: 3 }), want: [...k(4, 'done'), ...k(3, 'ai'), ...k(3, 'todo')] },
-  { name: '30 件（Close 15・AI 9・まだ 6）は 5:3:2 で、0 件の色は出さない', c: counts({ done: 15, ai: 9, todo: 6 }), want: [...k(5, 'done'), ...k(3, 'ai'), ...k(2, 'todo')] },
+  { name: '10 件ちょうどは1件1マス', c: counts({ done: 4, ai: 3, rest: 3 }), want: [...k(4, 'done'), ...k(3, 'ai'), ...k(3, 'rest')] },
+  { name: '30 件（Close 15・AI 9・まだ 6）は 5:3:2 で、0 件の色は出さない', c: counts({ done: 15, ai: 9, rest: 6 }), want: [...k(5, 'done'), ...k(3, 'ai'), ...k(2, 'rest')] },
   { name: '人の番が1件だけでも1マス出し、一番多い色から減らす', c: counts({ done: 20, ai: 9, human: 1 }), want: [...k(6, 'done'), ...k(3, 'ai'), 'human'] },
-  { name: '11 件で6色すべてあっても合計 10 マス', c: counts({ done: 6, ai: 1, app: 1, human: 1, wait: 1, todo: 1 }), want: [...k(5, 'done'), 'ai', 'app', 'human', 'wait', 'todo'] },
+  { name: '11 件で6色すべてあっても合計 10 マス', c: counts({ done: 6, ai: 1, app: 1, human: 1, wait: 1, rest: 1 }), want: [...k(5, 'done'), 'ai', 'app', 'human', 'wait', 'rest'] },
 ];
 
 for (const { name, c, want } of CELL_CASES) {
