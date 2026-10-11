@@ -28,6 +28,11 @@ import {
   autoModeTestsDecision,
   autoModeViewShiftOf,
   renderAutoModeViewShift,
+  autoModePrHold,
+  autoModePlanHold,
+  autoModeHoldStats,
+  renderAutoModeHolds,
+  type AutoModeHoldRow,
   tokenRatios,
   type DecisionRow,
   type MergedPr,
@@ -52,7 +57,7 @@ import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
  * 実装のモデル（PR 本文の「実装のモデル:」の行）ごとに、1回で合格した割合・修正の回数・計画に返した回数を出す節も付ける（#473）。
  * 勧め（計画ゲートの記録の modelRouting）×実装のモデルごとの結果の節も付ける（#139）。
  * 最後に合体版のレビューの記録と今の判定を比べる節（基準は docs/plan.md の Q91）と、人の決定の記録の Jev の判定と人の判断の一致率の節（Q93）、
- * auto mode の危険の問いの見解あり・なしの結論の比べ（shadow。#426）の節を出す。
+ * auto mode の危険の問いの見解あり・なしの結論の比べ（shadow。#426）の節と、auto mode で保留した計画・PR のその後（#491）の節を出す。
  */
 
 const config = loadConfig();
@@ -182,6 +187,8 @@ const panelExcluded: Record<string, number> = {};
 // auto mode の危険の問いの見解あり・なし（#426）：受け付けの記録（patch-id ごと）と計画ゲートの記録（計画コメントごと）
 const viewAcceptances: Acceptance[] = [];
 const viewPlanGates: PlanGateRecord[] = [];
+// auto mode で保留した計画・PR のその後（#491）
+const holdRows: AutoModeHoldRow[] = [];
 for (const pr of agentPrs) {
   const comments = await gh.listComments(pr.number);
   const fixLinks = pr.merged_at
@@ -250,6 +257,8 @@ for (const pr of agentPrs) {
   const fixPrFiles = fixPrFilesOf(fixLinks);
   const acceptances = appRecords<Acceptance>(config, comments, 'acceptance');
   viewAcceptances.push(...acceptances.map((a) => a.value));
+  const prHold = autoModePrHold(pr.number, acceptances.map((a) => a.value), Boolean(pr.merged_at));
+  if (prHold) holdRows.push(prHold);
   const panel = panelPairs(config, {
     pr: pr.number,
     mergedAt: row.mergedAt,
@@ -277,14 +286,17 @@ ${renderModelRoutingQuality(modelRoutingQuality(rows))}`);
 console.log(`\n${renderPanelComparison(panelComparison(panelRows), panelRows, panelExcluded)}`);
 
 // 人の決定の記録（shadow の plan-decision）と人の判断の一致率。plan-decision の記録がある Issue だけ events と Closes する PR を読む
-const issues = (await gh.paginate<{ number: number; comments: number; pull_request?: unknown }>(`/issues?state=all&since=${new Date(since).toISOString()}`, 10)).filter(
+const issues = (await gh.paginate<{ number: number; comments: number; state: string; state_reason?: string | null; pull_request?: unknown }>(`/issues?state=all&since=${new Date(since).toISOString()}`, 10)).filter(
   (i) => !i.pull_request && i.comments > 0,
 );
 const decisionRowsAll: DecisionRow[] = [];
 for (const i of issues) {
   const comments = await gh.listComments(i.number);
   // 見解あり・なしの比べは、読んだコメントの計画ゲートの記録から拾う（API を増やさない）
-  viewPlanGates.push(...appRecords<PlanGateRecord>(config, comments, 'plan-gate').map((r) => r.value));
+  const planGates = appRecords<PlanGateRecord>(config, comments, 'plan-gate').map((r) => r.value);
+  viewPlanGates.push(...planGates);
+  const planHold = autoModePlanHold(i.number, planGates, { state: i.state, stateReason: i.state_reason });
+  if (planHold) holdRows.push(planHold);
   if (appRecords(config, comments, 'plan-decision').length === 0) continue;
   const events = await gh.paginate<{ event: string; created_at?: string; actor?: { login: string } | null; label?: { name: string } }>(`/issues/${i.number}/events`);
   const data = await gh.graphql<{ repository: { issue: { closedByPullRequestsReferences: { nodes: { number: number; createdAt: string }[] } } } }>(
@@ -295,3 +307,4 @@ for (const i of issues) {
 }
 console.log(`\n${renderDecisionAgreement(decisionAgreement(decisionRowsAll), decisionRowsAll)}`);
 console.log(`\n${renderAutoModeViewShift(autoModeViewShiftOf(config, viewPlanGates, viewAcceptances))}`);
+console.log(`\n${renderAutoModeHolds(autoModeHoldStats(holdRows))}`);
