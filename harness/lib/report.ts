@@ -1327,3 +1327,99 @@ export function renderAutoModeViewShift(s: AutoModeViewShift): string {
     `| ${s.compared} | ${s.safeToDanger} | ${s.dangerToSafe} | ${diff} |`,
   ].join('\n');
 }
+
+/** 保留した計画・PR のその後（そのまま・直させた・閉じた） */
+export type AutoModeHoldOutcome = 'as-is' | 'fixed' | 'closed';
+
+/** auto mode で保留した計画（Issue）か PR の1件。yes は記録の Jev の危険の確率（読めなければ null） */
+export interface AutoModeHoldRow {
+  kind: 'plan' | 'pr';
+  target: number;
+  yes: number | null;
+  outcome: AutoModeHoldOutcome;
+}
+
+const holdYes = (jev: AutoModeJevRecord | undefined): number | null => (jev?.status === 'ok' && finite(jev.yes) ? jev.yes : null);
+
+/**
+ * 受け付けの記録から、auto mode の危険の判定で保留した PR のその後を1件の行にする（Issue #491）。
+ * 保留は記録の事実で決め（autoMode.jev があり eligible が偽の最後の記録。carriedFrom は除く）、今の dangerSafe では決め直さない。
+ * 結果は最後の受け付け（carriedFrom を除く）の patch-id が保留の記録と同じ Merge ならそのまま、違えば直させた、Merge されずに閉じたら閉じた（autoModeTestsDecision と同じ比べ方）。
+ * 保留の後の関係の無い push でも patch-id が変わるので、直させたは多めに出る
+ */
+export function autoModePrHold(
+  pr: number,
+  acceptances: { patchId: string; carriedFrom?: unknown; autoMode?: { eligible: boolean; jev?: AutoModeJevRecord } }[],
+  merged: boolean,
+): AutoModeHoldRow | null {
+  const own = acceptances.filter((a) => !a.carriedFrom);
+  const last = own.filter((a) => a.autoMode?.jev && a.autoMode.eligible === false).at(-1);
+  if (!last) return null;
+  const outcome: AutoModeHoldOutcome = !merged ? 'closed' : own.at(-1)!.patchId === last.patchId ? 'as-is' : 'fixed';
+  return { kind: 'pr', target: pr, yes: holdYes(last.autoMode!.jev), outcome };
+}
+
+/**
+ * 計画ゲートの記録から、auto mode の危険の判定で保留した計画のその後を1件の行にする（Issue #491）。
+ * hold が真の最後の記録の後に、別の計画コメントの記録があれば直させた（出し直した）。無ければ Issue が completed で閉じたらそのまま、それ以外で閉じたら閉じた。開いていれば数えない
+ */
+export function autoModePlanHold(
+  issue: number,
+  planGates: { planCommentId: number; autoMode?: { jev?: AutoModeJevRecord; hold?: boolean } }[],
+  state: { state: string; stateReason?: string | null },
+): AutoModeHoldRow | null {
+  const at = planGates.findLastIndex((g) => g.autoMode?.hold === true);
+  if (at < 0) return null;
+  const last = planGates[at]!;
+  const yes = holdYes(last.autoMode?.jev);
+  if (planGates.slice(at + 1).some((g) => g.planCommentId !== last.planCommentId)) return { kind: 'plan', target: issue, yes, outcome: 'fixed' };
+  if (state.state !== 'closed') return null;
+  return { kind: 'plan', target: issue, yes, outcome: state.stateReason === 'completed' ? 'as-is' : 'closed' };
+}
+
+const HOLD_BANDS = ['〜20%', '20〜50%', '50%〜', '確率なし'] as const;
+
+/** 危険の確率の帯（境は固定。保留の線が変わっても変わらない） */
+export function autoModeHoldBand(yes: number | null): (typeof HOLD_BANDS)[number] {
+  if (yes === null || !finite(yes)) return '確率なし';
+  return yes <= 0.2 ? '〜20%' : yes <= 0.5 ? '20〜50%' : '50%〜';
+}
+
+/** 計画・PR ごと、帯ごとに、保留した件数とその後の結果を数える */
+export function autoModeHoldStats(rows: AutoModeHoldRow[]): { kind: 'plan' | 'pr'; band: string; held: number; asIs: number; fixed: number; closed: number }[] {
+  const out = [];
+  for (const kind of ['plan', 'pr'] as const) {
+    for (const band of HOLD_BANDS) {
+      const hit = rows.filter((r) => r.kind === kind && autoModeHoldBand(r.yes) === band);
+      out.push({
+        kind,
+        band,
+        held: hit.length,
+        asIs: hit.filter((r) => r.outcome === 'as-is').length,
+        fixed: hit.filter((r) => r.outcome === 'fixed').length,
+        closed: hit.filter((r) => r.outcome === 'closed').length,
+      });
+    }
+  }
+  return out;
+}
+
+export function renderAutoModeHolds(stats: ReturnType<typeof autoModeHoldStats>): string {
+  const head = '## auto mode で保留した計画・PR のその後';
+  if (stats.every((s) => s.held === 0)) return `${head}\n\n結果の出た、保留した計画・PR はありません。`;
+  const line = (kind: 'plan' | 'pr') =>
+    stats.filter((s) => s.kind === kind).map((s) => `| ${kind === 'plan' ? '計画' : 'PR'} | ${s.band} | ${s.held} | ${s.asIs} | ${s.fixed} | ${s.closed} |`);
+  return [
+    head,
+    '',
+    '記録に残った保留（今の保留の線では決め直さない）を、Jev の危険の確率の帯ごとに、その後の結果で数える。結果の出たものだけ。',
+    '',
+    '| 種類 | 危険の確率 | 保留した件数 | そのまま | 直させた | 閉じた |',
+    '| --- | --- | --- | --- | --- | --- |',
+    ...line('plan'),
+    ...line('pr'),
+    '',
+    '- PR の「直させた」は、保留の後の関係の無い push でも patch-id が変わると数えるので多めに出る（autoModeTestsDecision と同じ）。',
+    '- 計画の「そのまま」は、計画を出し直さずに Issue が完了した意味。PR が直させられたかは PR の行で見る。',
+  ].join('\n');
+}
