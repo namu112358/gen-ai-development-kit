@@ -70,6 +70,7 @@
 | `stalled-claim.ts` | 止まっていそうな着手宣言の判定（ダッシュボードの節「止まっていそうな着手宣言」、Issue #391）。 | ○ |
 | `state.ts` | GitHub 上の状態の読み取り。 | ○ |
 | `step.ts` | agent.ts step の判断（Issue #306）：GitHub の事実と段階のグラフ（flow.ts）から、今やってよいノードを1つだけ返す。 | ○ |
+| `sync.ts` | 導入先に配布物を写す sync の判断（上書き・新規・unchanged・除外・settings の merge・kit に無い managed の警告・写した版の記録）を決める純粋関数（Epic #642 の #650）。 | ○ |
 | `test-health.ts` | 保守の観測（harness/scripts/observe.ts）のテストの健康：遅いテスト、不安定なテスト（同じ head で失敗の後に成功）、mutation で生き残ったミュータント。 | ○ |
 | `test-move-jev.ts` | テストファイルの削除の移し先を Jev に問う材料・要求・答えのまとめ・要約の節・記録の型（Epic #511、Issue #513）。 | ○ |
 | `test-prune-loop.ts` | test-prune を付き添いのセッションの `/loop` から回すときの、手元の状態と回の記録（純粋関数）。 | ○ |
