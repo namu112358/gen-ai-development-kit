@@ -66,6 +66,7 @@
 | `scope-check.ts` | PR を出す前に、ローカルの変更が計画の files に収まるかを確かめる（agent.ts の scope-check、Issue #290）。 | ○ |
 | `scope.ts` | 計画の「触るファイル一覧」と実際の diff の照合（範囲照合）。 | ○ |
 | `session-inputs.ts` | 有人セッションで判定（Reviewer）・批評（plan-critic）に渡す入力と、判定コメントの組み立て。 | ○ |
+| `session-judgment.ts` | セッションの判定（````agent-session-judgment````、Issue #340）：付き添いのセッションが、人に聞かずに決めたことの記録。 | ○ |
 | `session.ts` | 今のセッションの ID を環境の値から決める（lib は process.env を直接読まず、呼び出し元が渡す）。 | ○ |
 | `stack.ts` | PR の base の見分け（既定ブランチ宛て・Stacked PR の層・スタックでないのに base が既定ブランチ以外）。 | ○ |
 | `stage-file.ts` | 段階のファイル：agent.ts step（harness/lib/step.ts）が返した今の段階（Issue・ノード・ブランチ・計画の files）を、セッションごとに書くファイル（Issue #306）。 | ○ |

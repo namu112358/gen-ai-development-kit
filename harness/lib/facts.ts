@@ -117,9 +117,13 @@ export function claimOf(comments: IssueComment[], opts: { until?: string } = {})
   return owner;
 }
 
-/** 着手宣言の段階の時刻（読める最大）。無ければ null。停滞の判定が動きに数える */
+/** 着手宣言の段階の時刻（読める最大）。無ければ null。停滞の判定が動きに数える。history の2件目からは書く側の時計が進んでいても GitHub の updated_at を上限にする */
 export function claimActivityAt(comments: IssueComment[]): string | null {
-  const times = claimTimeline(comments).flatMap((i) => (i.kind === 'claim' && !Number.isNaN(Date.parse(i.at)) ? [Date.parse(i.at)] : []));
+  const times = claimTimeline(comments).flatMap((i) => {
+    if (i.kind !== 'claim' || Number.isNaN(Date.parse(i.at))) return [];
+    const updated = Date.parse(i.comment.updated_at);
+    return [i.phase === 1 && !Number.isNaN(updated) ? Math.min(Date.parse(i.at), updated) : Date.parse(i.at)];
+  });
   return times.length > 0 ? new Date(Math.max(...times)).toISOString() : null;
 }
 
