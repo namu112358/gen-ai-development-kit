@@ -26,6 +26,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - `claim` が Assignee で止まった（`harness.config.json` の `requireAssignee` が有効で、誰もアサインされていない・ほかの人・2人以上）：自分をアサインせずに進めず、人に返す（質問にはせず、止まった理由を手順10の一覧に書いて終える。アサインするかは人が決める。[docs/operations.md](../../../docs/operations.md) の担当）。途中の段階の確かめ（`critic-input`・`post-plan`・`worktree`・`ensure-claim`）で止まったときも同じ。
    - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。ただし Stacked PR の上の層が `gh stack link` の前に付いた orphan-base（App の `kind=orphan-base`）は例外で、[gh-stack](../gh-stack/SKILL.md) の skill で組めば App が戻す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
+   - 人の決定のコメント（`post-decision` の `agent-decision`・`post-judgment` のセッションの判定）に、セッションの言葉で Merge の経路（「Merge は人がする」など）を書かない（経路は App が決める。人の答えを人の言葉のまま引用するのは今のまま）。
 2. 計画が無ければ plan の skill で計画を書いて投稿する。Planner の質問（`openQuestions`・`needsHumanReasons`）は plan の skill の手順3どおり投稿の前に AskUserQuestion で聞いて計画に書き込むので、投稿の後に申告が残るのは答えの無かったものだけになる（fleet の入れ子の方式で動く ship は聞かずに fleet に返す。下の「サブエージェントの ship として動くとき」）。批評の止める条件で必須の指摘が残るときや `drop` は人に上げる場面なので、plan の skill どおり「進める／直す／やめる」を AskUserQuestion で聞く（`revise` の直せる指摘は聞かずに直す）。App の計画ゲートの結果が付くのを待つ（`gh issue view <番号> --json labels`）。
    - `agent:plan-ok`：次へ。委任承認（ダッシュボードの `agent:delegate-plan` か `agent:delegate-merge`）の間は、`post-plan` が通らない見込みとして宣言を解除していても App が `agent:plan-ok` を付けることがある。そのときも implement の `claim --stage implement` で宣言し直す。
    - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：宣言が残っていれば（`post-plan` の出力の `claim` が `plan-gate`）先に `release <番号>` で解除する。次に `node harness/scripts/agent.ts plan-review-check <番号>` を読み、`riskOnly` が真（止めた理由が想定 Risk だけで、`touches` が空）で人に上げる場面に当たらなければ、聞かずに進めると決め、`post-judgment` で「セッションの判定」を残して次へ（implement の `claim --stage implement` で宣言し直す。手順10の一覧の「決めたこと（覆すなら）」に載せる）。止めた理由が計画で直せるもの（ゲートの停止）なら、聞かずに計画を直して出し直し（plan の skill の出し直しの扱い）、`post-judgment` で残す。ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる計画（`touches` が空でない）とそれ以外は人に上げる場面なので、理由（なぜ人が要るかの1行）を示し、進めてよいかを AskUserQuestion で聞く（選択肢は、進める・止める、計画で直せるなら計画を直して出し直す（plan の skill の出し直しの扱い）も）。人が進めてよいと答えれば、plan の skill の手順10どおり人の「進める」を進める記録（`agent-decision` の `proceed`、`post-decision`）で残し、App の `plan-proceed` の記録を確かめてから次へ（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の規則どおり。implement の `claim --stage implement` で宣言し直す。記録が `ineligible` なら理由を手順10の一覧に書き、実装は続ける）。答えなければ人に返す。
@@ -35,8 +36,9 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 4. judge の skill で判定する。現在の head にコラボレーターのレビューがあれば、先に fix の skill をする。
 5. 判定にブロッキング指摘があれば（App の `kind=fix-request`）、fix の skill で直し、判定をやり直す。PR が main と衝突している、または main への追従が要るときは sync の skill をする。修正の上限（`agent:blocked`、理由コード `fix-limit`）に達したら人に返す。
 6. 合格して Ready になったら、Merge の経路を確かめる。
-   - 自動 Merge：App が auto-merge を付けたこと（`gh pr view <PR番号> --json autoMergeRequest` が null でない）。
-   - Human Merge：App のコメント（本文に `kind=human-review`、作成者が App）が PR に付いたこと（[docs/operations.md](../../../docs/operations.md) の「Human Merge の依頼」）。
+   - 自動 Merge 待ち：App が auto-merge を付けたこと（`gh pr view <PR番号> --json autoMergeRequest` が null でない）、または PR に App の記録（本文に `kind=bypass-merge`・`delegated-merge`・`auto-mode-merge`、作成者が App）があり、最新の記録が `-end`（`bypass-merge-end` など）でないこと。
+   - 人の Merge 待ち：App のコメント（本文に `kind=human-review`、作成者が App）が PR に付いたこと（[docs/operations.md](../../../docs/operations.md) の「Human Merge の依頼」）。critical・ガードレールだからと人の Merge と推測しない（経路は App が決める）。
+   - 両方の印がある PR（human-review の後に bypass などが始まり auto-merge が付いた、`-end` の後に human-review が付いた）は、今 auto-merge が付いていれば（`autoMergeRequest` が null でない）自動 Merge 待ち、付いていなければ最新の記録が `human-review` か `-end` なら人の Merge 待ち、の順で決める。
    - 数分待ってもどちらも無ければ、App の記録（`kind=acceptance` の `autoEligible` と `reasons`）を読んで人に返す。
    - Stacked PR の層はいつも Human Merge（auto-merge も従来の Merge API も使えない）。
 7. 続けて使わなければ `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` で worktree を消す。
@@ -47,7 +49,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - 一度きりのミス → 記録だけ（候補にしない）。
    - 起票・コメントは人が選んだものだけ。自動で起票しない。人が選んで起票した Issue のラベル（`priority:*`・`area:*`）は手順8と同じく Jev に任せる。
 10. 人に**人がすること**の一覧を出す。聞かずに決めたこと（`post-judgment` で残した「セッションの判定」）は、「決めたこと（覆すなら）」として、コメントへのリンク・決めたこと・当たった基準・覆し方を載せる（無ければ書かない）。
-   - Merge：Human Merge なら PR を確認して Merge する。自動 Merge なら何もしない（止めたければ `agent:hold`）。Stacked PR は、スタックの全部の層が Ready になってから、人が GitHub の画面でスタックを Merge する（Draft の層があると Merge できない）。
+   - Merge：手順6で分けたとおりに書く。人の Merge 待ち（`kind=human-review`）なら PR を確認して Merge する。自動 Merge 待ちなら何もしない（`agent:hold` を頼むのは、持ち主がその Issue で「Merge は自分でする」と明示したときだけ）。Stacked PR は、スタックの全部の層が Ready になってから、人が GitHub の画面でスタックを Merge する（Draft の層があると Merge できない）。
    - 例外ラベル：`test:exempt` は自動 Merge の対象の PR で `agent/tests` が failure のときだけ（Human Merge の PR では付けず、依頼のコメントに載ったテストの変更を Merge の前に確かめる、を「Merge」の項に書く）。`review:exempt` は付けるかの判断。どちらも、その理由を書いた場所（Issue か PR のコメント）
    - `node harness/scripts/setup.ts` の実行が要る変更か（ラベル・Ruleset・Environment・App の設定を変えた）
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
