@@ -5,13 +5,14 @@
  * - 構造化データは ```agent-plan / ```agent-verdict / ```agent-decision のフェンスに JSON で書く
  * - App が書くコメントは APP_MARK(kind) を付け、JSON を ```agent-app に書く（App の名義と組で信頼する）
  * - ```agent-incident は Claude が書くセッションの問題の記録（harness/lib/incident.ts、Issue #186）。表示だけで信頼しない（gate.yml の if: に無く、ゲートを起こさない）
+ * - ```agent-session-judgment は付き添いのセッションが聞かずに決めたことの記録（harness/lib/session-judgment.ts、Issue #340）。表示だけで信頼しない（gate.yml の if: に無く、ゲートを起こさない）
  * - ```arch-review は arch-review の skill が書く Claude の記録で、agent- で始まらない（gate.yml の if: に当たらず、App の記録と混同しない）
  */
 
 export const CLAUDE_MARK = '<!-- agent-harness:claude -->';
 export const appMark = (kind: string): string => `<!-- agent-harness:app kind=${kind} -->`;
 
-export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel' | 'agent-decision' | 'agent-incident' | 'arch-review';
+export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel' | 'agent-decision' | 'agent-incident' | 'agent-session-judgment' | 'arch-review';
 
 /**
  * 書いたセッションの ID を入れた目印（ID が無ければ CLAUDE_MARK）。

@@ -9,6 +9,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-verdict ```` | Claude | PR コメント | `harness/lib/verdict.ts` |
 | ```` ```agent-claim ```` | Claude | Issue / PR コメント | `harness/lib/queue.ts` |
 | ```` ```agent-decision ```` | 付き添いのセッション（Routine は書かない） | Issue コメント | `harness/lib/decision.ts` |
+| ```` ```agent-session-judgment ```` | 付き添いのセッション（Routine は書かない） | Issue / PR コメント | `harness/lib/session-judgment.ts`（表示だけで信頼しない） |
 | ```` ```agent-handoff ```` | fleet の入れ子の ship | ship が fleet に返す本文とファイル（GitHub には書かない） | `harness/lib/handoff.ts` |
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
 | ```` ```agent-incident ```` | Routine（#187。付き添いのセッションは書かない） | ダッシュボード Issue のコメント | `harness/lib/incident.ts`（表示だけで信頼しない） |
@@ -201,7 +202,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 - 批評の止まり方（`critique-limit`・批評の `repeated-finding`・`drop`）は、Issue の Requirements の「stop のときは自分の宣言だけを解除する」の例外で、宣言を残す。有人セッションで人が「進める」と決めれば `post-plan` で投稿し、`post-plan` は `ensureOwnClaim` でこのセッションの宣言を確かめるため。「やめる」なら skill の手順で `release` する。ほかの stop で `step` が解除した後は、`release` を呼ばなくてよい。
 - 計画の段階は、段階のファイルの中だけで進む：`--plan <file>` は計画を書いた後（`agent.ts check` と同じ書式の検査。一緒に変えるファイルの抜けは `check` だけ。通れば宣言を `plan-critique` にして node `plan-critique`、誤りがあれば node `plan` の `inputs` に誤り）、`--critique <file>` は plan-critic の出力を渡すとき（`go`・`split` なら node `plan-critique` の `allowed` に `post-plan`、`revise` は上限と繰り返しを見て node `plan`）。
-- `--proceed` は、人が `agent:plan-review` の計画を進めると決めたとき（計画コメントがあれば node `implement`）。人の答えが Planner の申告への答えなら、先に決定の記録（`post-decision`）を残す。implement の前に、人の「進める」を `proceed` の決定の記録（[決定の記録](#決定の記録agent-decision)）で残す（委任・bypass の範囲照合に使えるようにする）。
+- `--proceed` は、人（か、Risk だけの計画ならセッションの判定。先に `post-judgment`）が `agent:plan-review` の計画を進めると決めたとき（計画コメントがあれば node `implement`）。人の答えが Planner の申告への答えなら、先に決定の記録（`post-decision`）を残す。implement の前に、人の「進める」を `proceed` の決定の記録（[決定の記録](#決定の記録agent-decision)）で残す（委任・bypass の範囲照合に使えるようにする）。
 - `step` は1件の Issue で読むので、自分の PR が開いている間は「Merge 済みの PR があり main に追従していない」の sync は起きず、sync は main と衝突したときだけ（fleet は `fleet-status` で集合を見て決める）。
 - `sync ⇄ judge` の上限は `harness.config.json` の `"syncLoop": { "limit": 3 }`（正の整数。無ければ 3。`harness/lib/config.ts` の `syncLoopConfig`。書式が違えば `step` は GitHub を読む前にエラー）。
 
@@ -312,6 +313,23 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - `quote` は人の言葉そのまま（空は不可）、`choice` は選択肢で答えたときに選んだ項目、`at` は ISO 8601 の日時。
 - App は Jev に問わず、`jev.decisionRelease` にも依らずに確かめ（`harness/lib/decision.ts` の `proceedEligibility`）、`plan-proceed` の記録を付ける。ラベルと計画ゲートの結果は変えない。対象になるのは、Issue が開いていて `agent:plan-review` が付き、App の最新の計画ゲートの記録が止まった記録で `planCommentId` が一致し、計画コメントの本文がゲートの後に変わっておらず、決定の記録がその停止の後に書かれ、計画に `acChangeProposed` が無く、今の印がどれかの計画の投稿（`post-plan`）か App の停止の窓（計画コメントの投稿の 60 秒前からその計画ゲートの記録まで）で付いたもの。窓の外で付いた印（人が付けた印）は対象外で、人が外して計画を出し直す。
 - 委任承認の Merge と bypass の範囲照合（`harness/lib/state.ts` の `issueDelegateFiles`）は、`status: ok` の `plan-proceed` の記録の `planCommentId` と `planBodySha256` が最新の計画ゲートの記録と一致し、今の計画コメントの本文の sha256 も一致するときだけ、その計画を使う。`agent/scope` は今までどおりゲートを通った計画だけ。
+
+## セッションの判定（agent-session-judgment）
+
+付き添いのセッションが、人に聞かずに決めたことの記録（Issue #340。規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md) の進め方）。`node harness/scripts/agent.ts render-judgment <番号> <ファイル>`（検査して本文を出す。GitHub を読まない）か `post-judgment <番号> <ファイル>`（同じ検査の後に Issue か PR のコメントに投稿する）で出す。ファイルは JSON のオブジェクトそのもの。
+
+```json
+{ "version": 1, "target": 340, "stage": "plan-review", "basis": "risk-only",
+  "decision": "計画のとおり implement に進める",
+  "reason": "止めた理由は想定 Risk の high だけで、files はガードレールに触れない",
+  "evidence": ["https://github.com/owner/repo/issues/340#issuecomment-1"] }
+```
+
+- `stage` は `plan-review` / `plan-critique` / `scope` / `area-limit` / `other`。`basis`（当たった基準）は `risk-only`（`agent:plan-review` の止めた理由が想定 Risk だけで、`files` がガードレール・`delegateMergeExclude`・`harness.config.json` に触れない）/ `fixable`（計画か指摘を直して出し直す）/ `recorded`（規則・既定・記録済みの人の決定で決まる）/ `wait`（領域の上限などで待つ）。
+- `decision`・`reason` は空にできない。`evidence`（根拠の URL か記録）は任意。
+- コメントは先頭に Claude の目印、見出し「## セッションの判定」、決めたこと・当たった基準・理由・覆すなら（基準ごとの決まった文）とブロックの順。
+- `basis` が `risk-only` の判定は、投稿の前に `plan-review-check <番号>`（読むだけ。`riskOnly`・`remaining`・`touches`・`notes` を JSON で出す）と同じ検査をかけ、`riskOnly` が偽なら投稿しない（ガードレールに触れる計画に「進める」の判定を残さない）。
+- ラベルは変えない。App は読まず、ゲートも起こさない（`gate.yml` の `if:` に無い）。ship・fleet が最後の一覧に「決めたこと（覆すなら）」として載せる。
 
 ## 問題の記録（agent-incident）
 
