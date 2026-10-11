@@ -10,98 +10,48 @@
  *       人が選んで作った Issue の番号を下書きに書き戻す
  *
  * --state の既定は `git rev-parse --path-format=absolute --git-common-dir` の下の agent-harness/test-prune-loop.json（worktree をまたいで同じ。作業ツリーにも GitHub にも書かない）。
- * 状態の書き込みは一時ファイルに書いてから名前を変える。GitHub は読まない。Issue は作らない。
- * 状態のロジックは harness/lib/test-prune-loop.ts（pending・adopt は harness/lib/qa-retro-loop.ts と同じ関数）。終了コードは誤りで 1。
+ * 状態の書き込みは一時ファイルに書いてから名前を変える。読んだ後にほかのセッションが状態のファイルを書いていたら、上書きせずに誤りで止まる（もう一度流せば読み直してやり直す）。
+ * GitHub は読まない。Issue は作らない。
+ * 状態のロジックは harness/lib/test-prune-loop.ts（pending・adopt は harness/lib/qa-retro-loop.ts と同じ関数）。読み書きは harness/lib/local-state-loop.ts。終了コードは誤りで 1。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gitCommonDir, harnessStateDir } from '../lib/local-state.ts';
+import { exitWithErrors as fail, loadLoopState, loopStatePath, parseLoopArgs, readJsonFile, saveLoopState, type LoopResult } from '../lib/local-state-loop.ts';
 import { adoptDraft, pendingDrafts } from '../lib/qa-retro-loop.ts';
 import { parseTestPruneLoopState, recordTestPruneRound, type TestPruneLoopState } from '../lib/test-prune-loop.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'node harness/scripts/test-prune-loop.ts record|pending|adopt …（使い方はファイルの先頭のコメント）';
 
-function fail(errors: string[]): never {
-  console.error(['誤り:', ...errors.map((e) => `- ${e}`)].join('\n'));
-  process.exit(1);
-}
+/** 誤りならそこで終える */
+const ok = <T>(r: LoopResult<T>): { ok: true } & T => (r.ok ? r : fail(r.errors));
 
-function readText(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    fail([`${path} を読めません: ${(e as Error).message}`]);
-  }
-}
-
-function readJsonFile(path: string, what: string): unknown {
-  const text = readText(path);
-  if (text === null) fail([`${what}のファイルがありません: ${path}`]);
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    fail([`${what}のファイルが JSON として読めません: ${(e as Error).message}`]);
-  }
-}
-
-function loadState(path: string): TestPruneLoopState | null {
-  const parsed = parseTestPruneLoopState(readText(path));
-  if (!parsed.ok) fail([`状態のファイル（${path}）を読めません。上書きしません`, ...parsed.errors]);
-  return parsed.state;
-}
-
-function saveState(path: string, state: TestPruneLoopState): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
-  renameSync(tmp, path);
-}
-
-function defaultStatePath(): string {
-  const commonDir = gitCommonDir(ROOT);
-  if (commonDir === null) fail([`git の共通ディレクトリが分かりません: ${ROOT}`]);
-  return join(harnessStateDir(commonDir), 'test-prune-loop.json');
-}
-
-/** 位置引数と --state・--drafts を分ける */
-function parseArgs(args: string[]): { positional: string[]; state?: string; drafts?: string } {
-  const out: { positional: string[]; state?: string; drafts?: string } = { positional: [] };
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
-    if (a === '--state' || a === '--drafts') {
-      const v = args[++i];
-      if (v === undefined) fail([`${a} の値がありません`]);
-      const key = a === '--state' ? 'state' : 'drafts';
-      if (out[key] !== undefined) fail([`${a} が2回あります`]);
-      out[key] = v;
-    } else if (a.startsWith('--')) fail([`知らない引数です: ${a}`]);
-    else out.positional.push(a);
-  }
-  return out;
-}
+const jsonFile = (path: string, what: string): unknown => ok(readJsonFile(path, what)).value;
+const loadState = (path: string) => ok(loadLoopState(path, parseTestPruneLoopState)).snapshot;
+const saveState = (snapshot: { path: string; text: string | null }, state: TestPruneLoopState): void => {
+  ok(saveLoopState(snapshot, state));
+};
 
 function main(): void {
   const [sub, ...rest] = process.argv.slice(2);
-  const args = parseArgs(rest);
-  const statePath = args.state ?? defaultStatePath();
+  const parsed = ok(parseLoopArgs(rest, ['--state', '--drafts']));
+  const positionalArgs = parsed.positional;
+  const draftsPath = parsed.values['--drafts'];
+  const statePath = parsed.values['--state'] ?? ok(loopStatePath(ROOT, 'test-prune-loop.json')).path;
   const positional = (n: number): void => {
-    if (args.positional.length !== n) fail([`${sub} の位置引数は ${n} 個です（${args.positional.length} 個）`, USAGE]);
+    if (positionalArgs.length !== n) fail([`${sub} の位置引数は ${n} 個です（${positionalArgs.length} 個）`, USAGE]);
   };
   const noDrafts = (): void => {
-    if (args.drafts !== undefined) fail([`${sub} は --drafts を取りません`]);
+    if (draftsPath !== undefined) fail([`${sub} は --drafts を取りません`]);
   };
   switch (sub) {
     case 'record': {
       positional(1);
-      const state = loadState(statePath);
-      const report = readJsonFile(args.positional[0]!, '集計の JSON ');
-      const drafts = args.drafts === undefined ? undefined : readJsonFile(args.drafts, '下書きの JSON ');
-      const next = recordTestPruneRound(state, report, drafts, new Date());
+      const snapshot = loadState(statePath);
+      const report = jsonFile(positionalArgs[0]!, '集計の JSON ');
+      const drafts = draftsPath === undefined ? undefined : jsonFile(draftsPath, '下書きの JSON ');
+      const next = recordTestPruneRound(snapshot.state, report, drafts, new Date());
       if (!next.ok) fail(next.errors);
-      saveState(statePath, next.state);
+      saveState(snapshot, next.state);
       const round = next.state.rounds.at(-1)!;
       console.log(JSON.stringify({ state: statePath, round: next.state.rounds.length, generatedAt: round.generatedAt, candidates: round.candidates, drafts: round.drafts.length, duplicates: round.duplicates }, null, 2));
       return;
@@ -109,16 +59,17 @@ function main(): void {
     case 'pending': {
       positional(0);
       noDrafts();
-      console.log(JSON.stringify(pendingDrafts(loadState(statePath)), null, 2));
+      console.log(JSON.stringify(pendingDrafts(loadState(statePath).state), null, 2));
       return;
     }
     case 'adopt': {
       positional(3);
       noDrafts();
-      const [round, draft, issue] = args.positional.map((v) => (/^\d+$/.test(v) ? Number(v) : NaN)) as [number, number, number];
-      const next = adoptDraft(loadState(statePath), round, draft, issue);
+      const [round, draft, issue] = positionalArgs.map((v) => (/^\d+$/.test(v) ? Number(v) : NaN)) as [number, number, number];
+      const snapshot = loadState(statePath);
+      const next = adoptDraft(snapshot.state, round, draft, issue);
       if (!next.ok) fail(next.errors);
-      saveState(statePath, next.state);
+      saveState(snapshot, next.state);
       console.log(JSON.stringify({ state: statePath, round, draft, created: issue }, null, 2));
       return;
     }
