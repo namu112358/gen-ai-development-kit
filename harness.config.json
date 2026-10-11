@@ -80,7 +80,7 @@
     "shipMode": "subagent",
     "implementModel": "sonnet"
   },
-  "hq": { "maxFleets": 5 },
+  "hq": { "maxFleets": 5, "maxParallelShips": 10 },
   "panes": { "collectIntervalSeconds": 180 },
   "jev": {
     "mode": "shadow",
