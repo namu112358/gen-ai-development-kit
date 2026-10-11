@@ -199,7 +199,7 @@ test('renderHqBoard（epic）：見出しにページと切り替えのキー', 
 test('renderHqBoard（epic）：Epic ごとに Close の数の棒・closed/total・人待ちの数・番号・theme・タイトル', () => {
   const text = plain(renderHqBoard(boardView(), 'epic', NOW, 120));
   assert.ok(text.includes('8/9'), text);
-  assert.ok(text.includes('■'), text);
+  assert.ok(text.includes('■') && text.includes('□'), text);
   assert.match(text, /人待ち 2/);
   assert.ok(text.includes('#281'), text);
   assert.ok(text.includes('ペイン'), text);
