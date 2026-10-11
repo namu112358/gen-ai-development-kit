@@ -176,9 +176,9 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
    - heartbeat の本文に今の状況を一言入れる（#425）：前置きの heartbeat のコマンドを写し、一言を本文（`--body`）に入れる。入れるものは Issue 番号・段階・次にすること・待っているもの（例：「#388 実装中、次は判定」「#386 area:harness の上限の空き待ち」）。受け持つ Issue が複数なら、動いているもの・待っているものを短く並べる（1〜2行）。前置きの heartbeat の形が本文を持てないときは、一言を入れずに今までどおり送る（一言のために `status` を増やさない）。
    - 一言は知らせるだけで、heartbeat に質問を載せない。人の判断が要ることは今までどおり 5 の `ask`、報告・連絡は 8 の `status` で送る。一言のために heartbeat の間隔を変えない（#395 のまま）。hq は一言を読んで人がすることの一覧（hq の手順7・12）に使う。
 7. **終わるとき**：途中の知らせは、この節の 8 で続けて送る（8 は終わるまでずっと続ける手順で、時間の順では 7 の前でもある）。`worker_done` を送るのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（節「待つ間の読み直し」の 7）。それまでは手順9の一覧を scratchpad に書き直し、`check` で hq の指示を読みながら読み直しを続ける。手順9の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
-   - 送る前に、手順3で作った表示のペイン（進み具合・あなたがすること・PR と費用）を `ORCA terminal close --terminal <handle>` で閉じる。`ORCA terminal close` を送る前に毎回、閉じる handle が手順3で控えた表示のペインの handle で、fleet 自身の Claude の端末の handle と違うことを確かめる。同じなら閉じない（#409 で hq がペインを閉じたときに自分の端末まで閉じた見込みと同じことを、fleet で起こさないため）。
-   - `ORCA terminal list --worktree current --json` で読み直して、閉じた後に残った空のシェルのペインも閉じる。このときも fleet 自身の Claude の端末の handle と比べ、同じものは閉じない。
-   - ワークスペース（Orca の worktree）そのものは消さない（片付けるのは hq）。`worker_done` の後は、新しい作業を始めない。
+   - `worker_done` を送った後に、手順3で作った表示のペイン（進み具合・あなたがすること・PR と費用）を `ORCA terminal close --terminal <handle>` で閉じる（閉じる操作で fleet 自身の端末まで閉じても、知らせが届いているように。#666）。`ORCA terminal close` を送る前に毎回、閉じる handle が手順3で控えた表示のペインの handle で、fleet 自身の Claude の端末の handle と違うことを確かめる。同じなら閉じない（#409 で hq がペインを閉じたときに自分の端末まで閉じた見込みと同じことを、fleet で起こさないため）。
+   - 残った空のシェルのペインは閉じない。hq の片付け（Epic の Close のときのワークスペースの削除）に任せる（2回目の `ORCA terminal close` で fleet 自身の端末まで閉じ、`worker_done` を送れずに終わったため。#666）。
+   - ワークスペース（Orca の worktree）そのものは消さない（片付けるのは hq）。`worker_done` の後は、表示のペインを閉じるほかに新しい作業を始めない。
    - hq に `ask` で聞いて答えを待っている Issue があるうちは、`worker_done` を送らない（読み直しと `ask --resume <message_id>` の待ちを続ける）。交代・Orca のエラーなどで答えを待たずに終えるしかないときは、その Issue を `release <番号>` で解除し、レポートに「hq に聞いた質問（message_id・質問）の答えを受け取っていない」と書いてから送る。
 8. **hq に知らせる（send）**：途中の報告・連絡を、その都度 hq に `status` で送る。形は前置きの `--from`・`--dispatch-capability`・`--task-id`・`--dispatch-id` を写した `ORCA orchestration send ... --type status --subject "<件名>" --body "<1〜3行>"`（`--to` は付けない。worker が `--to` を省くと、自分の Dispatch の Run の mailbox（hq）に届く）。
    - 送る時機：ship が返ったとき・`fleet-status` を読み直したとき・節「待つ間の読み直し」で気づいたとき。
