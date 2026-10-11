@@ -13,10 +13,10 @@
  * 状態の書き込みは一時ファイルに書いてから名前を変える。GitHub は読まない。Issue は作らない。
  * 状態のロジックは harness/lib/test-prune-loop.ts（pending・adopt は harness/lib/qa-retro-loop.ts と同じ関数）。終了コードは誤りで 1。
  */
-import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gitCommonDir, harnessStateDir } from '../lib/local-state.ts';
 import { adoptDraft, pendingDrafts } from '../lib/qa-retro-loop.ts';
 import { parseTestPruneLoopState, recordTestPruneRound, type TestPruneLoopState } from '../lib/test-prune-loop.ts';
 
@@ -61,9 +61,9 @@ function saveState(path: string, state: TestPruneLoopState): void {
 }
 
 function defaultStatePath(): string {
-  const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: ROOT, encoding: 'utf8' });
-  if (r.status !== 0) fail([`git rev-parse が失敗しました: ${(r.stderr ?? '').trim()}`]);
-  return join(r.stdout.trim(), 'agent-harness', 'test-prune-loop.json');
+  const commonDir = gitCommonDir(ROOT);
+  if (commonDir === null) fail([`git の共通ディレクトリが分かりません: ${ROOT}`]);
+  return join(harnessStateDir(commonDir), 'test-prune-loop.json');
 }
 
 /** 位置引数と --state・--drafts を分ける */

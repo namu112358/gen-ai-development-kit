@@ -1,11 +1,11 @@
 /**
  * 段階のファイル：agent.ts step（harness/lib/step.ts）が返した今の段階（Issue・ノード・ブランチ・計画の files）を、セッションごとに書くファイル（Issue #306）。
  * 置き場所は git の共通ディレクトリ（`git rev-parse --path-format=absolute --git-common-dir`）の下の `agent-harness/stage/<セッションの ID>.json`。
- * worktree からも同じ場所で、commit されない。段階に合わない操作を止める hook（別 Issue）がこれを読む。
+ * 書き込みと場所の決め方は harness/lib/local-state.ts。worktree からも同じ場所で、commit されない。段階に合わない操作を止める hook（別 Issue）がこれを読む。
  * 批評の回（plan ⇄ plan-critique の回と必須の指摘）も、同じ Issue・同じ計画ゲートの記録の間だけここに残す。
  */
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { sessionFilePath, writeLocalJson } from './local-state.ts';
 import { TRANSCRIPT_SESSION_ID } from './session.ts';
 
 /** 批評の1回（plan-critic の判定と、必須の指摘の文） */
@@ -43,8 +43,7 @@ export interface StageFile {
 
 /** 段階のファイルのパス。ID が記録のファイル名に使える形（TRANSCRIPT_SESSION_ID）でなければ null（書かない） */
 export function stageFilePath(gitCommonDir: string, session: string | null): string | null {
-  if (!session || !TRANSCRIPT_SESSION_ID.test(session)) return null;
-  return join(gitCommonDir, 'agent-harness', 'stage', `${session}.json`);
+  return sessionFilePath(gitCommonDir, 'stage', session);
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -89,10 +88,7 @@ export function readStageFile(path: string): StageFile | null {
 export function writeStageFile(path: string, value: StageFile): void {
   const errors = checkStageFile(value);
   if (errors.length > 0) throw new Error(`段階のファイルの書式の誤り: ${errors.join('、')}`);
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`);
-  renameSync(tmp, path);
+  writeLocalJson(path, value);
 }
 
 /** 前回の段階のファイルから引き継ぐ批評の回。Issue が変わるか、計画ゲートの記録の時刻が変われば空 */

@@ -4,6 +4,7 @@ import { existsSync, readdirSync, realpathSync, rmdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import type { HarnessConfig } from './config.ts';
+import { gitCommonDir } from './local-state.ts';
 import { parseTitle } from './title.ts';
 
 /**
@@ -19,9 +20,9 @@ import { parseTitle } from './title.ts';
 
 /** 本体のリポジトリのルート（worktree の中から呼ばれても本体を返す） */
 export function mainRepoRoot(cwd: string = process.cwd()): string {
-  const r = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
-  if (r.status !== 0) throw new Error(`git リポジトリではありません: ${cwd}`);
-  return dirname(r.stdout.trim());
+  const commonDir = gitCommonDir(cwd);
+  if (commonDir === null) throw new Error(`git リポジトリではありません: ${cwd}`);
+  return dirname(commonDir);
 }
 
 /** パソコンごとに worktree の置き場所を上書きする環境変数 */

@@ -42,6 +42,7 @@
 | `jev.ts` | TypeSafe AI の Jev（https://docs.typesafe.ai/api）で、Risk ポリシーの8問に1回の呼び出しで答えさせる。 | ○ |
 | `label-fill.ts` | 付き添いのセッションが、Jev の提案のラベルを付ける（agent.ts label-fill、Issue #538）。 | ○ |
 | `label-rules.ts` | 必須ラベルの検査（docs/operations.md の「必須ラベルの規則」）。 | ○ |
+| `local-state.ts` | 手元の状態のファイル（git の共通ディレクトリの下の agent-harness/ と panes のスナップショット）の場所の決め方と一時ファイル経由の書き込み（Issue #653）。 | ○ |
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `model-routing.ts` | 実装のモデル（Opus / Sonnet）を Jev に問い、計画ゲートの記録と show-plan・集計で使う形にする（Issue #139）。 | ○ |
 | `observe-docs.ts` | 保守の観測（harness/scripts/observe.ts）の docs の照合。 | ○ |
