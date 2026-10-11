@@ -9,8 +9,8 @@ import { AUTO_MODE_LABEL_DEFAULT, appLogin, type AutoModeJevQuestion, type Harne
 import type { askJev } from './jev.ts';
 import { hasLabel, lastLabeled, type TimelineEvent } from './state.ts';
 
-/** 安全側の確率（1 - 危険の確率）の下限の既定値（jev.thresholds.noulSafe と同じ値） */
-export const AUTO_MODE_DANGER_SAFE_DEFAULT = 0.9;
+/** 安全側の確率（1 - 危険の確率）の下限の既定値。危険の確率が 20% を超えると保留（Issue #597 で 0.9 から下げた。jev.thresholds.noulSafe とは別の値） */
+export const AUTO_MODE_DANGER_SAFE_DEFAULT = 0.8;
 
 /** 危険の問いの版。問いの文や criteria の既定を変えたら上げる（記録の questionSet に残す） */
 export const AUTO_MODE_JEV_QUESTION_SET = 1;

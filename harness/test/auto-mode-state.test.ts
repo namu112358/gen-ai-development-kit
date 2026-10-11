@@ -56,7 +56,7 @@ test('autoModeConfig：節が無ければ既定値', () => {
   const r = autoModeConfig({});
   assert.equal(r.label, AUTO_MODE_LABEL_DEFAULT);
   assert.equal(r.dangerSafe, AUTO_MODE_DANGER_SAFE_DEFAULT);
-  assert.equal(AUTO_MODE_DANGER_SAFE_DEFAULT, 0.9);
+  assert.equal(AUTO_MODE_DANGER_SAFE_DEFAULT, 0.8);
   assert.deepEqual(r.plan, AUTO_MODE_JEV_DEFAULTS.plan);
   assert.deepEqual(r.pr, AUTO_MODE_JEV_DEFAULTS.pr);
   for (const q of [AUTO_MODE_JEV_DEFAULTS.plan, AUTO_MODE_JEV_DEFAULTS.pr]) {

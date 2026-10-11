@@ -13,8 +13,8 @@ const jevOk = (yes: number): AutoModeJevRecord => ({ status: 'ok', detail: 'm', 
 // ---- autoModeDanger は Jev の記録だけで決まる ----
 
 const JEV: [string, AutoModeJevRecord | null | undefined, boolean, string][] = [
-  ['安全', jevOk(0.05), false, 'Jev：危険の確率 5%（保留の線 10%。超えると保留）（保留しない）'],
-  ['危険', jevOk(0.3), true, 'Jev：危険の確率 30%（保留の線 10%。超えると保留）（保留）'],
+  ['安全', jevOk(0.05), false, 'Jev：危険の確率 5%（保留の線 20%。超えると保留）（保留しない）'],
+  ['危険', jevOk(0.3), true, 'Jev：危険の確率 30%（保留の線 20%。超えると保留）（保留）'],
   ['無い（undefined）', undefined, true, 'Jev：記録が無い（保留）'],
   ['無い（null）', null, true, 'Jev：記録が無い（保留）'],
   ['skipped', { status: 'skipped', detail: 'diff が大きい', questionSet: 1 }, true, 'Jev：skipped（diff が大きい）（保留）'],
@@ -32,9 +32,9 @@ test('autoModeDanger：Jev の記録だけで保留が決まり、理由は Jev 
 
 // ---- 境界・上書き ----
 
-test('autoModeDanger：dangerSafe 0.9 で yes 0.1 は保留しない、0.1001 は保留', () => {
-  assert.equal(autoModeDanger({}, { jev: jevOk(0.1) }).hold, false);
-  assert.equal(autoModeDanger({}, { jev: jevOk(0.1001) }).hold, true);
+test('autoModeDanger：dangerSafe 0.8 で yes 0.2 は保留しない、0.2001 は保留', () => {
+  assert.equal(autoModeDanger({}, { jev: jevOk(0.2) }).hold, false);
+  assert.equal(autoModeDanger({}, { jev: jevOk(0.2001) }).hold, true);
 });
 
 test('autoModeDanger：autoMode.jev.dangerSafe の上書きが効く', () => {
