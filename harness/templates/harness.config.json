@@ -72,7 +72,8 @@
     "implementModel": "sonnet"
   },
   "hq": {
-    "maxFleets": 2
+    "maxFleets": 2,
+    "maxParallelShips": 6
   },
   "panes": {
     "collectIntervalSeconds": 180
