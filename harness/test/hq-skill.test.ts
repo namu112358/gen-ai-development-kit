@@ -17,17 +17,19 @@ const HQ_SPEC: SkillSpec = {
   path: HQ_SKILL,
   headings: ['## 入力', '## 手順', '## 終わりの状態', '## 人に返す条件'],
   words: [
-    // テーマの案 → 人の承認 → fleet の起動 → 人の判断をまとめて聞く → 片付け（#287）
-    'テーマの案', '人の承認', 'AskUserQuestion', 'worker-start', 'new-top-level', 'question', 'reply', '答え無し', 'Epic が Close',
+    // テーマを hq が決めて知らせる → fleet の起動 → 人の判断をまとめて聞く → 片付け（#287・#662）
+    'テーマを決めて知らせる', '知らせる', 'AskUserQuestion', 'worker-start', 'new-top-level', 'question', 'reply', '答え無し', 'Epic が Close',
     // 起こし直しの条件と回数（#287）
     'exited', 'unverifiable', '1時間に2回', '人に知らせる', 'agent-harness:hq-restart', '--takeover',
     // プライマリで動く・書き換えない・進んでいない fleet・Orca が無い環境（#287）
     'isMainWorktree', '書き換えない', 'panes.ts fleets --session', 'Orca が無い',
   ],
   parts: [
-    { section: '## 手順', order: ['テーマの案', 'worker-start', 'reply', 'Epic が Close'] },
+    { section: '## 手順', order: ['テーマを決めて知らせる', 'worker-start', 'reply', 'Epic が Close'] },
     // 手順2：するのは…だけ（#407・#396）
     { step: 2, words: ['sub-issues', 'SendMessage', 'terminal create'] },
+    // 手順3は人に聞かず hq が決めて知らせる（#662）
+    { step: 3, words: ['依存', '重なり', '手順8', '手順12の一覧', '人が指示した'], absent: ['AskUserQuestion', '承認'] },
     // 手順4：fleet を起こす指示に heartbeat の一言（#425）
     { step: 4, words: ['heartbeat の本文に今の状況を一言入れる', 'start-failure-save'] },
     // 手順6：ペインの並びと開き方。ペインにセッションを渡さない。確かめで閉じてよいのはそのとき分けたペインだけで、
@@ -50,7 +52,7 @@ const HQ_SPEC: SkillSpec = {
       words: [
         '進んでいない fleet を見つける', '止まったタスクの見回し', 'ダッシュボード', 'patrol', 'fleet-status',
         '担当のいない PR', '止まった宣言', 'どの fleet にも入っていない', 'Epic に入っていない', 'sub-issues',
-        'send', 'hq.maxFleets', '人の承認', '引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel',
+        'send', 'hq.maxFleets', '手順3のとおり','引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel',
       ],
     },
     // 手順12：人がすることの一覧（#402・#407・#425・#396）
