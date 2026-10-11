@@ -3,7 +3,8 @@
  *
  *   node harness/scripts/hq-state.ts path [--common-dir <dir>]
  *   node harness/scripts/hq-state.ts ledger [--common-dir <dir>]
- *   node harness/scripts/hq-state.ts ledger-save <file> [--common-dir <dir>]
+ *   node harness/scripts/hq-state.ts ledger-save <file> [--release-handover <テーマ>...] [--common-dir <dir>]（前の控えの印 "handover": true の fleet は、
+ *     新しい控えに同じテーマ（無ければ dispatch）が無ければ残す。外すときは --release-handover。#618）
  *   node harness/scripts/hq-state.ts pending (--session <ID> | --all) [--common-dir <dir>]
  *   node harness/scripts/hq-state.ts pending-add --session <ID> --issue <n> --stage <段階> --question <質問> --option <おすすめ> [--option <ほか>...] [--message-id <id>]
  *   node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <n> --answer <人の答え>
@@ -80,6 +81,28 @@ export function parseLedger(v: unknown): HqLedger | null {
   const updatedAt = v.updatedAt === undefined ? null : v.updatedAt;
   if (!strOrNull(updatedAt)) return null;
   return { ...v, version: 1, runId: v.runId, hqHandle: v.hqHandle, hqSession: v.hqSession, paneHandles: v.paneHandles as string[], fleets: v.fleets as Record<string, unknown>[], updatedAt };
+}
+
+/** fleet の要素の鍵。theme が文字列ならテーマ、無ければ dispatch。どちらも無ければ null */
+const fleetKey = (f: Record<string, unknown>): string | null =>
+  typeof f.theme === 'string' ? f.theme : typeof f.dispatch === 'string' ? f.dispatch : null;
+
+/**
+ * 前の控えの印 "handover": true の fleet（「交代する」と返して、まだ起こし直していないもの）を、新しい控えに同じ鍵が無く、
+ * release に入っていなければ、新しい控えの fleets の末尾に足す（hq が交代しても落とさない。#618）。足した鍵を carried に返す
+ */
+export function carryHandoverFleets(prev: HqLedger | null, next: HqLedger, release: readonly string[]): { ledger: HqLedger; carried: string[] } {
+  const have = new Set(next.fleets.map(fleetKey).filter((k): k is string => k !== null));
+  const added: Record<string, unknown>[] = [];
+  const carried: string[] = [];
+  for (const f of prev?.fleets ?? []) {
+    const key = fleetKey(f);
+    if (f.handover !== true || key === null || have.has(key) || release.includes(key)) continue;
+    have.add(key);
+    added.push({ ...f });
+    carried.push(key);
+  }
+  return { ledger: { ...next, fleets: [...next.fleets, ...added] }, carried };
 }
 
 /** hq がいない間に fleet が控えた質問1つ */
@@ -289,12 +312,13 @@ interface CliArgs {
   dispatch: string | null;
   screenFile: string | null;
   resent: StartFailure['resent'];
+  releaseHandover: string[];
 }
 
 class UsageError extends Error {}
 
 function parseCli(args: string[]): CliArgs {
-  const out: CliArgs = { positional: [], commonDir: null, session: null, all: false, issue: null, stage: null, question: null, options: [], messageId: null, answer: null, theme: null, note: null, dispatch: null, screenFile: null, resent: null };
+  const out: CliArgs = { positional: [], commonDir: null, session: null, all: false, issue: null, stage: null, question: null, options: [], messageId: null, answer: null, theme: null, note: null, dispatch: null, screenFile: null, resent: null, releaseHandover: [] };
   for (let i = 0; i < args.length; i++) {
     const a = args[i]!;
     const value = (): string => {
@@ -318,6 +342,7 @@ function parseCli(args: string[]): CliArgs {
     else if (a === '--note') out.note = value();
     else if (a === '--dispatch') out.dispatch = value();
     else if (a === '--screen-file') out.screenFile = value();
+    else if (a === '--release-handover') out.releaseHandover.push(value());
     else if (a === '--resent') {
       const v = value();
       if (!RESENT_VALUES.includes(v)) throw new UsageError(`--resent は accepted・unobserved・none のどれかです：${v}`);
@@ -349,8 +374,10 @@ function main(argv: string[]): void {
     const file = need(args.positional[0] ?? null, '控えの JSON のファイル');
     const ledger = parseLedger(readJson(file));
     if (!ledger) throw new UsageError(`控えの形が違います（version 1・runId・hqHandle・hqSession・paneHandles・fleets）：${file}`);
-    const saved: HqLedger = { ...ledger, updatedAt: new Date().toISOString() };
+    const { ledger: kept, carried } = carryHandoverFleets(readLedgerFile(commonDir), ledger, args.releaseHandover);
+    const saved: HqLedger = { ...kept, updatedAt: new Date().toISOString() };
     writeJson(ledgerPath(commonDir), saved);
+    if (carried.length > 0) console.error(`印 handover の fleet を控えに残しました：${carried.join(', ')}`);
     return print(saved);
   }
   if (mode === 'heartbeat-save') {
