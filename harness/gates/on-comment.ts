@@ -303,7 +303,7 @@ async function reviewDelegatedPlan(ctx: GateContext, issue: OpenIssue, state: De
 }
 
 /**
- * auto mode で、App のゲートの停止で止まっている Issue を判定し直す（呼び出しは auto mode のラベルを付けたとき（#346）と定期実行（#347）が足す）。
+ * auto mode で、App のゲートの停止で止まっている Issue を判定し直す（auto mode のラベルを付けたとき（auto-mode-merge.ts）と、定期実行（stale.ts の onSchedule。委任の判定し直しの後）に呼ぶ）。
  * 対象は reviewDelegatedPlans と同じ形で、agent:plan-review の付いた開いた Issue のうち、最新の plan-gate の記録が pass:false・planReviewOrigin:gate で
  * 記録に計画と sha256 があり、批評の関所を通り、止めた理由が auto mode で飛ばせる理由だけで、最後に agent:plan-review を付けたのが App で、
  * 計画コメントが信頼できる作成者のまま本文も変わっていないもの。
