@@ -14,5 +14,6 @@
 | `risk-policy.md` | 自動 Merge は Risk Agent（`.claude/agents/risk-agent.md`）の判定だけで決める。 | ○ |
 | `security.md` | 安全設計と、受け入れているリスク。 |  |
 | `setup.md` | 別のリポジトリに導入するときの手順。 |  |
+| `statusline.md` | Claude Code のステータスラインに、位置・モデル・文脈と、Orca につないだアカウントごとの使用量を出すプロンプト。 |  |
 | `upstream/` | 公式などの外部から写したファイルと、その出どころ・ライセンス。 |  |
 <!-- readme:generated end -->
