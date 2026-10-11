@@ -22,6 +22,44 @@ export type Claim = ({ by: 'routine'; session: string; at: string; stage?: Claim
 export const CLAIM_STAGES = ['plan', 'plan-critique', 'plan-gate', 'implement', 'judge', 'fix', 'sync'] as const;
 export type ClaimStage = (typeof CLAIM_STAGES)[number];
 
+/** history の上限（超えたら書く側は新しいコメントにする） */
+export const CLAIM_HISTORY_LIMIT = 30;
+
+/**
+ * 着手宣言の history の1つの段階。after は書き換える直前に見えた最大のコメント ID（2件目から必須。history[0] には無い）。
+ * history[0] はコメントを作ったときの段階。上の階層（by・session・at・stage・released）は最後の段階と同じ。
+ * takeover は上の階層だけに置き、history[0] の段階に掛かる。
+ */
+export interface ClaimEntry {
+  stage?: ClaimStage;
+  released?: true;
+  at: string;
+  after?: number;
+}
+
+/** コメントに書く値。Claim に任意の history を足したもの */
+export type StoredClaim = Claim & { history?: ClaimEntry[] };
+
+const ENTRY_KEYS = ['stage', 'released', 'at', 'after'];
+
+/** history が読めれば段階の配列を、無い・書式違いなら null（書式違いの history は無いものとして上の階層だけで読む） */
+export function claimHistoryOf(value: StoredClaim): ClaimEntry[] | null {
+  const h: unknown = value.history;
+  if (!Array.isArray(h) || h.length === 0 || h.length > CLAIM_HISTORY_LIMIT) return null;
+  for (const [i, e] of h.entries()) {
+    if (typeof e !== 'object' || e === null || Array.isArray(e)) return null;
+    if (Object.keys(e).some((k) => !ENTRY_KEYS.includes(k))) return null;
+    const x = e as Record<string, unknown>;
+    if (x.stage !== undefined && !(CLAIM_STAGES as readonly unknown[]).includes(x.stage)) return null;
+    if (x.released !== undefined && x.released !== true) return null;
+    if (typeof x.at !== 'string') return null;
+    if (i === 0 ? x.after !== undefined : !(typeof x.after === 'number' && Number.isInteger(x.after) && x.after > 0)) return null;
+  }
+  const last = h.at(-1) as ClaimEntry;
+  if (last.stage !== value.stage || (last.released === true) !== (value.released === true) || last.at !== value.at) return null;
+  return h as ClaimEntry[];
+}
+
 const activeClaim = (claim: Claim | null): Claim | null => (claim && !claim.released ? claim : null);
 
 /** 今のセッションの手動の宣言か。宣言の session と今のセッションが、どちらも空でない文字列で一致するときだけ（Routine の宣言は含まない） */
