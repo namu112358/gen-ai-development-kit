@@ -101,6 +101,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 - auto mode でも止めるもの：Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）、人が付けた `agent:plan-review`、批評の関所（`critique` が無い・`plan-critique` の着手宣言が無い）、`files` の欠落・書式の誤り、`split` の不正、`issue` の不一致（委任と同じ）。
 - 止める理由が飛ばす理由だけのとき、Jev に計画の危険を問い、保留にならなければ `agent:plan-ok` を付ける。通過の記録（`plan-gate`）に `autoMode` が残り、コメントに飛ばした理由・ラベル・付けた人・付けた時刻と Jev の1行を書く（[formats.md](formats.md#app-の記録agent-app)）。
 - ラベルを付けたとき（auto mode が有効になったとき）と定期実行で、App のゲートの停止で止まっている計画を判定し直す。委任の判定し直しと同じく、Planner の申告・人の印・批評の関所に当たるもの・計画コメントの本文が変わったものは止まったまま。保留のままの計画と、auto mode の記録の無い古い停止には、保留のコメントを増やさない。
+- 保留の引き継ぎ：同じ Issue の App の計画ゲートの記録のうち、保留にした・Jev が `ok`・今の問いの版で、記録の計画の `files` が今の計画の `files` と集合として同じものがあれば、最も新しいものの Jev の記録を今の保留の線に通し、保留なら Jev に問い直さずに保留のままにする（中身が同じかは見ない。`skipped`・`error`・計画の写しの無い古い記録は使わない。`files` が違えば今までどおり問う。判定し直しも同じ）。言い回しだけ変えた出し直しで保留をすり抜けないため（Issue #680）。記録の `autoMode.inheritedFrom` に元の計画コメントが残り、その記録の Jev は使い回さず、次は元の保留の記録を今の保留の線に通し直す。
 - ラベルを外しても、auto mode で付けた `agent:plan-ok` は外さない。
 
 ### Merge

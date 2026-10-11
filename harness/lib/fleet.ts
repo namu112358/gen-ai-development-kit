@@ -439,6 +439,25 @@ export interface FleetClaimInfo {
   session: string | null;
   /** このセッションの手動の宣言か（isOwnClaim） */
   own: boolean;
+  /** 宣言の最後の段階の時刻（claimAge を渡したときだけ。Issue #639） */
+  at?: string;
+  /** 期限（手動 humanClaimStaleHours 時間・Routine routineClaimTakeoverMinutes 分）を過ぎたか。hq の見回しが止まった宣言の判定に使う（claimAge を渡したときだけ。Issue #639） */
+  stale?: boolean;
+}
+
+/** 着手宣言の期限の数え方の材料（Issue #639） */
+export interface ClaimAge {
+  now: Date;
+  humanClaimStaleHours: number;
+  routineClaimTakeoverMinutes: number;
+}
+
+/** 宣言が期限を過ぎたか（ちょうどで true。時刻が読めなければ true）。数え方は queue.ts の holdsMainFollow・claimBlocker に倣う */
+export function claimStale(claim: Claim, age: ClaimAge): boolean {
+  const ms = age.now.getTime() - Date.parse(claim.at);
+  if (Number.isNaN(ms)) return true;
+  if (claim.by === 'manual') return Math.floor(ms / 3_600_000) >= age.humanClaimStaleHours;
+  return ms / 60_000 >= age.routineClaimTakeoverMinutes;
 }
 
 /** fleet-status --json の1行。表の1行と同じ中身 */
@@ -481,16 +500,21 @@ export interface FleetStatusData {
   merge?: FleetMergeState;
 }
 
-function claimInfo(claim: Claim | null, currentSession: string | null): FleetClaimInfo | null {
+function claimInfo(claim: Claim | null, currentSession: string | null, age?: ClaimAge): FleetClaimInfo | null {
   if (claim === null || claim.released) return null;
-  return { by: claim.by, stage: claim.stage ?? null, session: claim.session ?? null, own: isOwnClaim(claim, currentSession) };
+  const info: FleetClaimInfo = { by: claim.by, stage: claim.stage ?? null, session: claim.session ?? null, own: isOwnClaim(claim, currentSession) };
+  if (age) {
+    info.at = claim.at;
+    info.stale = claimStale(claim, age);
+  }
+  return info;
 }
 
 /**
  * fleet-status の表（renderFleetStatus）と同じ中身を、機械が読める形で返す（fleet-status --json）。
  * 表示のペインや hq が Markdown の表を読み直さずに済むようにする。並び順・理由・重なり・メモは表と同じ関数から作る。
  */
-export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetSelection, max: number | null, currentSession: string | null, mode?: FleetMode, merge?: FleetMergeState): FleetStatusData {
+export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetSelection, max: number | null, currentSession: string | null, mode?: FleetMode, merge?: FleetMergeState, claimAge?: ClaimAge): FleetStatusData {
   const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
   return {
     version: 1,
@@ -510,8 +534,8 @@ export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetS
         overlaps: v.overlaps,
         sharedOnlyOverlaps: v.sharedOnlyOverlaps,
         note: v.note === '' ? null : v.note,
-        claim: claimInfo(i?.facts.claim ?? null, currentSession),
-        prClaim: claimInfo(prClaim, currentSession),
+        claim: claimInfo(i?.facts.claim ?? null, currentSession, claimAge),
+        prClaim: claimInfo(prClaim, currentSession, claimAge),
       };
     }),
     selectedCount: sel.selected.length,
