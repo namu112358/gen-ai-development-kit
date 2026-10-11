@@ -5,7 +5,9 @@
  * - テストファイルの削除と、テストファイルでないパスへのリネーム
  * - テスト定義（test( / it( / describe(）の行の削除。同じファイルに同じ名前の定義が追加されていれば移動とみなす
  * - テストの名前の変更：削除された定義の行が、同じまとまりで組になった追加の定義の行と名前の文字列だけ違うもの（削除にせず、変更後の行を持たせる）
- * - skip / only / todo の追加（.skip(、{ skip: … }、xit( など）。文字列リテラル（'…'・"…"・`…`）の中の一致は数えない。
+ * - skip / only / todo の追加（.skip(、xit( など。{ skip: … } の形は同じ行にテスト定義の呼び出しがあるときだけ数える。新しく足したテストファイルでは only だけ数え、skip・todo は数えない。Issue #607）。
+ *   見逃しうる形：引数を複数行に分けた呼び出しの `{ skip: true },` だけの行、変数に入れてから渡す `const opts = { skip: true };`。
+ *   文字列リテラル（'…'・"…"・`…`）の中の一致は数えない。
  *   ただし見分けが確かでない行（文字列・テンプレート・ブロックコメントが行をまたぐ。テンプレートに ${ がある、コードの部分に
  *   正規表現か割り算かもしれない / があるときは、同じ hunk の残りの行も）は伏せずに生の行で数える。コメントの中の一致は数える
  * - アサーション（assert / expect(）を含む行の削除・書き換え（整形だけの変更も含む）
@@ -77,7 +79,18 @@ interface FileDiff {
 }
 
 const DEFINITION = /\b((?:test|it|describe)(?:\.\w+)*)\s*\(\s*(['"`])((?:\\.|(?!\2).)*)\2/;
-const SKIP = /\.(?:skip|only|todo)\s*\(|\b[xf](?:it|describe|test)\s*\(|[{,]\s*(?:skip|only|todo)\s*:(?!\s*false\b)/;
+const SKIP_CALL = /\.(?:skip|only|todo)\s*\(|\b[xf](?:it|describe|test)\s*\(/;
+const SKIP_OPTION = /[{,]\s*(?:skip|only|todo)\s*:(?!\s*false\b)/;
+const ONLY_CALL = /\.only\s*\(|\bf(?:it|describe|test)\s*\(/;
+const ONLY_OPTION = /[{,]\s*only\s*:(?!\s*false\b)/;
+/** `{ skip: … }` の形は、同じ行にテスト定義の呼び出しがあるときだけ数える（Issue #607） */
+const DEFINITION_CALL = /\b(?:test|it|describe|suite)(?:\.\w+)*\s*\(/;
+
+/** created は新しく足したテストファイル。そこでは only だけを数え、skip・todo は数えない */
+function isSkipMarker(text: string, created: boolean): boolean {
+  if (created) return ONLY_CALL.test(text) || (ONLY_OPTION.test(text) && DEFINITION_CALL.test(text));
+  return SKIP_CALL.test(text) || (SKIP_OPTION.test(text) && DEFINITION_CALL.test(text));
+}
 const ASSERTION = /\bassert\b|\bexpect\s*\(/;
 /** import の行はアサーションとみなさない（`import assert from ...` の削除で誤検出しない） */
 const IMPORT = /^\s*import\b/;
@@ -125,7 +138,7 @@ export function detectTestTampering(diff: string, patterns: string[]): TamperFin
       }
     }
     for (const l of added) {
-      if (SKIP.test(l.skipText ?? l.text)) findings.push({ kind: 'skip-added', file, line: l.no, side: 'head', text: l.text.trim() });
+      if (isSkipMarker(l.skipText ?? l.text, f.oldPath === null)) findings.push({ kind: 'skip-added', file, line: l.no, side: 'head', text: l.text.trim() });
     }
   }
   return findings;
