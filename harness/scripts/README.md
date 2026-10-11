@@ -11,6 +11,7 @@
 | `dashboard/` | エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。 |  |
 | `hq-state.ts` | hq の控え（hq-fleets.json）と、hq がいない間の fleet の質問の控えを、git の共通ディレクトリの下に置く（Issue #409）。 |  |
 | `hq-watch.ts` | hq の見張り（Issue #559）。 |  |
+| `jev-context.ts` | auto mode の危険の問い（autoModePrJevRequest）を、4通りの材料（今の材料・＋Issue・＋ファイル全体・＋両方）で Jev に問い直し、PR ごとの危険の確率を Markdown の表で標準出力に出す、手で実行する実験用スクリプト（Issue #596）。 |  |
 | `jev-language.ts` | 日本語の材料と英訳した材料を同じ問いで Jev（TypeSafe AI）に投げ比べる、手で実行する実験用スクリプト。 |  |
 | `mutate.ts` | テストが効いているかを確かめる（mutation）。 |  |
 | `observe.ts` | 保守の観測（docs の照合・ホットスポット・テストの健康）を、人が指示したときに1回分だけ出す（LLM を呼ばない決まる集計）。 |  |
