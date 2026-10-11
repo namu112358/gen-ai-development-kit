@@ -6,7 +6,7 @@ import { parseTitle } from '../lib/title.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage } from '../lib/issue-triage.ts';
 import { askJev, flattenAnswers } from '../lib/jev.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { acceptanceForPatch, findDashboard, hasLabel, isAgentPr, prDiff, type PullRequest } from '../lib/state.ts';
+import { acceptanceForPatch, findDashboard, hasLabel, isAgentPr, isHarnessIssueTitle, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute, writeDelegationEnd } from './apply.ts';
 import { autoModeArm, autoModeFor, autoModeRoute } from './auto-mode.ts';
 import { endAutoModeMerge, onAutoModeSwitch } from './auto-mode-merge.ts';
@@ -42,7 +42,7 @@ export async function onIssue(ctx: GateContext): Promise<void> {
 
   if (action === 'opened' || (action === 'edited' && ctx.event.changes?.title)) {
     const { title, sub_issues_summary } = ctx.event.issue as { title: string; sub_issues_summary?: { total?: number } | null };
-    if (title === ctx.config.dashboardIssueTitle || issue.state !== 'open') return;
+    if (isHarnessIssueTitle(ctx.config, title) || issue.state !== 'open') return;
     const target = { kind: 'issue' as const, title, labels: issue.labels.map((l) => l.name), subIssues: sub_issues_summary?.total ?? 0 };
     let comments: Promise<IssueComment[]> | undefined;
     const getComments = () => (comments ??= ctx.gh.listComments(issue.number));
@@ -55,7 +55,7 @@ export async function onIssue(ctx: GateContext): Promise<void> {
     const title = (ctx.event.issue as { title: string }).title;
     const body = parseIssueBody(issue.body);
     const titleCheck = parseTitle(title);
-    const parsed = titleCheck.ok || title === ctx.config.dashboardIssueTitle ? body : { ok: false as const, errors: [...(body.ok ? [] : body.errors), titleCheck.ok ? '' : titleCheck.error].filter(Boolean) };
+    const parsed = titleCheck.ok || isHarnessIssueTitle(ctx.config, title) ? body : { ok: false as const, errors: [...(body.ok ? [] : body.errors), titleCheck.ok ? '' : titleCheck.error].filter(Boolean) };
     if (parsed.ok) await triageIssue(ctx, issue, title, parsed.contract);
     if (!parsed.ok) {
       await ctx.gh.addLabels(issue.number, [LABELS.blocked]);
@@ -199,7 +199,7 @@ async function triageOnOpen(ctx: GateContext, number: number, sender: string | u
   if (sender === appLogin(ctx.config)) return;
   try {
     const now = await ctx.gh.get<{ title: string; body: string | null; state: string; labels: { name: string }[]; sub_issues_summary?: { total?: number } | null }>(`/issues/${number}`);
-    if (now.state !== 'open' || now.title === ctx.config.dashboardIssueTitle || !parseTitle(now.title).ok) return;
+    if (now.state !== 'open' || isHarnessIssueTitle(ctx.config, now.title) || !parseTitle(now.title).ok) return;
     await triageLabels(ctx, { number, title: now.title, body: now.body, labels: now.labels.map((l) => l.name), subIssues: now.sub_issues_summary?.total ?? 0 }, await getComments(), { proposal: false });
   } catch (e) {
     ctx.log(`#${number} の作成時の分類に失敗しました: ${(e as Error).message}`);
