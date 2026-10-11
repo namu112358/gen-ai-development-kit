@@ -198,7 +198,7 @@ function jevLine(jev: AutoModeJevRecord | null | undefined, dangerSafe: number):
   const yes = jev.yes;
   if (typeof yes !== 'number' || !Number.isFinite(yes)) return { hold: true, text: 'Jev：危険の確率が読めない（保留）' };
   const hold = 1 - yes < dangerSafe;
-  return { hold, text: `Jev：危険の確率 ${pct(yes)}（安全側の下限 ${pct(dangerSafe)}）${hold ? '（危険。保留）' : '（安全）'}` };
+  return { hold, text: `Jev：危険の確率 ${pct(yes)}（保留の線 ${pct(1 - dangerSafe)}。超えると保留）${hold ? '（保留）' : '（保留しない）'}` };
 }
 
 /**
