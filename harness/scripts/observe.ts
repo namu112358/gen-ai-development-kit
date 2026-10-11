@@ -100,7 +100,7 @@ async function main(): Promise<void> {
       config: loadConfig(),
       now: new Date(),
       root: ROOT,
-      gitFiles: () => git(['ls-files', '-z']).split('\0').filter((f) => f !== ''),
+      gitFiles: () => git(['ls-files', '-z', '--cached', '--others', '--exclude-standard']).split('\0').filter((f) => f !== ''),
       gitLog: (args) => git(args),
       head: () => git(['rev-parse', 'HEAD']).trim(),
       readText,

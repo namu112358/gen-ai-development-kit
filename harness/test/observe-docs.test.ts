@@ -309,7 +309,7 @@ test('buildDocsInventory：commands/ の直下の定義もサブコマンドに�
 
 test('buildDocsInventory：実際のリポジトリの commands/ にあるサブコマンドを全部、実在とみなす', async () => {
   const root = path.resolve(import.meta.dirname, '..', '..');
-  const files = execFileSync('git', ['ls-files'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
+  const files = execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard'], { cwd: root, encoding: 'utf8' }).split('\n').filter(Boolean);
   const readText = (p: string): string | null => {
     try {
       return readFileSync(path.join(root, p), 'utf8');
