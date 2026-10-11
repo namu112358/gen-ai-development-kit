@@ -234,6 +234,11 @@ export class GitHub {
     return this.request('POST', `/issues/${issue}/comments`, { body: { body } });
   }
 
+  /** 自分のコメントの本文を書き換える（着手宣言の段階の更新。Issue #656） */
+  editComment(commentId: number, body: string): Promise<{ id: number; html_url: string }> {
+    return this.request('PATCH', `/issues/comments/${commentId}`, { body: { body } });
+  }
+
   listComments(issue: number): Promise<IssueComment[]> {
     return this.paginate<IssueComment>(`/issues/${issue}/comments`);
   }

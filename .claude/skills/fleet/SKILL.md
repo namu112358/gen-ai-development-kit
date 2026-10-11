@@ -55,7 +55,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 6. ラベル（`priority:*`・`area:*`）は、ship の手順8と同じく、まず Jev に任せ、App の名義の `kind=label-triage` の記録の `notApplied` がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す（`node harness/scripts/agent.ts label-fill` で付ける。`gh issue edit` は使わない）。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順9の一覧に書かず、人にも聞かない。
 7. `node harness/scripts/agent.ts usage` で、このセッションのトークン数と推定料金を読む（入れ子の方式の ship とその中の担当の記録も、このセッションの `subagents/` に置かれるので集計に入る）。費用の行には、呼び出しの回数 `calls` と1回あたりのキャッシュの読み込み量 `cacheReadPerCall` も書く（段階ごとに新しく呼ぶ前後の比べに使う）。
 8. 振り分け：ship の手順9と同じ振り分けを、Issue をまたいで1回行う（`node harness/scripts/agent.ts incident list` で記録を読み、入れ子の方式の ship は fleet と同じセッション ID なので同じ記録に入る。Issue の候補は `gh issue list --state open --search "<要点の語>"` で開いた Issue と照らし、無ければ `node harness/scripts/agent.ts incident render-issue <id>... --title <題>` で下書きを作る）。複数の Issue で同じ問題が出たら1つの候補にまとめる。起票・コメントは人が選んだものだけで、自動で起票しない。人が選んで起票した Issue のラベルは手順6と同じく Jev に任せる。
-9. 人に**人がすること**の一覧を1つにまとめて出す（Issue・PR ごとに ship の手順10と同じ項目）。
+9. 人に**人がすること**の一覧を1つにまとめて出す（Issue・PR ごとに ship の手順10と同じ項目）。ship が返した「決めたこと（覆すなら）」（聞かずに決めて `post-judgment` で残した「セッションの判定」）も、Issue・PR ごとに一覧の項目にする（コメントへのリンク・決めたこと・当たった基準・覆し方）。
    - Merge：Human Merge の PR（Merge の順番に意味があれば順番も）。自動 Merge なら何もしない（止めたければ `agent:hold`）
    - 例外ラベル：`test:exempt` は自動 Merge の対象の PR で `agent/tests` が failure のときだけ（Human Merge の PR では付けず、依頼のコメントに載ったテストの変更を Merge の前に確かめる、を「Merge」の項に書く）。`review:exempt` は付けるかの判断。どちらも、その理由を書いた場所
    - `node harness/scripts/setup.ts` の実行が要る変更か
@@ -77,7 +77,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - 着手宣言は ship がこのセッションの ID で出す（入れ子のサブエージェントにも `AGENT_HARNESS_SESSION` が同じ値で渡るので、`critic-input`・`post-plan`・`worktree` は止まらない）。
 2. ship が返したら、その結果（引き継ぎ・状態・人に聞くこと・人がすることの項目・待つ理由）を控え、`fleet-status` を読み直して次を決める。セッションの記憶に頼らない。返った引き継ぎの `status` が `continue` なら、表を読み直して (a) で次の段階の ship を新しく呼ぶ。ほかの `status` は次の扱いのとおり。
    - 「入れ子不可」：Agent ツールが無く ship の中でサブエージェントを呼べない。以降はこのセッションで交互の方式（手順2〜5）に切り替える。
-   - 人の判断待ち：手順9の前でも、たまったらまとめて AskUserQuestion で聞いてよい（1回に4問まで）。答えを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかったら、その Issue は人の判断待ちのまま一覧に書く。
+   - 人の判断待ち：人に上げる場面（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）だけ。聞かずに決めてよい場面は ship が決めて `post-judgment` で残しているので、ここでは聞かない。手順9の前でも、たまったらまとめて AskUserQuestion で聞いてよい（1回に4問まで。質問ごとに「なぜ人が要るか」を1行で添える）。答えを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかったら、その Issue は人の判断待ちのまま一覧に書く。
    - 投稿の前の質問（ship が計画を投稿せずに返した Planner の質問）：ship の宣言が `plan` のまま残っているので、手順9を待たずに、返った質問を複数の Issue の分もまとめて AskUserQuestion で聞く（1回に4問まで。残りは次の回。おすすめを先頭）。答えと、ship が返した書きかけの計画のパスを渡して、その Issue の ship を呼び直す。人が拒んだ・答えなかった質問は「答え無し」として渡して呼び直す（ship は申告を残して投稿し、`post-plan` が宣言を解除する。同じ質問を繰り返さない）。聞けないまま、または呼び直せないままセッションを終えるときは、その Issue を `node harness/scripts/agent.ts release <番号>` で解除し、手順9の一覧に「投稿の前の質問に答えが無く、計画は投稿していない（次は plan から）」と書く。
    - 待つ（重なり・PR 同士の衝突・`--max` の本数・領域の上限）：表で「選ぶ」に戻るまで呼び直さない。領域の上限で待つ Issue は、fleet が `claim <番号> --manual --stage implement --fleet` で宣言し直してから呼び直してよい（fleet は領域の上限を見ないため）。
    - Merge 済みの Issue が出たら、次にやることが sync になった残りの PR の ship を呼び直す。
