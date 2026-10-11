@@ -357,6 +357,62 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 - 限界：recent_diff は前回の受け付けの head から今の head への compare なので、間に main の取り込みがあると main の変更も入る。recent（直近の修正で変わった行への指摘か）は記録だけで、合否には使わない。
 - このリポジトリは `shadow` のまま。`enforce` にするかは、記録を見て人が決める。
 
+## auto mode の保留の検討会
+
+auto mode で Jev の危険の判定が計画か PR を保留にしたとき、fleet が3つの担当（安全・分け方・反対役）に調べさせ、結論を出して人に上げる（Issue #681）。手順は [fleet の skill](../.claude/skills/fleet/SKILL.md#auto-mode-の保留の検討会) に書き、ここには写さない。保留は人の判断なしに解かない。検討会がするのは、人に上げるか、`files` が変わる計画に出し直して Jev に問い直させるかだけ。
+
+### 結論の記録の書式
+
+結論を決めたら、計画なら Issue、PR なら PR に、fleet のセッションが `gh issue comment` / `gh pr comment` で投稿する。本文は次の形にする。
+
+````markdown
+<!-- agent-harness:claude -->
+## 保留の検討会の結論（保留は解いていない）
+
+保留：<計画コメントの URL か PR #N（patch-id の先頭12文字）>・Jev の危険の確率 <yes>%（保留の線 <1−dangerSafe>%）
+結論：誤検知らしい／本当に危険（／PR の変え方の案）— <一番強い根拠を1文>
+見落とし：<反対役の見つけたこと、無ければ「無し」>。人がすること：進める／直させる／閉じる
+
+```agent-hold-council
+{
+  "version": 1,
+  "target": { "type": "plan", "issue": 681, "planCommentId": 123 },
+  "jev": { "yes": 0.82, "status": "ok", "questionSet": "..." },
+  "conclusion": "dangerous",
+  "roles": {
+    "safety": { "verdict": "weakens" },
+    "split": { "verdict": "unsure", "proposal": { "kind": "none", "files": [] } },
+    "devil": { "verdict": "weakens" }
+  },
+  "summary": ["保留：…", "結論：…", "見落とし：…"],
+  "at": "2026-10-11T00:00:00Z"
+}
+```
+````
+
+| 欄 | 中身 |
+| --- | --- |
+| `version` | 1 |
+| `target` | 計画なら `{ type: "plan", issue, planCommentId }`。PR なら `{ type: "pr", pr, issue, patchId, headSha }`（`patchId` は保留にした受け付けの記録の値） |
+| `jev` | `{ yes, status, questionSet }`。記録の写し。確率が無い（`skipped`・`error`）なら `yes` は `null` |
+| `conclusion` | `change-plan`（計画を変える）／`false-positive`（誤検知らしい）／`dangerous`（本当に危険） |
+| `roles` | 担当（`safety`・`split`・`devil`）ごとの `verdict`（`weakens`・`not-weakens`・`unsure`）。`split` だけ `proposal`（`{ kind: "split" \| "narrow" \| "guard-test" \| "none", files }`）が付く |
+| `summary` | 人に上げる3行 |
+| `at` | ISO 8601 の時刻 |
+
+- 本文に ```` ```agent-plan ````・```` ```agent-verdict ````・```` ```agent-decision ```` のブロックを含めない（ゲートが起きないようにするため。App はこの記録を読まない）。
+- 書式は `docs/formats.md` に載せておらず、`node harness/scripts/agent.ts check` も検査しない。
+
+### その後の数え方
+
+集計のコードは無い。記録ごとに GitHub の記録と照らして数える。
+
+- 計画（`dangerous`・`false-positive`）：同じ `planCommentId` の App の `plan-proceed` があれば「進めた（そのまま）」。後に別の計画コメントの計画ゲートの記録があれば「直させた」。Issue が計画の無いまま閉じたら「閉じた」。どれも無ければ「未決」。
+- 計画（`change-plan`）：出し直した計画の計画ゲートの記録の `autoMode.hold` が偽なら「Jev が通した」、真なら「また保留」。
+- PR：Merge 済みで最後の受け付けの `patchId` が記録の `patchId` と同じなら「そのまま Merge」、違えば「直させた」。Merge されずに閉じたら「閉じた」。
+
+限界：PR の「直させた」は、保留の後の関係の無い push でも patch-id が変わると数えるので、多めに出る（`report.ts` と同じ限界）。`report.ts` の「auto mode で保留した計画・PR のその後」は確率の帯ごとの数で、結論ごとの数ではない。
+
 ## 例外ラベルの効く範囲
 
 `test:exempt`（`agent/tests`）と `review:exempt`（`agent/review`）は、人が付けた時点の PR の差分にだけ効く。人が見ていない後からの変更まで例外で通さないため（判定の引き継ぎと同じく、差分の `git patch-id --verbatim` で比べる）。`plan:exempt` は PR の差分ではなく紐付けの例外なので対象外。
