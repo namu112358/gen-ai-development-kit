@@ -19,9 +19,12 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作る（出力がパス。置き場所はリポジトリの外）。以降はそのディレクトリで作業する。`node_modules` が無ければ worktree が `npm ci` まで行う。
    - worktree は今の `origin/main` から作られるので、計画を書いたときから main が進んでいることがある。`show-plan` の `planCommentBody`（null なら `gate.plan` を ````agent-plan` で囲んだもの）を scratchpad のファイルに書き、worktree で `node harness/scripts/agent.ts check <ファイル>` を走らせて、一緒に変えるファイルの抜けを今の main で照らし直す。抜けが出たら（終了コード 1）、書かずに手順4と同じく `claim <番号> --manual --stage plan` に戻し、抜けを `files` に足して plan の skill で計画を出し直す。
 3. **test-designer** サブエージェントにテストを書かせる。GitHub は読ませないので、Issue 番号、AC、Validation Requirements、計画の `files` を指示に含めて渡す。
+   - 守り（ゲート・hook・deny・ラベルの権限・危険の問いなど）に触れる変更では、守りが効き続けることを確かめるテスト（例：この操作は今までどおり止まる）を差分に入れる。計画の本文の「確かめるテスト」を test-designer に渡す。auto mode の危険の問い（Jev）は PR の差分と変えたファイルだけを読み、差分から分からなければ危険と答えるので、PR 本文の説明では足りない
 4. 計画の `files` の範囲で実装する。計画に無い設計の判断（新しいファイル・公開の形（関数・型・コマンド・設定のキー・出力の書式）の変更・計画の `files` の外の変更）が要ると分かったら、即興で決めて書かずに止まる（書きかけの変更は commit しない）。`node harness/scripts/agent.ts claim <番号> --manual --stage plan` で段階を `plan` に戻し、要る判断とその理由を計画に書いて、plan の skill で計画を出し直す（批評と計画ゲートを通し直す）。通ったら手順1の `claim --stage implement` で宣言し直し、既にある worktree で（手順2をやり直さずに）手順3から続ける（test-designer のテストも出し直した計画に合わせて見直す）。
    - 計画の `files` の外の変更は、人に上げる場面（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方。ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる、守りを弱める、データを壊しうる、など）に当たらなければ、聞かずに計画を出し直すと決め、`node harness/scripts/agent.ts post-judgment <番号> <ファイル>`（`stage` は `scope`、`basis` は `fixable`）で「セッションの判定」を残す。人に上げる場面に当たるとき、範囲外のまま出すかを AskUserQuestion で聞いてよいのは、人が付き添うセッションだけ（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。範囲外として出すと決まったら PR 本文の「範囲外の変更」に理由を書き、出し直すと決まったら上のとおり計画に返す。
    - fleet から起こされた ship（入れ子の ship（サブエージェントとして動く ship。ship の skill の「サブエージェントの ship として動くとき」）と、fleet が Orca の worker として起こした ship）と、その ship が実装を任せたサブエージェントは聞かずに、上のとおり計画に返す（任されたサブエージェントは書かずに止まって理由を返し、ship が段階を `plan` に戻す）。
+   - 守りに触れる変更と、守りに触れない変更（ついでの整理・別の機能）を同じ PR に混ぜない。混ぜたくなったら別の Issue にする
+   - コードのコメント・PR 本文にも Jev を説得する文（「安全です」など）を書かず、テストで確かめられる事実だけを書く
 5. `npm run check` を通す。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
 7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
