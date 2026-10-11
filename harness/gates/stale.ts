@@ -35,6 +35,7 @@ import { reviewAutoModePlans, reviewDelegatedPlans } from './on-comment.ts';
  * 「引き継ぐか決める」の行でも出す（判定は lib/unowned-conflict.ts。引き継ぐかは人が決める）。
  * judge・fix・sync の着手宣言の後に routine.stalledClaimMinutes 分動きの無い Agent PR を「止まっていそうな着手宣言」の節に出す（判定は lib/stalled-claim.ts。知らせるだけ）。
  * 宣言が無く今の差分の判定の受け付けも無い Agent PR を「担当のいない判定待ちの PR」の節に出す（判定は lib/unclaimed-judge.ts。知らせるだけ。Issue #493）。
+ * 見返しの節（委任承認・bypass・auto mode で Merge した PR・通した計画など）は、そのスイッチのラベルがあるか前回の印にあるときだけ、最近の Issue・閉じた PR を読む（#441）。
  * 引数 opts.epicUnassigned があるときだけ、Epic に入っていない Issue を Jev の一番高い Epic つきで「Epic に入っていない Issue」の節に出す（Issue #565）。
  */
 
@@ -199,9 +200,55 @@ async function bypassLine(ctx: GateContext, dashboard: DashboardIssue | null): P
     : `**bypass モード: 無効**（\`${label}\` は付いていますが、${state.reason}）`;
 }
 
+type SwitchKey = 'delegate' | 'bypass' | 'auto-mode';
+const SWITCH_KEYS: SwitchKey[] = ['delegate', 'bypass', 'auto-mode'];
+const SWITCH_READS_MARK = 'agent-harness:switch-reads';
+
+/** 前回の定期実行がダッシュボードの本文に書いた、次の回も読むスイッチの印。印が無ければ null（知らない語は無視する） */
+function previousSwitchReads(body: string | null | undefined): Set<SwitchKey> | null {
+  const m = (body ?? '').match(new RegExp(`<!-- ${SWITCH_READS_MARK}((?: [\\w-]+)*) -->`));
+  if (!m) return null;
+  const words = m[1]!.split(' ');
+  return new Set(SWITCH_KEYS.filter((k) => words.includes(k)));
+}
+
+/** スイッチのラベルがダッシュボードにあるか（ダッシュボードが無ければ全部 false） */
+function switchLabeled(ctx: GateContext, dashboard: DashboardIssue | null): Record<SwitchKey, boolean> {
+  if (!dashboard) return { delegate: false, bypass: false, 'auto-mode': false };
+  const { planLabel, mergeLabel } = delegateConfig(ctx.config);
+  return {
+    delegate: hasLabel(dashboard, planLabel) || hasLabel(dashboard, mergeLabel),
+    bypass: hasLabel(dashboard, bypassMergeConfig(ctx.config).label),
+    'auto-mode': hasLabel(dashboard, autoModeConfig(ctx.config).label),
+  };
+}
+
+/**
+ * 見返しの節を今回読むスイッチ。ダッシュボードが無ければ全部 false。ラベルがあれば true、無ければ前回の印にあれば true
+ * （切ったばかりでも、前回の節に行がある間は読む）。印が無ければ安全側で true。
+ */
+function switchReads(ctx: GateContext, dashboard: DashboardIssue | null): Record<SwitchKey, boolean> {
+  if (!dashboard) return { delegate: false, bypass: false, 'auto-mode': false };
+  const labeled = switchLabeled(ctx, dashboard);
+  const before = previousSwitchReads(dashboard.body);
+  return { delegate: labeled.delegate || !before || before.has('delegate'), bypass: labeled.bypass || !before || before.has('bypass'), 'auto-mode': labeled['auto-mode'] || !before || before.has('auto-mode') };
+}
+
+/** 次の回も読むスイッチの印（HTML コメント）。無ければ空の印 */
+function renderSwitchReads(keep: Record<SwitchKey, boolean>): string {
+  return `<!-- ${[SWITCH_READS_MARK, ...SWITCH_KEYS.filter((k) => keep[k])].join(' ')} -->`;
+}
+
+/** 見返しの節の見出しと中身。undefined は読まなかった（off の文）、null は読めなかった */
+function reviewSection(title: string, rows: string[] | null | undefined, off: string): string[] {
+  if (rows === undefined) return [`### ${title}`, '', off, ''];
+  if (rows === null) return [`### ${title}`, '', '読めませんでした', ''];
+  return [`### ${title}（${rows.length}）`, '', ...(rows.length ? rows : ['なし']), ''];
+}
+
 /**
  * bypass で Merge された PR（直近 staleHours 時間）。閉じた PR の一覧（1ページ）のうち、Merge が staleHours 以内で、
- * 最後の bypass の記録が bypass-merge のもの。ラベルの有無にかかわらず読む。読めなければ null。
+ * 最後の bypass の記録が bypass-merge のもの。呼ぶかは onSchedule が switchReads で決める（ラベルを外した後も、前回の節に行がある間は読む）。読めなければ null。
  */
 async function bypassMerged(ctx: GateContext, now: Date, staleMs: number): Promise<string[] | null> {
   try {
@@ -221,7 +268,7 @@ async function bypassMerged(ctx: GateContext, now: Date, staleMs: number): Promi
 
 /**
  * 委任承認（計画＋Merge）で Merge された PR（直近 staleHours 時間）。閉じた PR の一覧（1ページ）のうち、Merge が staleHours 以内で、
- * 最後の委任の記録が delegated-merge のもの。ラベルの有無にかかわらず読む（ラベルを外した後も一覧に出す）。読めなければ null。
+ * 最後の委任の記録が delegated-merge のもの。呼ぶかは onSchedule が switchReads で決める（ラベルを外した後も、前回の節に行がある間は読む）。読めなければ null。
  */
 async function delegatedMerged(ctx: GateContext, now: Date, staleMs: number): Promise<string[] | null> {
   try {
@@ -264,7 +311,7 @@ function autoModeLine(ctx: GateContext, dashboard: DashboardIssue | null, state:
 /**
  * auto mode で通した計画・保留にした計画（直近 staleHours 時間）。最近更新された Issue（1ページ。PR と、agent:plan-ok・agent:plan-review の
  * どちらも無い Issue は読まない）の最新の plan-gate の記録が staleHours 以内で auto mode の記録を持つもの。Issue ごとに最新の記録だけを見るので、
- * 1つの Issue はどちらか一方にだけ出る。ラベルの有無にかかわらず読む。読めなければ null。
+ * 1つの Issue はどちらか一方にだけ出る。呼ぶかは onSchedule が switchReads で決める（ラベルを外した後も、前回の節に行がある間は読む）。読めなければ null。
  */
 async function autoModePlans(ctx: GateContext, now: Date, staleMs: number): Promise<{ passed: string[]; held: string[] } | null> {
   try {
@@ -290,7 +337,7 @@ async function autoModePlans(ctx: GateContext, now: Date, staleMs: number): Prom
 
 /**
  * auto mode で Merge された PR（直近 staleHours 時間）。閉じた PR の一覧（1ページ）のうち、Merge が staleHours 以内で、
- * 最後の auto mode の記録が auto-mode-merge のもの。ラベルの有無にかかわらず読む。読めなければ null。
+ * 最後の auto mode の記録が auto-mode-merge のもの。呼ぶかは onSchedule が switchReads で決める（ラベルを外した後も、前回の節に行がある間は読む）。読めなければ null。
  */
 async function autoModeMerged(ctx: GateContext, now: Date, staleMs: number): Promise<string[] | null> {
   try {
@@ -492,15 +539,23 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
   const unclaimed = unclaimedJudgePrs(await unclaimedJudgeInputs(ctx, agentPrs, now, stalledMinutes, prComments), now, stalledMinutes).map((r) => renderUnclaimedJudgeLine(r, now));
   const unowned = unownedConflicts(await conflictClaims(ctx, conflicts, prComments), now, ctx.config.routine).map(renderUnownedConflictLine);
   const labelProblems = renderAuditLines(labelAuditRows(ctx.config, ctx.repository, issues, prs));
-  const delegatedRows = await delegatedMerged(ctx, now, staleMs);
-  const bypassRows = await bypassMerged(ctx, now, staleMs);
-  const autoPlans = await autoModePlans(ctx, now, staleMs);
-  const autoMergedRows = await autoModeMerged(ctx, now, staleMs);
+  const reads = switchReads(ctx, found);
+  const delegatedRows = reads.delegate ? await delegatedMerged(ctx, now, staleMs) : undefined;
+  const bypassRows = reads.bypass ? await bypassMerged(ctx, now, staleMs) : undefined;
+  const autoPlans = reads['auto-mode'] ? await autoModePlans(ctx, now, staleMs) : undefined;
+  const autoMergedRows = reads['auto-mode'] ? await autoModeMerged(ctx, now, staleMs) : undefined;
   const autoHeldPrs = autoMode?.active ? await autoModeHeldPrs(ctx, now, staleMs, agentPrs) : null;
 
   const line = (i: { number: number; title: string; html_url: string }, extra = '') => `- [#${i.number}](${i.html_url}) ${i.title}${extra}`;
   const section = (title: string, rows: string[]) => [`### ${title}（${rows.length}）`, '', ...(rows.length ? rows : ['なし']), ''];
   const readable = (title: string, rows: string[] | null | undefined) => (rows == null ? [`### ${title}`, '', '読めませんでした', ''] : section(title, rows));
+  const filled = (rows: string[] | null | undefined) => rows === null || (rows !== undefined && rows.length > 0);
+  const labeled = switchLabeled(ctx, found);
+  const keep: Record<SwitchKey, boolean> = {
+    delegate: reads.delegate && (labeled.delegate || filled(delegatedRows)),
+    bypass: reads.bypass && (labeled.bypass || filled(bypassRows)),
+    'auto-mode': reads['auto-mode'] && (labeled['auto-mode'] || autoPlans === null || filled(autoPlans?.passed) || filled(autoPlans?.held) || filled(autoMergedRows)),
+  };
   const recent = `（直近 ${ctx.config.staleHours} 時間）`;
   const body = [
     appMark('dashboard'),
@@ -516,15 +571,11 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
     ...(opts.epicUnassigned
       ? section('Epic に入っていない Issue', opts.epicUnassigned.map((r) => line(r, r.epic !== null ? ` — Jev の一番高い Epic: #${r.epic}（${r.probability === null ? '-' : `${Math.round(r.probability * 100)}%`}）` : ' — 未判定')))
       : []),
-    ...(delegatedRows === null
-      ? [`### 委任承認で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, '', '読めませんでした', '']
-      : section(`委任承認で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, delegatedRows)),
-    ...(bypassRows === null
-      ? [`### bypass で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, '', '読めませんでした', '']
-      : section(`bypass で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, bypassRows)),
-    ...readable(`auto mode で通した計画${recent}`, autoPlans?.passed),
-    ...readable(`auto mode で保留にした計画${recent}`, autoPlans?.held),
-    ...readable(`auto mode で Merge した PR${recent}`, autoMergedRows),
+    ...reviewSection(`委任承認で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, delegatedRows, '委任承認が無効です'),
+    ...reviewSection(`bypass で Merge された PR（直近 ${ctx.config.staleHours} 時間）`, bypassRows, 'bypass モードが無効です'),
+    ...reviewSection(`auto mode で通した計画${recent}`, autoPlans === undefined ? undefined : autoPlans?.passed ?? null, 'auto mode が無効です'),
+    ...reviewSection(`auto mode で保留にした計画${recent}`, autoPlans === undefined ? undefined : autoPlans?.held ?? null, 'auto mode が無効です'),
+    ...reviewSection(`auto mode で Merge した PR${recent}`, autoMergedRows, 'auto mode が無効です'),
     ...(autoMode?.active ? readable(`auto mode で保留にした PR${recent}`, autoHeldPrs) : [`### auto mode で保留にした PR${recent}`, '', 'auto mode が無効です', '']),
     '失敗した Actions の実行は [Actions](../../actions?query=is%3Afailure) を確認してください。',
   ].join('\n');
@@ -535,7 +586,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
   const mode = stopped
     ? `**自動 Merge モード: 停止中**（このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外すと有効になります。docs/operations.md）`
     : `**自動 Merge モード: 有効**（このダッシュボードに \`${ctx.config.autoMergeStopLabel}\` ラベルを付けると一斉に止まります）`;
-  const withMode = body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${mode}\n${delegateLine(ctx, current, delegation)}\n${await bypassLine(ctx, current)}\n${autoModeLine(ctx, current, autoMode)}\n`);
+  const withMode = body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${renderSwitchReads(keep)}\n${mode}\n${delegateLine(ctx, current, delegation)}\n${await bypassLine(ctx, current)}\n${autoModeLine(ctx, current, autoMode)}\n`);
   const existing = (await ctx.gh.get<{ body: string | null }>(`/issues/${dashboard}`)).body ?? '';
   const queueStart = existing.indexOf('<!-- agent-harness:queue:start -->');
   // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
