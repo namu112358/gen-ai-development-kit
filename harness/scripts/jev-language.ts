@@ -17,7 +17,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
-import { buildJevRequest, flattenAnswers, redact, type JevAnswers } from '../lib/jev.ts';
+import { backoffDelayMs, retryAfterMs } from '../lib/backoff.ts';
+import { buildJevRequest, flattenAnswers, redact, type JevAnswers, type JevRetryOptions } from '../lib/jev.ts';
 import { buildTriageRequest } from '../lib/issue-triage.ts';
 import { parseIssueBody } from '../lib/issue-form.ts';
 import { RISK_QUESTIONS } from '../lib/verdict.ts';
@@ -351,6 +352,7 @@ export async function askJevWithUsage(
   apiKey: string,
   request: { model: string; state: unknown; questions: Record<string, unknown> },
   fetchImpl: typeof fetch = fetch,
+  opts: JevRetryOptions = {},
 ): Promise<{ status: 'ok'; model: string; answers: JevAnswers; usage?: { input_tokens: number; output_tokens: number } } | { status: 'error'; detail: string }> {
   const body = JSON.stringify(request);
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -362,8 +364,8 @@ export async function askJevWithUsage(
         signal: AbortSignal.timeout(30_000),
       });
       if ([408, 429, 529].includes(res.status) || res.status >= 500) {
-        const wait = Number(res.headers.get('retry-after') ?? 0) * 1000 || 1000 * 2 ** attempt;
-        await new Promise((r) => setTimeout(r, Math.min(wait, 10_000)));
+        const wait = backoffDelayMs(attempt, { baseMs: 1000, capMs: 10_000, floorMs: retryAfterMs(res.headers.get('retry-after')) ?? 0, random: opts.random });
+        await (opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(Math.min(wait, 10_000));
         continue;
       }
       const text = await res.text();
