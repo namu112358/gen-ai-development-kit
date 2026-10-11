@@ -5,7 +5,7 @@ import { parseIssueBody } from '../lib/issue-form.ts';
 import { buildTriageRequest, renderTriage, summarizeTriage, type TriageSummary } from '../lib/issue-triage.ts';
 import { askJev, flattenAnswers, measureRequest } from '../lib/jev.ts';
 import { auditLabels } from '../lib/label-rules.ts';
-import { appRecords, isAgentPr, lastLabeled, latestPlanGate, type PlanGateRecord, type PullRequest, type TimelineEvent } from '../lib/state.ts';
+import { appRecords, isAgentPr, isHarnessIssueTitle, lastLabeled, latestPlanGate, type PlanGateRecord, type PullRequest, type TimelineEvent } from '../lib/state.ts';
 import { parseTitle, TITLE_TYPES } from '../lib/title.ts';
 import { appComment, type GateContext } from './context.ts';
 import { closeDoneEpics } from './epic-close.ts';
@@ -349,7 +349,7 @@ export async function labelApply(ctx: GateContext): Promise<void> {
   let asked = 0;
   const issues = await ctx.gh.paginate<OpenIssue>('/issues?state=open', 10);
   for (const i of issues) {
-    if (i.pull_request || i.title === ctx.config.dashboardIssueTitle) continue;
+    if (i.pull_request || isHarnessIssueTitle(ctx.config, i.title)) continue;
     try {
       let comments: Promise<IssueComment[]> | undefined;
       const getComments = () => (comments ??= ctx.gh.listComments(i.number));

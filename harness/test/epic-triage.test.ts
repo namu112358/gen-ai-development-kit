@@ -116,7 +116,7 @@ test('selectTriageTargets：(8) PR・ダッシュボード・epic のラベル�
     issue(17),
   ];
   const epics = [epic(436, [15]), epic(437, [], [16])];
-  assert.deepEqual(selectTriageTargets(issues, epics, config.dashboardIssueTitle).map((i) => i.number), [10, 17]);
+  assert.deepEqual(selectTriageTargets(issues, epics, (t) => t === config.dashboardIssueTitle).map((i) => i.number), [10, 17]);
 });
 
 test('readEpicTriageHistory：(9) App 以外の名義の同じ形のコメントは読まない', () => {

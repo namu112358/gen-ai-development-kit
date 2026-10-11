@@ -1,5 +1,5 @@
 import { LABELS, PRIORITY_LABELS, typeLabel, type HarnessConfig } from './config.ts';
-import { isAgentPr, type PullRequest } from './state.ts';
+import { isAgentPr, isHarnessIssueTitle, type PullRequest } from './state.ts';
 import { parseTitle, TITLE_TYPES } from './title.ts';
 
 /**
@@ -94,11 +94,11 @@ export const prRow = (config: HarnessConfig, p: Pick<PullRequest, 'number' | 'ti
 });
 
 /**
- * ダッシュボードの検査の範囲：開いた Issue のうち agent:* か epic の付いたもの（ダッシュボード自身を除く）と、Agent PR。
+ * ダッシュボードの検査の範囲：開いた Issue のうち agent:* か epic の付いたもの（ダッシュボード自身と patrol のまとめの Issue を除く）と、Agent PR。
  * 人がまだ整えていない Issue や bot の PR はノイズになるので見ない。/issues に混ざる PR は Issue の規則で見ない。
  */
 export function labelAuditRows(config: HarnessConfig, repository: string, issues: AuditIssue[], prs: PullRequest[]): LabelAuditRow[] {
-  const inScope = (i: AuditIssue) => !i.pull_request && i.title !== config.dashboardIssueTitle
+  const inScope = (i: AuditIssue) => !i.pull_request && !isHarnessIssueTitle(config, i.title)
     && i.labels.some((l) => l.name.startsWith('agent:') || l.name === LABELS.epic);
   return [
     ...issues.filter(inScope).map((i) => issueRow(config, i)),

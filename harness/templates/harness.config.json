@@ -61,6 +61,7 @@
   "staleHours": 24,
   "periodicCatchUpMinutes": 90,
   "dashboardIssueTitle": "Agent ダッシュボード",
+  "patrolIssueTitle": "patrol のまとめ",
   "reviewPanel": {
     "mode": "shadow"
   },

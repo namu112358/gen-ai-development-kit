@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import type { HarnessConfig } from './config.ts';
 import { incidentDir, isValidSession, maskSecrets } from './incident.ts';
 import { askJev, measureRequest } from './jev.ts';
+import { isHarnessIssueTitle } from './state.ts';
 import {
   buildIssueOverlapRequest,
   decideOverlap,
@@ -76,7 +77,7 @@ export async function checkIssueOverlap(
   if (!apiKey) return settle('skipped', 'JEV_API_KEY が未設定', null);
   const maskedDraft: OverlapDraft = { title: maskSecrets(draft.title), body: draft.body === null ? null : maskSecrets(draft.body) };
   const masked = openIssues.map((i) => ({ ...i, title: maskSecrets(i.title), body: i.body === null ? null : maskSecrets(i.body) }));
-  const candidates = selectOverlapCandidates(maskedDraft, masked, config.dashboardIssueTitle, settings.maxCandidates);
+  const candidates = selectOverlapCandidates(maskedDraft, masked, (t) => isHarnessIssueTitle(config, t), settings.maxCandidates);
   const built = buildIssueOverlapRequest(config, maskedDraft, candidates);
   if (!built.ask) return settle('skipped', built.reason, null);
   try {

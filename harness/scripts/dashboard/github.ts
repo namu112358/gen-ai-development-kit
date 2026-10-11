@@ -6,7 +6,7 @@
  */
 import { appMarkKind } from '../../lib/blocks.ts';
 import { areaLimitLabels } from '../../lib/concurrency.ts';
-import { bodyIssueRefs, isAgentPr, isAppComment, isSameRepoPr, latestPlanGate, linkedIssuesWithSource, withStack, type PullRequest } from '../../lib/state.ts';
+import { bodyIssueRefs, isAgentPr, isAppComment, isHarnessIssueTitle, isSameRepoPr, latestPlanGate, linkedIssuesWithSource, withStack, type PullRequest } from '../../lib/state.ts';
 import { classifyBase } from '../../lib/stack.ts';
 import type { HarnessConfig } from '../../lib/config.ts';
 import { issueFacts, prFacts } from '../../lib/facts.ts';
@@ -193,7 +193,7 @@ export class DashboardData {
     const gh = this.prefetched(snap);
     await this.fillMissing(gh, snap, () => new Set());
     await this.loadOpenPrs(gh, snap);
-    const items = (snap.openIssues ?? []).filter((i) => !i.pull_request && i.title !== this.config.dashboardIssueTitle);
+    const items = (snap.openIssues ?? []).filter((i) => !i.pull_request && !isHarnessIssueTitle(this.config, i.title));
     this.issueMap.clear();
     this.prMap.clear();
     await pool(items, 4, (i) => this.loadIssue(gh, snap, i));
@@ -246,7 +246,7 @@ export class DashboardData {
       const item = await gh.get<IssueItem | null>(`/issues/${n}`, { allow404: true });
       for (const [k, p] of this.prMap) if (p.issue === n) this.prMap.delete(k);
       this.issueMap.delete(n);
-      if (item && !item.pull_request && item.state === 'open' && item.title !== this.config.dashboardIssueTitle) await this.loadIssue(gh, snap, item);
+      if (item && !item.pull_request && item.state === 'open' && !isHarnessIssueTitle(this.config, item.title)) await this.loadIssue(gh, snap, item);
     }
     for (const n of prs) {
       this.prMap.delete(n);

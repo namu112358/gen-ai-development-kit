@@ -4,6 +4,7 @@ import { patternsOverlap } from './epic.ts';
 import { fleetStageOf, stepOf, type FlowFleetStage, type FlowNodeId, type FlowStep, type FlowStopLabel } from './flow.ts';
 import { globToRegExp } from './scope.ts';
 import { describeClaim, isOwnClaim, type Claim, type IssueFacts, type PrFacts } from './queue.ts';
+import { patrolIssueTitle } from './state.ts';
 
 /**
  * fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。GitHub から集めた事実だけを入力にする純粋関数。
@@ -51,7 +52,7 @@ export interface FleetTargetItem {
 const TARGET_LABELS: string[] = [LABELS.ready, LABELS.planOk, LABELS.planReview];
 
 /**
- * fleet-status が番号なしのときの対象。PR とダッシュボードの Issue を除き、
+ * fleet-status が番号なしのときの対象。PR とダッシュボードの Issue と patrol のまとめの Issue（題が patrolIssueTitle。作成者は問わない）を除き、
  * agent:ready・agent:plan-ok・agent:plan-review のどれかが付いた Issue（作成者は問わない。ラベルを付けたのが書き込み権限のある人）と、
  * agent: のラベルが1つも無く、作成者がコラボレーター（TRUSTED_ASSOCIATIONS）か App（Epic の子課題など）の Issue（作ったまま計画に進んでいないもの）を、元の順に返す。
  * コラボレーター以外が立てたラベルの無い Issue は対象にしない（人が進めると決めた印が無いため）
@@ -60,6 +61,7 @@ export function fleetTargets<T extends FleetTargetItem>(items: T[], config: Harn
   return items.filter((i) => {
     if (i.pull_request) return false;
     if (i.title === config.dashboardIssueTitle && i.user?.login === appLogin(config)) return false;
+    if (i.title === patrolIssueTitle(config)) return false;
     const names = i.labels.map((l) => l.name);
     if (names.some((n) => TARGET_LABELS.includes(n))) return true;
     // App が作った Issue（Epic の子課題など）は GitHub 上 CONTRIBUTOR になるが、信頼できる印を付ける側なので含める
