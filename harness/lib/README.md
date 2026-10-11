@@ -27,6 +27,7 @@
 | `fleet-watch.ts` | fleet の待つ間の読み直しの判断（Issue #199、人の決定 2026-09-30）。 | ○ |
 | `fleet.ts` | fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。 | ○ |
 | `flow.ts` | 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。 | ○ |
+| `gh-rest.ts` | Issue・PR を GraphQL を使わず REST（GitHub.get・GitHub.paginate）だけで読み、gh の `--json` の欄の名前にそろえて返す（Issue #712）。 | ○ |
 | `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |
 | `graphql-prefetch.ts` | まとめた GraphQL の問い合わせで Issue・PR の材料を先に読み、REST の形に直す先読みの仕組み（ダッシュボードと fleet-status・step が使う）。 | ○ |
 | `guardrail.ts` | ガードレール：Agent が自分を縛る仕組み（App が機械的に強制している部分）。 | ○ |
