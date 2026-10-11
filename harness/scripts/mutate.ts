@@ -4,11 +4,19 @@
  *
  *   node harness/scripts/mutate.ts [--base <ref>] [--max-mutants 30] [--max-minutes 15] [--test-timeout-seconds 90]
  *   node harness/scripts/mutate.ts --check-targets [--base <ref>]
+ *   node harness/scripts/mutate.ts --report-cached <record.json>
+ *   node harness/scripts/mutate.ts [...] --record <record.json>
  *
  * 比べる範囲は `git diff -U0 <base> HEAD`（既定の base は HEAD^1。pull_request の checkout はマージコミットなので第1親が base）。
  * 壊したファイルは、1回ごとに finally で（止められたときはシグナルの処理で）元に戻す。
  * `--check-targets` は壊す候補があるかだけを数え、`GITHUB_OUTPUT` に `has-targets=true|false` を書く（テストは動かさない）。
  * ci の mutation ジョブが npm ci の前に動かすので、このファイルと import 先は実行時に npm の依存を読まない（Node の組み込みだけ）。
+ *
+ * 前の結果の再利用（main の取り込みだけの push で本体を省く）：`--check-targets` は has-targets=true のとき、PR 自身の差分
+ * （`git diff <base> HEAD` の patch-id）から `patch-key=mutation-v1-<patch-id>` も GITHUB_OUTPUT に書く。ci はこれを actions/cache の鍵にする。
+ * `--record <path>` は本体が結果の報告まで行ったときだけ、前の実行の URL・PR の head・survived の行を JSON で書き、書けたら `recorded=true` を書く。
+ * `--report-cached <path>` は鍵が当たったときに、その記録から省いた旨の Summary を出し、survived の行（`survived<TAB><場所><TAB><壊し方>`）を
+ * 標準出力に出し直す（ジョブのログを読む report.ts・test-health.ts が、省いた実行からも前と同じ行を読めるように。ログの形は変えない）。
  *
  * 限界：
  * - 結果は PR 側のコードと YAML（.github/workflows/ci.yml の mutation ジョブ）が決めるので、PR を出した側が偽れる。
@@ -28,9 +36,10 @@
  * CLI の部分は `import.meta.main` の中だけで動く（テストが import しても何も動かない）。
  */
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
-import { appendFileSync, readFileSync, writeFileSync } from 'node:fs';
-import { posix } from 'node:path';
+import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, posix } from 'node:path';
 import { loadConfig } from '../lib/config.ts';
+import { patchId } from '../lib/patch-id.ts';
 import { DEFAULT_TEST_PATTERNS, isTestFile } from '../lib/test-tamper.ts';
 
 export interface ChangedLine {
@@ -270,10 +279,56 @@ export function renderSkipped(reason: string): string {
   return [REPORT_TITLE, '', REPORT_NOTE, '', `試していません：${reason}`, ''].join('\n');
 }
 
-/** --check-targets の結果：GITHUB_OUTPUT に書く行と、候補が無いときの Summary */
-export function checkTargetsResult(total: number): { output: string; summary: string | null } {
-  if (total > 0) return { output: 'has-targets=true\n', summary: null };
+/** 前の結果を引くキャッシュの鍵。PR 自身の差分の patch-id（行番号を無視する）で決める */
+export function mutationCacheKey(diff: string): string {
+  return `mutation-v1-${patchId(diff)}`;
+}
+
+/** --check-targets の結果：GITHUB_OUTPUT に書く行と、候補が無いときの Summary。key があれば候補があるときに patch-key も書く */
+export function checkTargetsResult(total: number, key?: string | null): { output: string; summary: string | null } {
+  if (total > 0) return { output: key ? `has-targets=true\npatch-key=${key}\n` : 'has-targets=true\n', summary: null };
   return { output: 'has-targets=false\n', summary: renderSkipped('実装の .ts・.js の変更がありません（npm ci と mutation を省きました）。') };
+}
+
+/** ログに出す survived の行。harness/lib/test-health.ts の parseSurvivedMutants が読む形 */
+export function survivedLine(m: Mutant): string {
+  return `survived\t${m.file}:${m.line}\t${m.operator}`;
+}
+
+/** 前に本体を最後まで走らせた記録（actions/cache に置く） */
+export interface MutationRecord {
+  runUrl: string;
+  head: string;
+  /** `survived<TAB><file>:<line><TAB><operator>` の行 */
+  survived: string[];
+}
+
+const SURVIVED_LINE = /^survived\t.+:\d+\t.+$/;
+
+/** 記録を読む。形が違えば null */
+export function parseRecord(text: string): MutationRecord | null {
+  try {
+    const v: unknown = JSON.parse(text);
+    if (typeof v !== 'object' || v === null) return null;
+    const { runUrl, head, survived } = v as Record<string, unknown>;
+    if (typeof runUrl !== 'string' || runUrl === '' || typeof head !== 'string' || head === '') return null;
+    if (!Array.isArray(survived) || !survived.every((l) => typeof l === 'string' && SURVIVED_LINE.test(l))) return null;
+    return { runUrl, head, survived: survived as string[] };
+  } catch {
+    return null;
+  }
+}
+
+/** 鍵が当たって本体を省いたときの Summary と、ログに出し直す survived の行 */
+export function renderCachedSkip(record: MutationRecord | null): { summary: string; log: string[] } {
+  const reason = 'PR 自身の差分（patch-id）が、前に mutation を走らせた head と同じです（main の取り込みだけの push）。npm ci と mutation を省きました。';
+  const previous = record
+    ? `前の実行：${record.runUrl}（head ${record.head}、survived ${record.survived.length} 件）`
+    : '前の実行の記録が読めませんでした。';
+  return {
+    summary: [REPORT_TITLE, '', REPORT_NOTE, '', `試していません：${reason}`, '', previous, ''].join('\n'),
+    log: record?.survived ?? [],
+  };
 }
 
 /** 候補があるか。数えられなかった（例外）ときは、黙って mutation を省かないように true */
@@ -347,8 +402,18 @@ export function baselineTests(perFile: Map<string, string[]>): string[] {
 
 // ---- CLI（import.meta.main の中だけで動く） ----
 
-function parseArgs(argv: string[]): { base: string; maxMutants: number; maxMinutes: number; testTimeoutSeconds: number; checkTargets: boolean } {
-  const opts = { base: 'HEAD^1', maxMutants: 30, maxMinutes: 15, testTimeoutSeconds: 90, checkTargets: false };
+interface Options {
+  base: string;
+  maxMutants: number;
+  maxMinutes: number;
+  testTimeoutSeconds: number;
+  checkTargets: boolean;
+  reportCached: string | null;
+  record: string | null;
+}
+
+function parseArgs(argv: string[]): Options {
+  const opts: Options = { base: 'HEAD^1', maxMutants: 30, maxMinutes: 15, testTimeoutSeconds: 90, checkTargets: false, reportCached: null, record: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--check-targets') {
       // 値を取らないフラグ
@@ -361,6 +426,8 @@ function parseArgs(argv: string[]): { base: string; maxMutants: number; maxMinut
     else if (key === '--max-mutants') opts.maxMutants = Number(value);
     else if (key === '--max-minutes') opts.maxMinutes = Number(value);
     else if (key === '--test-timeout-seconds') opts.testTimeoutSeconds = Number(value);
+    else if (key === '--report-cached') opts.reportCached = value;
+    else if (key === '--record') opts.record = value;
     else throw new Error(`知らない引数：${key}`);
     i++;
   }
@@ -414,6 +481,14 @@ function report(markdown: string): void {
   if (summary) appendFileSync(summary, markdown);
 }
 
+/** PR 自身の差分（文脈つき）。鍵に使う。git の設定の影響を受けない引数（harness/lib/patch-id.ts の prDiffLocal と同じ。ただし 3 点でなく `<base> HEAD`） */
+function readFullDiff(base: string): string {
+  return execFileSync('git', ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--src-prefix=a/', '--dst-prefix=b/', base, 'HEAD'], {
+    encoding: 'utf8',
+    maxBuffer: 256 * 1024 * 1024,
+  });
+}
+
 function readDiff(base: string): string {
   return execFileSync('git', ['diff', '-U0', '--no-color', '--no-ext-diff', base, 'HEAD'], { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
 }
@@ -454,17 +529,68 @@ function checkTargets(base: string): void {
     process.chdir(execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim());
     return planMutants(changedTargets(readDiff(base)), 1).total;
   });
-  const result = checkTargetsResult(has ? 1 : 0);
+  // 鍵を求められなければ出さない（キャッシュを見ず、今までどおり走る）
+  let key: string | null = null;
+  if (has) {
+    try {
+      key = mutationCacheKey(readFullDiff(base));
+    } catch {
+      key = null;
+    }
+  }
+  const result = checkTargetsResult(has ? 1 : 0, key);
   const output = process.env.GITHUB_OUTPUT;
   if (output) appendFileSync(output, result.output);
   process.stdout.write(result.output);
   if (result.summary) report(result.summary);
 }
 
+/** --report-cached：記録から省いた旨の Summary を出し、survived の行をログに出し直す（テストは動かさない） */
+function reportCached(path: string): void {
+  let record: MutationRecord | null = null;
+  try {
+    record = parseRecord(readFileSync(path, 'utf8'));
+  } catch {
+    record = null;
+  }
+  const skip = renderCachedSkip(record);
+  for (const line of skip.log) console.log(line);
+  report(skip.summary);
+}
+
+/** --record：本体が結果を報告した後に記録を書く。書けたら GITHUB_OUTPUT に recorded=true。書けなくても失敗にしない */
+function writeRecord(path: string, survived: Mutant[]): void {
+  const { GITHUB_SERVER_URL: server, GITHUB_REPOSITORY: repository, GITHUB_RUN_ID: runId, GITHUB_RUN_ATTEMPT: attempt } = process.env;
+  if (!server || !repository || !runId || !attempt) return;
+  try {
+    let head: string;
+    try {
+      head = execFileSync('git', ['rev-parse', 'HEAD^2'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    } catch {
+      head = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    }
+    const record: MutationRecord = {
+      runUrl: `${server}/${repository}/actions/runs/${runId}/attempts/${attempt}`,
+      head,
+      survived: survived.map(survivedLine),
+    };
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, JSON.stringify(record));
+    const output = process.env.GITHUB_OUTPUT;
+    if (output) appendFileSync(output, 'recorded=true\n');
+  } catch {
+    // 記録は省くための材料なので、書けなければ次の実行で走る
+  }
+}
+
 async function main(): Promise<void> {
   const opts = parseArgs(process.argv.slice(2));
   if (opts.checkTargets) {
     checkTargets(opts.base);
+    return;
+  }
+  if (opts.reportCached !== null) {
+    reportCached(opts.reportCached);
     return;
   }
   const started = Date.now();
@@ -490,6 +616,7 @@ async function main(): Promise<void> {
   const plan = planMutants(targets, opts.maxMutants);
   if (plan.total === 0) {
     report(renderReport(plan, { caught: [], survived: [], notRun: 0, truncated: null }));
+    if (opts.record !== null) writeRecord(opts.record, []);
     return;
   }
 
@@ -514,7 +641,7 @@ async function main(): Promise<void> {
         writeFileSync(m.file, lines.join('\n'));
         const passed = await runTests(testArgsFor(perFile.get(m.file) ?? []), opts.testTimeoutSeconds * 1000, false);
         const outcome: Outcome = passed ? 'survived' : 'caught';
-        console.log(`${outcome}\t${m.file}:${m.line}\t${m.operator}`);
+        console.log(outcome === 'survived' ? survivedLine(m) : `caught\t${m.file}:${m.line}\t${m.operator}`);
         return outcome;
       } finally {
         restorePending();
@@ -523,6 +650,7 @@ async function main(): Promise<void> {
     { deadline, now: Date.now },
   );
   report(renderReport(plan, run, narrowing));
+  if (opts.record !== null) writeRecord(opts.record, run.survived);
 }
 
 if (import.meta.main) {

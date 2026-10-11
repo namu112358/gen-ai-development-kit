@@ -114,8 +114,8 @@ export interface HarnessConfig {
     /** 実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル。無ければ sonnet（implementModelConfig。Issue #469） */
     implementModel?: 'sonnet' | 'opus';
   };
-  /** hq（テーマごとの fleet をまとめて見る）の設定。maxFleets は hq のペインがまとめる fleet の数の目安（超えると警告。hqConfig） */
-  hq?: { maxFleets?: number };
+  /** hq（テーマごとの fleet をまとめて見る）の設定。maxFleets は hq のペインがまとめる fleet の数の目安（超えると警告。hqConfig）。maxParallelShips は全体で同時に動かす ship の数の上限（hq が空いた枠に Issue を割り当てる上限） */
+  hq?: { maxFleets?: number; maxParallelShips?: number };
   /** fleet と hq のペイン表示（harness/scripts/panes.ts）。collectIntervalSeconds は collect が GitHub と記録を読む間隔（panesConfig） */
   panes?: { collectIntervalSeconds?: number };
   jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; /** テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問うか（無ければ shadow。jev.mode とは独立。Q95） */ testTamper?: 'off' | 'shadow' | 'enforce'; /** 判定の⑨（過剰さ）のブロッキング指摘を Jev に問うか（無ければ shadow。jev.mode とは独立。harness/lib/overbuild-jev.ts。Epic #497） */ overbuild?: 'off' | 'shadow' | 'enforce'; /** 実装のモデルを Jev に問うか（無ければ shadow。jev.mode とは独立。Issue #139） */ modelRouting?: 'off' | 'shadow' | 'enforce'; /** Epic に入っていない Issue の Epic を Jev に問うか（無ければ shadow。harness/lib/epic-triage.ts。Epic #436） */ epicTriage?: 'off' | 'shadow' | 'enforce'; /** 1回の定期実行で Epic の振り分けを Jev に問う Issue の数の上限（無ければ 3） */ epicTriagePerRun?: number; /** Issue の下書きが開いた Issue と同じ件かを Jev に問うか（無ければ shadow。harness/lib/issue-overlap.ts。Issue #499） */ issueOverlap?: 'off' | 'shadow' | 'enforce'; /** 1つの下書きで問う候補の Issue の数の上限（無ければ 5） */ issueOverlapMaxCandidates?: number; /** 決定の記録を Jev に問う項目の数の上限（超えれば問わない。無ければ 20。harness/lib/decision.ts。Issue #272） */ decisionMaxTargets?: number; /** 決定の記録を Jev に問う答えの文字数の上限（無ければ 20000） */ decisionMaxAnswerChars?: number; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** ラベルごとの下限（ラベル → 0〜1）。当たらないラベルは labelProbability。labelProbability が未設定なら使わない（Q94） */ labelProbabilityByLabel?: Record<string, number>; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number; /** testTamper が enforce のとき、agent/tests を通す確率の下限（無ければ通さない） */ testTamperProbability?: number; /** overbuild が enforce のとき、⑨をブロッキングに残す「Merge を止める」確率の下限（無ければ外さない） */ overbuildBlockProbability?: number; /** auto mode の経路の PR で、テストを弱める変更を Jev が妥当と答えたとみなして agent/tests を通す確率の下限（無ければ通さない。Issue #349） */ autoModeTestsProbability?: number; /** Epic に足す確率の下限（無ければ 0.9） */ epicProbability?: number; /** Epic の1番目と2番目の確率の差の下限（無ければ 0.2） */ epicMargin?: number; /** 下書きを開いた Issue と同じ件とみなす確率の下限（無ければ 0.9） */ issueOverlapProbability?: number } };
@@ -184,6 +184,7 @@ const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
   { path: 'delegateMerge.hours', kind: 'positive', required: false },
   { path: 'delegateMerge.minRemainingMinutes', kind: 'nonNegative', required: false },
   { path: 'fleet.maxParallelShips', kind: 'positiveInteger', required: false },
+  { path: 'hq.maxParallelShips', kind: 'positiveInteger', required: false },
   { path: 'jev.maxDiffChars', kind: 'positiveInteger', required: true },
   { path: 'jev.decisionMaxTargets', kind: 'positiveInteger', required: false },
   { path: 'jev.decisionMaxAnswerChars', kind: 'positiveInteger', required: false },
@@ -309,13 +310,14 @@ export function implementModelConfig(config: Pick<HarnessConfig, 'fleet'>): { im
 }
 
 /** hq の既定値 */
-export const HQ_DEFAULTS = { maxFleets: 2 } as const;
+export const HQ_DEFAULTS = { maxFleets: 2, maxParallelShips: 6 } as const;
 
-/** hq の設定（無い項目は既定値）。maxFleets は正の整数。書式の誤りは throw する */
-export function hqConfig(config: Pick<HarnessConfig, 'hq'>): { maxFleets: number } {
-  const { maxFleets = HQ_DEFAULTS.maxFleets } = sectionOf(config.hq, 'hq', '{ "maxFleets": 2 }');
+/** hq の設定（無い項目は既定値）。maxFleets・maxParallelShips は正の整数。書式の誤りは throw する */
+export function hqConfig(config: Pick<HarnessConfig, 'hq'>): { maxFleets: number; maxParallelShips: number } {
+  const { maxFleets = HQ_DEFAULTS.maxFleets, maxParallelShips = HQ_DEFAULTS.maxParallelShips } = sectionOf(config.hq, 'hq', '{ "maxFleets": 2, "maxParallelShips": 6 }');
   if (typeof maxFleets !== 'number' || !Number.isInteger(maxFleets) || maxFleets <= 0) throw new Error('hq.maxFleets は正の整数で書いてください');
-  return { maxFleets };
+  if (typeof maxParallelShips !== 'number' || !Number.isInteger(maxParallelShips) || maxParallelShips <= 0) throw new Error('hq.maxParallelShips は正の整数で書いてください');
+  return { maxFleets, maxParallelShips };
 }
 
 /** ペイン表示の既定値。GitHub の API の二次の上限に当たったことがあるので、読む間隔は長め */
