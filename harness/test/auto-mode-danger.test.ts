@@ -13,8 +13,8 @@ const jevOk = (yes: number): AutoModeJevRecord => ({ status: 'ok', detail: 'm', 
 // ---- autoModeDanger は Jev の記録だけで決まる ----
 
 const JEV: [string, AutoModeJevRecord | null | undefined, boolean, string][] = [
-  ['安全', jevOk(0.05), false, 'Jev：危険の確率 5%（安全側の下限 90%）（安全）'],
-  ['危険', jevOk(0.3), true, 'Jev：危険の確率 30%（安全側の下限 90%）（危険。保留）'],
+  ['安全', jevOk(0.05), false, 'Jev：危険の確率 5%（保留の線 10%。超えると保留）（保留しない）'],
+  ['危険', jevOk(0.3), true, 'Jev：危険の確率 30%（保留の線 10%。超えると保留）（保留）'],
   ['無い（undefined）', undefined, true, 'Jev：記録が無い（保留）'],
   ['無い（null）', null, true, 'Jev：記録が無い（保留）'],
   ['skipped', { status: 'skipped', detail: 'diff が大きい', questionSet: 1 }, true, 'Jev：skipped（diff が大きい）（保留）'],
@@ -41,6 +41,7 @@ test('autoModeDanger：autoMode.jev.dangerSafe の上書きが効く', () => {
   const c = { autoMode: { jev: { dangerSafe: 0.5 } } };
   assert.equal(autoModeDanger(c, { jev: jevOk(0.3) }).hold, false);
   assert.equal(autoModeDanger(c, { jev: jevOk(0.6) }).hold, true);
+  assert.ok(autoModeDanger(c, { jev: jevOk(0.6) }).reasons.join(' ').includes('保留の線 50%'), '保留の線が上書きの 0.5 から出ていない');
 });
 
 // ---- Jev への要求 ----

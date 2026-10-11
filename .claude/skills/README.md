@@ -10,7 +10,7 @@
 | `fix/` | 人が付き添うセッションで、Agent PR のブロッキング指摘（App の変更要求レビュー）や人のレビューを直して push し、判定をやり直す。 | ○ |
 | `fleet/` | 人が付き添うセッションで、複数の Issue を選び、ship を Issue ごとにサブエージェントで並行に動かして（入れ子にできなければ ship の各段階を交互に進めて）、全部を人の Merge 待ちか人の判断待ちまで進める。 |  |
 | `gh-stack/` | 人が付き添うセッションで、Stacked PR（層を重ねた PR）を組む・見る。 |  |
-| `hq/` | 人が付き添う Orca のプライマリ（main の checkout）のセッションで、テーマ（Epic）の案を人に承認してもらってから fleet を Orca の worker として起こし、fleet の質問をまとめて人に聞いて返し、進んでいない・止まった fleet を扱い、Epic が Close したらワークスペースを片付ける。 |  |
+| `hq/` | 人が付き添う Orca のプライマリ（main の checkout）のセッションで、テーマ（Epic）を hq が決めて知らせ、fleet を Orca の worker として起こし、fleet の質問をまとめて人に聞いて返し、進んでいない・止まった fleet を扱い、Epic が Close したらワークスペースを片付ける。 |  |
 | `implement/` | 人が付き添うセッションで、計画ゲートを通った（または agent:plan-review で人か、Risk だけの計画ならセッションの判定で進めると決めた）Issue を実装し、Draft PR を出す。 |  |
 | `intel/` | 人が付き添う Orca の本体のセッションで、hq・fleet・人から届く気づきを控えてまとめ、既存の Issue と照らして Issue の下書きにし、人の質問に根拠つきで答える。 |  |
 | `judge/` | 人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。 | ○ |
