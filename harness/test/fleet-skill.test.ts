@@ -104,7 +104,7 @@ const FLEET_SPEC: SkillSpec = {
     { section: AS_WORKER, step: 4, words: ['node harness/scripts/agent.ts worktree', 'worker-start', 'Orca の worker で ship を動かすとき'] },
     // 手順6：heartbeat は前置きの間隔より短く送らず、status の直後に重ねない（#395）
     { section: AS_WORKER, step: 6, words: ['heartbeat', '前置きの間隔より短い間隔で送らない', '`status`', '重ねて送らない'] },
-    // 手順7：終わるとき。閉じる handle の確かめ、答えを待つ Issue があるうちは worker_done しない（#415・#395・#199）
+    // 手順7：終わるとき。閉じる handle の確かめ、答えを待つ Issue があるうちは worker_done しない（#415・#395・#199）。worker_done を送ってから表示のペインを閉じる（#666）
     {
       section: AS_WORKER,
       step: 7,
@@ -113,6 +113,7 @@ const FLEET_SPEC: SkillSpec = {
         '答えを待っている', '`worker_done` を送らない', 'ask --resume', 'release <番号>', 'レポート', 'message_id',
         'worker_done', '受け持つ Epic', 'check', '人の判断待ちだけが残',
       ],
+      absent: ['送る前に、手順3', '閉じた後に残った空のシェルのペインも閉じる'],
     },
     // 手順8：status の送り方・時機・相談は ask・二重に送らない控え（#395）
     {
