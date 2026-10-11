@@ -174,14 +174,14 @@ test('AC2：Jev が危険と答えた計画は agent:plan-review になり、記
   assert.equal(rec.autoMode?.jev.yes, 0.5);
   const body = postsOn(fake, 44, 'plan-gate').at(-1)!;
   assert.ok(body.includes(AUTO), `本文に auto mode のラベルが無い:\n${body}`);
-  assert.match(body, /Jev：危険の確率 50%（保留の線 10%。超えると保留）（保留）/, `本文に Jev の1行が無い:\n${body}`);
+  assert.match(body, /Jev：危険の確率 50%（保留の線 20%。超えると保留）（保留）/, `本文に Jev の1行が無い:\n${body}`);
   assert.ok(!body.includes('安全側の下限'), `本文に古い文が残っている:\n${body}`);
 });
 
-test('AC2：安全側の確率が下限（0.9）ちょうど未満なら保留、ちょうどなら通す', async () => {
-  const hold = await postPlan(autoWorld(), planOf(45), { jev: fakeJev(0.11) });
+test('AC2：安全側の確率が下限（0.8）ちょうど未満なら保留、ちょうどなら通す', async () => {
+  const hold = await postPlan(autoWorld(), planOf(45), { jev: fakeJev(0.21) });
   assert.equal(assertStopped(hold.fake, 45).autoMode?.hold, true);
-  const pass = await postPlan(autoWorld(), planOf(45), { jev: fakeJev(0.1) });
+  const pass = await postPlan(autoWorld(), planOf(45), { jev: fakeJev(0.2) });
   assertAutoPassed(pass.fake, 45, []);
 });
 
