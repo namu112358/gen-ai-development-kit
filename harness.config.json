@@ -72,6 +72,7 @@
   "periodicCatchUpMinutes": 90,
   "dashboardIssueTitle": "Agent ダッシュボード",
   "patrolIssueTitle": "patrol のまとめ",
+  "project": { "checkCommand": "npm run check", "installCommand": "npm ci" },
   "reviewPanel": { "mode": "enforce" },
   "fleet": {
     "nesting": "orca",

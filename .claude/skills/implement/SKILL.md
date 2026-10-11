@@ -16,13 +16,13 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 ## 手順
 
 1. `node harness/scripts/agent.ts claim <番号> --manual --stage implement` で着手を宣言する（段階の更新。ほかのセッションの宣言があれば止まる。先に宣言したセッションがあって自分の宣言を取り下げて止まったら、作業を始めずに ship / fleet の扱いに従う）。同じ領域の判定前の Agent PR（Draft）が上限で止まったら、聞かずに「待つ」と決めて返す（急ぐと人に言われたときだけ `--force`）。
-2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作る（出力がパス。置き場所はリポジトリの外）。以降はそのディレクトリで作業する。`node_modules` が無ければ worktree が `npm ci` まで行う。
+2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作る（出力がパス。置き場所はリポジトリの外）。以降はそのディレクトリで作業する。`node_modules` が無ければ worktree が設定の取り込みのコマンド（`project.installCommand`。既定 `npm ci`）まで行う。
    - worktree は今の `origin/main` から作られるので、計画を書いたときから main が進んでいることがある。`show-plan` の `planCommentBody`（null なら `gate.plan` を ````agent-plan` で囲んだもの）を scratchpad のファイルに書き、worktree で `node harness/scripts/agent.ts check <ファイル>` を走らせて、一緒に変えるファイルの抜けを今の main で照らし直す。抜けが出たら（終了コード 1）、書かずに手順4と同じく `claim <番号> --manual --stage plan` に戻し、抜けを `files` に足して plan の skill で計画を出し直す。
 3. **test-designer** サブエージェントにテストを書かせる。GitHub は読ませないので、Issue 番号、AC、Validation Requirements、計画の `files` を指示に含めて渡す。
 4. 計画の `files` の範囲で実装する。計画に無い設計の判断（新しいファイル・公開の形（関数・型・コマンド・設定のキー・出力の書式）の変更・計画の `files` の外の変更）が要ると分かったら、即興で決めて書かずに止まる（書きかけの変更は commit しない）。`node harness/scripts/agent.ts claim <番号> --manual --stage plan` で段階を `plan` に戻し、要る判断とその理由を計画に書いて、plan の skill で計画を出し直す（批評と計画ゲートを通し直す）。通ったら手順1の `claim --stage implement` で宣言し直し、既にある worktree で（手順2をやり直さずに）手順3から続ける（test-designer のテストも出し直した計画に合わせて見直す）。
    - 計画の `files` の外の変更は、人に上げる場面（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方。ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる、守りを弱める、データを壊しうる、など）に当たらなければ、聞かずに計画を出し直すと決め、`node harness/scripts/agent.ts post-judgment <番号> <ファイル>`（`stage` は `scope`、`basis` は `fixable`）で「セッションの判定」を残す。人に上げる場面に当たるとき、範囲外のまま出すかを AskUserQuestion で聞いてよいのは、人が付き添うセッションだけ（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。範囲外として出すと決まったら PR 本文の「範囲外の変更」に理由を書き、出し直すと決まったら上のとおり計画に返す。
    - fleet から起こされた ship（入れ子の ship（サブエージェントとして動く ship。ship の skill の「サブエージェントの ship として動くとき」）と、fleet が Orca の worker として起こした ship）と、その ship が実装を任せたサブエージェントは聞かずに、上のとおり計画に返す（任されたサブエージェントは書かずに止まって理由を返し、ship が段階を `plan` に戻す）。
-5. `npm run check` を通す。
+5. 検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`。`null` なら省く）を通す。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
 7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
 8. PR を作る前に、worktree で `node harness/scripts/agent.ts scope-check <番号>` を走らせ、変更が計画の `files` に収まるかを App の範囲照合と同じ関数で確かめる（読むだけ。worktree のどのディレクトリから走らせてもよい）。`agent/scope`（ゲートを通った計画）と委任・bypass の範囲照合の両方を見て、終了コードと出力の JSON の `problems`（`check` がどちらの照合か、`kind` が `outside`（範囲の外）か `no-plan`（使える計画が無い））で分ける。
@@ -61,6 +61,6 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 - 計画どおりでは AC を満たせない（計画に無い設計の判断が要るときは、人に返さずに手順4のとおり計画に返す）
 - `scope-check` が範囲の外のファイルを出した（人に上げる場面に当たらなければ計画を出し直すと決めて `post-judgment`。当たるなら出し直すか外すかを AskUserQuestion で聞く）
 - `scope-check` が JSON を出さずに終わった（終了コード 2 など。PR を作らない）
-- `npm run check` が、この変更と関係ない理由で落ちる
+- 検証コマンドが、この変更と関係ない理由で落ちる
 - push や PR の作成が拒否された（別の方法で試さない）
 - やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し

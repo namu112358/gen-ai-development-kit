@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { checkAssignee, requireAssignee } from '../../../lib/assignee.ts';
 import { appMarkKind, hasClaudeMark } from '../../../lib/blocks.ts';
 import { describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
-import { fleetConfig, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
+import { fleetConfig, projectCommands, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
 import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../../../lib/fleet-reads.ts';
 import { type FleetIssue, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
 import { fleetWatchConfig, pendingFollowUps, readWatchRecord, updateWatch, watchRecordPath, writeWatchRecord } from '../../../lib/fleet-watch.ts';
@@ -236,6 +236,7 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
     now: new Date(),
     humanClaimStaleHours: config.routine.humanClaimStaleHours,
     harnessStale,
+    checkCommand: projectCommands(config).checkCommand,
   });
 
   // no-session の stop は宣言も解除もしない（decideStep が claim・release を空にする）

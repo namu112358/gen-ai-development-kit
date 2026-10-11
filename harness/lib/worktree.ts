@@ -3,12 +3,12 @@ import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, realpathSync, rmdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { HarnessConfig } from './config.ts';
+import { PROJECT_COMMAND_DEFAULTS, type HarnessConfig } from './config.ts';
 import { gitCommonDir } from './local-state.ts';
 import { parseTitle } from './title.ts';
 
 /**
- * 作業用の git worktree（リポジトリの外の作業場所）の作成（`node_modules` が無ければ `npm ci` まで）と削除、置き場所の決め方、Orca の表示名。
+ * 作業用の git worktree（リポジトリの外の作業場所）の作成（`node_modules` が無ければ設定の取り込みのコマンド（既定 `npm ci`）まで）と削除、置き場所の決め方、Orca の表示名。
  * 作業は常に git worktree で行う。置き場所は環境変数 `AGENT_HARNESS_WORKTREE_ROOT` → 設定の `worktreeRoot` → 既定
  * （`../<リポジトリ名>.worktrees`）の順で `worktreeRoot` が決め、リポジトリの中になる値と本体を含む祖先は拒む
  * （作業中の変更やほかの作業ツリーがコミットに紛れ込まないように）。Issue のブランチの worktree には、Orca があれば
@@ -298,44 +298,36 @@ export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions,
   return path;
 }
 
-/** `npm ci` の結果（`spawnSync` の結果のうち使うところ） */
+/** 取り込みのコマンドの結果（`spawnSync` の結果のうち使うところ） */
 export type NpmCiResult = { status: number | null; error?: Error };
 
-/** npmCommand が起動できる npm の引数（固定の組だけ。外から来る文字列は受け取らない） */
-const NPM_ARGS = { ci: ['ci'], check: ['run', 'check'] } as const;
-
 /**
- * npm の起動の仕方（worktree の作成の `npm ci` と、合体版のレビューの⑧の `npm ci`・`npm run check` が使う）。
- * Windows の npm は `npm.cmd` で、Node は shell を通さないと `.cmd` を起動できないので shell を通す。
- * shell: true に引数の配列を渡すと Node 24 が DEP0190 の警告を出すので、Windows ではコマンドを1つの文字列にする
+ * 設定のコマンド（取り込み・検証。worktree の作成と合体版のレビューの⑧が使う）の起動の仕方。
+ * コマンドは1つの文字列なので、どの OS でも shell を通す（Windows の npm は `npm.cmd` で shell が要る）。
+ * shell: true に引数の配列を渡すと Node 24 が DEP0190 の警告を出すので、args は空にする
  */
-export function npmCommand(platform: NodeJS.Platform, script: 'ci' | 'check'): { command: string; args: string[]; shell: boolean } {
-  const args = [...NPM_ARGS[script]];
-  return platform === 'win32' ? { command: ['npm', ...args].join(' '), args: [], shell: true } : { command: 'npm', args, shell: false };
+export function projectCommand(_platform: NodeJS.Platform, command: string): { command: string; args: string[]; shell: boolean } {
+  return { command, args: [], shell: true };
 }
 
-/** `npm ci` の起動の仕方（npmCommand の ci） */
-export function npmCiCommand(platform: NodeJS.Platform): { command: string; args: string[]; shell: boolean } {
-  return npmCommand(platform, 'ci');
-}
-
-/** 既定の `npm ci`。npm の出力は標準エラーへ流し、標準出力（worktree のパス）を汚さない */
-function defaultNpmCi(cwd: string): NpmCiResult {
-  const { command, args, shell } = npmCiCommand(process.platform);
-  return spawnSync(command, args, { cwd, stdio: ['ignore', 2, 2], shell });
+/** 既定の取り込みの実行。出力は標準エラーへ流し、標準出力（worktree のパス）を汚さない */
+function defaultInstall(cwd: string, command: string): NpmCiResult {
+  const spec = projectCommand(process.platform, command);
+  return spawnSync(spec.command, spec.args, { cwd, stdio: ['ignore', 2, 2], shell: spec.shell });
 }
 
 /**
- * worktree の依存を用意する。`node_modules` があれば何もしない（'present'）。
- * `package-lock.json` が無ければ `npm ci` は必ず失敗するので何もしない（'skipped'）。
- * それ以外は `npm ci` を1回動かし（'installed'）、起動できないか 0 以外で終われば理由付きで投げる。
+ * worktree の依存を用意する。`node_modules` があれば何もしない（'present'）。取り込みのコマンドが null なら何もしない（'skipped'）。
+ * 既定の `npm ci` は `package-lock.json` が無ければ必ず失敗するので何もしない（'skipped'）。
+ * それ以外は取り込みのコマンドを1回動かし（'installed'）、起動できないか 0 以外で終われば理由付きで投げる。
  */
-export function ensureNodeModules(path: string, runNpmCi: (cwd: string) => NpmCiResult = defaultNpmCi): 'present' | 'installed' | 'skipped' {
+export function ensureNodeModules(path: string, installCommand: string | null, run: (cwd: string, command: string) => NpmCiResult = defaultInstall): 'present' | 'installed' | 'skipped' {
   if (existsSync(join(path, 'node_modules'))) return 'present';
-  if (!existsSync(join(path, 'package-lock.json'))) return 'skipped';
-  const r = runNpmCi(path);
-  if (r.error) throw new Error(`npm ci を起動できませんでした（${path}）: ${r.error.message}`);
-  if (r.status !== 0) throw new Error(`npm ci が失敗しました（${path}）: 終了コード ${r.status ?? '(シグナルで終了)'}`);
+  if (installCommand === null) return 'skipped';
+  if (installCommand === PROJECT_COMMAND_DEFAULTS.installCommand && !existsSync(join(path, 'package-lock.json'))) return 'skipped';
+  const r = run(path, installCommand);
+  if (r.error) throw new Error(`${installCommand} を起動できませんでした（${path}）: ${r.error.message}`);
+  if (r.status !== 0) throw new Error(`${installCommand} が失敗しました（${path}）: 終了コード ${r.status ?? '(シグナルで終了)'}`);
   return 'installed';
 }
 

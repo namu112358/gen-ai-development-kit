@@ -1,3 +1,4 @@
+import { projectCommands } from '../../../lib/config.ts';
 import { worktreeClaimIssue } from '../../../lib/queue.ts';
 import { type PullRequest } from '../../../lib/state.ts';
 import { addWorktree, ensureNodeModules, labelOrcaWorktree, parseWorktreeArgs, removeWorktree, worktreeOptions } from '../../../lib/worktree.ts';
@@ -7,7 +8,7 @@ import { type AgentCommand, type CommandContext, config, ensureOwnClaim } from '
  * 作業用の worktree の作成と削除。
  *
  *   node harness/scripts/agent.ts worktree <ブランチ|SHA> [--detach] [--routine]  作業用の worktree を作り、パスを出力（既にあればそのパス）。
- *                                                           node_modules が無ければ npm ci も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
+ *                                                           node_modules が無ければ設定の取り込みのコマンド（既定 npm ci）も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
  *                                                           claude/issue-<番号>- のブランチなら、先にこのセッションの着手宣言
  *                                                           （そのブランチの開いた PR があれば PR の宣言、無ければ Issue の宣言）を確かめる。
  *                                                           定期 Routine は --routine を付けて確かめない（Routine の環境には gh が無い）
@@ -56,7 +57,7 @@ async function worktreeCommand(cmd: 'worktree' | 'worktree-remove', args: string
     const opts = worktreeOptions(config);
     if (cmd === 'worktree') {
       const path = addWorktree(ref, detach, opts);
-      ensureNodeModules(path);
+      ensureNodeModules(path, projectCommands(config).installCommand);
       if (!detach && !routine) labelOrcaWorktree(path, ref, { title });
       return void console.log(path);
     }

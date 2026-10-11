@@ -27,7 +27,7 @@
 | `test-*.test.ts`・`mutate*.test.ts`・`observe*.test.ts`・`hotspot*.test.ts`・`patrol*.test.ts` | テストの改ざんの検査と Jev への問い方、テストの健康・減らせるテスト、ミュータントの検査、保守の観測（docs の照合・ホットスポット）、見直しのまとめ役 patrol |
 | `dashboard-*.test.ts` | 手元のダッシュボード（`harness/scripts/dashboard.ts`・`harness/scripts/dashboard/`）：グラフ・カード・サーバー・画面、GitHub の見張りと API の上限の扱い |
 | `ship-stage-*.test.ts` | fleet の入れ子の ship が段階ごとに返す引き継ぎ（`agent-handoff`）の書式の検査と、ship・fleet の skill の文 |
-| `usage*.test.ts`・`api-*.test.ts`・`gh-*.test.ts`・`graphql-*.test.ts`・`npm-*.test.ts` | usage の集計、API の呼び出しの数え方、`gh` の呼び出し方と GraphQL の読み取りを REST の形にそろえる変換、npm のコマンド |
+| `usage*.test.ts`・`api-*.test.ts`・`gh-*.test.ts`・`graphql-*.test.ts` | usage の集計、API の呼び出しの数え方、`gh` の呼び出し方と GraphQL の読み取りを REST の形にそろえる変換 |
 | `agent-*.test.ts`・`config-*.test.ts`・`settings-*.test.ts`・`managed*.test.ts`・`setup-*.test.ts`・`ruleset*.test.ts`・`gitattributes*.test.ts` | `agent.ts` の入口、設定（`harness.config.json`・`.claude/settings.json`）のキーと上限、導入先に配るファイルの一覧、setup・Ruleset、改行コードの設定 |
 | `harness-drift*.test.ts` | 読み込みの記録（`harness/lib/harness-drift.ts`）：版の比べ方、記録の読み書き、`fleet-status`・`step`・`claim` の配線 |
 | `local-state*.test.ts` | 手元の状態のファイルの補助（`harness/lib/local-state*.ts`）：一時ファイル経由の書き込み（名前の変更のやり直しと一時ファイルの後始末）と、段階・見張り・loaded・hq の控え・panes の書き込みと git の共通ディレクトリの探し方がこの補助を通ることと、SessionStart の hook（`session-env.ts` の `pruneSessionFiles`）が古いセッションのファイルと一時ファイルを片付けること |

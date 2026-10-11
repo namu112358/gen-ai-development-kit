@@ -46,6 +46,6 @@ Closes #
 
 ### テスト
 
-- `npm run check`：
+- 検証コマンド（既定 `npm run check`）：
 
 </details>

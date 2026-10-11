@@ -1,5 +1,5 @@
 {
-  "$comment": "導入先の harness.config.json の雛形（harness/managed.json の projectOwned。初回だけ写し、以後は導入先が持つ）。書き換える場所：appSlug（setup.ts app-convert が書く）、projectChecks（導入先の CI のチェック名）、guardrailPaths（ハーネスが配るものに加え、導入先で Agent を縛る仕組みがあれば足す）、classification.areas（導入先の領域）、classification.priorityCriteria（Jev に priority を問うときの段階ごとの基準。導入先の仕事に合わせて英文で書く）、humanMergePaths（認証・マイグレーション・課金など、必ず人が Merge するパス）。それ以外は既定値のままでよい（delegateMergeExclude は自動 Merge の仕組みそのものを委任承認（計画・Merge とも）から守る一覧なので、減らさない）。requireAssignee は、複数人で開発するときに true にすると、Assignee がちょうど1人で自分の Issue（と、それを Close する PR）にだけ着手する（アサインは人が決める。既定は false）",
+  "$comment": "導入先の harness.config.json の雛形（harness/managed.json の projectOwned。初回だけ写し、以後は導入先が持つ）。書き換える場所：appSlug（setup.ts app-convert が書く）、projectChecks（導入先の CI のチェック名）、project（導入先の検証コマンドと取り込みのコマンド。無ければ npm run check・npm ci、null で行わない）、guardrailPaths（ハーネスが配るものに加え、導入先で Agent を縛る仕組みがあれば足す）、classification.areas（導入先の領域）、classification.priorityCriteria（Jev に priority を問うときの段階ごとの基準。導入先の仕事に合わせて英文で書く）、humanMergePaths（認証・マイグレーション・課金など、必ず人が Merge するパス）。それ以外は既定値のままでよい（delegateMergeExclude は自動 Merge の仕組みそのものを委任承認（計画・Merge とも）から守る一覧なので、減らさない）。requireAssignee は、複数人で開発するときに true にすると、Assignee がちょうど1人で自分の Issue（と、それを Close する PR）にだけ着手する（アサインは人が決める。既定は false）",
   "appSlug": "",
   "defaultBranch": "main",
   "agentBranchPrefix": "claude/",
@@ -62,6 +62,10 @@
   "periodicCatchUpMinutes": 90,
   "dashboardIssueTitle": "Agent ダッシュボード",
   "patrolIssueTitle": "patrol のまとめ",
+  "project": {
+    "checkCommand": "npm run check",
+    "installCommand": "npm ci"
+  },
   "reviewPanel": {
     "mode": "shadow"
   },
