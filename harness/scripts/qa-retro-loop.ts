@@ -12,26 +12,22 @@
  *       人が選んで作った Issue の番号を下書きに書き戻す（期間は変えない）
  *
  * --state の既定は `git rev-parse --path-format=absolute --git-common-dir` の下の agent-harness/qa-retro-loop.json（worktree をまたいで同じ。作業ツリーにも GitHub にも書かない）。
- * 状態の書き込みは一時ファイルに書いてから名前を変える。GitHub は gh の認証で読むだけ。Issue は作らない。
- * 期間と状態のロジックは harness/lib/qa-retro-loop.ts。終了コードは誤りで 1。
+ * 状態の書き込みは一時ファイルに書いてから名前を変える。読んだ後にほかのセッションが状態のファイルを書いていたら、上書きせずに誤りで止まる（もう一度流せば読み直してやり直す）。
+ * GitHub は gh の認証で読むだけ。Issue は作らない。
+ * 期間と状態のロジックは harness/lib/qa-retro-loop.ts。読み書きは harness/lib/local-state-loop.ts。終了コードは誤りで 1。
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
-import { gitCommonDir, harnessStateDir } from '../lib/local-state.ts';
+import { exitWithErrors as fail, loadLoopState, loopStatePath, parseLoopArgs, readJsonFile, saveLoopState, type LoopResult } from '../lib/local-state-loop.ts';
 import { collectQaRetro } from '../lib/qa-retro.ts';
 import { adoptDraft, advanceLoopState, loopPeriod, parseLoopState, pendingDrafts, QA_RETRO_LOOP_LAG_DAYS, type LoopState } from '../lib/qa-retro-loop.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
-
-function fail(errors: string[]): never {
-  console.error(['誤り:', ...errors.map((e) => `- ${e}`)].join('\n'));
-  process.exit(1);
-}
 
 function git(args: string[]): string {
   const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
@@ -47,74 +43,31 @@ function repository(): string {
   return m[1]!;
 }
 
-function readText(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    fail([`${path} を読めません: ${(e as Error).message}`]);
-  }
-}
+/** 誤りならそこで終える */
+const ok = <T>(r: LoopResult<T>): { ok: true } & T => (r.ok ? r : fail(r.errors));
 
-function readJsonFile(path: string, what: string): unknown {
-  const text = readText(path);
-  if (text === null) fail([`${what}のファイルがありません: ${path}`]);
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    fail([`${what}のファイルが JSON として読めません: ${(e as Error).message}`]);
-  }
-}
-
-function loadState(path: string): LoopState | null {
-  const parsed = parseLoopState(readText(path));
-  if (!parsed.ok) fail([`状態のファイル（${path}）を読めません。上書きしません`, ...parsed.errors]);
-  return parsed.state;
-}
-
-function saveState(path: string, state: LoopState): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(state, null, 2)}\n`);
-  renameSync(tmp, path);
-}
-
-/** 位置引数と --state・--drafts を分ける */
-function parseArgs(args: string[]): { positional: string[]; state?: string; drafts?: string } {
-  const out: { positional: string[]; state?: string; drafts?: string } = { positional: [] };
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
-    if (a === '--state' || a === '--drafts') {
-      const v = args[++i];
-      if (v === undefined) fail([`${a} の値がありません`]);
-      if (out[a === '--state' ? 'state' : 'drafts'] !== undefined) fail([`${a} が2回あります`]);
-      out[a === '--state' ? 'state' : 'drafts'] = v;
-    } else if (a.startsWith('--')) fail([`知らない引数です: ${a}`]);
-    else out.positional.push(a);
-  }
-  return out;
-}
-
-function defaultStatePath(): string {
-  const commonDir = gitCommonDir(ROOT);
-  if (commonDir === null) fail([`git の共通ディレクトリが分かりません: ${ROOT}`]);
-  return join(harnessStateDir(commonDir), 'qa-retro-loop.json');
-}
+const jsonFile = (path: string, what: string): unknown => ok(readJsonFile(path, what)).value;
+const loadState = (path: string) => ok(loadLoopState(path, parseLoopState)).snapshot;
+const saveState = (snapshot: { path: string; text: string | null }, state: LoopState): void => {
+  ok(saveLoopState(snapshot, state));
+};
 
 const USAGE = 'node harness/scripts/qa-retro-loop.ts data|advance|pending|adopt …（使い方はファイルの先頭のコメント）';
 
 async function main(): Promise<void> {
   const [sub, ...rest] = process.argv.slice(2);
-  const args = parseArgs(rest);
-  const statePath = args.state ?? defaultStatePath();
+  const parsed = ok(parseLoopArgs(rest, ['--state', '--drafts']));
+  const positionalArgs = parsed.positional;
+  const draftsPath = parsed.values['--drafts'];
+  const statePath = parsed.values['--state'] ?? ok(loopStatePath(ROOT, 'qa-retro-loop.json')).path;
   const positional = (n: number): void => {
-    if (args.positional.length !== n) fail([`${sub} の位置引数は ${n} 個です（${args.positional.length} 個）`, USAGE]);
+    if (positionalArgs.length !== n) fail([`${sub} の位置引数は ${n} 個です（${positionalArgs.length} 個）`, USAGE]);
   };
   switch (sub) {
     case 'data': {
       positional(0);
-      if (args.drafts !== undefined) fail(['data は --drafts を取りません']);
-      const period = loopPeriod(loadState(statePath), new Date());
+      if (draftsPath !== undefined) fail(['data は --drafts を取りません']);
+      const period = loopPeriod(loadState(statePath).state, new Date());
       if (period.empty) {
         console.log(`まだ見る期間がありません（前回の回の終わり ${period.since.toISOString()} が、今の ${QA_RETRO_LOOP_LAG_DAYS} 日前 ${period.until.toISOString()} より後か同じ）`);
         return;
@@ -128,29 +81,30 @@ async function main(): Promise<void> {
     }
     case 'advance': {
       positional(1);
-      const state = loadState(statePath);
-      const data = readJsonFile(args.positional[0]!, '集計の JSON ');
-      const drafts = args.drafts === undefined ? undefined : readJsonFile(args.drafts, '下書きの JSON ');
-      const next = advanceLoopState(state, data, drafts, new Date());
+      const snapshot = loadState(statePath);
+      const data = jsonFile(positionalArgs[0]!, '集計の JSON ');
+      const drafts = draftsPath === undefined ? undefined : jsonFile(draftsPath, '下書きの JSON ');
+      const next = advanceLoopState(snapshot.state, data, drafts, new Date());
       if (!next.ok) fail(next.errors);
-      saveState(statePath, next.state);
+      saveState(snapshot, next.state);
       const round = next.state.rounds.at(-1)!;
       console.log(JSON.stringify({ state: statePath, round: next.state.rounds.length, since: round.since, until: round.until, prs: round.prs, drafts: round.drafts.length }, null, 2));
       return;
     }
     case 'pending': {
       positional(0);
-      if (args.drafts !== undefined) fail(['pending は --drafts を取りません']);
-      console.log(JSON.stringify(pendingDrafts(loadState(statePath)), null, 2));
+      if (draftsPath !== undefined) fail(['pending は --drafts を取りません']);
+      console.log(JSON.stringify(pendingDrafts(loadState(statePath).state), null, 2));
       return;
     }
     case 'adopt': {
       positional(3);
-      if (args.drafts !== undefined) fail(['adopt は --drafts を取りません']);
-      const [round, draft, issue] = args.positional.map((v) => (/^\d+$/.test(v) ? Number(v) : NaN)) as [number, number, number];
-      const next = adoptDraft(loadState(statePath), round, draft, issue);
+      if (draftsPath !== undefined) fail(['adopt は --drafts を取りません']);
+      const [round, draft, issue] = positionalArgs.map((v) => (/^\d+$/.test(v) ? Number(v) : NaN)) as [number, number, number];
+      const snapshot = loadState(statePath);
+      const next = adoptDraft(snapshot.state, round, draft, issue);
       if (!next.ok) fail(next.errors);
-      saveState(statePath, next.state);
+      saveState(snapshot, next.state);
       console.log(JSON.stringify({ state: statePath, round, draft, created: issue }, null, 2));
       return;
     }
