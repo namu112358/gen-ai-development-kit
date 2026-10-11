@@ -32,12 +32,12 @@ const sectionInRoot = '.github';
 const skipListing = new Set(['harness/test']);
 
 function lsFiles(path: string): string[] {
-  const r = spawnSync('git', ['ls-files', '-z', '--', path], { cwd: root, encoding: 'utf8' });
+  const r = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', path], { cwd: root, encoding: 'utf8' });
   assert.equal(r.status, 0, `git ls-files が失敗: ${r.stderr}`);
   return r.stdout.split('\0').filter((p) => p.length > 0);
 }
 
-// git 管理下のファイルから、dir の直下の名前（ディレクトリは「名前/」）を集める
+// git が追跡している・無視されていない未追跡のファイルから、dir の直下の名前（ディレクトリは「名前/」）を集める
 function directChildren(dir: string): string[] {
   const prefix = `${dir}/`;
   const names = new Set<string>();
