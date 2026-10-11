@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { type Decision, decisionTargets, uncoveredTargets } from '../../../lib/decision.ts';
+import { writeClaim } from '../../../lib/claim.ts';
 import { critiqueClaimedBefore } from '../../../lib/facts.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { implementationRouting } from '../../../lib/model-routing.ts';
@@ -47,7 +48,7 @@ async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
   // 計画の投稿で宣言は終わったとみなされる。ゲートを通る見込みなら結果を待つ間の宣言を出し直し（空白を作らない）、
   // 通らない見込み（人の判断待ち）なら解除する（harness/lib/queue.ts の claimAfterPlan）
   const claim = claimValueAfterPlan(r.expectedGate, manualClaim());
-  await gh.comment(n, renderClaim(claim));
+  await writeClaim(gh, n, claim, { render: renderClaim, minAfter: posted.id });
   console.log(JSON.stringify({ posted: posted.html_url, expectedGate: r.expectedGate, claim: claim.released ? 'released' : 'plan-gate' }, null, 2));
 }
 
