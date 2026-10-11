@@ -1,4 +1,5 @@
 import type { HarnessConfig } from './config.ts';
+import { backoffDelayMs, retryAfterMs } from './backoff.ts';
 import type { JevRecord } from './merge-route.ts';
 import { RISK_QUESTIONS, type Verdict } from './verdict.ts';
 
@@ -144,6 +145,11 @@ const inputTokensOf = (json: JevResponse): number | null => {
   return Number.isInteger(t) ? t! : null;
 };
 
+export interface JevRetryOptions {
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+}
+
 /**
  * Jev に1回問う（再試行つき）。Risk 判定と Issue の分類の両方から使う。
  * 成功時の `inputTokens` は応答の `usage.input_tokens`（無ければ null）。テストで差し替える偽物が返さなくてもよいよう省略可にしている。
@@ -152,6 +158,7 @@ export async function askJev(
   apiKey: string,
   request: { model: string; state: unknown; questions: Record<string, unknown> },
   fetchImpl: typeof fetch = fetch,
+  opts: JevRetryOptions = {},
 ): Promise<{ status: 'ok'; model: string; answers: JevAnswers; inputTokens?: number | null } | { status: 'error'; detail: string }> {
   const body = JSON.stringify(request);
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -163,8 +170,8 @@ export async function askJev(
         signal: AbortSignal.timeout(30_000),
       });
       if ([408, 429, 529].includes(res.status) || res.status >= 500) {
-        const wait = Number(res.headers.get('retry-after') ?? 0) * 1000 || 1000 * 2 ** attempt;
-        await new Promise((r) => setTimeout(r, Math.min(wait, 10_000)));
+        const wait = backoffDelayMs(attempt, { baseMs: 1000, capMs: 10_000, floorMs: retryAfterMs(res.headers.get('retry-after')) ?? 0, random: opts.random });
+        await (opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(Math.min(wait, 10_000));
         continue;
       }
       const text = await res.text();
