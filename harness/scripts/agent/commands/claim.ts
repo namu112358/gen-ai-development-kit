@@ -1,17 +1,17 @@
 import { checkAssignee } from '../../../lib/assignee.ts';
-import { claimedLine, postClaim } from '../../../lib/claim.ts';
+import { claimedLine, postClaim, writeClaim } from '../../../lib/claim.ts';
 import { countsTowardAreaLimit, describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
 import { type ClaimStage, SESSION_ID_MISSING } from '../../../lib/queue.ts';
 import { latestPlanGate, linkedIssues, type PlanGateRecord, type PullRequest, withStack } from '../../../lib/state.ts';
-import { type AgentCommand, assigneeIo, claimBody, config, currentSession, ensureOwnClaim, fail, parseStage, harnessDrift, renderClaim, sessionUrl } from '../cli.ts';
+import { type AgentCommand, assigneeIo, config, currentSession, ensureOwnClaim, fail, manualClaim, parseStage, harnessDrift, renderClaim, sessionUrl } from '../cli.ts';
 
 /**
  * 着手宣言（宣言・持ち主の確かめ・解除）。
  *
  *   node harness/scripts/agent.ts claim <n> [--manual] [--stage <段階>] [--force] [--fleet] [--takeover]
- *                                                           着手宣言のコメント（段階とこのセッションの ID を書く。同じセッションなら段階の更新）。
+ *                                                           着手宣言のコメント（段階とこのセッションの ID を書く。同じセッションなら段階の更新で、自分の宣言のコメントの書き換え（引き継ぎ・Routine は新しいコメント））。
  *                                                           --manual は、計画の触るファイルの領域の判定前の Agent PR（Draft）が上限（areaConcurrency）に達していれば止まる（--force で着手）。
  *                                                           --fleet は fleet が領域の上限で宣言し直すときに使う（領域の上限だけを見ない点は --force と同じで、引き継ぎにならない）。
  *                                                           ほかのセッションの着手宣言があれば止まる（期限切れでも。引き継ぐのは人が決めて --takeover）。
@@ -77,7 +77,7 @@ async function claim(gh: GitHub, n: number, manual: boolean, skipAreaLimit: bool
 async function release(gh: GitHub, n: number): Promise<void> {
   const session = currentSession();
   if (session === null || session === '') fail([`#${n}: ${SESSION_ID_MISSING}`]);
-  await gh.comment(n, claimBody(true, true));
+  await writeClaim(gh, n, { ...manualClaim(), released: true }, { render: renderClaim });
 }
 
 export const commands: AgentCommand[] = [
