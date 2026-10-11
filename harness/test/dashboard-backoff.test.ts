@@ -1,7 +1,7 @@
 // Issue #278：ダッシュボードの読み直しの間隔（exponential backoff + jitter、下限と上限）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { backoffDelayMs } from '../scripts/dashboard/backoff.ts';
+import { backoffDelayMs } from '../lib/backoff.ts';
 
 test('backoffDelayMs：random を固定すると、回数ごとに baseMs * 2 ** attempt で延びる', () => {
   const random = () => 0.75;
