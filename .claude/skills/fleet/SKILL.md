@@ -172,10 +172,11 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
      - 人が fleet のタブ（fleet の Claude）で答えたら、それを人の答え（人の言葉のまま）として扱い、`node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <番号> --answer "<人の答え>"` で答え済みにしてから、各 skill の手順どおりに続ける（宣言し直して ship を呼び直すなど）。続きを進めたら `pending-remove` で控えから外す。
      - hq が戻ったとき（前置きの `check` に新しい hq の `send`（件名 `hq-back`）が届いた、または控えの `hqHandle` が変わり、その端末が live）：答えの無い控えのうち `messageId` のあるものは `ask --resume <message_id>` で待ち直し（新しい hq が前の Run を引き継いで同じ質問を受け取るので、新しく聞き直さない）、`messageId` の無いものは新しく `ask` する。hq に上げた控えは `node harness/scripts/hq-state.ts pending-remove --session <ID> --issue <番号>` でペインから外す（人と hq に二重に出さない）。答え済みの控えは待ち直さない（新しい hq が控えを読み、その質問に本文 `fleet のタブで人が答え済み` で `reply` する）。
 6. **hq からの追加の指示**：段階の切れ目（ship が返ったとき、`fleet-status` を読み直すとき）と `worker_done` の直前に、前置きの `check` のコマンドで hq の追加の指示を読む。前置きが求める間隔で heartbeat を送る（`ask`・`check --wait` の間は送らない）。
+   - hq の「Issue の追加」は、受け持つ Epic の外の Issue（ほかの Epic の子・単発の Issue）でも、`fleet-status` に渡す集合に足して進める。進み具合のペインの Issue 番号も足す（手順3の「対象の Issue が変わったら」）。
    - heartbeat の間隔：前置きの間隔より短い間隔で送らない。この節の 8 で `status` を送った直後の区切りでは、heartbeat を重ねて送らない（束を増やして hq の question を遅らせないため）。
    - heartbeat の本文に今の状況を一言入れる（#425）：前置きの heartbeat のコマンドを写し、一言を本文（`--body`）に入れる。入れるものは Issue 番号・段階・次にすること・待っているもの（例：「#388 実装中、次は判定」「#386 area:harness の上限の空き待ち」）。受け持つ Issue が複数なら、動いているもの・待っているものを短く並べる（1〜2行）。前置きの heartbeat の形が本文を持てないときは、一言を入れずに今までどおり送る（一言のために `status` を増やさない）。
    - 一言は知らせるだけで、heartbeat に質問を載せない。人の判断が要ることは今までどおり 5 の `ask`、報告・連絡は 8 の `status` で送る。一言のために heartbeat の間隔を変えない（#395 のまま）。hq は一言を読んで人がすることの一覧（hq の手順7・12）に使う。
-7. **終わるとき**：途中の知らせは、この節の 8 で続けて送る（8 は終わるまでずっと続ける手順で、時間の順では 7 の前でもある）。`worker_done` を送るのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき（節「待つ間の読み直し」の 7）。それまでは手順9の一覧を scratchpad に書き直し、`check` で hq の指示を読みながら読み直しを続ける。手順9の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
+7. **終わるとき**：途中の知らせは、この節の 8 で続けて送る（8 は終わるまでずっと続ける手順で、時間の順では 7 の前でもある）。`worker_done` を送るのは、受け持つ Epic が Close し、かつ hq が足した Epic の外の Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったときか、人の判断待ちだけが残ったとき（節「待つ間の読み直し」の 7）。Epic が Close しても、足された Epic の外の Issue が残る間は `worker_done` を送らない（hq の片付けの条件と同じ）。それまでは手順9の一覧を scratchpad に書き直し、`check` で hq の指示を読みながら読み直しを続ける。手順9の人がすることの一覧は人に出さない。scratchpad のファイルに書き、`worker_done` を前置きのコマンドで1回だけ送る（本文は3文の要約。`--report-path` にそのファイルを渡し、`--outcome succeeded` にする。止まったときは `failed`）。
    - `worker_done` を送った後に、手順3で作った表示のペイン（進み具合・あなたがすること・PR と費用）を `ORCA terminal close --terminal <handle>` で閉じる（閉じる操作で fleet 自身の端末まで閉じても、知らせが届いているように。#666）。`ORCA terminal close` を送る前に毎回、閉じる handle が手順3で控えた表示のペインの handle で、fleet 自身の Claude の端末の handle と違うことを確かめる。同じなら閉じない（#409 で hq がペインを閉じたときに自分の端末まで閉じた見込みと同じことを、fleet で起こさないため）。
    - 残った空のシェルのペインは閉じない。hq の片付け（Epic の Close のときのワークスペースの削除）に任せる（2回目の `ORCA terminal close` で fleet 自身の端末まで閉じ、`worker_done` を送れずに終わったため。#666）。
    - ワークスペース（Orca の worktree）そのものは消さない（片付けるのは hq）。`worker_done` の後は、表示のペインを閉じるほかに新しい作業を始めない。
@@ -219,7 +220,7 @@ App の計画ゲート・判定の受け付け・自動 Merge・CI を待つ間�
 4. **「Close されていない」の扱い**：このセッションで既に呼び直して ship が「Close されていない（理由）」で返した Issue は、人の判断待ちとして手順9の一覧に載せ、同じ行が出続けても呼び直さない。この印はセッションの中で持ち、見張りの記録には残さない。交代の後の新しい fleet は最初の1回だけ呼び直す。終わり方の「人の判断待ちだけが残った」でもこの Issue を人の判断待ちに数える。
 5. **自分の PR の sync**：自分の行（`fleet-status` に渡した Issue の PR）の次にやることが `sync` になったら、`human-merge`・`auto-merge` の段階でも、その Issue の ship を (a) の段階 `sync` で新しいサブエージェントとして呼び直して sync させる。fleet 自身は衝突を直さない（直すのは ship）。ほかのセッション・持ち主のいない PR は対象にしない。
 6. **App が動かないとき**：表の下に「App が動いていない」の行（`fleet.watch.appStallMinutes`、既定 20 分以上、計画ゲートの記録が付かない・auto-merge が付いたまま Merge されない）が出たら、人に知らせる（付き添いでは文章で。Orca の worker のときは節「Orca の worker として動くとき」のとおり hq に `escalation`）。同じ行を知らせるのは1回だけで、その後も読み直しを続ける。
-7. **終える**：読み直しを終えるのは、受け持つ Epic が Close したとき（`gh issue view <Epic番号> --json state`。その後に手順6〜9の最後の一覧を出す）と、人の判断待ち（`plan-review`・止まる印・各 skill の人に返す条件・上の 4）だけが残ったとき。受け持つ Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき。
+7. **終える**：読み直しを終えるのは、受け持つ Epic が Close し、かつ hq が足した Epic の外の Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき（`gh issue view <Epic番号> --json state`。その後に手順6〜9の最後の一覧を出す。足された Epic の外の Issue が残る間は終えない）と、人の判断待ち（`plan-review`・止まる印・各 skill の人に返す条件・上の 4）だけが残ったとき。受け持つ Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき。
 
 ## 終わりの状態
 
