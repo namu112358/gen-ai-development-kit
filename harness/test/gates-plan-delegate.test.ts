@@ -227,10 +227,11 @@ test('計画：委任のラベルが無効（Bot が付けた・付けた時刻�
   }
 });
 
-test('計画：通る計画・飛ばせる理由の無い停止では、委任のラベルがあってもダッシュボードの timeline を読まない', async () => {
-  for (const plan of [planOf(21, { files: ['docs/a.md'] }), planOf(21, { files: ['docs/a.md'], needsHuman: true })]) {
+test('計画：通る計画では委任のラベルがあってもダッシュボードの timeline を読まず、飛ばせる理由の無い停止では止めるときにちょうど1回読む', async () => {
+  // 要件（#717）で、止めるときは停止のコメントに自動 Merge の経路を書くため委任の状態を読むことになった
+  for (const [plan, reads] of [[planOf(21, { files: ['docs/a.md'] }), 0], [planOf(21, { files: ['docs/a.md'], needsHuman: true }), 1]] as const) {
     const fake = await postPlan(delegatedWorld([MERGE]), plan);
-    assert.equal(countCalls(fake, 'GET', '/repos/o/r/issues/1/timeline'), 0, JSON.stringify(plan));
+    assert.equal(countCalls(fake, 'GET', '/repos/o/r/issues/1/timeline'), reads, JSON.stringify(plan));
     assert.equal(lastGateRecord(fake, 21).delegated, undefined);
   }
 });
