@@ -18,9 +18,17 @@
  * ディスクの中身の版と HEAD を、git の共通ディレクトリの下の agent-harness/loaded/<セッションの ID>.json に書く（harness/lib/harness-drift.ts）。
  * 同じ ID の記録が既にあれば書かない（resume・compact で上書きしない。/clear は ID が変わるので新しい記録）。CLAUDE_PROJECT_DIR が無い・
  * ID が不正・git が失敗するときは書かない。どの場合もセッションの開始を止めない。agent.ts harness-drift・fleet-status・claim・step がこれを origin と比べる。
+ *
+ * 片付け（Issue #654）：読み込みの記録の後に、手元の状態のファイル（git の共通ディレクトリの下の agent-harness/）の古いものを消す。
+ * loaded・watch・stage の <ID>.json のうち、最後に書かれてから30日より前のものを消す（Claude Code は既定（cleanupPeriodDays）で30日より前の
+ * セッションの記録を消し resume できなくなるので、30日より前に最後に書かれたセッションのファイルはもう使われないとみなす）。
+ * 自分の ID のファイルと、stage か watch が30日以内に書かれている ID の loaded は残す。loaded・watch・stage・hq の直下で、60分より前の *.tmp も消す
+ * （書き込み途中の残り。hq の .json と hq/pending/ の中は消さない）。CLAUDE_PROJECT_DIR が無い・session_id が形に合わない・
+ * 共通ディレクトリが取れない・lib が読めないときは何も消さない。消し損ねたファイルは飛ばす。どの場合もセッションの開始を止めない。
  */
 import { spawnSync } from 'node:child_process';
-import { accessSync, appendFileSync, constants } from 'node:fs';
+import { accessSync, appendFileSync, constants, readdirSync, rmSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** ID の形（harness/lib/session.ts）。lib が欠けていても exit 0 で終わるよう、try の中で読む */
 let idShape: RegExp | null = null;
@@ -36,6 +44,14 @@ try {
   drift = await import('../../harness/lib/harness-drift.ts');
 } catch {
   drift = null;
+}
+
+/** 手元の状態のファイルの場所（harness/lib/local-state.ts）。lib が欠けていても exit 0 で終わるよう、try の中で読む */
+let localState: typeof import('../../harness/lib/local-state.ts') | null = null;
+try {
+  localState = await import('../../harness/lib/local-state.ts');
+} catch {
+  localState = null;
 }
 
 /** CLAUDE_ENV_FILE に書く行（書かないなら null）。シェルに渡すので、ID は英数字と - _ だけを受け付ける */
@@ -166,6 +182,121 @@ export function recordLoaded(raw: string, env: Record<string, string | undefined
   }
 }
 
+/** セッションのファイルを消す、最後に書かれてからの日数（Claude Code の cleanupPeriodDays の既定） */
+export const SESSION_FILE_MAX_AGE_DAYS = 30;
+/** 一時ファイルを消す、最後に書かれてからの分数 */
+export const STALE_TMP_MINUTES = 60;
+
+export interface PruneIo {
+  readdirSync(path: string): string[];
+  statSync(path: string): { mtimeMs: number; isFile(): boolean };
+  rmSync(path: string, opts: { force: boolean }): void;
+}
+
+const defaultPruneIo: PruneIo = {
+  readdirSync: (path) => readdirSync(path),
+  statSync: (path) => statSync(path),
+  rmSync: (path, opts) => rmSync(path, opts),
+};
+
+/**
+ * commonDir（git の共通ディレクトリ）の下の agent-harness/ の古いファイルを消し、消したパスを返す。
+ * 消し損ねた・調べ損ねたファイルとディレクトリは飛ばす。例外を投げない
+ */
+export function pruneSessionFiles(commonDir: string, opts: { now: Date; keepSession: string; io?: Partial<PruneIo> }): string[] {
+  const io: PruneIo = { ...defaultPruneIo, ...opts.io };
+  const base = localState ? localState.harnessStateDir(commonDir) : join(commonDir, 'agent-harness');
+  const now = opts.now.getTime();
+  const maxAge = SESSION_FILE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
+  const tmpAge = STALE_TMP_MINUTES * 60 * 1000;
+  const removed: string[] = [];
+
+  const list = (dir: string): string[] => {
+    try {
+      return io.readdirSync(dir);
+    } catch {
+      return [];
+    }
+  };
+  const mtime = (path: string): number | null => {
+    try {
+      return io.statSync(path).mtimeMs;
+    } catch {
+      return null;
+    }
+  };
+  const remove = (path: string): void => {
+    try {
+      io.rmSync(path, { force: true });
+      removed.push(path);
+    } catch {
+      // 消し損ねは飛ばす
+    }
+  };
+  const isStaleTmp = (path: string): boolean => {
+    try {
+      const st = io.statSync(path);
+      return st.isFile() && now - st.mtimeMs > tmpAge;
+    } catch {
+      return false;
+    }
+  };
+
+  // loaded の判定に使う stage・watch の更新時刻は、消す前に読む
+  const entries = new Map<string, { id: string; path: string }[]>();
+  const fresh = new Set<string>();
+  for (const kind of ['loaded', 'watch', 'stage']) {
+    const dir = join(base, kind);
+    const items: { id: string; path: string }[] = [];
+    for (const name of list(dir)) {
+      if (!name.endsWith('.json')) continue;
+      const path = join(dir, name);
+      const id = name.slice(0, -'.json'.length);
+      items.push({ id, path });
+      if (kind !== 'loaded') {
+        const at = mtime(path);
+        if (at !== null && now - at <= maxAge) fresh.add(id);
+      }
+    }
+    entries.set(kind, items);
+  }
+  for (const kind of ['watch', 'stage', 'loaded']) {
+    for (const { id, path } of entries.get(kind) ?? []) {
+      if (id === opts.keepSession) continue;
+      if (kind === 'loaded' && fresh.has(id)) continue;
+      const at = mtime(path);
+      if (at !== null && now - at > maxAge) remove(path);
+    }
+  }
+  for (const kind of ['loaded', 'watch', 'stage', 'hq']) {
+    const dir = join(base, kind);
+    for (const name of list(dir)) {
+      if (!name.endsWith('.tmp')) continue;
+      const path = join(dir, name);
+      if (isStaleTmp(path)) remove(path);
+    }
+  }
+  return removed;
+}
+
+/**
+ * 手元の状態のファイルを片付ける（Issue #654）。消したパスを返す。CLAUDE_PROJECT_DIR が無い・session_id が形に合わない・
+ * 共通ディレクトリが取れない・lib が読み込めないときは null で、何も消さない。例外を投げない
+ */
+export function pruneLocalState(raw: string, env: Record<string, string | undefined>, now: Date = new Date()): string[] | null {
+  try {
+    const dir = env.CLAUDE_PROJECT_DIR;
+    if (!dir || !idShape || !localState) return null;
+    const session = (JSON.parse(raw) as { session_id?: unknown }).session_id;
+    if (typeof session !== 'string' || !idShape.test(session)) return null;
+    const common = localState.gitCommonDir(dir);
+    if (!common) return null;
+    return pruneSessionFiles(common, { now, keepSession: session });
+  } catch {
+    return null;
+  }
+}
+
 /** 実行できるファイルがあるか（実行はしない） */
 function executable(path: string): boolean {
   try {
@@ -189,6 +320,8 @@ export async function main(): Promise<void> {
   }
   // 読み込みの記録（失敗しても開始を止めない。recordLoaded は例外を投げない）
   recordLoaded(raw, process.env);
+  // 古い状態のファイルの片付け（pruneLocalState は例外を投げない）
+  pruneLocalState(raw, process.env);
   try {
     const notice = orcaNotice(raw, process.env, executable);
     if (notice) process.stdout.write(`${JSON.stringify(notice)}\n`);

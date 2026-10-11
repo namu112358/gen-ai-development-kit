@@ -240,6 +240,17 @@ fleet の待つ間の読み直し（`agent.ts fleet-status --watch`）が、git 
 - 鍵は `<Issue>:<PR か ->:<段階>`。段階や PR が変わった行・App 待ちでなくなった行は消える。`harness.config.json` の `fleet.watch.appStallMinutes` 分以上同じ状態の行を1回だけ知らせる。読めない・書式が違うファイルは無いものとして空から始める。
 - Merge 後の見届けが済んでいない Issue（段階が `merged` で、Issue が開いている、または `claude/issue-<番号>-` の worktree が残る）は、この記録を使わず、毎回の事実だけで決める。
 
+### 手元の状態のファイルの書き込みと片付け
+
+git の共通ディレクトリの下の `agent-harness/`（loaded・watch・stage・hq の控えなど）は、`harness/lib/local-state.ts` を通して書く。
+
+- 書き込み：`<path>.<pid>.tmp` に書いてから名前を変える。名前の変更が EPERM・EBUSY・EACCES で失敗したら 20・40・80・160 ms 待って最大4回やり直す。それでも失敗したとき、ほかの code のとき、一時ファイルへの書き込みに失敗したときは、一時ファイルを消してエラーにする（元のファイルは前の中身のまま。#653）。
+- 片付け：SessionStart の hook（`.claude/hooks/session-env.ts`）が読み込みの記録の後に、古いファイルを消す（#654）。
+  - 30日より前に最後に書かれた loaded・watch・stage の `<ID>.json`。自分の ID は残し、stage か watch が30日以内の ID の loaded も残す。
+  - loaded・watch・stage・hq の直下の、60分より前の `*.tmp`。hq の `.json` と `hq/pending/` の中は消さない。
+- 30日の根拠は、Claude Code の `cleanupPeriodDays` の既定。これより前のセッションは resume できないので、そのセッションのファイルはもう使われない。
+- `CLAUDE_PROJECT_DIR` が無い・session_id が形に合わないときは消さない。消し損ねたファイルは飛ばして続ける。
+
 ## 引き継ぎ（agent-handoff）
 
 fleet の入れ子の方式で、ship が段階の終わりに fleet へ返す引き継ぎ（Issue #447）。ship は 1 回の呼び出しで 1 段階だけ進め、scratchpad の `handoff-<番号>-<段階>.md` にこのブロックを書き、`node harness/scripts/agent.ts check <ファイル>` で確かめてから返す。fleet は次の段階を `fleet-status` の「次にやること」で決め、前の引き継ぎのファイルのパスを渡して新しい ship を呼ぶ。GitHub には書かない。
