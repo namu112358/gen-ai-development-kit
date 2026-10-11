@@ -53,6 +53,5 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 | `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し（まとめた GraphQL の問い合わせでの先読み） |
 | `rate-limit.ts` | API の上限の残りを応答から読み、下限を切ったらリセットまで送らない Transport と fetch の包み |
 | `scheduler.ts` | 見張りの回し方（間隔・上限で止める・失敗の後の backoff・接続が0の間は読まない） |
-| `backoff.ts` | 失敗の後の待ち方（full jitter の exponential backoff） |
 | `sessions.ts` | 手元のセッション記録の読み取りと見張り |
 | `page.html` | 画面（外部を読み込まない1ファイル） |
