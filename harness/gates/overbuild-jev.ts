@@ -10,7 +10,7 @@ import type { GateContext } from './context.ts';
 
 /**
  * 判定の⑨のブロッキング指摘ごとに Jev の答えの記録を作る。jev.overbuild が off、または⑨が0件なら undefined。
- * recent_diff は前回の受け付けの head から今の head への compare（間に main の取り込みがあると main の変更も入る）。取れなければ null で問う
+ * recent_diff は前回の受け付けの head から今の head への compare（間に main の取り込みがあると main の変更も入る）。取れなければ（前回の受け付けの記録のコメントが読めないときも）null で問う
  */
 export async function overbuildJevFor(ctx: GateContext, prNumber: number, verdict: Verdict, diff: string): Promise<OverbuildJevRecord | undefined> {
   if (overbuildJevMode(ctx.config) === 'off') return undefined;
@@ -21,7 +21,12 @@ export async function overbuildJevFor(ctx: GateContext, prNumber: number, verdic
   const first = askableOverbuild(ctx.config, findings, diff, null);
   if (!first.ask) return skippedOverbuildJev(ctx.config, findings, 'skipped', first.reason);
 
-  const prev = appRecords<Acceptance>(ctx.config, await ctx.gh.listComments(prNumber), 'acceptance').at(-1)?.value.verdictHeadSha;
+  let prev: string | undefined;
+  try {
+    prev = appRecords<Acceptance>(ctx.config, await ctx.gh.listComments(prNumber), 'acceptance').at(-1)?.value.verdictHeadSha;
+  } catch {
+    prev = undefined;
+  }
   let recentDiff: string | null = null;
   if (prev && prev !== verdict.headSha) {
     try {

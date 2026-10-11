@@ -6,8 +6,8 @@
  */
 import { issueNode, type FleetIssue } from './fleet.ts';
 import type { FlowNodeId, FlowStep, FlowStopReason } from './flow.ts';
-import { postClaim, type ClaimIo } from './claim.ts';
-import { claimBlocker, isOwnClaim, type Claim, type ClaimStage } from './queue.ts';
+import { postClaim, writeClaim, type ClaimIo } from './claim.ts';
+import { claimBlocker, isOwnClaim, type Claim, type ClaimStage, type StoredClaim } from './queue.ts';
 import type { ReasonCode } from './config.ts';
 import { TRANSCRIPT_SESSION_ID } from './session.ts';
 import type { CritiqueRound } from './stage-file.ts';
@@ -334,7 +334,7 @@ export interface StepClaimOptions {
   now: Date;
   humanClaimStaleHours: number;
   /** 宣言の値からコメントの本文を作る（agent.ts の renderClaim） */
-  render: (value: Claim) => string;
+  render: (value: StoredClaim) => string;
   /** 投稿の後、読み直す前に待つ（テストで短くする。既定は claim.ts の待ち時間） */
   wait?: () => Promise<void>;
 }
@@ -359,7 +359,7 @@ export async function applyStepClaims(io: ClaimIo, decision: StepDecision, opts:
     if (r.error) result = { version: 1, issue: result.issue, pr: result.pr, node: result.node, kind: 'stop', reason: 'claimed', detail: r.error, released: false };
   }
   for (const target of decision.release) {
-    await io.comment(target, opts.render({ by: 'manual', at: opts.now.toISOString(), session: opts.session, released: true }));
+    await writeClaim(io, target, { by: 'manual', at: opts.now.toISOString(), session: opts.session, released: true }, { render: opts.render });
   }
   return result;
 }

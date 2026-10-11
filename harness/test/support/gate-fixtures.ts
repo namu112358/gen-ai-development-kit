@@ -188,6 +188,8 @@ export interface DelegateWorld {
   dashboardLabels: string[];
   /** ダッシュボードの timeline（ラベルの付け外しが足される） */
   dashboardEvents?: unknown[];
+  /** ダッシュボードの本文（前回の定期実行が書いたもの）。一覧と GET /issues/1 の body に毎回返す（PATCH では書き換わらない） */
+  dashboardBody?: string;
   /**
    * ダッシュボード以外の開いた Issue（番号 → ラベル。App のラベルの付け外しが反映される）。
    * Issue の一覧（GET /issues?...、labels= で絞れる）と GET /issues/{n} で返す
@@ -207,7 +209,7 @@ export function delegateWorldFake(w: DelegateWorld): FakeGitHub {
   const issues = (w.issues ??= {});
   const issueEvents = (w.issueEvents ??= {});
   const all = (): Record<string, any>[] => [...w.prs, ...(w.closedPrs ?? [])];
-  const dashboard = () => ({ number: 1, title: config.dashboardIssueTitle, html_url: 'd', updated_at: '2026-09-27T00:00:00Z', state: 'open', user: { login: APP }, labels: w.dashboardLabels.map((name) => ({ name })) });
+  const dashboard = () => ({ number: 1, title: config.dashboardIssueTitle, html_url: 'd', updated_at: '2026-09-27T00:00:00Z', state: 'open', user: { login: APP }, labels: w.dashboardLabels.map((name) => ({ name })), body: w.dashboardBody ?? '' });
   const issueItem = (n: number) => ({ number: n, title: `feat: Issue ${n}`, html_url: `i${n}`, updated_at: new Date().toISOString(), state: 'open', user: { login: 'me' }, labels: issues[n]!.map((name) => ({ name })) });
   /** Issue の一覧。creator= はダッシュボードだけ、labels= はすべてのラベルが付いたものだけ */
   const listIssues = (query: string) => {
@@ -243,7 +245,7 @@ export function delegateWorldFake(w: DelegateWorld): FakeGitHub {
     .on('GET', /\/issues\/1\/timeline/, () => events)
     .on('GET', /\/pulls\?state=open/, () => w.prs.map((p) => ({ ...p })))
     .on('GET', /\/pulls\?state=closed/, () => w.closedPrs ?? [])
-    .on('GET', /\/issues\/1$/, () => ({ ...dashboard(), body: '' }))
+    .on('GET', /\/issues\/1$/, () => ({ ...dashboard(), body: w.dashboardBody ?? '' }))
     .on('PATCH', /\/issues\/1$/, () => ({}))
     .on('POST', /\/graphql/, (_m, body) => {
       const q = String(body.query);

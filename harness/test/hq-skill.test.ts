@@ -53,6 +53,7 @@ const HQ_SPEC: SkillSpec = {
         '進んでいない fleet を見つける', '止まったタスクの見回し', 'ダッシュボード', 'patrol', 'fleet-status',
         '担当のいない PR', '止まった宣言', 'どの fleet にも入っていない', 'Epic に入っていない', 'sub-issues',
         'send', 'hq.maxFleets', '手順3のとおり','引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel',
+        'hq.maxParallelShips', '人に聞かずに起こす', '空き待ち',
       ],
     },
     // 手順12：人がすることの一覧（#402・#407・#425・#396）

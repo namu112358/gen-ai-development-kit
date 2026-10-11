@@ -178,6 +178,7 @@ export interface DashboardIssue {
   user: { login: string } | null;
   labels: { name: string }[];
   pull_request?: unknown;
+  body?: string | null;
 }
 
 /** patrol のまとめの Issue の題の既定値 */

@@ -9,6 +9,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-verdict ```` | Claude | PR コメント | `harness/lib/verdict.ts` |
 | ```` ```agent-claim ```` | Claude | Issue / PR コメント | `harness/lib/queue.ts` |
 | ```` ```agent-decision ```` | 付き添いのセッション（Routine は書かない） | Issue コメント | `harness/lib/decision.ts` |
+| ```` ```agent-session-judgment ```` | 付き添いのセッション（Routine は書かない） | Issue / PR コメント | `harness/lib/session-judgment.ts`（表示だけで信頼しない） |
 | ```` ```agent-handoff ```` | fleet の入れ子の ship | ship が fleet に返す本文とファイル（GitHub には書かない） | `harness/lib/handoff.ts` |
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
 | ```` ```agent-incident ```` | Routine（#187。付き添いのセッションは書かない） | ダッシュボード Issue のコメント | `harness/lib/incident.ts`（表示だけで信頼しない） |
@@ -162,8 +163,15 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 - 宣言の `session` が今のセッションの ID と同じ（どちらも空でない）なら自分の宣言として扱い、`fleet-status`・`queue` は「ほかのセッションが着手中」にしない。段階とセッションの短い形は、`fleet-status` の表とダッシュボードの理由に出る。
 - 持ち主の決め方（`harness/lib/facts.ts` の `claimOf`）：**最初の宣言が持ち主**。コメントを古い順に見て、持ち主がいなければ解除でない宣言のセッションが持ち主になる。持ち主と同じセッション（`by` と `session` が同じ。`session` の無い古い宣言同士も含む）の宣言は段階の更新で、解除なら持ち主がなくなる。ほかのセッションの宣言は、`takeover: true` か、持ち主が `routine` の宣言のときだけ持ち主を移し、それ以外（ほかのセッションの解除も）は無視する。計画・判定コメントで持ち主がなくなる。有効な着手宣言は持ち主の最新の段階の宣言。
 - `claim --manual` は、ほかのセッションの有効な手動の宣言があれば止まる（期限を過ぎていても）。同じセッションなら段階の更新として通る。引き継ぐのは人が決めたときだけ `--takeover`（`--force` は領域の上限だけを飛ばす）。このセッションの ID が得られなければ投稿せずに止まる（`release` も同じ）。
-- 読み直し（`harness/lib/claim.ts` の `postClaim`）：`claim` は投稿の後に少し（5秒）待って読み直し、持ち主が自分でなければ（ほぼ同時にほかのセッションが先に宣言した）、自分の宣言を取り下げる解除のコメント（`released: true`）を書き、先に宣言したセッションを示して 0 以外で終わる。ほかのセッションの解除は持ち主を消さないので、取り下げで先の側の宣言は消えない。
-- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）・`ensure-claim <番号>`（PR を作る前に使う。PR 番号なら PR が開いているかも確かめ、Merge 済み・Closed なら止まる。fix・sync は push の前に流す）は、このセッションの宣言（持ち主）が無いと止まる。読み直しで気づかなくても、ここで同じ決め方で止まる。定期 Routine は `worktree … --routine` で確かめを飛ばす（Routine の環境には `gh` が無い）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除のコメントを出す（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除のコメントを出すのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
+- 読み直し（`harness/lib/claim.ts` の `postClaim`）：`claim` は投稿の後に少し（5秒）待って読み直し、持ち主が自分でなければ（ほぼ同時にほかのセッションが先に宣言した）、自分の宣言を書き換えて解除し（`released: true`。書き換えは次の項）、先に宣言したセッションを示して 0 以外で終わる。ほかのセッションの解除は持ち主を消さないので、取り下げで先の側の宣言は消えない。
+- 書き換え（`harness/lib/claim.ts` の `writeClaim`、Issue #656）：同じセッション（`by: manual`・同じ `session`）の宣言し直し・解除・読み直しの取り下げ・`post-plan` の後の宣言は、新しいコメントを足さず、自分の最新の宣言のコメントを `PATCH` で書き換えて `history` に段階を足す。上の階層（`stage`・`released`・`at`）は最新の段階と同じで、`takeover` は残す。`at` は段階を書いた時刻、`after` は書き換える直前に読んだ一覧の最大のコメント ID（`post-plan` では投稿した計画のコメントの ID 以上）。次の4つと `--takeover`・Routine は新しいコメントにする：`editComment` の無い io、書き換える先（このセッションの宣言）が無い、`history` が書式違いか 30 件、`PATCH` の失敗。停滞の時刻は `history` の2件目から、コメントの `updated_at` を上限にする（`claimActivityAt`）。持ち主のいないときに古いコメントを書き換えて宣言し直すと、新しい段階は `after` の位置に並ぶので、一覧の読みが遅れるとほぼ同時のほかのセッションの宣言より前に並ぶことがある（両方が同じ並びを読み、後の側は読み直しか `ensureOwnClaim` で止まる）。
+
+```agent-claim
+{ "by": "manual", "session": "3f2a9c1e-…", "stage": "implement", "at": "2026-09-27T12:10:00.000Z",
+  "history": [ { "stage": "plan", "at": "2026-09-27T12:00:00.000Z" }, { "stage": "implement", "at": "2026-09-27T12:10:00.000Z", "after": 1234567890 } ] }
+```
+
+- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）・`ensure-claim <番号>`（PR を作る前に使う。PR 番号なら PR が開いているかも確かめ、Merge 済み・Closed なら止まる。fix・sync は push の前に流す）は、このセッションの宣言（持ち主）が無いと止まる。読み直しで気づかなくても、ここで同じ決め方で止まる。定期 Routine は `worktree … --routine` で確かめを飛ばす（Routine の環境には `gh` が無い）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除を書く（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除を書くのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
 
 持ち主の `"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
@@ -201,7 +209,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 - 批評の止まり方（`critique-limit`・批評の `repeated-finding`・`drop`）は、Issue の Requirements の「stop のときは自分の宣言だけを解除する」の例外で、宣言を残す。有人セッションで人が「進める」と決めれば `post-plan` で投稿し、`post-plan` は `ensureOwnClaim` でこのセッションの宣言を確かめるため。「やめる」なら skill の手順で `release` する。ほかの stop で `step` が解除した後は、`release` を呼ばなくてよい。
 - 計画の段階は、段階のファイルの中だけで進む：`--plan <file>` は計画を書いた後（`agent.ts check` と同じ書式の検査。一緒に変えるファイルの抜けは `check` だけ。通れば宣言を `plan-critique` にして node `plan-critique`、誤りがあれば node `plan` の `inputs` に誤り）、`--critique <file>` は plan-critic の出力を渡すとき（`go`・`split` なら node `plan-critique` の `allowed` に `post-plan`、`revise` は上限と繰り返しを見て node `plan`）。
-- `--proceed` は、人が `agent:plan-review` の計画を進めると決めたとき（計画コメントがあれば node `implement`）。人の答えが Planner の申告への答えなら、先に決定の記録（`post-decision`）を残す。implement の前に、人の「進める」を `proceed` の決定の記録（[決定の記録](#決定の記録agent-decision)）で残す（委任・bypass の範囲照合に使えるようにする）。
+- `--proceed` は、人（か、Risk だけの計画ならセッションの判定。先に `post-judgment`）が `agent:plan-review` の計画を進めると決めたとき（計画コメントがあれば node `implement`）。人の答えが Planner の申告への答えなら、先に決定の記録（`post-decision`）を残す。implement の前に、人の「進める」を `proceed` の決定の記録（[決定の記録](#決定の記録agent-decision)）で残す（委任・bypass の範囲照合に使えるようにする）。
 - `step` は1件の Issue で読むので、自分の PR が開いている間は「Merge 済みの PR があり main に追従していない」の sync は起きず、sync は main と衝突したときだけ（fleet は `fleet-status` で集合を見て決める）。
 - `sync ⇄ judge` の上限は `harness.config.json` の `"syncLoop": { "limit": 3 }`（正の整数。無ければ 3。`harness/lib/config.ts` の `syncLoopConfig`。書式が違えば `step` は GitHub を読む前にエラー）。
 
@@ -323,6 +331,23 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - `quote` は人の言葉そのまま（空は不可）、`choice` は選択肢で答えたときに選んだ項目、`at` は ISO 8601 の日時。
 - App は Jev に問わず、`jev.decisionRelease` にも依らずに確かめ（`harness/lib/decision.ts` の `proceedEligibility`）、`plan-proceed` の記録を付ける。ラベルと計画ゲートの結果は変えない。対象になるのは、Issue が開いていて `agent:plan-review` が付き、App の最新の計画ゲートの記録が止まった記録で `planCommentId` が一致し、計画コメントの本文がゲートの後に変わっておらず、決定の記録がその停止の後に書かれ、計画に `acChangeProposed` が無く、今の印がどれかの計画の投稿（`post-plan`）か App の停止の窓（計画コメントの投稿の 60 秒前からその計画ゲートの記録まで）で付いたもの。窓の外で付いた印（人が付けた印）は対象外で、人が外して計画を出し直す。
 - 委任承認の Merge と bypass の範囲照合（`harness/lib/state.ts` の `issueDelegateFiles`）は、`status: ok` の `plan-proceed` の記録の `planCommentId` と `planBodySha256` が最新の計画ゲートの記録と一致し、今の計画コメントの本文の sha256 も一致するときだけ、その計画を使う。`agent/scope` は今までどおりゲートを通った計画だけ。
+
+## セッションの判定（agent-session-judgment）
+
+付き添いのセッションが、人に聞かずに決めたことの記録（Issue #340。規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md) の進め方）。`node harness/scripts/agent.ts render-judgment <番号> <ファイル>`（検査して本文を出す。GitHub を読まない）か `post-judgment <番号> <ファイル>`（同じ検査の後に Issue か PR のコメントに投稿する）で出す。ファイルは JSON のオブジェクトそのもの。
+
+```json
+{ "version": 1, "target": 340, "stage": "plan-review", "basis": "risk-only",
+  "decision": "計画のとおり implement に進める",
+  "reason": "止めた理由は想定 Risk の high だけで、files はガードレールに触れない",
+  "evidence": ["https://github.com/owner/repo/issues/340#issuecomment-1"] }
+```
+
+- `stage` は `plan-review` / `plan-critique` / `scope` / `area-limit` / `other`。`basis`（当たった基準）は `risk-only`（`agent:plan-review` の止めた理由が想定 Risk だけで、`files` がガードレール・`delegateMergeExclude`・`harness.config.json` に触れない）/ `fixable`（計画か指摘を直して出し直す）/ `recorded`（規則・既定・記録済みの人の決定で決まる）/ `wait`（領域の上限などで待つ）。
+- `decision`・`reason` は空にできない。`evidence`（根拠の URL か記録）は任意。
+- コメントは先頭に Claude の目印、見出し「## セッションの判定」、決めたこと・当たった基準・理由・覆すなら（基準ごとの決まった文）とブロックの順。
+- `basis` が `risk-only` の判定は、投稿の前に `plan-review-check <番号>`（読むだけ。`riskOnly`・`remaining`・`touches`・`notes` を JSON で出す）と同じ検査をかけ、`riskOnly` が偽なら投稿しない（ガードレールに触れる計画に「進める」の判定を残さない）。
+- ラベルは変えない。App は読まず、ゲートも起こさない（`gate.yml` の `if:` に無い）。ship・fleet が最後の一覧に「決めたこと（覆すなら）」として載せる。
 
 ## 問題の記録（agent-incident）
 

@@ -40,11 +40,11 @@ test('fleetConfig：shipMode を書いても戻り値の鍵は nesting・maxPara
 
 // ---- hqConfig ----
 
-test('hqConfig：hq・maxFleets が無ければ既定の 2', () => {
-  assert.deepEqual(HQ_DEFAULTS, { maxFleets: 2 });
-  assert.deepEqual(hqConfig({}), { maxFleets: 2 });
-  assert.deepEqual(hqConfig({ hq: {} } as unknown as Pick<HarnessConfig, 'hq'>), { maxFleets: 2 });
-  assert.deepEqual(hqConfig({ hq: { maxFleets: 4 } } as unknown as Pick<HarnessConfig, 'hq'>), { maxFleets: 4 });
+test('hqConfig：hq・maxFleets が無ければ既定の 2（maxParallelShips は既定の 6。Issue #673）', () => {
+  assert.deepEqual(HQ_DEFAULTS, { maxFleets: 2, maxParallelShips: 6 });
+  assert.deepEqual(hqConfig({}), { maxFleets: 2, maxParallelShips: 6 });
+  assert.deepEqual(hqConfig({ hq: {} } as unknown as Pick<HarnessConfig, 'hq'>), { maxFleets: 2, maxParallelShips: 6 });
+  assert.deepEqual(hqConfig({ hq: { maxFleets: 4 } } as unknown as Pick<HarnessConfig, 'hq'>), { maxFleets: 4, maxParallelShips: 6 });
 });
 
 test('hqConfig：maxFleets が正の整数でなければ throw する', () => {
@@ -80,9 +80,9 @@ test('panesConfig：60 以上の整数でなければ throw する', () => {
 
 // ---- 設定ファイル ----
 
-for (const [name, path, maxFleets] of [
-  ['harness.config.json', join(root, 'harness.config.json'), 5],
-  ['雛形（harness/templates/harness.config.json）', join(root, 'harness', 'templates', 'harness.config.json'), 2],
+for (const [name, path, maxFleets, maxParallelShips] of [
+  ['harness.config.json', join(root, 'harness.config.json'), 5, 10],
+  ['雛形（harness/templates/harness.config.json）', join(root, 'harness', 'templates', 'harness.config.json'), 2, 6],
 ] as const) {
   test(`${name}：fleet.shipMode subagent・hq.maxFleets ${maxFleets}・panes.collectIntervalSeconds 180 が入り、読める`, () => {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as { fleet?: { shipMode?: unknown }; hq?: { maxFleets?: unknown }; panes?: { collectIntervalSeconds?: unknown } };
@@ -91,7 +91,7 @@ for (const [name, path, maxFleets] of [
     assert.equal(raw.panes?.collectIntervalSeconds, 180);
     const config = readJson(path);
     assert.deepEqual(shipModeConfig(config), { shipMode: 'subagent', stopReason: null });
-    assert.deepEqual(hqConfig(config), { maxFleets });
+    assert.deepEqual(hqConfig(config), { maxFleets, maxParallelShips });
     assert.deepEqual(panesConfig(config), { collectIntervalSeconds: 180 });
     assert.deepEqual(Object.keys(fleetConfig(config)).sort(), ['maxParallelShips', 'nesting']);
   });

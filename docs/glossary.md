@@ -26,7 +26,7 @@ App が次に Routine がやることを計算してダッシュボード Issue 
 
 ### claim（着手宣言）
 
-Routine か付き添いのセッションが作業の前に残す、着手者を記録したコメント（```` ```agent-claim ````）。付き添いのセッションの着手（`manual`）は Routine が奪わない。付き添いのセッションの宣言には段階（`stage`）とセッションの ID（`session`）が入り、ほかのセッションからどの段階かが見える。最初の宣言が持ち主で、後の宣言は `--takeover`（`takeover: true`）のときだけ持ち主を移す。同時に宣言した後の側は読み直しで気づき、自分の宣言を取り下げて止まる。詳細：[formats.md](formats.md#着手宣言agent-claim)
+Routine か付き添いのセッションが作業の前に残す、着手者を記録したコメント（```` ```agent-claim ````）。付き添いのセッションの着手（`manual`）は Routine が奪わない。付き添いのセッションの宣言には段階（`stage`）とセッションの ID（`session`）が入り、ほかのセッションからどの段階かが見える。最初の宣言が持ち主で、後の宣言は `--takeover`（`takeover: true`）のときだけ持ち主を移す。同時に宣言した後の側は読み直しで気づき、自分の宣言を取り下げて止まる。同じセッションの段階の更新・解除は自分の宣言のコメントの書き換えで、コメントは増えない（引き継ぎと Routine は新しいコメント）。詳細：[formats.md](formats.md#着手宣言agent-claim)
 
 ### 読み込みの記録 / 読み込みが古い
 
@@ -48,7 +48,7 @@ Routine が Issue に投稿する実装方針。末尾の ```` ```agent-plan ```
 
 ### `agent:plan-ok` / `agent:plan-review`
 
-計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は、付き添いのセッションで、人が進めると決めてから実装する。App のゲートの停止による `agent:plan-review` は、止めた理由が当たらない計画を出し直せば App が外す。Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが記録した人の決定（```` ```agent-decision ````）を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき App が外す。AC の変更提案と人が付けた印は、人が外すまで残る。詳細：[operations.md](operations.md#ラベル)
+計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は、付き添いのセッションで、人か、止めた理由が想定 Risk だけでガードレールに触れない計画ならセッションの判定（`post-judgment`）で進めると決めてから実装する。App のゲートの停止による `agent:plan-review` は、止めた理由が当たらない計画を出し直せば App が外す。Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが記録した人の決定（```` ```agent-decision ````）を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき App が外す。AC の変更提案と人が付けた印は、人が外すまで残る。詳細：[operations.md](operations.md#ラベル)
 
 ## 実装
 

@@ -15,7 +15,7 @@ import { judgedHeadError, samePrPatch } from '../../lib/patch-id.ts';
 import { gitCommonDir } from '../../lib/local-state.ts';
 import { compareHarness, type DriftResult, harnessVersionsAt, loadedRecordPath, readLoadedRecord } from '../../lib/harness-drift.ts';
 import { expectedPlanGate, parsePlan, type Plan, plannerRequestsHuman } from '../../lib/plan.ts';
-import { type Claim, CLAIM_STAGES, type ClaimStage } from '../../lib/queue.ts';
+import { type Claim, CLAIM_STAGES, type ClaimStage, type StoredClaim } from '../../lib/queue.ts';
 import { transcriptSessionId } from '../../lib/session.ts';
 import { linkedIssues, type PullRequest, withStack } from '../../lib/state.ts';
 import { countCalls, estimateCost, findSessionTranscriptsWithNote, summarizeUsage, totalTokens } from '../../lib/usage.ts';
@@ -117,7 +117,7 @@ export function claimBody(manual: boolean, release = false, stage?: ClaimStage):
   return renderClaim(release ? { ...base, released: true } : base);
 }
 
-export function renderClaim(value: Claim): string {
+export function renderClaim(value: StoredClaim): string {
   const who = value.by === 'routine' ? `Routine: ${value.session}` : '手動';
   const what = value.released ? `着手を解除しました（${who}）。` : `着手しました（${who}${value.stage ? `、段階 ${value.stage}` : ''}）。`;
   return [claudeMark(currentSession()), what, '', renderBlock('agent-claim', value)].join('\n');
