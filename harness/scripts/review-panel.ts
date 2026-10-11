@@ -3,18 +3,18 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } fro
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import { hasClaudeMark, withClaudeMark } from '../lib/blocks.ts';
-import { loadConfig } from '../lib/config.ts';
+import { loadConfig, projectCommands } from '../lib/config.ts';
 import { judgedHeadError, samePrPatch } from '../lib/patch-id.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import {
-  composePanel, npmCiFailureMessage, parseChangedLines, parsePanelOutputs, parsePanelRecord, pastPrMaterial, previousFromJudgeInput, renderPanelRecord, subagentCost,
+  composePanel, parseChangedLines, parsePanelOutputs, parsePanelRecord, pastPrMaterial, previousFromJudgeInput, renderPanelRecord, runProjectCheck, subagentCost,
   PANEL_MODES, PANEL_OPTIONAL_OUTPUT_NAMES, PANEL_OUTPUT_NAMES, type CheckResult, type PanelMode, type PanelRecord,
 } from '../lib/review-panel.ts';
 import { checkJudgeInput, judgedHeadOf, judgedPrOf, splitArgs } from '../lib/session-inputs.ts';
 import { sessionFromEnv, transcriptSessionId } from '../lib/session.ts';
 import type { PullRequest } from '../lib/state.ts';
 import { findSessionTranscripts } from '../lib/usage.ts';
-import { addWorktree, npmCommand, removeWorktree, worktreeOptions } from '../lib/worktree.ts';
+import { addWorktree, projectCommand, removeWorktree, worktreeOptions } from '../lib/worktree.ts';
 
 /**
  * 合体版のレビュー（.claude/skills/review-panel/SKILL.md）の CLI。判断は harness/lib/review-panel.ts の純粋関数で行い、ここは git・npm・API を呼ぶだけ。
@@ -22,9 +22,9 @@ import { addWorktree, npmCommand, removeWorktree, worktreeOptions } from '../lib
  *   node harness/scripts/review-panel.ts mode
  *       harness.config.json の reviewPanel.mode（off / shadow / enforce。無ければ off）を出力
  *   node harness/scripts/review-panel.ts check <judge-input>
- *       ⑧：judge-input の headSha を detached の worktree（リポジトリの外）に取り出し、npm ci の後 npm run check を動かして
- *       { headSha, exitCode, outputTail }（出力の末尾 60 行）を JSON のファイルに書き、パスを出力。worktree は必ず消す。
- *       npm ci が失敗したら⑧の指摘にせず止まる
+ *       ⑧：judge-input の headSha を detached の worktree（リポジトリの外）に取り出し、設定の取り込みのコマンド（project.installCommand。既定 npm ci）の後に検証コマンド（project.checkCommand。既定 npm run check。null なら動かさない）を動かして
+ *       { headSha, exitCode, outputTail, command }（出力の末尾 60 行）を JSON のファイルに書き、パスを出力。worktree は必ず消す。
+ *       取り込みのコマンドが失敗したら⑧の指摘にせず止まる
  *   node harness/scripts/review-panel.ts findings <dir>
  *       <dir> の担当の出力（intake.json・lens1.json〜lens5.json・ac-scope.json・safety.json、あれば overbuild.json）を検査し、採点に渡す指摘の一覧（ID 付き）を出力
  *   node harness/scripts/review-panel.ts compose <pr> <dir> --judge-input <file> [--session <jsonl>]
@@ -42,7 +42,6 @@ import { addWorktree, npmCommand, removeWorktree, worktreeOptions } from '../lib
  */
 
 const config = loadConfig();
-const TAIL_LINES = 60;
 
 function fail(errors: string[]): never {
   console.error(['エラー:', ...errors.map((e) => `- ${e}`)].join('\n'));
@@ -103,16 +102,10 @@ function check(inputFile: string): string {
   const opts = worktreeOptions(config);
   const path = addWorktree(head, true, opts);
   try {
-    const npm = (script: 'ci' | 'check') => {
-      const { command, args, shell } = npmCommand(process.platform, script);
+    const result: CheckResult = runProjectCheck(head, projectCommands(config), (cmd) => {
+      const { command, args, shell } = projectCommand(process.platform, cmd);
       return spawnSync(command, args, { cwd: path, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell });
-    };
-    const ci = npm('ci');
-    if (ci.error || ci.status !== 0) throw new Error(npmCiFailureMessage(ci));
-    const r = npm('check');
-    if (r.error) throw r.error;
-    const output = `${r.stdout ?? ''}${r.stderr ?? ''}`.trimEnd().split('\n').slice(-TAIL_LINES).join('\n');
-    const result: CheckResult = { headSha: head, exitCode: r.status ?? 1, outputTail: output };
+    });
     return writeTemp({ [`check-${pr}-${head.slice(0, 7)}.json`]: `${JSON.stringify(result, null, 2)}\n` })[0]!;
   } finally {
     removeWorktree(head, opts);
