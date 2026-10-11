@@ -10,52 +10,30 @@
  *
  * --state の既定は `git rev-parse --path-format=absolute --git-common-dir` の下の agent-harness/patrol.json（worktree をまたいで同じ。作業ツリーにも GitHub にも書かない）。
  * 観測の写しは状態のファイルと同じディレクトリの <状態のファイル名>-observe.json。書き込みは一時ファイルに書いてから名前を変える。
- * 状態のファイルが壊れている・version が違うときは誤りで止まり、上書きしない。GitHub は読まない。決め方と状態のロジックは harness/lib/patrol.ts。終了コードは誤りで 1。
+ * 読んだ後にほかのセッションが状態のファイルを書いていたら、観測の写しも書かず、上書きせずに誤りで止まる（その回は記録されないので、もう一度 record を流す）。
+ * 状態のファイルが壊れている・version が違うときは誤りで止まり、上書きしない。GitHub は読まない。決め方と状態のロジックは harness/lib/patrol.ts。読み書きは harness/lib/local-state-loop.ts。終了コードは誤りで 1。
  */
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { gitCommonDir, harnessStateDir } from '../lib/local-state.ts';
-import { checkObserveReport, parsePatrolArgs, parsePatrolState, recordRound, selectReviews, type PatrolState } from '../lib/patrol.ts';
+import { exitWithErrors as fail, loadLoopState, loopStatePath, readText, saveLoopState, type LoopResult } from '../lib/local-state-loop.ts';
+import { checkObserveReport, parsePatrolArgs, parsePatrolState, recordRound, selectReviews } from '../lib/patrol.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const USAGE = 'node harness/scripts/patrol.ts previous|select|record …（使い方はファイルの先頭のコメント）';
 
-function fail(errors: string[]): never {
-  console.error(['誤り:', ...errors.map((e) => `- ${e}`)].join('\n'));
-  process.exit(1);
-}
+/** 誤りならそこで終える */
+const ok = <T>(r: LoopResult<T>): { ok: true } & T => (r.ok ? r : fail(r.errors));
 
-function readText(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8');
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    fail([`${path} を読めません: ${(e as Error).message}`]);
-  }
-}
-
-function defaultStatePath(): string {
-  const commonDir = gitCommonDir(ROOT);
-  if (commonDir === null) fail([`git の共通ディレクトリが分かりません: ${ROOT}`]);
-  return join(harnessStateDir(commonDir), 'patrol.json');
-}
-
-function loadState(path: string): PatrolState | null {
-  const parsed = parsePatrolState(readText(path));
-  if (!parsed.ok) fail([`状態のファイル（${path}）を読めません。上書きしません（直すか消せば、次の回から初回として回ります）`, ...parsed.errors]);
-  return parsed.state;
-}
-
-function writeAtomic(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, text);
-  renameSync(tmp, path);
-}
+const loadState = (path: string) => ok(loadLoopState(path, parsePatrolState, '直すか消せば、次の回から初回として回ります')).snapshot;
 
 function readObserve(path: string): { text: string; report: ReturnType<typeof checkObserveReport> } {
-  const text = readText(path);
+  let text: string | null = null;
+  try {
+    text = readText(path);
+  } catch (e) {
+    fail([(e as Error).message]);
+  }
   if (text === null) fail([`観測の JSON がありません: ${path}`]);
   let v: unknown;
   try {
@@ -69,7 +47,7 @@ function readObserve(path: string): { text: string; report: ReturnType<typeof ch
 function main(): void {
   const args = parsePatrolArgs(process.argv.slice(2));
   if (!args.ok) fail([...args.errors, USAGE]);
-  const statePath = args.state ?? defaultStatePath();
+  const statePath = args.state ?? ok(loopStatePath(ROOT, 'patrol.json')).path;
   const positional = (n: number): void => {
     if (args.positional.length !== n) fail([`${args.sub} の位置引数は ${n} 個です（${args.positional.length} 個）`, USAGE]);
   };
@@ -80,7 +58,7 @@ function main(): void {
     case 'previous': {
       positional(0);
       noRecordFlags();
-      const state = loadState(statePath);
+      const state = loadState(statePath).state;
       if (state?.observe) {
         const p = join(dirname(statePath), state.observe);
         if (existsSync(p)) console.log(p);
@@ -90,7 +68,7 @@ function main(): void {
     case 'select': {
       positional(1);
       noRecordFlags();
-      const state = loadState(statePath);
+      const state = loadState(statePath).state;
       const { report } = readObserve(args.positional[0]!);
       if (!report.ok) fail(report.errors);
       console.log(JSON.stringify(selectReviews(state, report.report, new Date(), args.max), null, 2));
@@ -98,15 +76,15 @@ function main(): void {
     }
     case 'record': {
       positional(1);
-      const state = loadState(statePath);
+      const snapshot = loadState(statePath);
       const { text, report } = readObserve(args.positional[0]!);
       if (!report.ok) fail(report.errors);
       const observeName = `${basename(statePath).replace(/\.json$/, '')}-observe.json`;
-      const next = recordRound(state, args.ran, args.suggested, new Date(), observeName);
+      const observePath = join(dirname(statePath), observeName);
+      const next = recordRound(snapshot.state, args.ran, args.suggested, new Date(), observeName);
       if (!next.ok) fail(next.errors);
-      writeAtomic(join(dirname(statePath), observeName), text);
-      writeAtomic(statePath, `${JSON.stringify(next.state, null, 2)}\n`);
-      console.log(JSON.stringify({ state: statePath, observe: join(dirname(statePath), observeName), round: next.state.rounds.at(-1) }, null, 2));
+      ok(saveLoopState(snapshot, next.state, { extra: [{ path: observePath, content: text }] }));
+      console.log(JSON.stringify({ state: statePath, observe: observePath, round: next.state.rounds.at(-1) }, null, 2));
       return;
     }
     default:
