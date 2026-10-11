@@ -40,6 +40,7 @@ test('python3・python がスタブなら止め、理由に node と Edit を書
     if (d.deny) {
       assert.ok(d.reason.includes('node'), `理由に node が無い: ${cmd}`);
       assert.ok(d.reason.includes('Edit'), `理由に Edit が無い: ${cmd}`);
+      assert.ok(d.reason.includes('Microsoft\\WindowsApps'), `理由に Microsoft\\WindowsApps が無い: ${cmd}`);
     }
   }
 });
