@@ -101,10 +101,10 @@ function safeLoadConfig(root: string): GuardrailConfig {
   }
 }
 
-// ---- 直下の名前・配下のファイル一覧（git、無ければ fs にフォールバック） ----
+// ---- 直下の名前・配下のファイル一覧（git が追跡している・無視されていない未追跡のもの、無ければ fs にフォールバック） ----
 
 function gitListUnder(root: string, relPath: string): string[] | null {
-  const r = spawnSync('git', ['ls-files', '-z', '--', relPath], { cwd: root, encoding: 'utf8' });
+  const r = spawnSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard', '--', relPath], { cwd: root, encoding: 'utf8' });
   if (r.status !== 0) return null;
   return r.stdout.split('\0').filter((p) => p.length > 0);
 }
@@ -125,7 +125,7 @@ function fsListUnder(root: string, relDir: string): string[] {
   return out;
 }
 
-/** relDir 配下（再帰）の、git 管理下（無ければ fs 上）のファイルの相対パス一覧 */
+/** relDir 配下（再帰）の、git が追跡している・無視されていない未追跡の（無ければ fs 上）のファイルの相対パス一覧 */
 function filesUnder(root: string, relDir: string): string[] {
   return gitListUnder(root, relDir) ?? fsListUnder(root, relDir);
 }
