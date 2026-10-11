@@ -47,11 +47,25 @@ export function renderQueueSection(q: QueueResult): string {
   ].join('\n');
 }
 
-/** 本文の queue 節を差し替える（なければ末尾に足す） */
+/** 目印の組が正しいか（開始と終わりがちょうど1つずつで、開始が終わりより前） */
+function markerPairOk(body: string, start: string, end: string): boolean {
+  const count = (marker: string): number => body.split(marker).length - 1;
+  return count(start) === 1 && count(end) === 1 && body.indexOf(start) < body.indexOf(end);
+}
+
+/** queue の節の目印の組が正しいか */
+export function queueMarkersOk(body: string): boolean {
+  return markerPairOk(body, QUEUE_START, QUEUE_END);
+}
+
+/** 本文の queue 節を差し替える。目印の組が正しいときだけ差し替え、両方とも無いときだけ末尾に足す。壊れているときは本文をそのまま返す */
 export function replaceQueueSection(body: string, section: string): string {
-  const start = body.indexOf(QUEUE_START);
-  const end = body.indexOf(QUEUE_END);
-  if (start >= 0 && end > start) return body.slice(0, start) + section + body.slice(end + QUEUE_END.length);
+  if (queueMarkersOk(body)) {
+    const start = body.indexOf(QUEUE_START);
+    const end = body.indexOf(QUEUE_END);
+    return body.slice(0, start) + section + body.slice(end + QUEUE_END.length);
+  }
+  if (body.includes(QUEUE_START) || body.includes(QUEUE_END)) return body;
   return `${body.trimEnd()}\n\n${section}`;
 }
 
@@ -135,8 +149,7 @@ export function renderImproveSection(entries: IncidentEntry[] | null): string {
 
 /** 改善の候補の節の目印の組が正しいか（開始と終わりがちょうど1つずつで、開始が終わりより前） */
 export function improveMarkersOk(body: string): boolean {
-  const count = (marker: string): number => body.split(marker).length - 1;
-  return count(IMPROVE_START) === 1 && count(IMPROVE_END) === 1 && body.indexOf(IMPROVE_START) < body.indexOf(IMPROVE_END);
+  return markerPairOk(body, IMPROVE_START, IMPROVE_END);
 }
 
 /** 本文の改善の候補の節を差し替える。目印の組が正しいときだけ差し替え、両方とも無いときだけ queue の節の直後（それも無ければ末尾）に足す。片方だけ・重複・順番違いなど壊れているときは、本文をそのまま返す */
