@@ -5,7 +5,7 @@ import type { DelegateState } from '../lib/delegate.ts';
 import { labelAuditRows, renderAuditLines } from '../lib/label-rules.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { claimOf } from '../lib/facts.ts';
+import { claimActivityAt, claimOf } from '../lib/facts.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
 import { acceptanceForPatch, appRecords, autoMergeMode, findDashboard, hasLabel, isAgentPr, isTrustedComment, latestPlanGate, linkedIssues, prDiff, type DashboardIssue, type PullRequest } from '../lib/state.ts';
 import { classifyBase } from '../lib/stack.ts';
@@ -21,7 +21,7 @@ import type { EpicUnassignedRow } from './epic-triage.ts';
 import { reviewAutoModePlans, reviewDelegatedPlans } from './on-comment.ts';
 
 /**
- * 定期実行：停滞検知。24 時間動きがない Issue・PR、期限切れの人の claim、コンフリクトしている PR、
+ * 定期実行：停滞検知。24 時間動きがない（宣言の段階の時刻も動きに数える）Issue・PR、期限切れの人の claim、コンフリクトしている PR、
  * 人の対応待ち（blocked / plan-review）、必須ラベルの不足・違反を App のダッシュボード Issue に一覧化する。
  * 遅れている Agent PR（既定ブランチ宛て）を追従させる（判定中は除く）。
  * 計画の委任（委任承認）が有効なら、ゲートの停止で止まっている計画を最初に判定し直し（on-comment.ts の reviewDelegatedPlans）、
@@ -402,7 +402,7 @@ async function unclaimedJudgeInputs(ctx: GateContext, prs: PullRequest[], now: D
       const base: UnclaimedJudgeInput = { pr: ref, claim, labels, conflicted, headCommitAt: null, lastClaudeAt: null, accepted: null };
       const commit = await ctx.gh.get<{ commit?: { committer?: { date?: string | null } | null } }>(`/commits/${pr.head.sha}`);
       const headCommitAt = commit.commit?.committer?.date ?? null;
-      const times = comments.filter((c) => hasClaudeMark(c.body) && isTrustedComment(c)).map((c) => new Date(c.created_at).getTime()).filter((t) => !Number.isNaN(t));
+      const times = [...comments.filter((c) => hasClaudeMark(c.body) && isTrustedComment(c)).map((c) => c.created_at), claimActivityAt(comments)].flatMap((t) => (t === null ? [] : [new Date(t).getTime()])).filter((t) => !Number.isNaN(t));
       const lastClaudeAt = times.length > 0 ? new Date(Math.max(...times)).toISOString() : null;
       const timed = { ...base, headCommitAt, lastClaudeAt };
       if (!unclaimedJudgeCandidate(timed, now, minutes)) continue;
@@ -413,6 +413,25 @@ async function unclaimedJudgeInputs(ctx: GateContext, prs: PullRequest[], now: D
     }
   }
   return inputs;
+}
+
+/**
+ * updated_at では停滞に見える Issue・PR の宣言の段階の最新の時刻が staleMs 以内か（history の書き換えは updated_at を進めないことがあるため）。
+ * 読めなければ（例外）ログに残して false（今までどおり停滞に出す）
+ */
+async function claimMovedRecently(ctx: GateContext, n: number, now: Date, staleMs: number, cache?: Map<number, IssueComment[]>): Promise<boolean> {
+  try {
+    let comments = cache?.get(n);
+    if (!comments) {
+      comments = await ctx.gh.listComments(n);
+      cache?.set(n, comments);
+    }
+    const at = claimActivityAt(comments);
+    return at !== null && now.getTime() - new Date(at).getTime() <= staleMs;
+  } catch (e) {
+    ctx.log(`#${n} の着手宣言の時刻を読めませんでした（停滞として扱います）: ${(e as Error).message}`);
+    return false;
+  }
 }
 
 export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts: { epicUnassigned?: EpicUnassignedRow[] } = {}): Promise<void> {
@@ -442,7 +461,10 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
   const agentItems = issues.filter((i) => i.labels.some((l) => l.name.startsWith('agent:')) && i.title !== ctx.config.dashboardIssueTitle);
 
   const needsHuman = agentItems.filter((i) => i.labels.some((l) => l.name === LABELS.blocked || l.name === LABELS.planReview));
-  const stale = agentItems.filter((i) => age(i.updated_at) > staleMs && !needsHuman.includes(i));
+  const stale: IssueItem[] = [];
+  for (const i of agentItems) {
+    if (age(i.updated_at) > staleMs && !needsHuman.includes(i) && !(await claimMovedRecently(ctx, i.number, now, staleMs))) stale.push(i);
+  }
   // 人の対応待ちは理由コード別に並べる（理由が無いものは目立たせる）
   const reasons = new Map<number, string>();
   for (const i of needsHuman) {
@@ -456,15 +478,15 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
   const bases = await reconcileBases(ctx, prs);
   const conflicts: PullRequest[] = [];
   const stalePrs: PullRequest[] = [];
+  const prComments = new Map<number, IssueComment[]>();
   const agentPrs: PullRequest[] = [];
   for (const item of prs.filter((p) => isAgentPr(ctx.config, p, ctx.repository))) {
     const pr = await ctx.gh.get<PullRequest>(`/pulls/${item.number}`);
     agentPrs.push(pr);
     if (pr.mergeable_state === 'dirty') conflicts.push(pr);
-    else if (age(pr.updated_at) > staleMs) stalePrs.push(pr);
+    else if (age(pr.updated_at) > staleMs && !(await claimMovedRecently(ctx, pr.number, now, staleMs, prComments))) stalePrs.push(pr);
     await followOnSchedule(ctx, pr, now);
   }
-  const prComments = new Map<number, IssueComment[]>();
   const stalledMinutes = stalledClaimMinutes(ctx.config.routine);
   const stalled = stalledClaims(await stalledClaimInputs(ctx, agentPrs, now, stalledMinutes, prComments), now, stalledMinutes).map((r) => renderStalledClaimLine(r, now));
   const unclaimed = unclaimedJudgePrs(await unclaimedJudgeInputs(ctx, agentPrs, now, stalledMinutes, prComments), now, stalledMinutes).map((r) => renderUnclaimedJudgeLine(r, now));

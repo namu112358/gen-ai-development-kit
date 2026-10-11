@@ -45,10 +45,9 @@ export function sessionKey(s: string): string {
   return s.slice(s.lastIndexOf('/') + 1).replace(/^cse_/, 'session_');
 }
 
-/** push した時点（pushedAt 以前に作られたコメントだけ）で有効だった着手宣言 */
+/** push した時点（各段階の時刻が pushedAt 以下）で有効だった着手宣言。history の2件目からは段階の at で比べる */
 export function claimAt(comments: IssueComment[], pushedAt: string): Claim | null {
-  const at = Date.parse(pushedAt);
-  return claimOf(comments.filter((c) => Date.parse(c.created_at) <= at));
+  return claimOf(comments, { until: pushedAt });
 }
 
 export type UnclaimedPushReason = 'no-claim' | 'session-mismatch';
