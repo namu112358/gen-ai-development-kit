@@ -198,3 +198,37 @@ export function testsHumanMergeReasons(parts: { guardrail: string[]; humanMerge:
   if (a && a.reviewPass && !a.autoEligible) reasons.push(...(a.reasons.length > 0 ? a.reasons : ['受け付けた判定が自動 Merge の対象外です']));
   return [...new Set(reasons)];
 }
+
+/** 自動 Merge の経路の種類（委任承認（計画＋Merge）・auto mode・bypass） */
+export type AutoRoute = 'delegate' | 'autoMode' | 'bypass';
+
+export const AUTO_ROUTE_NAME: Record<AutoRoute, string> = { delegate: '委任承認（計画＋Merge）', autoMode: 'auto mode', bypass: 'bypass モード' };
+
+/**
+ * 自動の経路があるときの、コメントに書く理由。理由の先頭の決まった書き出しだけを置き換え、後ろ（`: ファイルの一覧`）は残す。
+ * 経路が無い・ほかの理由は入力のまま。記録（reasons）には使わない（コメントの本文だけ）。
+ */
+export function autoRouteReason(reason: string, route: AutoRoute | null): string {
+  if (!route) return reason;
+  const name = AUTO_ROUTE_NAME[route];
+  const swaps: [string, string][] = [
+    ['ガードレールに触れます（人が Merge する）', `ガードレールに触れます（${name}で App が自動 Merge する）`],
+    ['ガードレールに触れます（人が実装して Merge する）', `ガードレールに触れます（付き添いのセッションで実装する。${name}が有効なので、合格すれば App が自動 Merge する）`],
+    ['人が Merge するパスに触れます（humanMergePaths）', `humanMergePaths に触れます（${name}で App が自動 Merge する）`],
+  ];
+  for (const [from, to] of swaps) if (reason.startsWith(from)) return to + reason.slice(from.length);
+  return reason;
+}
+
+/** 計画ゲートの停止で、App が自動 Merge する経路。委任承認（計画＋Merge）で計画の files が除外に重ならなければ delegate、そうでなく bypass が有効なら bypass */
+export function planStopRoute(p: { delegateMergeActive: boolean; delegateExcluded: boolean; bypassActive: boolean }): 'delegate' | 'bypass' | null {
+  if (p.delegateMergeActive && !p.delegateExcluded) return 'delegate';
+  return p.bypassActive ? 'bypass' : null;
+}
+
+/** 停止のコメントの1行目の、「人が手元でセッションを立てて実装してください。」の代わりの文。経路が無ければ null（今の文のまま） */
+export function planStopLead(route: AutoRoute | null, origin: 'gate' | 'planner'): string | null {
+  if (!route) return null;
+  const run = `付き添いのセッションで実装してください。${AUTO_ROUTE_NAME[route]}が有効なので、PR が計画の範囲に収まり判定に合格すれば App が自動 Merge します（Merge の経路は App が決めます）。`;
+  return origin === 'planner' ? `人が進めると決めれば、${run}` : run;
+}
