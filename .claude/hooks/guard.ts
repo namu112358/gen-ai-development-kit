@@ -22,7 +22,15 @@
  * Windows の中身の無い `python3`・`python`（Microsoft\WindowsApps の下のスタブ。何も出さずに終わる）を呼ぶ Bash も止め、node か Edit・Write ツールを案内する（#529）。
  * 見分けは ctx.pythonStub（main が isWindowsPythonStub を渡す。無ければ止めない）。xargs・find -exec・スクリプトの中の呼び出しは、ほかの判定と同じく拾わない。
  *
+ * 判定の担当のサブエージェント（hook の入力の agent_type が JUDGE_AGENT_TYPES にある。reviewer・risk-agent・review-*）からの git は、
+ * 読むだけの操作（diff・show・log・fetch・status など）だけを通し、ブランチ・HEAD・作業ツリー・索引を動かす操作
+ * （checkout・switch・reset・restore・merge・stash・worktree add など）を、場所（-C）に関わらず止める（#637）。
+ * 本体のセッション・ほかのサブエージェントは今までどおり。コマンドを字句に分けられない・入れ子が深すぎる・標準入力から読むシェルのときは、
+ * 文に git の語があれば止める。
+ *
  * 拾いきれない経路があるので、最後の砦は GitHub の Ruleset：
+ * - 判定の担当の git の絞りで拾わないもの：スクリプト・node の中の git、xargs・find -exec、リダイレクトで .git を書き換える形、
+ *   agent_type が入らない古い Claude Code（残る守りは judge の skill の、呼んだ後の HEAD・ブランチ・git status の比べ）
  * - スクリプトファイルの中身、シェルの関数・別名（alias）
  * - `gh alias set` で作った gh の別名、`gh stack alias` で前に作った別名（`gs` など）
  * - 引数としてコマンドを実行するもの（xargs・find -exec・parallel・flock・chrt・taskset・watch など。
@@ -78,6 +86,15 @@ export function protectedLabelsOf(config: HarnessConfig, lib: typeof import('../
   return [...new Set(labels)];
 }
 const MAX_DEPTH = 8;
+
+/** 判定の担当のサブエージェントの名前（.claude/agents/ の name）。hook の入力の agent_type と比べる（#637） */
+export const JUDGE_AGENT_TYPES: readonly string[] = ['reviewer', 'risk-agent', 'review-intake', 'review-lens', 'review-ac-scope', 'review-safety', 'review-overbuild', 'review-scorer'];
+
+/** 入力の agent_type が判定の担当ならその名前（本体の会話・ほかのサブエージェントは undefined） */
+export function judgeAgentOf(input: HookInput): string | undefined {
+  const t = input.agent_type;
+  return typeof t === 'string' && JUDGE_AGENT_TYPES.includes(t) ? t : undefined;
+}
 const ALLOW: Decision = { deny: false };
 
 const ROLE = 'これは人か App の役割です（CLAUDE.md の「やってはいけないこと」）。別の方法で試さず、人に返してください。';
@@ -485,6 +502,11 @@ function keywordHit(text: string, labels: string[]): boolean {
   return /push|merge|:exempt/.test(t) || labels.some((l) => t.includes(l.toLowerCase()));
 }
 
+/** 判定の担当のとき、中身が分からない文に git の語があるか */
+function gitHitFor(text: string, ctx: Ctx): boolean {
+  return ctx.readOnlyGit !== undefined && /\bgit\b/.test(text);
+}
+
 function moveTo(where: Where, arg: Word | undefined, ctx: GuardContext): Where {
   if (!arg || arg.dynamic || arg.text === '-' || arg.text.startsWith('~')) return { dir: undefined, branch: null };
   const dir = isAbsolute(arg.text) ? resolve(arg.text) : where.dir !== undefined ? resolve(where.dir, arg.text) : undefined;
@@ -687,6 +709,54 @@ const isConfigEnv = (name: string): boolean => /^(GIT_CONFIG_PARAMETERS|GIT_CONF
 /** 安全側の判定のときの印（設定や今のブランチが読めない理由） */
 interface Ctx extends GuardContext {
   strict?: string;
+  /** 判定の担当の名前（あれば git は読むだけの操作だけ通す。#637） */
+  readOnlyGit?: string;
+}
+
+/** 常に通す、読むだけの git のサブコマンド */
+const READ_ONLY_GIT = new Set([
+  'diff', 'log', 'show', 'status', 'rev-parse', 'fetch', 'ls-files', 'ls-tree', 'grep', 'blame', 'annotate', 'cat-file', 'merge-base', 'rev-list',
+  'patch-id', 'diff-tree', 'diff-index', 'diff-files', 'for-each-ref', 'show-ref', 'describe', 'name-rev', 'shortlog', 'range-diff', 'whatchanged',
+  'count-objects', 'check-ignore', 'check-attr', 'var', 'version', 'help',
+]);
+
+const readOnlyGitDenied = (agentType: string, what: string): string =>
+  `hook が止めました：判定の担当（${agentType}）は、ブランチ・HEAD・作業ツリーを動かす git の操作（git ${what}）をしません。` +
+  'diff は git fetch・git diff・git show・git log で読み、操作が要るなら理由を出力に書いて返してください。';
+
+/** git branch が読むだけか（一覧・表示だけ）。--list などの直後の値（パターン・コミット）は位置の引数として扱わない */
+function branchIsReadOnly(rest: Word[]): boolean {
+  const writeLong = ['--force', '--delete', '--move', '--copy', '--set-upstream-to', '--unset-upstream', '--edit-description', '--track', '--no-track'];
+  const valued = ['--list', '--contains', '--no-contains', '--merged', '--no-merged', '--points-at'];
+  for (let k = 0; k < rest.length; k++) {
+    const w = rest[k]!;
+    const t = w.text;
+    if (w.dynamic || !t.startsWith('-') || t === '-') return false;
+    if (t.startsWith('--')) {
+      const name = t.split('=')[0]!;
+      if (writeLong.includes(name)) return false;
+      if (valued.includes(name) && !t.includes('=') && rest[k + 1] && !rest[k + 1]!.text.startsWith('-')) k++;
+    } else if (/[dDmMcCfut]/.test(t.slice(1))) return false;
+  }
+  return true;
+}
+
+/** 判定の担当の git：読むだけの操作なら null、そうでなければ止める理由 */
+function readOnlyGitReason(agentType: string, sub: Word, rest: Word[]): string | null {
+  const s = sub.text;
+  const first = rest[0]?.text;
+  const has = (...names: string[]): boolean => rest.some((a) => names.includes(a.text));
+  let ok: boolean;
+  if (s === 'fetch') ok = !rest.some((a) => a.text === '--update-head-ok' || a.text === '-u');
+  else if (READ_ONLY_GIT.has(s)) ok = true;
+  else if (s === 'branch') ok = branchIsReadOnly(rest);
+  else if (s === 'worktree') ok = first === 'list';
+  else if (s === 'stash') ok = first === 'list' || first === 'show';
+  else if (s === 'remote') ok = first === undefined || ['-v', '--verbose', 'get-url', 'show'].includes(first);
+  else if (s === 'config') ok = has('--get', '--get-all', '--get-regexp', '--list', '-l');
+  else if (s === 'reflog') ok = first === undefined || first === 'show';
+  else ok = false;
+  return ok ? null : readOnlyGitDenied(agentType, s);
 }
 
 const strictPushReason = (why: string): string =>
@@ -753,6 +823,10 @@ function checkGit(args: Word[], where: Where, ctx: Ctx, assigns: string[]): stri
   if (!sub) return null;
   if (sub.dynamic) return unknown(`git のサブコマンド（${sub.text}）`);
   const rest = args.slice(j + 1);
+  if (ctx.readOnlyGit) {
+    const r = readOnlyGitReason(ctx.readOnlyGit, sub, rest);
+    if (r) return r;
+  }
   if (sub.text === 'config') return checkGitConfig(rest);
   if (sub.text === 'remote' && rest[0]?.text === 'add') {
     const mirror = rest.find((a) => a.text === '--mirror' || a.text === '--mirror=push');
@@ -978,7 +1052,7 @@ function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | 
   return null;
 }
 
-function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: number, script: string): string | null {
+function checkSegment(seg: Segment, where: Where, ctx: Ctx, depth: number, script: string): string | null {
   const nested: string[] = [];
   const { start, assigns, chdirs } = commandStart(seg.words, nested);
   for (const s of nested) {
@@ -1031,7 +1105,7 @@ function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: numb
       return null;
     }
     // 標準入力からコマンドを読むシェル：前のコマンドの出力は分からないので、言葉の手がかりで判定する
-    return keywordHit(script, ctx.protectedLabels) ? fallbackReason('標準入力から読むシェルの中身が分からない') : null;
+    return keywordHit(script, ctx.protectedLabels) || gitHitFor(script, ctx) ? fallbackReason('標準入力から読むシェルの中身が分からない') : null;
   }
   if (name === 'eval') return analyze(args.map((a) => a.text).join(' '), { ...here }, ctx, depth + 1);
   const file = head.text.slice(Math.max(head.text.lastIndexOf('/'), head.text.lastIndexOf('\\')) + 1);
@@ -1043,14 +1117,14 @@ function checkSegment(seg: Segment, where: Where, ctx: GuardContext, depth: numb
   return null;
 }
 
-function analyze(script: string, where: Where, ctx: GuardContext, depth: number): string | null {
-  if (depth > MAX_DEPTH) return keywordHit(script, ctx.protectedLabels) ? fallbackReason('入れ子が深すぎて中身を調べきれない') : null;
+function analyze(script: string, where: Where, ctx: Ctx, depth: number): string | null {
+  if (depth > MAX_DEPTH) return keywordHit(script, ctx.protectedLabels) || gitHitFor(script, ctx) ? fallbackReason('入れ子が深すぎて中身を調べきれない') : null;
   let segs: Segment[];
   try {
     segs = parseScript(script);
   } catch (e) {
     if (!(e instanceof ParseError)) throw e;
-    return keywordHit(script, ctx.protectedLabels) ? fallbackReason(`コマンドを字句に分けられない（${e.message}）`) : null;
+    return keywordHit(script, ctx.protectedLabels) || gitHitFor(script, ctx) ? fallbackReason(`コマンドを字句に分けられない（${e.message}）`) : null;
   }
   for (const seg of segs) {
     for (const s of seg.subs) {
@@ -1111,7 +1185,8 @@ export function decide(input: HookInput, ctx: GuardContext): Decision {
     const command = input.tool_input !== null && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>).command : undefined;
     if (typeof command !== 'string') return ALLOW;
     const where: Where = { dir: typeof input.cwd === 'string' ? input.cwd : undefined, branch: ctx.currentBranch };
-    reason = analyze(command, where, ctx, 0);
+    const judge = judgeAgentOf(input);
+    reason = analyze(command, where, judge ? { ...ctx, readOnlyGit: judge } : ctx, 0);
   } else if (toolName.startsWith('mcp__')) {
     reason = checkMcp(toolName, input.tool_input, ctx);
   }
@@ -1171,7 +1246,7 @@ export function decideRaw(raw: string, ctx: GuardContext | null): Decision {
   }
   const command = input.tool_input !== null && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>).command : undefined;
   if (typeof command !== 'string') return ALLOW;
-  const strict: Ctx = { defaultBranch: ctx?.defaultBranch ?? 'main', protectedLabels: labels, currentBranch: null, strict: why };
+  const strict: Ctx = { defaultBranch: ctx?.defaultBranch ?? 'main', protectedLabels: labels, currentBranch: null, strict: why, readOnlyGit: judgeAgentOf(input) };
   try {
     const reason = analyze(command, { dir: typeof input.cwd === 'string' ? input.cwd : undefined, branch: null }, strict, 0);
     return reason ? { deny: true, reason } : ALLOW;
