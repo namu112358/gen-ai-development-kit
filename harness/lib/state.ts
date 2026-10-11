@@ -103,6 +103,8 @@ export interface PlanGateRecord {
   delegated?: PlanDelegation;
   /** 批評で必須の指摘が残ったまま、人が進めると決めて通った計画（critique が revise で mustRemaining が1以上）。古い記録には無い */
   critiqueProceeded?: { verdict: 'revise'; mustRemaining: number };
+  /** split の計画で、Planner の申告で付いた agent:plan-review を外して通したとき（Issue #659）。古い記録には無い */
+  splitReleased?: true;
   /** auto mode の危険の判定をかけたとき（通した・保留にした）。harness/gates/auto-mode.ts と on-comment.ts の onPlan。古い記録には無い */
   autoMode?: PlanAutoMode;
   /** 実装に勧めるモデル（Jev）。jev.modelRouting が off なら無い。古い記録には無い。Issue #139 */

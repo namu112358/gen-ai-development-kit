@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { autoModeConfig, autoModeDanger, planBodyWithoutView, type AutoModeJevRecord, type AutoModeState } from '../lib/auto-mode.ts';
 import { extractBlock } from '../lib/blocks.ts';
 import { AREA_PREFIX } from '../lib/classify.ts';
-import { answeredPlan } from '../lib/decision.ts';
+import { answeredPlan, splitPlannerRelease } from '../lib/decision.ts';
 import { appLogin, LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
 import { delegateEligibility, delegateExcludeFiles, delegateModeName, delegatePlanExclude, delegatePlanGate, type DelegateState } from '../lib/delegate.ts';
 import type { IssueComment } from '../lib/github.ts';
@@ -13,7 +13,7 @@ import { AUTO_ROUTE_NAME, autoRouteReason, eligibility, planStopLead, planStopRo
 import { applyOverbuildJev, renderOverbuildJevRow } from '../lib/overbuild-jev.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { critiqueClaimedBefore } from '../lib/facts.ts';
-import { evaluateCritiqueGate, evaluatePlanGate, parsePlan, planReviewOrigin, PRIOR_PLAN_REVIEW_REASON_PREFIX, priorPlanReviewReleased, recordedOrigin, withCritiqueGate, type GateResult, type Plan } from '../lib/plan.ts';
+import { evaluateCritiqueGate, evaluatePlanGate, parsePlan, planReviewOrigin, plannerRequestsHuman, PRIOR_PLAN_REVIEW_REASON_PREFIX, priorPlanReviewReleased, recordedOrigin, withCritiqueGate, type GateResult, type Plan } from '../lib/plan.ts';
 import { checkScope } from '../lib/scope.ts';
 import { classifyBase, type BaseKind } from '../lib/stack.ts';
 import {
@@ -24,6 +24,7 @@ import {
   hasLabel,
   isAgentPr,
   isSameRepoPr,
+  appRecords,
   isTrustedComment,
   lastLabeled,
   latestPlanGate,
@@ -124,7 +125,10 @@ async function onPlan(
   const labelled = hasLabel(issue, LABELS.planReview);
   // 前の印が App のゲートの停止なら、それを理由に止めず新しい計画だけで判定する（Planner の申告・人の印は人が外すまで残す）
   // 決定の記録で判定し直すときは、印は答えた Planner の申告のもの（plan-decision.ts が確かめた）なので理由にしない
-  const released = labelled && (decision ? true : await releasesPriorPlanReview(ctx, issue.number));
+  const releasedByGate = labelled && (decision ? true : await releasesPriorPlanReview(ctx, issue.number));
+  // split の計画：Planner の申告で付いた印を外してよいかは、委任・auto mode の前のゲート（original）が通るときだけ見る（Issue #659）
+  const splitReleased = labelled && !releasedByGate && !!plan.split && original.pass && !plannerRequestsHuman(plan) && (await releasesPlannerReviewForSplit(ctx, issue.number, plan));
+  const released = releasedByGate || splitReleased;
   if (labelled && !released && (gate.pass || autoCandidate)) {
     gate.pass = false;
     gate.reasons.push(`${PRIOR_PLAN_REVIEW_REASON_PREFIX}（Planner の申告か人が付けた印です。人が外すまで止めます）`);
@@ -158,7 +162,8 @@ async function onPlan(
   const record = { version: 1, planCommentId: comment.id, planBodySha256: sha256(comment.body), pass: gate.pass, reasons: gate.reasons, plan } as PlanGateRecord & { plan: typeof plan; planBodySha256: string };
   if (decision) record.decisionCommentId = decision.commentId;
   if (gate.pass && gate.critiqueProceeded) record.critiqueProceeded = gate.critiqueProceeded;
-  if (!gate.pass) record.planReviewOrigin = planReviewOrigin(judged, labelled && !released);
+  if (!gate.pass) record.planReviewOrigin = planReviewOrigin(judged, labelled && (!released || splitReleased));
+  if (gate.pass && splitReleased) record.splitReleased = true;
   const delegated = gate.pass ? gate.delegated : undefined;
   if (delegated) record.delegated = delegated;
   if (autoMode) record.autoMode = autoMode;
@@ -173,12 +178,14 @@ async function onPlan(
   if (gate.pass && released) await ctx.gh.removeLabel(issue.number, LABELS.planReview);
   const releasedNote = !(gate.pass && released)
     ? ''
-    : decision
+    : splitReleased
+      ? 'Planner の申告で付いた `agent:plan-review` を、申告の無い split の計画（ガードレールに触れない）なので外しました。子課題はそれぞれの計画でゲートがもう一度見ます。'
+      : decision
       ? `人の決定の記録（[コメント](${decision.url})）を Jev が確かめ、Planner の申告による \`agent:plan-review\` を外しました。`
       : '前の計画ゲートの停止（`agent:plan-review`）を外しました。';
   const proceededNote = gate.pass && gate.critiqueProceeded ? `批評で必須の指摘が ${gate.critiqueProceeded.mustRemaining} 件残ったまま、人が進めると決めた計画です。` : '';
   if (gate.pass && plan.split && epic) {
-    await splitEpic(ctx, issue, comment, { ...plan, split: plan.split }, record, epic);
+    await splitEpic(ctx, issue, comment, { ...plan, split: plan.split }, record, epic, `${releasedNote}${proceededNote}`);
   } else if (gate.pass) {
     await ctx.gh.addLabels(issue.number, [LABELS.planOk]);
     // 計画の files から決まる area:* を足す（人が付けたものは外さない）
@@ -240,6 +247,20 @@ async function releasesPriorPlanReview(ctx: GateContext, issueNumber: number): P
   const events = await ctx.gh.paginate<TimelineEvent>(`/issues/${issueNumber}/events`);
   const byApp = lastLabeled(events, LABELS.planReview)?.actor?.login === appLogin(ctx.config);
   return priorPlanReviewReleased(true, previous, byApp);
+}
+
+/** split の計画で、Planner の申告で付いた印を外してよいか（印が付いているときだけ呼ぶ）。外さない理由はログに残す */
+async function releasesPlannerReviewForSplit(ctx: GateContext, issueNumber: number, plan: Plan): Promise<boolean> {
+  const comments = await ctx.gh.listComments(issueNumber);
+  const gates = appRecords<PlanGateRecord & { plan?: Plan }>(ctx.config, comments, 'plan-gate').map((g) => ({
+    planCreatedAt: comments.find((c) => c.id === g.value.planCommentId)?.created_at ?? null,
+    gateCreatedAt: g.comment.created_at,
+    value: g.value,
+  }));
+  const events = await ctx.gh.paginate<TimelineEvent>(`/issues/${issueNumber}/events`);
+  const r = splitPlannerRelease({ plan, gates, events });
+  if (!r.release) ctx.log(`#${issueNumber} の split の計画で Planner の申告の印を外しません: ${r.reasons.join(' / ')}`);
+  return r.release;
 }
 
 function stopCode(plan: Plan, gate: GateResult): ReasonCode {
