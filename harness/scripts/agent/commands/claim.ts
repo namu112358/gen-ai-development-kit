@@ -1,5 +1,5 @@
 import { checkAssignee } from '../../../lib/assignee.ts';
-import { claimedLine, postClaim, writeClaim } from '../../../lib/claim.ts';
+import { claimedLine, closedPrStop, postClaim, prStageStop, writeClaim } from '../../../lib/claim.ts';
 import { countsTowardAreaLimit, describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
@@ -21,8 +21,10 @@ import { type AgentCommand, assigneeIo, config, currentSession, ensureOwnClaim, 
  *                                                           （PR 番号なら PR が Close する Issue の Assignee。ensure-claim などの確かめも同じ。エージェントはアサインしない）
  *                                                           このセッションの読み込みが古い（harness-drift）とき、--stage judge は宣言を投稿せずに止まる（--force・--takeover でも。Issue #199）。
  *                                                           ほかの段階は宣言の後に標準エラーへ一言出すだけで止めない
+ *                                                           PR が Merge 済み・Closed のとき、--stage fix|sync は宣言を投稿せずに止まる（push で消えたブランチを作り直さないため。Issue #638）
  *                                                           成功したら番号・段階・session の短い ID を1行、標準出力に出す
  *   node harness/scripts/agent.ts ensure-claim <番号>        このセッションの着手宣言（持ち主）があるかを確かめるだけ（PR を作る前に使う）
+ *                                                           PR 番号なら PR が開いているかも確かめ、Merge 済み・Closed なら止まる（fix・sync の push の前。Issue #638）
  *   node harness/scripts/agent.ts release <n>               着手宣言の解除コメント（このセッションの ID が得られなければ止まる）
  */
 
@@ -44,8 +46,10 @@ async function claim(gh: GitHub, n: number, manual: boolean, skipAreaLimit: bool
   // 読み込みの記録があるときだけ fetch して比べる（judge の前の確かめと、宣言の後の一言で1回だけ読む）
   let drift: ReturnType<typeof harnessDrift> | undefined;
   const readDrift = () => (drift === undefined ? (drift = harnessDrift()) : drift);
-  // 宣言の前の確かめ：読み込みが古いときの judge（--force・--takeover でも）→ Assignee（手動の宣言。--force・--takeover でも）→ 領域の上限（手動で --force・--fleet が無く、段階が plan・plan-critique でないとき）の順
+  // 宣言の前の確かめ：Merge 済み・Closed の PR への fix・sync（Issue #638）→ 読み込みが古いときの judge（--force・--takeover でも）→ Assignee（手動の宣言。--force・--takeover でも）→ 領域の上限（手動で --force・--fleet が無く、段階が plan・plan-critique でないとき）の順
   const before = async (): Promise<string | null> => {
+    const closed = await prStageStop((m) => gh.get<PullRequest>(`/pulls/${m}`, { allow404: true }), n, stage);
+    if (closed) return closed;
     const stale = stage === 'judge' ? judgeBlock(stage, readDrift()) : null;
     if (stale) return `#${n}: ${stale}`;
     if (manual) {
@@ -89,6 +93,13 @@ async function release(gh: GitHub, n: number): Promise<void> {
   await writeClaim(gh, n, { ...manualClaim(), released: true }, { render: renderClaim });
 }
 
+/** ensure-claim：持ち主の確かめに加えて、PR 番号なら PR が開いているかを確かめる（Issue 番号は 404 で今までどおり） */
+async function ensureClaim(gh: GitHub, n: number): Promise<void> {
+  await ensureOwnClaim(gh, n);
+  const stop = closedPrStop(await gh.get<PullRequest>(`/pulls/${n}`, { allow404: true }));
+  if (stop) fail([stop]);
+}
+
 export const commands: AgentCommand[] = [
   {
     name: 'claim',
@@ -97,6 +108,6 @@ export const commands: AgentCommand[] = [
       return claim(ctx.gh(), Number(args[0]), o.manual, o.skipAreaLimit, o.takeover, parseStage(args));
     },
   },
-  { name: 'ensure-claim', run: (args, ctx) => ensureOwnClaim(ctx.gh(), Number(args[0])) },
+  { name: 'ensure-claim', run: (args, ctx) => ensureClaim(ctx.gh(), Number(args[0])) },
   { name: 'release', run: (args, ctx) => release(ctx.gh(), Number(args[0])) },
 ];
