@@ -59,6 +59,8 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | `authorView` | 文字列（任意） | 計画を書いたセッションの見解（意図や、守りに触れる理由）。空でなく 2000 文字まで。auto mode の危険の問い（Jev）の見解ありの問いにだけ、別の欄 `author_view` で渡す（見解なしの問いには、`agent-plan` から `authorView` を除いた本文を渡す）。保留するかには使わない（shadow。Issue #426）。人が読む本文には書かない |
 | `steps` | 配列（任意、1〜50 件） | 実装の手順書（Issue #470）。各件は `file`（必須。`files` の項目と同じ文字列か、その glob に当たるパス）・`change`（必須。そのファイルの変更点）と、任意の `symbols`（足す・変える関数と型の名前と引数）・`follow`（倣う既存の関数）・`edgeCases`（端の場合）・`dontTouch`（触らないこと）。各文字列は空でなく 2000 文字まで。`split` の計画では書けない（子課題の計画で書く）。無い計画は今までどおり通る。auto mode の危険の問い（Jev）に渡す計画の本文に含まれる |
 
+`acChangeProposed` の計画は、提案を本文の見出し「AC の変更の提案」を含む見出しの節に書く（judge-input はこの節だけを使い、見出しが無ければ使わない）。
+
 読んだ値では、質問の文を `openQuestions`（文字列の配列）に、選択肢を `openQuestionChoices`（`openQuestions` と同じ並びで、選択肢の無い質問は空配列。選択肢つきの質問が1つも無ければ欄が無い）に分ける。ゲートの件数・決定の記録の `question:<添字>`・App の記録の写しと Jev に渡す質問の文は今までどおり文字列で、選択肢は文に足さない。
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている、`critique` が無い、計画コメントより前に同じ Issue への段階 `plan-critique` の着手宣言（コラボレーターの、Claude の目印付きの `agent-claim`。解除は数えない。`manual`・`routine` のどちらでもよい）が無い（批評の関所。`split` の計画も同じ。「前」はコメントの ID の大小で決める）。批評の関所だけで止めたときの理由コードは `no-critique`（ほかの理由と重なるときは今までのコード）。`critique` が `revise` で `mustRemaining` が1以上の計画は、人が必須の指摘を残して進めると決めた計画として止めず、ゲートの記録の `critiqueProceeded` に残す。
@@ -342,6 +344,7 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
     "proceed": { "choice": "進める", "quote": "この計画で進めて", "at": "2026-09-30T10:00:00+09:00" },
     "acChangeAccepted": { "choice": "受け入れる", "quote": "AC の変更は提案どおりでよい", "at": "2026-09-30T10:01:00+09:00" } }
   ```
+- judge-input は、`acChangeAccepted` のある記録と、その記録より後に App 以外のコラボレーターが `agent:plan-review` を外して付け直されていない事実の両方があるときだけ、計画コメントの提案を判定の AC にする節「受け入れた AC の変更」を入れる（`harness/lib/accepted-ac-change.ts`。記録が編集された・計画コメントがゲートの後に編集された・見出しが無いときは入れない）。
 - `post-decision` は、`acChangeProposed` の計画ではこの欄がある記録だけ投稿する。`acChangeProposed` でない計画にこの欄を書くと拒む。App の `plan-proceed` は今どおり `ineligible`（理由「要件・AC の変更提案があります」）で、App はこの記録で `agent:plan-review` を外さない。Issue 本文の書き換えと `agent:plan-review` の付け外しは人がする。
 - 委任承認の Merge と bypass の範囲照合（`harness/lib/state.ts` の `issueDelegateFiles`）は、`status: ok` の `plan-proceed` の記録の `planCommentId` と `planBodySha256` が最新の計画ゲートの記録と一致し、今の計画コメントの本文の sha256 も一致するときだけ、その計画を使う。`agent/scope` は今までどおりゲートを通った計画だけ。
 

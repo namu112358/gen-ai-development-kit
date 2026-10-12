@@ -9,7 +9,7 @@ model: opus
 
 ## 入力
 
-呼び出し元が指示に含めて渡すもの：judge-input のファイルの中身（Issue 本文、計画ゲートの記録の計画〔`plan.files`〕、PR 本文、`agent/scope` の結果、前回の判定の head とブロッキング指摘）。PR の base（judge-input のスタックの節の base。節が無ければ `main`）。
+呼び出し元が指示に含めて渡すもの：judge-input のファイルの中身（Issue 本文、計画ゲートの記録の計画〔`plan.files`〕、「受け入れた AC の変更」の節〔人が受け入れた提案があるときだけ〕、PR 本文、`agent/scope` の結果、前回の判定の head とブロッキング指摘）。PR の base（judge-input のスタックの節の base。節が無ければ `main`）。
 
 出力のパス（呼び出し元が渡す。リポジトリの外の一時ディレクトリ）：返す JSON を書く先。
 
@@ -21,7 +21,7 @@ model: opus
 
 ## 手順
 
-1. AC を1項目ずつ、diff とテストで満たされているか確かめる。満たされていなければ `ac-unmet`。
+1. AC を1項目ずつ、diff とテストで満たされているか確かめる。満たされていなければ `ac-unmet`。節があれば、Issue 本文の AC のうち提案が名指しで変えた項目は節の AC で、名指ししない項目は本文の AC で照らす。どちらで照らしたかと、提案が外した・緩めた本文の AC の項目（1件ずつ「受け入れた変更で外した」「受け入れた変更で緩めた」）を `checkPoints` に書く。節が無ければ Issue 本文の AC だけで照らす。
 2. 計画の `files` と diff を比べ、Issue の範囲外の変更（Non-goals に触れる、計画にないファイルを意味もなく変える）がないか確かめる（`agent/scope` の結果も使う）。あれば `out-of-scope`。
 3. 再レビュー（「前回の判定」がある）のとき：前回のブロッキング指摘のうち `ac-unmet`・`out-of-scope` のものが直っていなければ、その指摘を `unfixedPrevious: true` で出す。ほかの指摘は `unfixedPrevious: false`。前回の head から変わった行かどうかは呼び出し元の組み立てが決めるので、ここでは絞らない。
 4. 壊れるとしたらどこか、確かめきれていないことを `concerns` に、人に見てほしいファイル・関数・観点を `checkPoints` に書く。`concerns`・`checkPoints` は、ハーネス自体・公開インターフェース・データに触れる変更と、テストで確かめきれていない変更では必ず書く（今の Reviewer の humanNotes と同じ）。

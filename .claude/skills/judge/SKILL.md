@@ -10,7 +10,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 ## 入力
 
 - PR 番号
-- `node harness/scripts/agent.ts judge-input <PR番号>` が書くファイル（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの `agent-plan` ブロックは省く〕、Epic の子課題なら親 Epic の子課題の一覧と Validation Requirements、計画ゲートの記録の計画、PR 本文、PR のコラボレーターのコメント〔判定コメントを除く〕、`agent/scope` の結果〔無い・未完了・結論〕、前回の判定の head とブロッキング指摘、再レビューの範囲の補足、PR の状態〔state・draft・merged〕、変更ファイルを触った Merge 済みの過去の PR のコラボレーターのコメント〔App・Claude の目印のものを除く〕、スタックの節〔Stacked PR の層なら base・位置・下の層と変更ファイル〕）
+- `node harness/scripts/agent.ts judge-input <PR番号>` が書くファイル（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの `agent-plan` ブロックは省く〕、Epic の子課題なら親 Epic の子課題の一覧と Validation Requirements、計画ゲートの記録の計画、人が受け入れた AC の変更の節〔決定の記録の `acChangeAccepted` と、その後に App 以外のコラボレーターが `agent:plan-review` を外した事実の両方があるときだけ〕、PR 本文、PR のコラボレーターのコメント〔判定コメントを除く〕、`agent/scope` の結果〔無い・未完了・結論〕、前回の判定の head とブロッキング指摘、再レビューの範囲の補足、PR の状態〔state・draft・merged〕、変更ファイルを触った Merge 済みの過去の PR のコラボレーターのコメント〔App・Claude の目印のものを除く〕、スタックの節〔Stacked PR の層なら base・位置・下の層と変更ファイル〕）
 
 ## 手順
 
@@ -33,6 +33,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
    - その PR を実装したセッション（ship の中で同じセッションが judge するとき）だけ、任意で `--author-view <file>`（実装したセッションの見解を書いたテキストのファイル。scratchpad に置く）を渡せる。判定の `agent-verdict` の `authorView` に入り、auto mode の危険の問い（Jev）の見解ありの問いにだけ渡る。保留するかには使われない（shadow。Issue #426）。judge を単独で呼んだ別のセッションは渡さない。
 7. `node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル>` で投稿する。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら判定した head のまま投稿する。patch-id が違って止まったら手順1からやり直す。
 8. App が受け付けたかを `node harness/scripts/agent.ts rest pr-view <PR番号>` の `isDraft`・`statusCheckRollup` で確かめる。合格なら `agent/review`・`agent/risk` が成功し、`isDraft` が false になる。数分待っても変わらなければ、PR のコメント（App の `verdict-rejected` など）とゲートの実行（`gh run list --workflow gate.yml`）の結果を見る。確かめてから人に報告する。
+9. judge-input に「受け入れた AC の変更」の節があれば、Issue 本文の AC を節のとおりに書き換えた案を scratchpad の `issue-body-draft-<Issue番号>.md` に下書きし、人に報告する項目にそのパスを載せる。投稿は人が選んだときだけ。Issue 本文はセッションが書き換えない。`agent:plan-review` はセッションが付け外ししない。
 
 ### 修正後の再レビュー
 
