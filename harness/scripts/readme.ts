@@ -61,7 +61,7 @@ const NO_COMMENT_TEXT: Record<string, string> = {
   'harness/templates/claude-settings.deny.json':
     'Claude Code にさせない操作（Merge、main への push、保護ラベルの付け外し、Secret・資格情報の読み出しなど）の一覧。`.claude/settings.json` の `permissions.deny` と同じ内容で、変えるときは両方を直す',
   'harness/managed.json':
-    '導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー',
+    '導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）',
   'harness/templates/harness.config.json':
     '導入先の harness.config.json の雛形（初回だけ写す）。appSlug・projectChecks・project（検証コマンドと取り込みのコマンド）・guardrailPaths・classification.areas・classification.priorityCriteria・humanMergePaths を導入先に合わせて書き換える',
   '.github/ISSUE_TEMPLATE/':
@@ -372,6 +372,11 @@ export function writeReadme(root: string, relDir: string): void {
 }
 
 // ---- README の表の名前の実在（AC1） ----
+
+/** 生成の表（<!-- readme:generated start/end --> のブロック）があるか */
+export function hasGeneratedTable(text: string): boolean {
+  return BLOCK_RE.test(text);
+}
 
 /** 生成の目印（<!-- readme:generated start/end -->）の中だけを見る（無ければ全文。`.github` は root README の節がここで絞られる） */
 export function namesInTable(text: string): string[] {

@@ -208,6 +208,27 @@
       "lowest": "Someday: an idea or experiment that no one needs now; only if nothing else is waiting."
     }
   },
+  "observe": {
+    "opsHealth": {
+      "scheduleGapMinutes": 90,
+      "rateLimitFailures": 1,
+      "failedGateMinutes": 60,
+      "gateRunsPerDay": 600,
+      "ciJobMinutes": 10,
+      "readyHours": 2,
+      "prOpenHours": 24,
+      "requeueCount": 2,
+      "claimIdleMinutes": 60,
+      "planReviewCount": 5,
+      "unplannedIssueCount": 10,
+      "epicDrift": 1,
+      "linkMismatch": 1,
+      "staleWorktrees": 1,
+      "areaFullMinutes": 60,
+      "reviewPanelFailures": 1,
+      "maxGets": 200
+    }
+  },
   "pricing": {
     "$comment": "推定料金用の単価（100 万トークンあたり USD）。2026-09 時点の推定値なので、改定されたら更新する。キーはモデル ID（完全一致、無ければ前方一致）。",
     "claude-sonnet-5": { "input": 2, "output": 10, "cacheWrite5m": 2.5, "cacheWrite1h": 4, "cacheRead": 0.2 },

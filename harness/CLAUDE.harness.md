@@ -4,25 +4,25 @@
 
 ## 進め方
 
-Issue を進めるときは ship を使う。Issue 番号を渡すと、下の skill を状態に応じてつなぎ、人の Merge 待ちか人の判断待ちまで進めて、人がすることを一覧にする。段階を1つだけ頼まれたときは、その skill を使う。
+Issue を進めるときは ship を使う。Issue 番号を渡すと、下の skill を状態に応じてつなぎ、人の Merge 待ちか人の判断待ちまで進めて、人がすることを一覧にする。段階を1つだけ頼まれたときは、その skill を使う。配布が「このリポジトリだけ」の skill は導入先に無い（`harness/managed.json` の `exclude`）。
 
-| skill | 役割 |
-| --- | --- |
-| [ship](../.claude/skills/ship/SKILL.md) | Issue 番号から、plan → implement → judge → fix（必要なら sync）を一続きに進める |
-| [fleet](../.claude/skills/fleet/SKILL.md) | 複数の Issue を選び、ship を Issue ごとにサブエージェントで並行に動かして（入れ子にできなければ ship の段階を交互に進めて）、人がすることを1つの一覧にする |
-| [plan](../.claude/skills/plan/SKILL.md) | 計画を書き、plan-critic に批評させて投稿する |
-| [implement](../.claude/skills/implement/SKILL.md) | 計画ゲートを通った計画を実装し、Draft PR を出す |
-| [judge](../.claude/skills/judge/SKILL.md) | Reviewer と Risk Agent に判定させ、判定コメントを投稿する |
-| [fix](../.claude/skills/fix/SKILL.md) | ブロッキング指摘や人のレビューを直し、判定をやり直す |
-| [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる |
-| [arch-review](../.claude/skills/arch-review/SKILL.md) | Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す |
-| [hq](../.claude/skills/hq/SKILL.md) | Orca のプライマリ（main の checkout）で、テーマ（Epic）ごとの fleet を起こし、fleet の質問をまとめて人に聞き、Epic の Close で片付ける。リポジトリのファイルは書き換えない |
-| [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） |
-| [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） |
-| [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） |
-| [patrol](../.claude/skills/patrol/SKILL.md) | /loop から観測を回し、今回まわす見直し（arch-review・qa-retro・test-prune）を選んで動かし、下書きを集める（人が /loop で呼んだときだけ。Issue の段階ではない） |
-| [intel](../.claude/skills/intel/SKILL.md) | hq・fleet・人から届く気づきを控えて既存の Issue と照らし、直す Issue の下書きを人に示し、人の質問に根拠つきで答える（何も動かさない。Orca の本体のタブで待つ。Issue の段階ではない） |
-| [backlog](../.claude/skills/backlog/SKILL.md) | 開いた Issue をまとめて見て、重複・重なり・AC の曖昧さ・大きすぎる Issue と着手順の案を人に示し、人が選んだ提案だけをコメントする（人が呼んだときだけ。Issue の段階ではない。本文・ラベルは変えない） |
+| skill | 役割 | 配布 |
+| --- | --- | --- |
+| [ship](../.claude/skills/ship/SKILL.md) | Issue 番号から、plan → implement → judge → fix（必要なら sync）を一続きに進める | ○ |
+| [fleet](../.claude/skills/fleet/SKILL.md) | 複数の Issue を選び、ship を Issue ごとにサブエージェントで並行に動かして（入れ子にできなければ ship の段階を交互に進めて）、人がすることを1つの一覧にする | ○ |
+| [plan](../.claude/skills/plan/SKILL.md) | 計画を書き、plan-critic に批評させて投稿する | ○ |
+| [implement](../.claude/skills/implement/SKILL.md) | 計画ゲートを通った計画を実装し、Draft PR を出す | ○ |
+| [judge](../.claude/skills/judge/SKILL.md) | Reviewer と Risk Agent に判定させ、判定コメントを投稿する | ○ |
+| [fix](../.claude/skills/fix/SKILL.md) | ブロッキング指摘や人のレビューを直し、判定をやり直す | ○ |
+| [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる | ○ |
+| [arch-review](../.claude/skills/arch-review/SKILL.md) | Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す | このリポジトリだけ |
+| [hq](../.claude/skills/hq/SKILL.md) | Orca のプライマリ（main の checkout）で、テーマ（Epic）ごとの fleet を起こし、fleet の質問をまとめて人に聞き、Epic の Close で片付ける。リポジトリのファイルは書き換えない | ○ |
+| [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） | このリポジトリだけ |
+| [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） | このリポジトリだけ |
+| [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） | ○ |
+| [patrol](../.claude/skills/patrol/SKILL.md) | /loop から観測を回し、今回まわす見直し（arch-review・qa-retro・test-prune）を選んで動かし、下書きを集める（人が /loop で呼んだときだけ。Issue の段階ではない） | このリポジトリだけ |
+| [intel](../.claude/skills/intel/SKILL.md) | hq・fleet・人から届く気づきを控えて既存の Issue と照らし、直す Issue の下書きを人に示し、人の質問に根拠つきで答える（何も動かさない。Orca の本体のタブで待つ。Issue の段階ではない） | ○ |
+| [backlog](../.claude/skills/backlog/SKILL.md) | 開いた Issue をまとめて見て、重複・重なり・AC の曖昧さ・大きすぎる Issue と着手順の案を人に示し、人が選んだ提案だけをコメントする（人が呼んだときだけ。Issue の段階ではない。本文・ラベルは変えない） | ○ |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装する。Merge の経路は App が決める（下の Agent PR の項））。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
 - 委任承認（ダッシュボードの `agent:delegate-plan`・`agent:delegate-merge`）の間は、ガードレール・Risk だけで止まる計画も計画ゲートを委任で通ることがあり、委任承認（計画＋Merge）で `delegateMergeExclude` に当たらなければ Merge は App の自動経路になる（[docs/risk-policy.md](../docs/risk-policy.md#委任承認)）。
