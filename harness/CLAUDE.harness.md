@@ -22,6 +22,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） | ○ |
 | [patrol](../.claude/skills/patrol/SKILL.md) | /loop から観測を回し、今回まわす見直し（arch-review・qa-retro・test-prune）を選んで動かし、下書きを集める（人が /loop で呼んだときだけ。Issue の段階ではない） | このリポジトリだけ |
 | [intel](../.claude/skills/intel/SKILL.md) | hq・fleet・人から届く気づきを控えて既存の Issue と照らし、直す Issue の下書きを人に示し、人の質問に根拠つきで答える（何も動かさない。Orca の本体のタブで待つ。Issue の段階ではない） | ○ |
+| [issue-creator](../.claude/skills/issue-creator/SKILL.md) | 気づき・観測を Issue Form の下書きにして既存の Issue との重複を二段で確かめ、呼び出し元が名指しした下書きだけを作る（intel などがサブエージェントで呼ぶ。人には聞かない。Issue の段階ではない） | ○ |
 | [backlog](../.claude/skills/backlog/SKILL.md) | 開いた Issue をまとめて見て、重複・重なり・AC の曖昧さ・大きすぎる Issue と着手順の案を人に示し、人が選んだ提案だけをコメントする（人が呼んだときだけ。Issue の段階ではない。本文・ラベルは変えない） | ○ |
 
 - 人が付き添うセッションでも、変更は必ず Issue → 計画 → 実装 → `Closes #番号` 付きの PR の順で進める（ハーネス自体の変更も同じ。ガードレール（`harness.config.json` の `guardrailPaths`）に触れる変更は計画ゲートで止まり、付き添いのセッションで実装する。Merge の経路は App が決める（下の Agent PR の項））。着手宣言は `node harness/scripts/agent.ts claim <番号> --manual`。
