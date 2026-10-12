@@ -13,6 +13,7 @@ import { gitCommonDir } from '../../../lib/local-state.ts';
 import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
 import { fixRequestFindings } from '../../../lib/report.ts';
 import { splitArgs } from '../../../lib/session-inputs.ts';
+import { sessionFileKey } from '../../../lib/session.ts';
 import { carriedCritique, type CritiqueRound, readStageFile, stageFilePath, writeStageFile } from '../../../lib/stage-file.ts';
 import { findDashboard, hasLabel, isAppComment, type PullRequest, timeline } from '../../../lib/state.ts';
 import { applyStepClaims, decideStep, type StepLocal, type StepResult } from '../../../lib/step.ts';
@@ -272,7 +273,7 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
     checkCommand: projectCommands(config).checkCommand,
   });
 
-  // no-session の stop は宣言も解除もしない（decideStep が claim・release を空にする）
+  // ID が無い・ファイル名に読み替えられない no-session の stop は宣言も解除もしない（decideStep が claim・release を空にする）
   const result: StepResult = session
     ? await applyStepClaims(gh, decision, { session, now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours, render: renderClaim })
     : decision.result;
@@ -280,7 +281,7 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
   if (path && session) {
     writeStageFile(path, {
       version: 1,
-      session,
+      session: sessionFileKey(session) ?? session,
       at: new Date().toISOString(),
       issue: n,
       pr: result.pr,

@@ -33,11 +33,11 @@ const sample = (patch: Partial<StageFile> = {}): StageFile => ({
 
 // ---- 置き場所 ----
 
-test('stageFilePath：<共通ディレクトリ>/agent-harness/stage/<ID>.json、ID が無い・形が違えば null', () => {
+test('stageFilePath：<共通ディレクトリ>/agent-harness/stage/<ID>.json、クラウドの URL は最後の部分（session_…）、ID が無い・形が違えば null', () => {
   assert.equal(stageFilePath('/repo/.git', SESSION), join('/repo/.git', 'agent-harness', 'stage', `${SESSION}.json`));
   assert.equal(stageFilePath('/repo/.git', null), null);
   assert.equal(stageFilePath('/repo/.git', ''), null);
-  assert.equal(stageFilePath('/repo/.git', 'https://claude.ai/code/session_x'), null);
+  assert.equal(stageFilePath('/repo/.git', 'https://claude.ai/code/session_x'), join('/repo/.git', 'agent-harness', 'stage', 'session_x.json'), 'URL は最後の部分の名前（Issue #708）');
   assert.equal(stageFilePath('/repo/.git', '../escape'), null, 'パスを抜ける ID は使わない');
 });
 
