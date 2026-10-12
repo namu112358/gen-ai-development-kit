@@ -20,7 +20,7 @@ const sentences = (text: string): string[] => text.split(/[。\n]/).map((s) => s
 /** arch-review の skill の構造の表 */
 const ARCH_REVIEW_SPEC: SkillSpec = {
   path: SKILL,
-  headings: ['## 入力', '## 観点', '## 手順', '## 出力', '## 終わりの状態', '## 人に返す条件'],
+  headings: ['## 入力', '## 観点', '## 手順', '## 出力', '## 終わりの状態', '## 人に返す条件', '## やってはいけないこと'],
   words: ['arch-reviewer', '人が選んだもの', 'AskUserQuestion'],
   parts: [
     // 既定は前回の arch-review 以降、前回が無ければ直近 10 本で、--since・--until・--last で変えられる
@@ -36,14 +36,13 @@ const ARCH_REVIEW_SPEC: SkillSpec = {
     // Issue を作るのは人が選んだものだけ。ラベルは付けない
     { section: '## 手順', step: 8, words: ['人が選んだものだけ', 'gh issue create', '`agent:ready` は付けない'] },
     { section: '## 手順', step: 11, words: ['node harness/scripts/agent.ts worktree-remove'] },
-    // やってはいけないこと：その場で直す・PR や判定コメントへの投稿・判定の担当に渡す・ラベルの付け外し・本文の書き換え・Merge
+    // やってはいけないこと：その場で直す・PR や判定コメントへの投稿・判定の担当に渡す・人が選んでいない Issue やコメント・ラベルの付け外し・本文の書き換え（Merge などの共通の禁止は harness/CLAUDE.harness.md を指す）
     {
-      section: '## 人に返す条件',
-      words: [
-        'agent:ready', 'agent:plan-ok', 'agent:hold', 'agent:auto-merge-stopped', 'agent:delegate-merge',
-        '直す', '判定コメント', 'reviewer', 'risk-agent', 'review-panel', '本文', 'Merge', '*:exempt',
-      ],
+      section: '## やってはいけないこと',
+      words: ['直す', '判定コメント', 'reviewer', 'risk-agent', 'review-panel', '人が選んでいない', 'agent:ready', '本文', 'harness/CLAUDE.harness.md'],
     },
+    // 人に返す条件の節には、やってはいけないことの項目を置かない（独立の節にした）
+    { section: '## 人に返す条件', absent: ['やってはいけないこと'] },
     // PR へのコメント・レビューを投稿する手順を持たない。Issue にラベルを付ける指定もしない
     { absent: ['gh pr comment', 'gh pr review', 'gh pr merge', 'gh issue edit', 'post-verdict', '--label', ' -l '] },
   ],
