@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { TITLE_TYPES } from './title.ts';
+import type { OpsHealthThresholds } from './ops-health.ts';
 import type { PricingTable } from './usage.ts';
 
 /**
@@ -114,6 +115,8 @@ export interface HarnessConfig {
     /** 実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル。無ければ sonnet（implementModelConfig。Issue #469） */
     implementModel?: 'sonnet' | 'opus';
   };
+  /** 保守の観測（harness/scripts/observe.ts）の運用の健康のしきい値。型と範囲は loadConfig では検査せず、observe の実行時に検査する（opsHealthConfigErrors）。無いキーは OPS_HEALTH_DEFAULTS */
+  observe?: { opsHealth?: Partial<OpsHealthThresholds> };
   /** hq（テーマごとの fleet をまとめて見る）の設定。maxFleets は hq のペインがまとめる fleet の数の目安（超えると警告。hqConfig）。maxParallelShips は全体で同時に動かす ship の数の上限（hq が空いた枠に Issue を割り当てる上限） */
   hq?: { maxFleets?: number; maxParallelShips?: number };
   /** fleet と hq のペイン表示（harness/scripts/panes.ts）。collectIntervalSeconds は collect が GitHub と記録を読む間隔（panesConfig） */
