@@ -11,7 +11,7 @@
 - **ラベルの変更は、ゲートを起動するコメント（計画・判定）を投稿する前に済ませる。** MCP のラベル更新はラベルの一覧を丸ごと置き換えるので、投稿の後に更新すると、その間に App が付けたラベル（`agent:plan-ok` など）を消してしまう。更新するときは直前に現在のラベルを読み、変えたいものだけを足し引きした一覧を渡す。
 - **承認を求める状況を作らない。** Routine には確認する人がいない。操作が拒否されたら、同じ目的を別のコマンドや別の経路で試さず、そのアクションを飛ばして（`render-claim --release`）、何が足りないかを最後の要約に書く。環境変数・資格情報・トークンは調べない。
 - **作業は常に worktree で行う。** `node harness/scripts/agent.ts worktree <ブランチ> --routine` で作り（出力がパス）、そのディレクトリで作業する（`--routine` は着手宣言の確かめを飛ばす印。Routine の環境では `gh api` の REST は通るが、GraphQL は 403 のため）。判定のテスト実行は `worktree <headSha> --detach`。終わったら `worktree-remove <ブランチ|SHA>` で消す。clone した作業ツリーでは直接作業しない。
-- **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）の付け外し、main への push、force push、Issue 本文の書き換え。これらは App と人の役割。決定の記録（```` ```agent-decision ````）の投稿もしない（人の答えを記録するもので、人のいない Routine は書かない）。
+- **やってはいけないこと**：Merge、auto-merge の設定、Draft の解除、PR 本文・タイトルの編集、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）の付け外し、既定ブランチ（`harness.config.json` の `defaultBranch`）への push、force push、Issue 本文の書き換え。これらは App と人の役割。決定の記録（```` ```agent-decision ````）の投稿もしない（人の答えを記録するもので、人のいない Routine は書かない）。
 
 ## 手順
 
@@ -54,7 +54,7 @@
 4. `planFiles` の範囲で実装する。範囲外の変更が必要になったら、PR 本文に理由を書く（範囲照合で自動 Merge の対象外になる）。
 5. 検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`。`null` なら省く）を通す（取り込みのコマンドは worktree が行っている）。
 6. commit して `git push -u origin <ブランチ>`。
-7. MCP で **Draft** PR を作る（base は main）。タイトルは Issue のタイトルをそのまま使う（Conventional Commits。コミットメッセージの1行目も同じ形式にする）。本文は `.github/pull_request_template.md` に沿って書く（`Closes #<番号>`、ひとことで、あなたに確かめてほしいこと、動きの変化、リスクと戻し方。`<details>` の中に計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、変えたファイル、AC ごとの対応、範囲外の変更、テスト）。
+7. MCP で **Draft** PR を作る（base は既定ブランチ）。タイトルは Issue のタイトルをそのまま使う（Conventional Commits。コミットメッセージの1行目も同じ形式にする）。本文は `.github/pull_request_template.md` に沿って書く（`Closes #<番号>`、ひとことで、あなたに確かめてほしいこと、動きの変化、リスクと戻し方。`<details>` の中に計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、変えたファイル、AC ごとの対応、範囲外の変更、テスト）。
 8. Issue に `render-claim --release` の出力をコメントする。
 9. `node harness/scripts/agent.ts render-metrics implement <モデル名> <所要分>` の出力を PR にコメントする。トークン数と推定料金はセッション記録から自動で入る（トークン数の引数は不要。読めなければ unknown になる）。
 10. 判定は**しない**（次の実行で別の段階として行う）。
@@ -64,8 +64,8 @@
 Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同じ手順で判定する。人の PR は修正しない（ブロッキング指摘は App が変更要求レビューとして返す）。
 
 1. MCP で PR の head SHA を読み、queue の `headSha` と同じか確かめる（違えば飛ばす）。同じなら、一時ディレクトリ（`mktemp -d` で作る。リポジトリの外）に出力のパス `reviewer-<PR番号>-<head7>.json`・`risk-<PR番号>-<head7>.json`（head7 は head SHA の先頭7文字）を決め、担当を呼ぶ前の `git status --porcelain --untracked-files=all` の結果をその一時ディレクトリに書き出して控える。
-2. **reviewer** サブエージェントに判定させる。サブエージェントは GitHub を読めないので、本体が MCP で読んだ次の内容を指示に含めて渡す：PR 番号・Issue 番号・head SHA、Issue 本文（Goal・Requirements・Non-goals・AC）、Issue にある App の plan-gate 記録の計画（`plan.files` を含む）、PR の head の `agent/scope` の結果。前回の判定がある PR（修正後の再レビュー）では、前回の判定の `headSha` とその `review.blocking` も渡す（reviewer は前回の head からの差分と前回の指摘だけをブロッキングの対象にする）。出力のパス `reviewer-<PR番号>-<head7>.json` も渡す。
-3. **risk-agent** サブエージェントに PR 番号と head SHA と、出力のパス `risk-<PR番号>-<head7>.json` **だけ**を渡す（Issue や PR の説明を渡さない）。diff は `git fetch origin && git diff origin/main...<headSha>` で読むよう伝える。
+2. **reviewer** サブエージェントに判定させる。サブエージェントは GitHub を読めないので、本体が MCP で読んだ次の内容を指示に含めて渡す：PR 番号・Issue 番号・head SHA、PR の base のブランチ名（MCP で読んだ PR の `base.ref`＝`baseRefName`）、Issue 本文（Goal・Requirements・Non-goals・AC）、Issue にある App の plan-gate 記録の計画（`plan.files` を含む）、PR の head の `agent/scope` の結果。前回の判定がある PR（修正後の再レビュー）では、前回の判定の `headSha` とその `review.blocking` も渡す（reviewer は前回の head からの差分と前回の指摘だけをブロッキングの対象にする）。出力のパス `reviewer-<PR番号>-<head7>.json` も渡す。
+3. **risk-agent** サブエージェントに PR 番号と head SHA と、出力のパス `risk-<PR番号>-<head7>.json` と、PR の base のブランチ名（MCP で読んだ PR の `base.ref`）**だけ**を渡す（Issue や PR の説明を渡さない）。diff は `git fetch origin && git diff origin/<PR の base>...<headSha>` で読むよう伝える（既定ブランチの設定から決めない）。
 
 どちらのサブエージェントにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押し、「返す JSON と同じものを出力のパスに Write で書く。ほかのパスは書かない」と伝える。
 
@@ -81,14 +81,14 @@ Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同�
 ### fix（修正）
 
 1. `reason` が `review` なら、App の最新の変更要求レビュー（本文に `kind=fix-request`、作成者が App）の指摘を直す。`human` なら、最後の push 以降のコラボレーターのレビューの指摘を直す。
-2. `node harness/scripts/agent.ts worktree <PR のブランチ> --routine` で worktree を作って修正し、検証コマンド（既定 `npm run check`）を通して push する（force push しない。main への追従が必要なら merge する）。
+2. `node harness/scripts/agent.ts worktree <PR のブランチ> --routine` で worktree を作って修正し、検証コマンド（既定 `npm run check`）を通して push する（force push しない。既定ブランチへの追従が必要なら merge する）。
 3. 何を直したかを PR にコメントし（先頭に `<!-- agent-harness:claude -->`）、`render-claim --release` と `render-metrics fix ...` の出力もコメントする。
 4. 判定は次の実行で行う。
 
 ### resolve-conflict（衝突の解消）
 
 1. `node harness/scripts/agent.ts worktree <PR のブランチ> --routine` で worktree を作る。
-2. `git merge origin/main` で main を取り込み、衝突を解消する。両方の変更の意図を残す（main 側の変更を消さない）。判断がつかない衝突は解消せず、`render-block needs-decision <説明>` で人に返す。
+2. `git merge origin/<PR の base>`（PR の base は MCP で読んだ `base.ref`）で base を取り込み、衝突を解消する。両方の変更の意図を残す（base 側の変更を消さない）。判断がつかない衝突は解消せず、`render-block needs-decision <説明>` で人に返す。
 3. 検証コマンド（既定 `npm run check`）を通して push する（force push しない）。差分が変わるので、判定は次の実行でやり直しになる。
 4. 何をどう解消したかを PR にコメントし、`render-claim --release` をコメントする。
 

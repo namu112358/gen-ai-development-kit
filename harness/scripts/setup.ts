@@ -102,7 +102,7 @@ function appManifest(repository: string, name: string): void {
     url: `https://github.com/${repository}`,
     description: 'Agent harness の決定論的ゲート（Claude は動かさない）',
     hook_attributes: { url: `https://github.com/${repository}`, active: false },
-    redirect_url: `https://github.com/${repository}/blob/main/docs/setup.md`,
+    redirect_url: `https://github.com/${repository}`,
     public: false,
     default_permissions: {
       checks: 'write',

@@ -17,7 +17,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 
 1. `node harness/scripts/agent.ts claim <番号> --manual --stage implement` で着手を宣言する（段階の更新。ほかのセッションの宣言があれば止まる。先に宣言したセッションがあって自分の宣言を取り下げて止まったら、作業を始めずに ship / fleet の扱いに従う）。同じ領域の判定前の Agent PR（Draft）が上限で止まったら、聞かずに「待つ」と決めて返す（急ぐと人に言われたときだけ `--force`）。
 2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>` で worktree を作る（出力がパス。置き場所はリポジトリの外）。以降はそのディレクトリで作業する。`node_modules` が無ければ worktree が設定の取り込みのコマンド（`project.installCommand`。既定 `npm ci`）まで行う。
-   - worktree は今の `origin/main` から作られるので、計画を書いたときから main が進んでいることがある。`show-plan` の `planCommentBody`（null なら `gate.plan` を ````agent-plan` で囲んだもの）を scratchpad のファイルに書き、worktree で `node harness/scripts/agent.ts check <ファイル>` を走らせて、一緒に変えるファイルの抜けを今の main で照らし直す。抜けが出たら（終了コード 1）、書かずに手順4と同じく `claim <番号> --manual --stage plan` に戻し、抜けを `files` に足して plan の skill で計画を出し直す。
+   - worktree は今の `origin/<既定ブランチ>`（`harness.config.json` の `defaultBranch`）から作られるので、計画を書いたときから既定ブランチが進んでいることがある。`show-plan` の `planCommentBody`（null なら `gate.plan` を ````agent-plan` で囲んだもの）を scratchpad のファイルに書き、worktree で `node harness/scripts/agent.ts check <ファイル>` を走らせて、一緒に変えるファイルの抜けを今の既定ブランチで照らし直す。抜けが出たら（終了コード 1）、書かずに手順4と同じく `claim <番号> --manual --stage plan` に戻し、抜けを `files` に足して plan の skill で計画を出し直す。
 3. **test-designer** サブエージェントにテストを書かせる。GitHub は読ませないので、Issue 番号、AC、Validation Requirements、計画の `files` を指示に含めて渡す。
    - 守り（ゲート・hook・deny・ラベルの権限・危険の問いなど）に触れる変更では、守りが効き続けることを確かめるテスト（例：この操作は今までどおり止まる）を差分に入れる。計画の本文の「確かめるテスト」を test-designer に渡す。auto mode の危険の問い（Jev）は PR の差分と変えたファイルだけを読み、差分から分からなければ危険と答えるので、PR 本文の説明では足りない
 4. 計画の `files` の範囲で実装する。計画に無い設計の判断（新しいファイル・公開の形（関数・型・コマンド・設定のキー・出力の書式）の変更・計画の `files` の外の変更）が要ると分かったら、即興で決めて書かずに止まる（書きかけの変更は commit しない）。`node harness/scripts/agent.ts claim <番号> --manual --stage plan` で段階を `plan` に戻し、要る判断とその理由を計画に書いて、plan の skill で計画を出し直す（批評と計画ゲートを通し直す）。通ったら手順1の `claim --stage implement` で宣言し直し、既にある worktree で（手順2をやり直さずに）手順3から続ける（test-designer のテストも出し直した計画に合わせて見直す）。
@@ -27,7 +27,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
    - コードのコメント・PR 本文にも Jev を説得する文（「安全です」など）を書かず、テストで確かめられる事実だけを書く
 5. 検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`。`null` なら省く）を通す。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
-7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
+7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（既定ブランチへの push、force push はしない）。
 8. PR を作る前に、worktree で `node harness/scripts/agent.ts scope-check <番号>` を走らせ、変更が計画の `files` に収まるかを App の範囲照合と同じ関数で確かめる（読むだけ。worktree のどのディレクトリから走らせてもよい）。`agent/scope`（ゲートを通った計画）と委任・bypass の範囲照合の両方を見て、終了コードと出力の JSON の `problems`（`check` がどちらの照合か、`kind` が `outside`（範囲の外）か `no-plan`（使える計画が無い））で分ける。
    - 終了コード 0：両方の照合に計画があり、範囲の外が無い。次へ。
    - 終了コード 1（範囲の外のファイルがある。`problems` の `outside` の `files`）：PR を作らずに、人に上げる場面に当たらなければ、聞かずに計画を出し直す（plan の skill の出し直し）と決めて `post-judgment`（`stage` は `scope`）で残すか、その変更を外す。人に上げる場面に当たるなら、出し直すか外すかを AskUserQuestion で聞く（聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。変更を外したら、commit・push し直して `scope-check` をもう一度走らせる。
@@ -35,22 +35,22 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
    - それ以外（終了コード 2 など、JSON が出ずに終わった。引数・git・GitHub のエラー）：照合できていないので、範囲の外が無い扱いにせず、PR を作らずに人に返す。
    - `untracked` にあるファイルは PR にまだ入っていない。入れるものは手順6に戻って commit する。
 9. PR を作る前に `node harness/scripts/agent.ts ensure-claim <番号>` で、このセッションの着手宣言が今も持ち主かを確かめる。止まったら PR を出さずに人に返す（ほかのセッションが先に宣言していた、または引き継いだ）。
-10. `node harness/scripts/agent.ts rest-create draft-pr <番号> --head claude/issue-<番号>-<短い名前> --title <Issue のタイトル> --body-file <ファイル>` で **Draft** PR を出す（Draft に固定、base の既定は `main`）。タイトルは Issue のタイトル。本文は scratchpad のファイルに書き、[.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、ひとことで、あなたに確かめてほしいこと、動きの変化、リスクと戻し方。`<details>` の中に計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変えたファイル、AC ごとの対応、範囲外の変更、テスト）。Jev に関わる実装（問い・criteria・しきい値）で `typesafe` の skill を使えなかったときは、PR を出す前に手で書いた問いを docs.typesafe.ai（`WebFetch(domain:docs.typesafe.ai)` は許可済み）と `harness/lib/jev.ts` の `criteria` の形に照らして確かめ、本文の「あなたに確かめてほしいこと」に「typesafe の skill を使えなかった」と、手で書いた問い・criteria のファイルと行を書く（照合は実装のセッションが行い、記載は人が読む）。入れ方は docs/setup.md の節8。
+10. `node harness/scripts/agent.ts rest-create draft-pr <番号> --head claude/issue-<番号>-<短い名前> --title <Issue のタイトル> --body-file <ファイル>` で **Draft** PR を出す（Draft に固定、base の既定は既定ブランチ）。タイトルは Issue のタイトル。本文は scratchpad のファイルに書き、[.github/pull_request_template.md](../../../.github/pull_request_template.md) どおり（`Closes #<番号>`、ひとことで、あなたに確かめてほしいこと、動きの変化、リスクと戻し方。`<details>` の中に計画コメントへのリンク、セッション（`node harness/scripts/agent.ts session-url`、無ければ「付き添いのセッション」）、変えたファイル、AC ごとの対応、範囲外の変更、テスト）。Jev に関わる実装（問い・criteria・しきい値）で `typesafe` の skill を使えなかったときは、PR を出す前に手で書いた問いを docs.typesafe.ai（`WebFetch(domain:docs.typesafe.ai)` は許可済み）と `harness/lib/jev.ts` の `criteria` の形に照らして確かめ、本文の「あなたに確かめてほしいこと」に「typesafe の skill を使えなかった」と、手で書いた問い・criteria のファイルと行を書く（照合は実装のセッションが行い、記載は人が読む）。入れ方は docs/setup.md の節8。
 11. `node harness/scripts/agent.ts release <番号>` で着手を解除する。
 12. `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` は、続けて judge・fix をしないときだけ行う。
 
-手順10の `rest-create draft-pr`（base は `main`）は通常の PR の出し方。Stacked PR で出すときは次の節に従う。
+手順10の `rest-create draft-pr`（base は既定ブランチ）は通常の PR の出し方。Stacked PR で出すときは次の節に従う。
 
 ### Stacked PR で出すとき
 
-クラウドのセッション（`CLAUDE_CODE_REMOTE` が `true`）では Stacked PR は使えない（`gh stack` と `gh pr create` が GraphQL を使う）。層に分けず、別々に `main` 宛てで出す。
+クラウドのセッション（`CLAUDE_CODE_REMOTE` が `true`）では Stacked PR は使えない（`gh stack` と `gh pr create` が GraphQL を使う）。層に分けず、別々に既定ブランチ宛てで出す。
 
 使えるのは付き添いのセッションだけ（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。組み方は [gh-stack](../gh-stack/SKILL.md) の skill。
 
-1. 積む条件を確かめる：上の層が、下の層と同じファイルを触る・下の層が足したもの（関数・型・設定・ファイル）を使う・PR 本文に `Stack: 理由` を書く、のどれかに当たるときだけ積む。当たらなければ別々に `main` 宛てで出す。
+1. 積む条件を確かめる：上の層が、下の層と同じファイルを触る・下の層が足したもの（関数・型・設定・ファイル）を使う・PR 本文に `Stack: 理由` を書く、のどれかに当たるときだけ積む。当たらなければ別々に既定ブランチ宛てで出す。
 2. 1層＝1 Issue。層ごとに手順1・2で claim と worktree を用意する。
-3. 上の層の worktree は、作った直後に `git merge --ff-only origin/<下の層のブランチ>` で下の層に合わせる（`node harness/scripts/agent.ts worktree` は新しいブランチを `origin/main` から作るため）。下の層を作った後に main が進んでいて `--ff-only` が失敗したら、先に下の層へ sync の skill で main を取り込んで push し、その後に上の層で `git fetch origin` して `--ff-only` をやり直す。それでも失敗したら上の層を出さずに人に返す。`--ff-only` の代わりに通常の `git merge` をしてはいけない（上の層に新しい main が入り、base（下の層）からの diff に main の変更が混ざって範囲照合と判定を壊す）。
-4. 層ごとに手順3〜9を行い、手順10の代わりに `gh pr create --draft --base <下の層のブランチ（一番下の層は main）>` で出す。本文は `Refs #<番号>`（一番上の層は `Closes #<番号>`、どちらも1つだけ）と、条件の3つ目で積むなら `Stack: 理由` の行。
+3. 上の層の worktree は、作った直後に `git merge --ff-only origin/<下の層のブランチ>` で下の層に合わせる（`node harness/scripts/agent.ts worktree` は新しいブランチを `origin/<既定ブランチ>` から作るため）。下の層を作った後に既定ブランチが進んでいて `--ff-only` が失敗したら、先に下の層へ sync の skill で既定ブランチを取り込んで push し、その後に上の層で `git fetch origin` して `--ff-only` をやり直す。それでも失敗したら上の層を出さずに人に返す。`--ff-only` の代わりに通常の `git merge` をしてはいけない（上の層に新しい既定ブランチが入り、base（下の層）からの diff に既定ブランチの変更が混ざって範囲照合と判定を壊す）。
+4. 層ごとに手順3〜9を行い、手順10の代わりに `gh pr create --draft --base <下の層のブランチ（一番下の層は既定ブランチ）>` で出す。本文は `Refs #<番号>`（一番上の層は `Closes #<番号>`、どちらも1つだけ）と、条件の3つ目で積むなら `Stack: 理由` の行。
 5. 全部の層を出したら、gh-stack の skill の `gh stack link <下の PR 番号> <上の PR 番号>` で組む。上の層は組むまで一時的に orphan-base（Draft と `agent:blocked`）になり、組めば App が戻す。
 
 ## 終わりの状態

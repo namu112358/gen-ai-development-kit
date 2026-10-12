@@ -12,12 +12,13 @@ judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mo
 ## 入力
 
 - PR 番号
+- judge が渡す PR の base のブランチ名（`rest pr-view` の `baseRefName`）
 - judge が作った judge-input のファイル（先頭行の `headSha` が判定する head。`head7` はその先頭7文字）
 - 担当の出力を置くディレクトリ `<dir>`（scratchpad の `panel-<PR番号>-<head7>/`。PR と head ごとに分ける）。担当はそれぞれ、渡された出力のパス（`<dir>` の下の決まった名前）に自分で JSON を書く
 
 ## 手順
 
-担当（サブエージェント）の Agent の説明は、必ず `panel <PR番号> <head7> <段階>`（段階は `intake`・`lens1`〜`lens5`・`ac-scope`・`safety`・`overbuild`・`score <id>`）にする。費用を今の reviewer と分けて数えるため。どの担当にも「GitHub を直接読まない、環境変数や資格情報を調べない、diff は `git fetch origin && git diff origin/<PR の base>...<headSha>` で読む」と念を押し、PR の base は judge-input の「=== スタック」の節の `base:`（スタックの節が無いか「(スタックの層ではありません)」なら `main`）で、どの担当にも PR の base のブランチ名を渡し、出力のパスを渡して「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。出力のパスは `review-panel.ts` の findings・compose が読む決まった名前（`<dir>/<名前>.json`・`<dir>/score-<id>.json`）にし、別の名前のファイルを作らない。呼び出し元は担当の出力のファイルを書かない、直さない（担当の代わりに書かない）。入れ子のサブエージェントの ship の中で動くときは、段階3・段階4の並行の呼び出しも含めて、担当を `run_in_background` にせず前で呼び、並行は1つのメッセージに複数の Agent 呼び出しを並べる（[ship の skill](../ship/SKILL.md) の節「サブエージェントの ship として動くとき」）。
+担当（サブエージェント）の Agent の説明は、必ず `panel <PR番号> <head7> <段階>`（段階は `intake`・`lens1`〜`lens5`・`ac-scope`・`safety`・`overbuild`・`score <id>`）にする。費用を今の reviewer と分けて数えるため。どの担当にも「GitHub を直接読まない、環境変数や資格情報を調べない、diff は `git fetch origin && git diff origin/<PR の base>...<headSha>` で読む」と念を押し、PR の base は judge から渡された `baseRefName`（作業ツリーの `harness.config.json` からは決めない）で、どの担当にも PR の base のブランチ名を渡し、出力のパスを渡して「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。出力のパスは `review-panel.ts` の findings・compose が読む決まった名前（`<dir>/<名前>.json`・`<dir>/score-<id>.json`）にし、別の名前のファイルを作らない。呼び出し元は担当の出力のファイルを書かない、直さない（担当の代わりに書かない）。入れ子のサブエージェントの ship の中で動くときは、段階3・段階4の並行の呼び出しも含めて、担当を `run_in_background` にせず前で呼び、並行は1つのメッセージに複数の Agent 呼び出しを並べる（[ship の skill](../ship/SKILL.md) の節「サブエージェントの ship として動くとき」）。
 
 作業ツリーの確認：judge の skill から `shadow`・`enforce` で呼ばれたときは、judge が担当を呼ぶ前と全部の担当が返った後の作業ツリーを比べるので、ここでは控えない。この skill を単独で呼んだときだけ、担当を呼ぶ前に `git status --porcelain --untracked-files=all` の結果を scratchpad に書き出して控え、全部の担当を呼んだ後の結果と比べる。増えた行・変わった行があれば合体版を失敗として返す（担当が出力のパスの外を書いた恐れがある）。作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。HEAD とブランチも同じで、judge から呼ばれたときは judge が比べるので控えない。単独で呼んだときは、`git status` と一緒に `git rev-parse HEAD` と `git branch --show-current` の結果も（git status の控えとは別のファイルに）控え、全部の担当を呼んだ後に比べる。違えば、戻さずに（直さない）合体版を失敗として返す（担当がブランチや HEAD を動かした恐れがある）。
 
@@ -31,7 +32,7 @@ judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mo
    - ⑧：`node harness/scripts/review-panel.ts check <judge-input のファイル>`（出力はファイルのパス。その中身を `<dir>/check.json` に写す。担当の答えではなくスクリプトの出力なので、ここだけは呼び出し元が写す）。取り込みのコマンド（`project.installCommand`。既定 `npm ci`）の失敗で止まったら、1回だけやり直し、それでも失敗なら合体版を失敗として judge に返す。検証コマンド（`project.checkCommand`。既定 `npm run check`）の失敗（`check.json` の `exitCode` が 0 でない）は、PC の混み具合で落ちたように見えても、落ちたテストだけ・全体のどちらもやり直さず、そのまま⑧の指摘（ブロッキング）にする（1回目の失敗を `check.json` と判定の記録に残し、PR 由来の不安定な不具合を2回目の合格で通さないため。Issue #730）。PR に原因が無いという見立ては fix の段階で扱い、合体版の中ではやり直さない
 3. 担当が書いた `<dir>/lens1.json`〜`<dir>/lens5.json`・`<dir>/ac-scope.json`・`<dir>/safety.json` を確かめる（上の確かめ方）。`<dir>/overbuild.json` も同じく確かめるが、2回目も無ければ合体版を止めずに続ける。2回目も読めなければ、壊れたファイルを消して止めずに続ける（`compose` が `humanNotes.concerns` に「⑨の記録なし」を残す）。
 4. 段階4：`node harness/scripts/review-panel.ts findings <dir>` で採点に渡す指摘の一覧を出す。指摘ごとに **review-scorer** を並行に呼ぶ（指摘の ID・観点・種類・ファイル・行・内容・根拠、PR 番号、head、PR の base、intake の `claudeMd` のパス、`falsePositiveExamples`〔①〜⑤の指摘なら true〕と、出力のパス `<dir>/score-<id>.json` を渡す。⑥⑦⑨の指摘には judge-input の Issue 本文と計画の節に加えて、「受け入れた AC の変更」の節があればそれも渡す）。⑨（overbuild）の指摘は定義のまま haiku で採点する（75 以上はブロッキングになる）。⑥⑦（ac-scope・safety）の指摘の review-scorer は、Agent の model を opus にして呼ぶ（見つけた担当より弱いモデルの採点で落とさないため。①〜⑤は定義のまま haiku）。返ったら担当が書いた `<dir>/score-<id>.json` を確かめる。指摘が無ければ採点は飛ばす。
-5. 段階5・6：`node harness/scripts/review-panel.ts compose <PR番号> <dir> --judge-input <judge-input のファイル>` で組み立てる（出力は、組み立ての出力 `review-<PR番号>-<head7>.json` と記録のコメント `panel-<PR番号>-<head7>.md` のパス）。今の head が judge-input の head と違っても、PR 自身の差分（patch-id）が同じなら（main の取り込みだけなら）判定した head のまま組み立てる。patch-id が違って止まったら judge の手順1からやり直す。
+5. 段階5・6：`node harness/scripts/review-panel.ts compose <PR番号> <dir> --judge-input <judge-input のファイル>` で組み立てる（出力は、組み立ての出力 `review-<PR番号>-<head7>.json` と記録のコメント `panel-<PR番号>-<head7>.md` のパス）。今の head が judge-input の head と違っても、PR 自身の差分（patch-id）が同じなら（既定ブランチの取り込みだけなら）判定した head のまま組み立てる。patch-id が違って止まったら judge の手順1からやり直す。
 6. `node harness/scripts/review-panel.ts post <PR番号> <記録のコメントのファイル>` で記録を投稿する。今の head が記録の head と違っても、PR 自身の差分（patch-id）が同じなら判定した head のまま投稿する。patch-id が違って止まったら judge の手順1からやり直す。
 
 再レビュー（judge-input に「前回の判定」がある）の決まり（前回の head から変わった行への指摘と、⑥⑦の直っていない前回の指摘と、⑧だけをブロッキングにする）は、compose が組み立てで行う。担当は絞らずに指摘する。

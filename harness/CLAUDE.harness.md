@@ -47,10 +47,10 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - セッションが人に `agent:hold` を付けるよう頼むのは、持ち主がその Issue で「Merge は自分でする」と明示したときだけ。今の Merge の経路は `fleet-status` の表の末尾の bypass・委任承認の行と、PR の App の記録（auto-merge、`kind=bypass-merge`・`delegated-merge`・`auto-mode-merge`・`human-review`）で確かめ、推測で書かない。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。
 - Stacked PR（層を重ねた PR）を使えるのは付き添いのセッションだけ（クラウドの Routine では `gh api` の REST は通るが、GraphQL は 403 なので `gh stack`・`gh pr` は使えない）。手順は [gh-stack](../.claude/skills/gh-stack/SKILL.md) の skill。
-  - 積んでよいのは、上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に `main` 宛てで出す。
+  - 積んでよいのは、上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に既定ブランチ（`harness.config.json` の `defaultBranch`）宛てで出す。
   - 1層＝1 Issue。下の層の本文は `Refs #N`、一番上の層は `Closes #N`（どちらも1つだけ）。Merge の後、層の Issue は App が閉じる。
   - Stacked PR は Human Merge。GitHub の auto-merge も従来の Merge API も使えないので、スタックの Merge は人が GitHub の画面で行う。
-  - 追従は `git merge`（下の層を上の層に、`main` を一番下の層に）で行い、rebase と force push はしない。判定は層ごとに、その PR の base からの差分で行う。
+  - 追従は `git merge`（下の層を上の層に、既定ブランチを一番下の層に）で行い、rebase と force push はしない。判定は層ごとに、その PR の base からの差分で行う。
   - 上の層は、作ってから `gh stack link` で組むまで一時的に orphan-base（Draft と `agent:blocked`）になる。組めば App が戻す。
 - 作業は常に worktree で行う（`node harness/scripts/agent.ts worktree <ブランチ>`。置き場所はリポジトリの外）。作業ツリーを複数の作業で共有しない。
 - Orca があるときも、Issue の作業の worktree は `node harness/scripts/agent.ts worktree <ブランチ>` で作り、Orca はその worktree でのエージェントの起動と監視に使う（[orca-cli](../.claude/skills/orca-cli/SKILL.md) の skill の「生の git worktree より Orca を優先」より、この規則を優先する。Orca の `worktree create` は `claude/` で始まらないブランチを作り Agent PR と見なされないので使わない）。`worktree` は Orca があれば、その worktree に表示名「#番号 短い名前」（短い名前は Issue のタイトルを短くしたもの。取れなければブランチの `claude/issue-<番号>-` の後ろ）と Issue を付ける（親子は付けない。表示のためだけで、着手宣言・usage・fleet-status はセッション ID で見分ける）。Orca が無い・動かないときは今の手順で進める（入口の skill（`orca-cli`・`orchestration`）の「エラーを報告して止まる」「`ORCA open` で起動する」より優先し、Orca のアプリを起動しない）。`ORCA terminal split` の向き（`--direction`）も、orca-cli の skill の案内（`horizontal` で左右）より fleet・hq の skill の向き（Orca 1.4.216 の実際の動き：`vertical` で左右、`horizontal` で上下）に従う。
