@@ -55,7 +55,7 @@ export interface GuardSandbox {
   issueWt: string;
   /** 通す置き場所（allowRoots） */
   allowDir: string;
-  /** realContext({ allowRoots: [allowDir] }) */
+  /** realContext({ allowRoots: [allowDir], gitTimeoutMs: 0 })（git を打ち切らないので、PC が混んでいてもテストが落ちない。Issue #730） */
   ctx: WorkspaceContext;
   cleanup: () => void;
 }
@@ -76,7 +76,7 @@ export function guardSandbox(opts: GuardSandboxOptions = {}): GuardSandbox {
     main,
     issueWt,
     allowDir,
-    ctx: realContext({ allowRoots: [allowDir] }),
+    ctx: realContext({ allowRoots: [allowDir], gitTimeoutMs: 0 }),
     cleanup: () => {
       rmSync(base, { recursive: true, force: true });
       rmSync(allowDir, { recursive: true, force: true });
