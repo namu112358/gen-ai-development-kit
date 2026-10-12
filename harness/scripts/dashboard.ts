@@ -101,17 +101,20 @@ function readLimitedBody(req: IncomingMessage): Promise<string | null> {
   });
 }
 
+const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)));
+
 const sse = (type: string, data: unknown) => `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
 
 /**
  * 127.0.0.1 で待ち受ける。port 0 なら空いたポート。snapshot() は /events の接続時に送る全体、
  * status() はその後に送る見張りの状態（event: status）。onConnect は接続のたびに呼ぶ
  */
-export function startServer(opts: { port: number; html: string; snapshot: () => Graph; status?: () => unknown; onConnect?: () => void; notes?: NotesSink; decisions?: DecisionSink }): Promise<DashboardServer> {
+export function startServer(opts: { port: number; html: string; snapshot: () => Graph; status?: () => unknown; onConnect?: () => void; notes?: NotesSink; decisions?: DecisionSink; onError?: (e: Error) => void }): Promise<DashboardServer> {
   const clients = new Set<ServerResponse>();
   let port = opts.port;
   const notes = opts.notes;
   const decisions = opts.decisions;
+  const onError = opts.onError ?? ((e: Error) => console.error(`受け箱の未読の数が読めません: ${e.message}`));
   if (notes && decisions && notes.token !== decisions.token) return Promise.reject(new Error('notes と decisions の合言葉が違います'));
   // 合言葉の置き場所（meta）は、受け箱か決定の受け皿があるときだけ埋める
   const pageToken = (notes ?? decisions)?.token;
@@ -168,7 +171,15 @@ export function startServer(opts: { port: number; html: string; snapshot: () => 
     } catch {
       return refuse(req, res, 400, 'bad request');
     }
-    const unread = sink.unread();
+    // 書き込みは済んでいるので、数え直しが投げても 201 を返す（画面の数は次の見回しで直る）
+    let unread: number;
+    try {
+      unread = sink.unread();
+    } catch (e) {
+      onError(toError(e));
+      res.writeHead(201, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify({ id }));
+      return;
+    }
     res.writeHead(201, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify({ id, unread }));
     broadcast('inbox', { unread });
   };
@@ -198,7 +209,13 @@ export function startServer(opts: { port: number; html: string; snapshot: () => 
       res.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8', 'cache-control': 'no-store', connection: 'keep-alive' });
       res.write(sse('snapshot', opts.snapshot()));
       if (opts.status) res.write(sse('status', opts.status()));
-      if (notes) res.write(sse('inbox', { unread: notes.unread() }));
+      if (notes) {
+        try {
+          res.write(sse('inbox', { unread: notes.unread() }));
+        } catch (e) {
+          onError(toError(e));
+        }
+      }
       clients.add(res);
       req.on('close', () => clients.delete(res));
       opts.onConnect?.();
@@ -229,6 +246,66 @@ export function startServer(opts: { port: number; html: string; snapshot: () => 
       });
     });
   });
+}
+
+/** 受け箱の未読の数の見回し。tick で読み、前と変わっていれば send する。読めなかった回は onError に渡して送らず、前の数を保つ（作るときの最初の読み取りも同じ） */
+export function createInboxPoller(o: { unread: () => number; send: (unread: number) => void; onError: (e: Error) => void }): { tick(): void } {
+  let last: number | null = null;
+  const read = (): number | null => {
+    try {
+      return o.unread();
+    } catch (e) {
+      o.onError(toError(e));
+      return null;
+    }
+  };
+  last = read();
+  return {
+    tick() {
+      const n = read();
+      if (n === null || n === last) return;
+      last = n;
+      o.send(n);
+    },
+  };
+}
+
+/**
+ * 読み直し1回分。poll → full なら loadAll・changed なら refresh → unchanged でなければ進みの帯と組み直し → commit。
+ * loadProgress が投げたら onProgressError に渡し、rebuild と commit は行ってから同じエラーを投げ直す。
+ * 失敗は覚えておき、次の回は unchanged でも進みの帯と組み直しをやり直す。loadAll・refresh が投げたときは rebuild も commit もしない
+ */
+export function createPollRun(o: {
+  watcher: Pick<UpdateWatcher, 'poll' | 'commit'>;
+  data: Pick<DashboardData, 'loadAll' | 'refresh' | 'loadProgress'>;
+  rebuild: () => void;
+  now: () => Date;
+  onProgressError: (e: Error) => void;
+}): () => Promise<void> {
+  let progressFailed = false;
+  return async () => {
+    const r = await o.watcher.poll();
+    if (r.kind === 'full') await o.data.loadAll();
+    else if (r.kind === 'changed') await o.data.refresh(r.numbers);
+    if (r.kind === 'unchanged' && !progressFailed) {
+      o.watcher.commit();
+      return;
+    }
+    let failure: unknown;
+    let failed = false;
+    try {
+      await o.data.loadProgress(o.now());
+      progressFailed = false;
+    } catch (e) {
+      failed = true;
+      failure = e;
+      progressFailed = true;
+      o.onProgressError(toError(e));
+    }
+    o.rebuild();
+    o.watcher.commit();
+    if (failed) throw failure instanceof Error ? failure : toError(failure);
+  };
 }
 
 function repository(): string {
@@ -305,17 +382,11 @@ async function main(args: string[]): Promise<void> {
   };
 
   let busy = false;
+  const pollRun = createPollRun({ watcher, data, rebuild, now: () => new Date(), onProgressError: (e) => console.error(`進みの帯を読めませんでした（前の値のままにします）: ${e.message}`) });
   const run = async () => {
     busy = true;
     try {
-      const r = await watcher.poll();
-      if (r.kind === 'full') await data.loadAll();
-      else if (r.kind === 'changed') await data.refresh(r.numbers);
-      if (r.kind !== 'unchanged') {
-        await data.loadProgress(new Date());
-        rebuild();
-      }
-      watcher.commit();
+      await pollRun();
     } finally {
       busy = false;
     }
@@ -339,14 +410,8 @@ async function main(args: string[]): Promise<void> {
   // GitHub の材料を読み直している間は途中の状態を出さない（読み終えた tick が組み直す）
   const stopWatch = watchSessions(projectsDir, () => { if (!busy) rebuild(); });
   // intel が読んだ印を付けた分を画面に返す（変わったときだけ送る）
-  let lastUnread = notes.unread();
-  const inboxTimer = setInterval(() => {
-    const n = notes.unread();
-    if (n !== lastUnread) {
-      lastUnread = n;
-      server.send('inbox', { unread: n });
-    }
-  }, INBOX_POLL_MS);
+  const poller = createInboxPoller({ unread: () => notes.unread(), send: (n) => server.send('inbox', { unread: n }), onError: (e) => console.error(`受け箱の未読の数が読めません: ${e.message}`) });
+  const inboxTimer = setInterval(() => poller.tick(), INBOX_POLL_MS);
   const stop = async () => {
     clearInterval(inboxTimer);
     scheduler?.stop();
