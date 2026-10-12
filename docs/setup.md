@@ -230,3 +230,5 @@ Claude Code のクラウドのセッション（claude.ai/code）で、付き添
 **セッションの ID**：着手宣言は今どおりセッションの URL の ID で出す。段階・見張りのファイルは、URL を `session_…` に読み替えた名前で書く（[formats.md](../harness/docs/formats.md) の段階のファイル）。読み込みの記録などは `AGENT_HARNESS_SESSION` のまま。利用者がすることは無い。
 
 **Orca が無いときの進め方**：クラウドではサブエージェントの入れ子が1段までなので、`fleet.nesting` が `orca` のままでも、ship が「入れ子不可」を返し、fleet は1つのセッションで段階を交互に進める方式（`flat`）になる。この1段までという事実は Epic #706 の 2026-10-11 の動作確認によるもので、クラウドの挙動が変わったら見直す。hq・intel・ペイン・Orca の通知は無い（hq を使わず、fleet・ship を使う）。SessionStart の hook は、`CLAUDE_CODE_REMOTE_SESSION_ID` があるときは Orca の CLI が無いことを知らせない。ハーネスが更新されたときの交代は、Orca が無いときの手順（人が新しいセッションに渡す1行を示して止まる）になる。
+
+**PR を出した後の待ち方**：クラウドのセッションは、止まると VM が回収されることがあり、数分おきの読み直しのループは続かない。そのため ship は Draft PR を出したらその PR の通知を購読し（`subscribe_pr_activity`）、CI・レビュー・衝突・Merge・Close のイベントで起きて `step` で次の段階（fix・sync・判定のやり直し・Merge の後の見届け）に進む。取りこぼしに備えて30分おきに見回りを予約し（`send_later`）、何も変わらない見回りが3回続いたら予約を止めて人に一度だけ伝える。Merge か Close で購読と予約をやめる。fleet は購読中の PR を数分おきの読み直しから外す。手順は [ship の skill](../.claude/skills/ship/SKILL.md) の節「クラウドで PR を出した後（PR のイベントで進める）」（#892）。
