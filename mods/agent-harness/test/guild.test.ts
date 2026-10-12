@@ -1,4 +1,4 @@
-// /guild（冒険者ギルドのペイン）の Raster・人の Merge 待ちの文・見えている間だけ blit と読み直しをすること・terminal 以外の文・読めないときの文・登録する surface を確かめる。
+// /guild（冒険者ギルドのペイン）の Raster・人の Merge 待ちの文・見えている間だけ blit と読み直しをすること・desktop の Svg（blit しない）・vscode などの文・読めないときの文・登録する surface を確かめる。
 import { expect, mock, test } from 'claude-code/testing'
 import { GUILD_PANE, GUILD_RASTER_KEY } from '../hooks/guild.tsx'
 
@@ -76,6 +76,7 @@ test('terminal：/guild のペインに Raster と「! #556 PR #601」が出る'
   await openGuild($)
   const ui = await $.ui.mount(pane('terminal') as never)
   await expect(ui.find({ type: 'Raster', key: GUILD_RASTER_KEY })).resolves.toBeDefined()
+  await expect(ui.find({ type: 'Svg' })).resolves.toBeUndefined()
   await expect(ui.find({ type: 'Text', text: '! #556 PR #601' })).resolves.toBeDefined()
 })
 
@@ -109,13 +110,23 @@ test('terminal：見えない間は 15 秒の読み直しをしない（最初�
   expect(boardRuns).toHaveLength(1)
 })
 
-test('desktop で始めたセッション：Raster は無く、ターミナル版だけの文と人の Merge 待ちの文が出る', async ($, on) => {
+test('desktop で始めたセッション：Svg（isInteractive）が出て Raster は無く、人の Merge 待ちの文が出る', async ($, on) => {
   await start($, on, { surface: 'desktop' })
   await openGuild($)
   const ui = await $.ui.mount(pane('desktop') as never)
+  await expect(ui.find({ type: 'Svg' })).resolves.toBeDefined()
+  expect((await ui.find({ type: 'Svg' }))?.props.isInteractive).toBe(true)
   await expect(ui.find({ type: 'Raster' })).resolves.toBeUndefined()
-  await expect(ui.find({ type: 'Text', text: 'ターミナル版だけに対応しています' })).resolves.toBeDefined()
   await expect(ui.find({ type: 'Text', text: '! #556' })).resolves.toBeDefined()
+  await expect(ui.find({ type: 'Text', text: 'ターミナル版' })).resolves.toBeUndefined()
+})
+
+test('desktop で始めたセッション：/guild を開いて時計を進めても ui.blit を呼ばない', async ($, on) => {
+  const { blits, clock } = await start($, on, { surface: 'desktop' })
+  await openGuild($)
+  await $.ui.mount(pane('desktop') as never)
+  await clock.advance(300)
+  expect(blits).toHaveLength(0)
 })
 
 test('terminal：hq board が exit 1 なら「ギルドの様子を読めません」が出て Raster は無い', async ($, on) => {
