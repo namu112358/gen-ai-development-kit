@@ -25,6 +25,11 @@
  * 自分の ID のファイルと、stage か watch が30日以内に書かれている ID の loaded は残す。loaded・watch・stage・hq の直下で、60分より前の *.tmp も消す
  * （書き込み途中の残り。hq の .json と hq/pending/ の中は消さない）。CLAUDE_PROJECT_DIR が無い・session_id が形に合わない・
  * 共通ディレクトリが取れない・lib が読めないときは何も消さない。消し損ねたファイルは飛ばす。どの場合もセッションの開始を止めない。
+ *
+ * 前提の確かめの知らせ（Issue #834。docs/setup.md の節11）：source が startup で、CLAUDE_PROJECT_DIR があり、Routine（CLAUDE_CODE_REMOTE_SESSION_ID）でなく、
+ * AGENT_HARNESS_SESSION_DOCTOR=0 で止められていないときだけ、harness/scripts/session-doctor.ts を読み込んで足りないものを1行ずつ知らせる。
+ * 行は Orca の知らせと1つの JSON にまとめ（Orca の知らせを出したときは確かめの Orca の行を重ねない）、直すのは人だと添える。env と作業場所は
+ * CLAUDE_PROJECT_DIR に合わせる。読み込み・確かめの失敗は行が無いだけで、どの場合も exit 0。設定は変えず、fetch もしない。
  */
 import { spawnSync } from 'node:child_process';
 import { accessSync, appendFileSync, constants, readdirSync, rmSync, statSync } from 'node:fs';
@@ -307,6 +312,40 @@ function executable(path: string): boolean {
   }
 }
 
+const DOCTOR_FOOTER = '直すのは人（セッションは設定を変えない）。止めるには AGENT_HARNESS_SESSION_DOCTOR=0。docs/setup.md の節11';
+
+/**
+ * 前提の確かめの行（Issue #834）。startup・CLAUDE_PROJECT_DIR あり・Routine でない・止められていないときだけ、
+ * session-doctor を読み込んで呼ぶ。止める条件では load を呼ばない。load や確かめが投げたら空。
+ */
+export async function doctorLines(
+  raw: string,
+  env: Record<string, string | undefined>,
+  orcaNoticeShown: boolean,
+  load: () => Promise<typeof import('../../harness/scripts/session-doctor.ts')> = () => import('../../harness/scripts/session-doctor.ts'),
+): Promise<string[]> {
+  try {
+    if (env.CLAUDE_CODE_REMOTE_SESSION_ID || !env.CLAUDE_PROJECT_DIR || env.AGENT_HARNESS_SESSION_DOCTOR === '0') return [];
+    if ((JSON.parse(raw) as { source?: unknown }).source !== 'startup') return [];
+    const mod = await load();
+    if (mod.sessionDoctorDisabled(env)) return [];
+    return await mod.sessionDoctor({ orcaNoticeShown }, mod.defaultSessionDoctorDeps({ cwd: env.CLAUDE_PROJECT_DIR, env }));
+  } catch {
+    return [];
+  }
+}
+
+/** Orca の知らせと確かめの行を1つにまとめる。行が空なら知らせのまま（両方無ければ null）。行の後ろに添え書きを1回だけ付ける */
+export function mergeNotice(notice: OrcaNotice | null, lines: string[]): OrcaNotice | null {
+  if (lines.length === 0) return notice;
+  const extra = `${lines.join('\n')}\n${DOCTOR_FOOTER}`;
+  const join = (head: string | undefined): string => (head ? `${head}\n${extra}` : extra);
+  return {
+    systemMessage: join(notice?.systemMessage),
+    hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: join(notice?.hookSpecificOutput.additionalContext) },
+  };
+}
+
 /** hook の本体。直接起動したとき（import.meta.main）と、入口（run.mjs）から呼ばれたときに動く */
 export async function main(): Promise<void> {
   let raw = '';
@@ -322,9 +361,15 @@ export async function main(): Promise<void> {
   recordLoaded(raw, process.env);
   // 古い状態のファイルの片付け（pruneLocalState は例外を投げない）
   pruneLocalState(raw, process.env);
+  let notice: OrcaNotice | null = null;
   try {
-    const notice = orcaNotice(raw, process.env, executable);
-    if (notice) process.stdout.write(`${JSON.stringify(notice)}\n`);
+    notice = orcaNotice(raw, process.env, executable);
+  } catch {
+    // 知らせに失敗しても開始を止めない
+  }
+  try {
+    const merged = mergeNotice(notice, await doctorLines(raw, process.env, notice !== null));
+    if (merged) process.stdout.write(`${JSON.stringify(merged)}\n`);
   } catch {
     // 知らせに失敗しても開始を止めない
   }

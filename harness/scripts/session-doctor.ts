@@ -10,6 +10,12 @@
  * - ls-remote と gh は非同期に並行に動かし、それぞれ子の時間切れ（3 秒）と、確かめ全体の上限（4 秒）を置く。
  *   同期で呼ぶ短い git（config・rev-parse・cat-file・merge-base）は全体の上限の対象外で、spawnSync の時間切れ（2 秒）だけを置く。
  * - 入口は import.meta.main の中だけで動く（テストが import しても動かない）。
+ * - SessionStart の hook（.claude/hooks/session-env.ts。Issue #834）から、cwd と env を渡して呼ぶ（defaultSessionDoctorDeps の opts）。
+ *   人が呼ばなくても startup のたびに動くので、画面を出さず取りに行かない：同期の git の env に GIT_TERMINAL_PROMPT=0・GIT_NO_LAZY_FETCH=1、
+ *   ls-remote の env に GIT_TERMINAL_PROMPT=0・GCM_INTERACTIVE=never・SSH_ASKPASS_REQUIRE=never を足し、ls-remote は Windows のほかでは
+ *   detached（制御端末を持たない）、Windows では windowsHide で動かす。credential helper は外さない。
+ * - 同期の git は全体の上限の外なので最悪でも 5回×2秒＋4秒＝約14秒で、SessionStart の hook の既定の時間切れ（60秒）より短い。
+ *   時間切れの値を変えたら、この見積もりと docs/setup.md の節11も直す。
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { orcaCliInfo } from './orca-cli.ts';
@@ -45,7 +51,7 @@ export function sessionDoctorDisabled(env: Env): boolean {
   }
 }
 
-function runAsync(command: string, args: string[], opts: { env?: Env; stdout: boolean }): Promise<{ status: number | null; stdout: string }> {
+function runAsync(command: string, args: string[], opts: { cwd?: string; env?: Env; stdout: boolean; detached?: boolean }): Promise<{ status: number | null; stdout: string }> {
   return new Promise((resolve) => {
     let out = '';
     let done = false;
@@ -58,6 +64,9 @@ function runAsync(command: string, args: string[], opts: { env?: Env; stdout: bo
       const child = spawn(command, args, {
         shell: false,
         timeout: CHILD_TIMEOUT_MS,
+        cwd: opts.cwd,
+        detached: opts.detached && process.platform !== 'win32',
+        windowsHide: process.platform === 'win32',
         env: opts.env as NodeJS.ProcessEnv | undefined,
         stdio: ['ignore', opts.stdout ? 'pipe' : 'ignore', 'ignore'],
       });
@@ -73,21 +82,25 @@ function runAsync(command: string, args: string[], opts: { env?: Env; stdout: bo
   });
 }
 
-export function defaultSessionDoctorDeps(): SessionDoctorDeps {
+export function defaultSessionDoctorDeps(opts: { cwd?: string; env?: Env } = {}): SessionDoctorDeps {
+  const env = opts.env ?? process.env;
+  const cwd = opts.cwd;
+  const syncEnv = { ...env, GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1' };
+  const lsRemoteEnv = { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', SSH_ASKPASS_REQUIRE: 'never' };
   return {
     platform: process.platform,
-    env: process.env,
+    env,
     gitSync: (args) => {
-      const r = spawnSync('git', args, { shell: false, encoding: 'utf8', timeout: GIT_SYNC_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] });
+      const r = spawnSync('git', args, { shell: false, cwd, env: syncEnv as NodeJS.ProcessEnv, encoding: 'utf8', timeout: GIT_SYNC_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] });
       return { status: r.error ? null : r.status, stdout: r.stdout ?? '' };
     },
     lsRemoteMain: async () => {
-      const r = await runAsync('git', ['ls-remote', 'origin', 'refs/heads/main'], { env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }, stdout: true });
+      const r = await runAsync('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd, env: lsRemoteEnv, stdout: true, detached: true });
       if (r.status !== 0) return null;
       const sha = r.stdout.trim().split(/\s+/)[0] ?? '';
       return /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
     },
-    ghAuthStatus: async () => (await runAsync('gh', ['auth', 'status'], { stdout: false })).status,
+    ghAuthStatus: async () => (await runAsync('gh', ['auth', 'status'], { cwd, env, stdout: false })).status,
     totalTimeoutMs: TOTAL_TIMEOUT_MS,
   };
 }
