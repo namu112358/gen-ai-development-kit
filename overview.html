@@ -279,7 +279,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <li>判定する（Reviewer・Risk Agent）</li>
         <li>指摘を直す、main を取り込む</li>
         <li>複数の Issue は fleet で進める。<code>fleet.shipMode</code> が <code>worker</code> で Orca があれば、Issue ごとに ship を Orca の worker（独立したセッション）で起こし、無ければ1つのセッションの中（サブエージェントか、段階を交互に）で進める</li>
-        <li>intel は Orca の本体のタブで待ち、hq・fleet・人から届く気づき（と手元のダッシュボードの受け箱）を控えて Issue の下書きにし、人の質問に根拠つきで答える。何も動かさない</li>
+        <li>intel は Orca の本体のタブで待ち、人に話しかけられたときに判断待ちを GitHub から拾って選択肢で聞き、答えを決定の記録に残す。hq・fleet・人から届く気づき（と手元のダッシュボードの受け箱）を控えて Issue の下書きにし、人の質問に根拠つきで答える。fleet・ship に指示しない</li>
         <li>issue-creator は気づき・観測を Issue の下書きにして既存の Issue との重複を二段で確かめ、呼び出し元が名指しした下書きだけを作る（intel などがサブエージェントで呼ぶ。人には聞かない）</li>
         <li>hq は人の判断が要る相談を人に聞き、今すぐの判断が要らない気づき・改善案は intel に回す（fleet も hq を通さず intel に送る）。人が hq に言ったアイデアも intel に回し、次からは intel のタブに送るよう案内する</li>
       </ul>
