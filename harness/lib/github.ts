@@ -193,7 +193,7 @@ export class GitHub {
   }
 
   request<T = any>(method: string, path: string, opts?: RequestOptions): Promise<T> {
-    const full = path.startsWith('/repos/') || path.startsWith('/graphql') || path.startsWith('http') || path.startsWith('/app') || path.startsWith('/user') ? path : `${this.repoPath}${path}`;
+    const full = path.startsWith('/repos/') || path.startsWith('/graphql') || path.startsWith('http') || path.startsWith('/app') || path.startsWith('/user') || path.startsWith('/search/') ? path : `${this.repoPath}${path}`;
     return this.transport.request(method, full, opts) as Promise<T>;
   }
 

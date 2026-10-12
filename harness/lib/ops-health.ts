@@ -9,7 +9,7 @@ import { renderUnclaimedJudgeLine, unclaimedJudgePrs, type UnclaimedJudgeInput }
 
 /**
  * 保守の観測（harness/scripts/observe.ts）の運用の健康：定期実行の抜け・API の上限・CI の過剰な実行・PR の滞留など 14 項目の判定と、GitHub を読む数の上限。
- * 項目の判定は GitHub・git を呼ばない純粋関数で、どのパスを何回読むか・ログを何件読むか・worktree の読み方は observe.ts（#691）が持つ。
+ * 項目の判定は GitHub・git を呼ばない純粋関数で、どのパスを何回読むか・ログを何件読むか・worktree の読み方は observe-ops.ts（#701）が持つ。
  * 値（value）としきい値（threshold）は同じ単位の数で、exceeded は value >= threshold か、項目の第2の条件（ci の重なり・計画の無い Issue の数）。
  * 入力の欄が Unavailable なら、その項目だけ読めない扱い（available: false と理由）にする。時刻の読めない実行・宣言は数えない（誤って超えたと出さない）。
  * budgetedGitHub は渡された GitHub に GET だけを取り次ぎ、上限を超える GET と GET 以外は呼ばずに誤りにする（Epic #417、Issue #690）。
