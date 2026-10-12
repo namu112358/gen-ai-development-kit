@@ -249,7 +249,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 
 ## 同時に開ける PR の数
 
-同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは、同じリポジトリの Agent PR（`agentBranchPrefix` のブランチ）のうち Draft のもの（判定の前で、まだ push が続く PR）だけ。Ready になった PR（人の Merge 待ちも自動 Merge 待ちも）、人の PR、fork の PR は数えない。App が「Draft＝判定前、Ready＝判定に合格して Merge 待ち」を保つので、PR の一覧の `draft` だけで判定の前かが分かる。ガードレールに触れる PR は人の Merge を待つ間 Ready のままたまるので、それを数えると上限を超えたままになり、止める役に立たない。
+同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは、同じリポジトリの Agent PR（`agentBranchPrefix` のブランチ）のうち Draft のもの（判定の前で、まだ push が続く PR）だけ。Ready になった PR（人の Merge 待ちも自動 Merge 待ちも）、人の PR、fork の PR は数えない。 このリポジトリ（gen-ai-development-kit）では 6 にしている（2026-10-13 の計測で、直近 30 件の Merge 済み PR のうち取り込みが要ったのは 1 件だけで、上限 3 では Draft PR 3 件で枠が埋まり新しい PR を出せなかった。取り込みの衝突が増えたら 3 に戻す）。App が「Draft＝判定前、Ready＝判定に合格して Merge 待ち」を保つので、PR の一覧の `draft` だけで判定の前かが分かる。ガードレールに触れる PR は人の Merge を待つ間 Ready のままたまるので、それを数えると上限を超えたままになり、止める役に立たない。
 
 - 上限に達した領域に計画の触るファイルが入る Issue は、queue が implement を出さずに skip にする（理由はダッシュボードに出る）。
 - 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。ただし claim の段階 `plan`・`plan-critique` の宣言は、PR を作らないので上限を見ない。急ぐときは `--force` を付ける。fleet が領域の上限を越えて宣言し直すときは `--fleet` を付ける（飛ばすのは領域の上限だけで、`--force` と同じ）。ほかのセッションの着手宣言があるときも止まり、こちらは `--force`・`--fleet` では越えない。引き継ぐのは人が決めたときだけで、`--takeover` を付ける。
