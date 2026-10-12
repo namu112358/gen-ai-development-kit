@@ -22,6 +22,8 @@ Issue を開いた人が Goal と最初の数行で「何をしたいか・な�
 
 `agent:ready` を付けたときに App が Jev に種類・領域・優先度・AC の書き方を問うかは、`harness.config.json` の `classification.issueTriage` で決める。`off` は問わない。`shadow` は提案をコメントするだけでラベルは付けない。`label` は提案のコメントを続け、そのうえで足りない `priority:*` と（計画が無ければ）`area:*` を Jev の答えから付ける（下記「足りないラベルを付ける」）。`label` では Issue を作ったとき（`opened`）にも、`agent:ready` を待たずに足りないものを Jev に問うて付ける。同じ Issue には一度だけ問うので、作成で問い済みなら `agent:ready` を付けても提案のコメントは出ない。Risk と Priority は本文に書かない。優先度は `priority:*` の5段階（highest・high・medium・low・lowest）で、急ぐものには `priority:high` か `priority:highest` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。付いていなければ medium、複数付いていれば最も高いものとして扱う。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
 
+気づき・観測から Issue を作るときの下書き・重複の確かめ・作成は、[issue-creator](../.claude/skills/issue-creator/SKILL.md) の skill にまとめてある（intel から使う予定。#783）。
+
 ## 付き添いのセッションで進める
 
 Issue を進めるのは、人が付き添う Claude のセッション。「#番号 を ship して」と頼むと、ship の skill（[.claude/skills/ship/SKILL.md](../.claude/skills/ship/SKILL.md)）が Issue の状態を読み、段階ごとの skill を次の順につなぐ。
