@@ -1,9 +1,11 @@
-import { claudeMark, renderBlock } from './blocks.ts';
+import { claudeMark, extractBlock, hasClaudeMark, renderBlock } from './blocks.ts';
 import { LABELS, type HarnessConfig } from './config.ts';
 import { delegatePlanExclude } from './delegate.ts';
 import { guardrailPatterns } from './guardrail.ts';
+import type { IssueComment } from './github.ts';
 import { evaluatePlanGate, parsePlan, recordedOrigin, type Parsed, type Plan, type PlanReviewOrigin } from './plan.ts';
-import type { PlanGateRecord } from './state.ts';
+import { parseQaRetroArgs } from './qa-retro.ts';
+import { isTrustedComment, type PlanGateRecord } from './state.ts';
 import { Checker } from './validate.ts';
 
 /**
@@ -144,4 +146,137 @@ export function judgmentPostable(judgment: SessionJudgment, check: PlanReviewRis
   if (!check) return { ok: false, reasons: ['basis が risk-only の判定は、plan-review-check の結果が要ります'] };
   if (check.riskOnly) return { ok: true, reasons: [] };
   return { ok: false, reasons: ['plan-review-check の riskOnly が偽です。risk-only の判定は投稿しません（人に上げる）', ...check.notes] };
+}
+
+// --- 期間の集計（session-judgment-digest、Issue #805） ---
+
+const DAY = 86400_000;
+const WEEK = 7 * DAY;
+
+export interface SessionJudgmentSample {
+  target: number;
+  stage: SessionJudgmentStage;
+  decision: string;
+  /** コメントの html_url（Issue にも PR にも当たる） */
+  url: string;
+  createdAt: string;
+}
+
+export interface SessionJudgmentDigest {
+  since: string;
+  until: string;
+  total: number;
+  counts: Record<SessionJudgmentBasis, number>;
+  samples: Record<SessionJudgmentBasis, SessionJudgmentSample[]>;
+  /** ブロックを持つが書式の誤りで読めなかったコメントの数（基準には振らない） */
+  unreadable: number;
+  lines: string[];
+}
+
+/**
+ * 作成時刻が [since, until) の、コラボレーターの、目印のあるコメントから agent-session-judgment を集め、基準ごとに数えて抜き取る。
+ * 抜き取りは基準ごとに新しい順（同じ時刻は ID の大きい順）で sample 件。GitHub は読まない。
+ */
+export function digestSessionJudgments(comments: (IssueComment & { issue_url?: string })[], period: { since: Date; until: Date }, opts: { sample: number }): SessionJudgmentDigest {
+  const counts = Object.fromEntries(SESSION_JUDGMENT_BASES.map((b) => [b, 0])) as Record<SessionJudgmentBasis, number>;
+  const found = Object.fromEntries(SESSION_JUDGMENT_BASES.map((b) => [b, [] as { id: number; time: number; sample: SessionJudgmentSample }[]])) as Record<SessionJudgmentBasis, { id: number; time: number; sample: SessionJudgmentSample }[]>;
+  let unreadable = 0;
+  for (const c of comments) {
+    const time = Date.parse(c.created_at);
+    if (Number.isNaN(time) || time < period.since.getTime() || time >= period.until.getTime()) continue;
+    if (!isTrustedComment(c) || !hasClaudeMark(c.body)) continue;
+    const block = extractBlock(c.body, 'agent-session-judgment');
+    if (!block.found) continue;
+    const parsed = block.ok ? parseSessionJudgment(block.value) : null;
+    if (!parsed || !parsed.ok) {
+      unreadable++;
+      continue;
+    }
+    const j = parsed.value;
+    counts[j.basis]++;
+    found[j.basis].push({ id: c.id, time, sample: { target: j.target, stage: j.stage, decision: j.decision, url: c.html_url, createdAt: c.created_at } });
+  }
+  const samples = {} as Record<SessionJudgmentBasis, SessionJudgmentSample[]>;
+  const lines: string[] = [];
+  for (const b of SESSION_JUDGMENT_BASES) {
+    samples[b] = found[b]
+      .sort((x, y) => y.time - x.time || y.id - x.id)
+      .slice(0, opts.sample)
+      .map((f) => f.sample);
+    lines.push(`${b}: ${counts[b]} 件（抜き取り ${samples[b].length} 件）`);
+    for (const s of samples[b]) lines.push(`- #${s.target} ${s.stage}: ${s.decision}（${s.url}）`);
+  }
+  const total = SESSION_JUDGMENT_BASES.reduce((n, b) => n + counts[b], 0);
+  return { since: period.since.toISOString(), until: period.until.toISOString(), total, counts, samples, unreadable, lines };
+}
+
+export interface DigestArgs {
+  since: Date;
+  until: Date;
+  sample: number;
+  weekly: boolean;
+  state: string | null;
+}
+
+/** `--days`・`--since`・`--until`（parseQaRetroArgs と同じ読み方。既定は直近 7 日）・`--sample <n>`（既定 3）・`--weekly`・`--state <path>` を読む */
+export function parseDigestArgs(args: string[], now: Date): { ok: true; value: DigestArgs } | { ok: false; errors: string[] } {
+  const errors: string[] = [];
+  const rest: string[] = [];
+  let sample = 3;
+  let weekly = false;
+  let state: string | null = null;
+  let sampleSeen = false;
+  let stateSeen = false;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === '--weekly') weekly = true;
+    else if (a === '--sample') {
+      if (sampleSeen) errors.push('--sample が2回あります');
+      sampleSeen = true;
+      const v = args[++i];
+      if (v === undefined || !/^[1-9]\d*$/.test(v)) errors.push('--sample は正の整数で書いてください');
+      else sample = Number(v);
+    } else if (a === '--state') {
+      if (stateSeen) errors.push('--state が2回あります');
+      stateSeen = true;
+      const v = args[++i];
+      if (v === undefined || v === '' || v.startsWith('--')) errors.push('--state はパスで書いてください');
+      else state = v;
+    } else rest.push(a);
+  }
+  if (weekly && rest.some((a) => a === '--days' || a === '--since' || a === '--until')) errors.push('--weekly は --days・--since・--until と同時に渡せません');
+  const hasRange = rest.some((a) => a === '--days' || a === '--since');
+  const period = parseQaRetroArgs(hasRange ? rest : ['--days', '7', ...rest], now);
+  if (!period.ok) errors.push(...period.errors);
+  if (errors.length > 0 || !period.ok) return { ok: false, errors };
+  return { ok: true, value: { since: period.value.since, until: period.value.until, sample, weekly, state } };
+}
+
+export interface DigestState {
+  version: 1;
+  lastUntil: string;
+}
+
+/** 週1回の手元の状態のファイル。無い・空なら null、書式が違えば誤り */
+export function parseDigestState(text: string | null): { ok: true; state: DigestState | null } | { ok: false; errors: string[] } {
+  if (text === null || text.trim() === '') return { ok: true, state: null };
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, errors: [`状態のファイルの JSON が壊れています: ${(e as Error).message}`] };
+  }
+  const o = raw as { version?: unknown; lastUntil?: unknown } | null;
+  if (typeof o !== 'object' || o === null || Array.isArray(o)) return { ok: false, errors: ['状態のファイルがオブジェクトではありません'] };
+  if (o.version !== 1) return { ok: false, errors: ['状態の version: 1 ではありません'] };
+  if (typeof o.lastUntil !== 'string' || Number.isNaN(Date.parse(o.lastUntil))) return { ok: false, errors: ['状態の lastUntil が日時ではありません'] };
+  return { ok: true, state: { version: 1, lastUntil: o.lastUntil } };
+}
+
+/** 前回の終わりから 7 日たっていれば前回の終わりから今まで（抜けも重なりも出ない）、まだなら次の時刻 */
+export function weeklyPeriod(state: DigestState | null, now: Date): { due: true; since: Date; until: Date } | { due: false; nextAt: string } {
+  if (!state) return { due: true, since: new Date(now.getTime() - WEEK), until: now };
+  const last = new Date(state.lastUntil);
+  if (now.getTime() - last.getTime() < WEEK) return { due: false, nextAt: new Date(last.getTime() + WEEK).toISOString() };
+  return { due: true, since: last, until: now };
 }

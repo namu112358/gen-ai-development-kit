@@ -17,6 +17,8 @@ const QA_RETRO_SPEC: SkillSpec = {
   headings: ['## 入力', '## 集計', '## 判断', '## 出力', '## やってはいけないこと'],
   words: ['人が選んだものだけ'],
   parts: [
+    // セッションの判定の抜き取りを週1回出す（Issue #805）
+    { section: '## 出力', words: ['session-judgment-digest', '--weekly'] },
     // 作る Issue に agent:ready を付けない・集計の結果を reviewer・risk-agent に渡さない
     { section: '## やってはいけないこと', words: ['`agent:ready` を付けない', 'reviewer', 'risk-agent', '渡さない'] },
   ],

@@ -486,6 +486,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 | 最終手段 | Settings → General → Allow auto-merge を切る | auto-merge が一斉に効かなくなる |
 | 個別停止 | Issue / PR に `agent:hold` を付ける | PR は merge-route が failure、Issue は Routine が処理しない。外されると App が記録する |
 | revert で自動停止 | 自動 Merge された PR を revert する | App が停止スイッチを入れる。人が確認して外すまで再開しない |
+| main の CI の失敗で自動停止 | Merge の後、既定ブランチの先頭の必須チェック（`projectChecks`）が失敗する | App が定期の実行で見つけ、停止スイッチを入れて理由をダッシュボードに書く（記録 `auto-merge-stopped`、`cause: "main-ci-failed"`。同じ commit は1回だけ）。先頭が App の自動 Merge した Agent PR（Stacked PR でない。Merge の方法は SQUASH か MERGE）の commit で、親の commit の必須チェックが成功していたときは、戻す commit のブランチ `agent-revert/pr-<N>` と Draft の PR も出す（Agent PR ではなく、Merge は人）。出さないとき：人が Merge した PR・Stacked PR・Merge の方法が REBASE・PR を特定できない・親の commit でも失敗している（ci.yml に push(main) を足す前の commit が親でチェックが無い場合を含む）・ブランチが既にある。毎時の実行の前に次の PR が Merge されると先頭が別の commit になり、停止だけになる（取りこぼし）。先頭にチェックがいつまでも付かないときは何もしない。revert の PR を人が Merge すると、revert の検知がもう一度ダッシュボードにコメントを残す。再開は、原因を確かめて停止ラベルを外す |
 | Routine の停止 | Routine を無効化する | Claude が動かなくなる（ゲートは動く） |
 
 暴走したときは、Routine を無効化 → 停止スイッチ → 開いている Agent PR に `agent:hold` か Close → 誤って入った変更を revert、の順に止める。再開は停止ラベルを外すだけ。

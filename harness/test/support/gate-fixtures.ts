@@ -1,5 +1,5 @@
 import { appMark, claudeMark, renderBlock } from '../../lib/blocks.ts';
-import { appLogin, delegateConfig, loadConfig, type HarnessConfig } from '../../lib/config.ts';
+import { appLogin, delegateConfig, loadConfig, projectChecks, type HarnessConfig } from '../../lib/config.ts';
 import { GitHub, type RequestOptions, type Transport } from '../../lib/github.ts';
 import type { Claim, ClaimStage } from '../../lib/queue.ts';
 import { RISK_QUESTIONS, type Verdict } from '../../lib/verdict.ts';
@@ -293,4 +293,56 @@ export function delegateWorldFake(w: DelegateWorld): FakeGitHub {
       }
       return null;
     });
+}
+
+/** 既定ブランチの先頭の commit（H）と、その第1親（P）。Merge 後の CI の失敗の revert（Issue #802）のテストで使う */
+export const MAIN_HEAD = 'd'.repeat(40);
+export const MAIN_PARENT = 'e'.repeat(40);
+export const MAIN_HEAD_TREE = '1'.repeat(40);
+export const MAIN_PARENT_TREE = '2'.repeat(40);
+
+/** 必須チェック（projectChecks の context）の結果。null はまだ終わっていない、'missing' はチェックが無い */
+export type MainCheckResult = 'success' | 'failure' | 'timed_out' | 'neutral' | null | 'missing';
+
+/**
+ * 偽の GitHub に、既定ブランチの先頭 H・第1親 P の commit と、それぞれの必須チェック（check-run。status は空）を返す route を足す。
+ * 先頭は /branches/{main}・/commits/{main}・/git/ref(s)/heads/{main} のどれで読んでもよく、commit は /commits/{sha}・/git/commits/{sha} で読める
+ */
+export function mainChecks<T extends FakeGitHub>(fake: T, checks: { head: MainCheckResult; parent: MainCheckResult }): T {
+  const branch = config.defaultBranch;
+  const commit = (sha: string) => (sha === MAIN_PARENT
+    ? { sha: MAIN_PARENT, tree: MAIN_PARENT_TREE, parents: ['f'.repeat(40)] }
+    : { sha: MAIN_HEAD, tree: MAIN_HEAD_TREE, parents: [MAIN_PARENT] });
+  const restCommit = (sha: string) => {
+    const c = commit(sha);
+    return { sha: c.sha, commit: { message: 'merge', tree: { sha: c.tree } }, parents: c.parents.map((p) => ({ sha: p })) };
+  };
+  const gitCommit = (sha: string) => {
+    const c = commit(sha);
+    return { sha: c.sha, message: 'merge', tree: { sha: c.tree }, parents: c.parents.map((p) => ({ sha: p })) };
+  };
+  const shaOf = (ref: string) => (ref === branch ? MAIN_HEAD : ref);
+  const runs = (sha: string) => {
+    const result = sha === MAIN_PARENT ? checks.parent : sha === MAIN_HEAD ? checks.head : 'missing';
+    if (result === 'missing') return [];
+    const { context, integrationId } = projectChecks(config)[0]!;
+    return [{ name: context, status: result === null ? 'in_progress' : 'completed', conclusion: result, app: { id: integrationId } }];
+  };
+  const ref = `(${MAIN_HEAD}|${MAIN_PARENT}|${branch})`;
+  fake
+    .on('GET', new RegExp(`/branches/${branch}(\\?.*)?$`), () => ({ name: branch, commit: restCommit(MAIN_HEAD) }))
+    .on('GET', new RegExp(`/commits/${ref}(\\?.*)?$`), (m) => restCommit(shaOf(m[1]!)))
+    .on('GET', new RegExp(`/git/refs?/heads/${branch}(\\?.*)?$`), () => ({ ref: `refs/heads/${branch}`, object: { sha: MAIN_HEAD, type: 'commit' } }))
+    .on('GET', new RegExp(`/git/commits/${ref}(\\?.*)?$`), (m) => gitCommit(shaOf(m[1]!)))
+    .on('GET', new RegExp(`/commits/${ref}/check-runs`), (m) => {
+      const list = runs(shaOf(m[1]!));
+      return { total_count: list.length, check_runs: list };
+    })
+    .on('GET', new RegExp(`/commits/${ref}/status(\\?.*)?$`), () => ({ state: 'pending', statuses: [] }));
+  return fake;
+}
+
+/** 既定ブランチの先頭も親も必須チェックが成功している（定期実行の入口を通るテストが、Merge 後の revert の段で落ちないように） */
+export function mainChecksOk<T extends FakeGitHub>(fake: T): T {
+  return mainChecks(fake, { head: 'success', parent: 'success' });
 }
