@@ -122,7 +122,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 
 | ラベル | 付ける者 | 意味 |
 | --- | --- | --- |
-| `agent:ready` | 人 | 着手してよい |
+| `agent:ready` | 人 / patrol（auto mode の間、`patrol-supply ready` が条件を確かめて付ける） | 着手してよい |
 | `agent:plan-review` | App（計画ゲート）/ Planner（申告のとき） | 計画に人の判断が必要。付き添いのセッションで実装する。外せるのは人と、App（ゲートの停止で、出し直した計画が通ったとき。Planner の申告で、人の決定の記録を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき。Planner の申告で、条件を満たす `split` の計画を出し直したとき） |
 | `agent:plan-ok` | App のみ | 計画ゲート通過 |
 | `agent:waiting` | Routine / App | 依存待ち（blocker が閉じると App が外す） |
@@ -558,7 +558,7 @@ node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run
 - 1回分はその回の中で完結させ、人の答えを待たない（AskUserQuestion を呼ばない）。人の判断が要る状態に当たったら、その回を止めて理由を出す。
 - 前回の位置は、その skill の記録・状態から読む（arch-review はダッシュボード Issue の記録の `headSha`）。見るものが無い回は記録を残さず、次の回を待つ。
 - 1回に出す直す Issue の下書きは3件まで。超える分は直す価値の高い順に絞り、残りは要約にだけ書く。
-- ループの回は Issue を作らず、ラベルも付けない。Issue にするのは、人が「〜の下書きを選ぶ」（例：「arch-review の下書きを選ぶ」）と頼んだときに、人が選んだものだけ。
+- ループの回は Issue を作らず、ラベルも付けない。例外は patrol の auto mode の間の自動の供給だけ（上限は `patrolAutoSupply.dailyLimit`。詳細は patrol の skill）。Issue にするのは、人が「〜の下書きを選ぶ」（例：「arch-review の下書きを選ぶ」）と頼んだときに、人が選んだものだけ。
 - 止め方：`/loop` を止める（セッションで止めるよう頼む・セッションを閉じる）。記録を残す前に止めた回は、次の回が同じ範囲を見直す。
 - 結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。
 
