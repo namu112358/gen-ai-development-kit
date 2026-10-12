@@ -173,6 +173,7 @@ function latestClaudeBlockAt(comments: IssueComment[], kind: 'agent-plan' | 'age
 }
 
 async function openBlockers(gh: GitHub, n: number): Promise<number[]> {
+  if (gh.restOnly) return (await gh.paginate<{ number: number; state: string }>(`/issues/${n}/dependencies/blocked_by`)).filter((b) => b.state === 'open').map((b) => b.number);
   const data = await gh.graphql<{ repository: { issue: { blockedBy: { nodes: { number: number; state: string }[] } } } }>(
     `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){blockedBy(first:50){nodes{number state}}}}}`,
     { owner: gh.owner, repo: gh.repo, n },

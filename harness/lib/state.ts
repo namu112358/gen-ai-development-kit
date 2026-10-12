@@ -163,6 +163,12 @@ export async function changedFiles(gh: GitHub, pr: number): Promise<string[]> {
 
 /** PR が Close する Issue（本文の Closes #N を GitHub が解釈したもの） */
 export async function closingIssues(gh: GitHub, pr: number): Promise<number[]> {
+  if (gh.restOnly) {
+    // クラウド：GraphQL を使わず、既定ブランチ宛ての PR の本文の Closes #N を読む（GitHub の紐付けと同じく既定ブランチ宛てだけ）
+    const p = await gh.get<{ body: string | null; base: { ref: string; repo?: { default_branch?: string } | null } }>(`/pulls/${pr}`);
+    const def = p.base.repo?.default_branch;
+    return def && p.base.ref === def ? bodyClosingIssues(gh, p.body) : [];
+  }
   const data = await gh.graphql<{ repository: { pullRequest: { closingIssuesReferences: { nodes: { number: number; repository: { nameWithOwner: string } }[] } } } }>(
     `query($owner:String!,$repo:String!,$pr:Int!){repository(owner:$owner,name:$repo){pullRequest(number:$pr){closingIssuesReferences(first:20){nodes{number repository{nameWithOwner}}}}}}`,
     { owner: gh.owner, repo: gh.repo, pr },

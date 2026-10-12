@@ -1,6 +1,7 @@
 /**
  * judge-input の過去の PR の節の材料（変更ファイルを触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント）を GraphQL でまとめて読む。#249。
  * 変更ファイルの履歴は別名を付けた1回の問い合わせ、選んだ過去の PR のスレッドも別名を付けた1回の問い合わせで読む。
+ * クラウド（gh.restOnly）は GraphQL を使わず、履歴を REST（/commits?path=・/commits/{sha}/pulls）で、スレッドを全部の PR で REST の読み方で読む。
  * 作者・関係・ID は harness/lib/graphql-prefetch.ts の変換で REST の形にそろえる。入れ子の接続に続きがある PR だけ、今の REST の読み方で読み直す。
  */
 import type { HarnessConfig } from './config.ts';
@@ -53,12 +54,28 @@ function truncated(t: GThread): boolean {
   return t.comments.pageInfo.hasNextPage || t.reviews.pageInfo.hasNextPage || t.reviews.nodes.some((r) => r.comments.pageInfo.hasNextPage);
 }
 
+/** クラウド用：変更ファイルごとの履歴を REST で読む（commit 5件・commit ごとの PR 5件。既定ブランチに無い新しいファイルは commit が空） */
+async function restHistories(gh: GitHub, config: HarnessConfig, considered: string[]): Promise<Parameters<typeof selectPastPrs>[0]> {
+  const out: Parameters<typeof selectPastPrs>[0] = [];
+  for (const path of considered) {
+    const commits = await gh.get<{ sha: string }[]>(`/commits?path=${encodeURIComponent(path)}&sha=${encodeURIComponent(config.defaultBranch)}&per_page=5`);
+    const prs: HistoryPr[] = [];
+    for (const c of commits.slice(0, 5)) {
+      const found = await gh.get<{ number: number; title: string; merged_at: string | null; base: { ref: string } }[]>(`/commits/${c.sha}/pulls`);
+      for (const p of found.slice(0, 5)) prs.push({ number: p.number, title: p.title, merged: !!p.merged_at, mergedAt: p.merged_at ?? null, baseRefName: p.base.ref });
+    }
+    out.push({ path, prs });
+  }
+  return out;
+}
+
 /** 変更ファイル（先頭 30 件）を触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント。API のエラーはそのまま投げる */
 export async function pastPrsFor(gh: GitHub, config: HarnessConfig, n: number): Promise<PastPrs> {
   const changed = (await gh.paginate<{ filename: string }>(`/pulls/${n}/files`)).map((f) => f.filename);
   const considered = changed.slice(0, PAST_PR_FILE_LIMIT);
   const histories: Parameters<typeof selectPastPrs>[0] = [];
-  if (considered.length > 0) {
+  if (gh.restOnly) histories.push(...await restHistories(gh, config, considered));
+  else if (considered.length > 0) {
     const variables: Record<string, unknown> = { owner: gh.owner, name: gh.repo, branch: config.defaultBranch };
     considered.forEach((path, i) => { variables[`p${i}`] = path; });
     const data = await gh.graphql<{ repository: { object: Record<string, History | undefined> | null } }>(historiesQuery(considered.length), variables);
@@ -70,7 +87,7 @@ export async function pastPrsFor(gh: GitHub, config: HarnessConfig, n: number): 
   }
   const selected = selectPastPrs(histories, n, config.defaultBranch);
   const threads: (GThread | null)[] = [];
-  if (selected.length > 0) {
+  if (selected.length > 0 && !gh.restOnly) {
     const variables: Record<string, unknown> = { owner: gh.owner, name: gh.repo };
     selected.forEach((p, i) => { variables[`n${i}`] = p.number; });
     const data = await gh.graphql<{ repository: Record<string, GThread | null> }>(threadsQuery(selected.length), variables);
@@ -78,7 +95,7 @@ export async function pastPrsFor(gh: GitHub, config: HarnessConfig, n: number): 
   }
   const prs: PastPrs['prs'] = [];
   for (const [i, p] of selected.entries()) {
-    const t = threads[i] ?? null;
+    const t = gh.restOnly ? null : threads[i] ?? null;
     const head = { number: p.number, title: p.title, mergedAt: p.mergedAt, files: p.files };
     if (t === null || truncated(t)) {
       prs.push({
