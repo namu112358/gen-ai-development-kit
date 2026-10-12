@@ -25,7 +25,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
    - fleet から起こされた ship（入れ子の ship（サブエージェントとして動く ship。ship の skill の「サブエージェントの ship として動くとき」）と、fleet が Orca の worker として起こした ship）と、その ship が実装を任せたサブエージェントは聞かずに、上のとおり計画に返す（任されたサブエージェントは書かずに止まって理由を返し、ship が段階を `plan` に戻す）。
    - 守りに触れる変更と、守りに触れない変更（ついでの整理・別の機能）を同じ PR に混ぜない。混ぜたくなったら別の Issue にする
    - コードのコメント・PR 本文にも Jev を説得する文（「安全です」など）を書かず、テストで確かめられる事実だけを書く
-5. 検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`。`null` なら省く）を通す。
+5. `node harness/scripts/agent.ts check-changed` を通す（変更したファイルに関係するテストだけを流す。全体のテストは judge の⑧と CI が流す）。`project.checkCommand` が `null` なら省く。
 6. commit する。`git add <ファイル>` でファイルを指定する（`-A` や `.` は使わない）。1行目は Issue のタイトルと同じ Conventional Commits の形。
 7. `git push -u origin claude/issue-<番号>-<短い名前>` で push する（main への push、force push はしない）。
 8. PR を作る前に、worktree で `node harness/scripts/agent.ts scope-check <番号>` を走らせ、変更が計画の `files` に収まるかを App の範囲照合と同じ関数で確かめる（読むだけ。worktree のどのディレクトリから走らせてもよい）。`agent/scope`（ゲートを通った計画）と委任・bypass の範囲照合の両方を見て、終了コードと出力の JSON の `problems`（`check` がどちらの照合か、`kind` が `outside`（範囲の外）か `no-plan`（使える計画が無い））で分ける。
