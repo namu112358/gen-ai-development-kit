@@ -3,6 +3,8 @@
  * AC1：申告の無い split の計画なら、人の答え無しで印を外し、子 Issue を作り、plan-gate に splitReleased を残す。
  * AC2（守り）：委任承認が有効でも、計画自身の files がガードレールに触れる split の計画では印を外さず子 Issue を作らない。
  * 出どころ：批評の関所で止まったら印を残し planReviewOrigin は planner のまま。単体：人が窓の外で付けた印と AC の変更提案では外さない。
+ * Issue #779（守り）：子課題の files がガードレール・delegateMergeExclude（と harness.config.json）に触れる split の計画は、委任承認が有効でも印を外さず子 Issue を作らない。
+ * 外さない理由（子課題の番号と当たったパターン）はゲートのログに出る。子課題がどれにも触れなければ AC1 のとおり外す。
  */
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -11,8 +13,9 @@ import { appMark, renderBlock } from '../lib/blocks.ts';
 import { splitPlannerRelease } from '../lib/decision.ts';
 import type { SplitChild } from '../lib/epic.ts';
 import type { Plan } from '../lib/plan.ts';
+import type { GateContext } from '../gates/context.ts';
 import { onComment } from '../gates/on-comment.ts';
-import { APP, acceptanceFake, CRITIQUE, critiqueClaim, ctxFor, DELEGATE, delegateLabeled, pr, type FakeGitHub } from './support/gate-fixtures.ts';
+import { APP, acceptanceFake, config, CRITIQUE, critiqueClaim, ctxFor, DELEGATE, delegateLabeled, pr, type FakeGitHub } from './support/gate-fixtures.ts';
 import { postedBodies, postedRecord } from './support/stack-fixtures.ts';
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
@@ -60,9 +63,10 @@ function world(opts: { claim?: boolean; delegate?: boolean } = {}): FakeGitHub {
     .on('POST', /\/issues\/\d+\/dependencies\/blocked_by$/, () => ({}));
 }
 
-async function send(fake: FakeGitHub, p: Plan) {
+/** extra は ctxFor の extra（config の差し替えと log を集める口） */
+async function send(fake: FakeGitHub, p: Plan, extra: Partial<GateContext> = {}) {
   const event = { action: 'created', issue: { number: 3, labels: [{ name: 'agent:ready' }, { name: 'agent:plan-review' }], state: 'open' }, comment: comment(200, planBody(p), P + 3_600_000, 'me') };
-  await onComment(ctxFor(fake, 'issue_comment', event));
+  await onComment(ctxFor(fake, 'issue_comment', event, extra));
 }
 const created = (fake: FakeGitHub) => fake.calls.filter((c) => c.method === 'POST' && /\/repos\/o\/r\/issues$/.test(c.path));
 
@@ -101,16 +105,69 @@ test('出どころ：split の経路で外せる計画でも、批評の関所�
   assert.equal(r.splitReleased, undefined);
 });
 
+/** 2つ目の子課題だけを差し替えた split の計画（計画自身の files は空） */
+const splitWith = (files: string[]): Plan => ({ ...splitPlan, split: [child('docs: a', ['docs/a/**']), child('fix: guarded', files)] });
+/** ガードレールには入らず、delegateMergeExclude だけに入るパスを足した設定 */
+const secretConfig = { ...config, delegateMergeExclude: [...config.delegateMergeExclude!, 'docs/secret/**'] };
+
+test('#779 AC1（守り）：委任承認が有効でも、子課題の files がガードレールに触れる split の計画は印を外さず子 Issue を作らず、理由をログに出す', async () => {
+  const fake = world({ delegate: true });
+  const logs: string[] = [];
+  await send(fake, splitWith(['harness/lib/**']), { log: (m: string) => logs.push(m) });
+  assert.ok(!fake.writes().includes('label-agent:plan-review'), fake.writes().join(','));
+  assert.equal(created(fake).length, 0);
+  const r = postedRecord(fake, 'plan-gate');
+  assert.equal(r.pass, false);
+  assert.equal(r.splitReleased, undefined);
+  const log = logs.join('\n');
+  assert.match(log, /子課題 2/, log);
+  assert.ok(log.includes('harness/lib/**'), log);
+});
+
+test('#779 AC2（守り）：委任承認が有効でも、子課題の files が delegateMergeExclude だけに触れる split の計画は印を外さず子 Issue を作らない', async () => {
+  const fake = world({ delegate: true });
+  const logs: string[] = [];
+  await send(fake, splitWith(['docs/secret/**']), { config: secretConfig, log: (m: string) => logs.push(m) });
+  assert.ok(!fake.writes().includes('label-agent:plan-review'), fake.writes().join(','));
+  assert.equal(created(fake).length, 0);
+  const r = postedRecord(fake, 'plan-gate');
+  assert.equal(r.pass, false);
+  assert.equal(r.splitReleased, undefined);
+  assert.ok(logs.join('\n').includes('docs/secret/**'), logs.join('\n'));
+});
+
 const gateOf = (p: Plan) => [{ planCreatedAt: iso(PLAN_AT), gateCreatedAt: iso(GATE_AT), value: stopRecord(p) as any }];
-const unitCases: [string, Plan, unknown[], boolean][] = [
-  ['post-plan の窓で付いた Planner の申告の印 → 外す', asked, byPostPlan, true],
-  ['窓の外で人が付けた印 → 外さない', asked, [labeled(GATE_AT + 86_400_000)], false],
-  ['印を付けた計画に AC の変更提案 → 外さない', { ...asked, acChangeProposed: true }, byPostPlan, false],
+type UnitCase = {
+  name: string;
+  prior: Plan;
+  events: unknown[];
+  release: boolean;
+  /** 新しい split の計画（既定は splitPlan） */
+  plan?: Plan;
+  /** 照合に使う設定（既定はテストの config） */
+  cfg?: typeof config;
+  /** 外さないとき、理由のどれかに含まれるべき文字列 */
+  hits?: string[];
+};
+const unitCases: UnitCase[] = [
+  { name: 'post-plan の窓で付いた Planner の申告の印 → 外す', prior: asked, events: byPostPlan, release: true },
+  { name: '窓の外で人が付けた印 → 外さない', prior: asked, events: [labeled(GATE_AT + 86_400_000)], release: false },
+  { name: '印を付けた計画に AC の変更提案 → 外さない', prior: { ...asked, acChangeProposed: true }, events: byPostPlan, release: false },
+  // #779：子課題の files の照合（守りなので境界も省かない）
+  { name: '子課題がガードレール（harness/lib/**）に触れる → 外さない', prior: asked, events: byPostPlan, release: false, plan: splitWith(['harness/lib/**']), hits: ['子課題 2', 'harness/lib/**'] },
+  { name: '子課題がガードレールだけ（delegateMergeExclude の外）に触れる → 外さない', prior: asked, events: byPostPlan, release: false, plan: splitWith(['harness/scripts/report.ts']), hits: ['子課題 2', 'harness/scripts/report.ts'] },
+  { name: '子課題が delegateMergeExclude だけに触れる → 外さない', prior: asked, events: byPostPlan, release: false, plan: splitWith(['docs/secret/**']), cfg: secretConfig, hits: ['子課題 2', 'docs/secret/**'] },
+  { name: '子課題が harness.config.json に触れる → 外さない', prior: asked, events: byPostPlan, release: false, plan: splitWith(['harness.config.json']), hits: ['子課題 2', 'harness.config.json'] },
+  { name: '1つ目の子課題が触れる → 外さず理由は子課題 1', prior: asked, events: byPostPlan, release: false, plan: { ...splitPlan, split: [child('fix: lib', ['harness/gates/**']), child('docs: b', ['docs/b/**'])] }, hits: ['子課題 1', 'harness/gates/**'] },
+  { name: 'guardrailPaths・delegateMergeExclude の無い設定では子課題がすべて当たる → 外さない', prior: asked, events: byPostPlan, release: false, cfg: { ...config, guardrailPaths: undefined, delegateMergeExclude: undefined } as typeof config, hits: ['子課題 1', 'docs/a/**'] },
+  { name: '子課題が guardrailExclude のファイルだけに触れ delegateMergeExclude にも無い → 外す', prior: asked, events: byPostPlan, release: true, plan: splitWith(['harness/lib/usage.ts']) },
+  { name: '子課題がどれにも触れない（docs/c/**）→ 外す', prior: asked, events: byPostPlan, release: true, plan: splitWith(['docs/c/**']) },
 ];
-for (const [name, prior, events, release] of unitCases) {
+for (const { name, prior, events, release, plan = splitPlan, cfg = config, hits = [] } of unitCases) {
   test(`splitPlannerRelease：${name}`, () => {
-    const r = splitPlannerRelease({ plan: splitPlan, gates: gateOf(prior), events: events as any });
+    const r = splitPlannerRelease({ plan, gates: gateOf(prior), events: events as any, config: cfg });
     assert.equal(r.release, release, r.reasons.join(' / '));
     assert.equal(r.reasons.length === 0, release);
+    if (hits.length > 0) assert.ok(r.reasons.some((x) => hits.every((h) => x.includes(h))), r.reasons.join(' / '));
   });
 }
