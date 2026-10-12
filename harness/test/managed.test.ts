@@ -15,6 +15,7 @@ interface Managed {
   exclude?: string[];
   projectOwned: { path: string; template: string }[];
   settingsKeys: string[];
+  settingsAllow?: string[];
 }
 const loadManaged = (): Managed => JSON.parse(read('harness/managed.json')) as Managed;
 
@@ -38,7 +39,7 @@ test('managed.json：managed・projectOwned・settingsKeys の形で書かれて
     assert.equal(typeof o.path, 'string');
     assert.equal(typeof o.template, 'string');
   }
-  assert.deepEqual(m.settingsKeys, ['permissions.deny', 'permissions.disableBypassPermissionsMode', 'hooks']);
+  assert.deepEqual(m.settingsKeys, ['permissions.deny', 'permissions.disableBypassPermissionsMode', 'hooks', 'permissions.allow']);
 });
 
 test('managed.json：managed のパスがすべて存在する（/** はディレクトリが存在し中にファイルがある）', () => {
@@ -57,7 +58,13 @@ test('managed.json：managed のパスがすべて存在する（/** はディ�
 
 test('managed.json：主なハーネスのファイルが managed に入っている', () => {
   const managed = loadManaged().managed;
-  for (const p of ['harness/lib/**', '.claude/skills/**', '.github/workflows/gate.yml', 'harness/CLAUDE.harness.md']) {
+  for (const p of [
+    'harness/lib/**',
+    '.claude/skills/**',
+    '.github/workflows/gate.yml',
+    'harness/CLAUDE.harness.md',
+    '.github/pull_request_template.md',
+  ]) {
     assert.ok(managed.includes(p), `${p} が managed に無い`);
   }
 });
