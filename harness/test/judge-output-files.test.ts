@@ -155,8 +155,8 @@ test('呼び出し元：3つとも、ファイルが無いときは同じパス�
 
 // ---- 説明 ----
 
-test('docs/review-panel.md：担当の tools は Write を含み、古い「Read, Grep, Glob, Bash だけ」の言い方が無い', () => {
-  const text = read('docs/review-panel.md');
+test('harness/docs/review-panel.md：担当の tools は Write を含み、古い「Read, Grep, Glob, Bash だけ」の言い方が無い', () => {
+  const text = read('harness/docs/review-panel.md');
   assert.ok(!text.includes('`Read, Grep, Glob, Bash` だけ'), '古い言い方が残っています');
   assert.ok(text.includes('`Read, Grep, Glob, Bash, Write`'), '担当の tools に Write がありません');
   assert.ok(text.includes('呼び出し元が渡した出力のパスだけ'), 'Write で書いてよいのは渡された出力のパスだけの文がありません');

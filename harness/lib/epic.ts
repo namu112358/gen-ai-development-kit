@@ -3,7 +3,7 @@ import { parseTitle } from './title.ts';
 import type { Checker } from './validate.ts';
 
 /**
- * Epic：計画の `split` で大きな課題を子課題に分ける。書式は docs/formats.md を参照。
+ * Epic：計画の `split` で大きな課題を子課題に分ける。書式は harness/docs/formats.md を参照。
  * 分け方は人が承認しない。ここの検査に通れば App が子 Issue を作る（harness/gates/epic-split.ts）。
  */
 

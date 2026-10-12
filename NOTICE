@@ -22,7 +22,7 @@ claude-plugins-official（code-review プラグイン）
     .claude/agents/review-scorer.md   （手順5の採点基準を英文のまま引用）
     .claude/skills/review-panel/SKILL.md（手順1〜8の流れ）
 
-  出どころと更新の手順は docs/upstream/README.md、合体版のレビューは docs/review-panel.md を参照。
+  出どころと更新の手順は docs/upstream/README.md、合体版のレビューは harness/docs/review-panel.md を参照。
 ----------------------------------------------------------------------
 stablyai/orca（Orca のスキルの入口）
 

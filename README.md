@@ -28,11 +28,11 @@ flowchart LR
 | 文書 | 内容 |
 | --- | --- |
 | [docs/setup.md](docs/setup.md) | 別のリポジトリへの導入手順 |
-| [docs/operations.md](docs/operations.md) | Issue の書き方、ラベル、人が関わる場面、止める仕組み |
-| [docs/risk-policy.md](docs/risk-policy.md) | 自動 Merge を決める8問と条件 |
-| [docs/formats.md](docs/formats.md) | 計画・判定などの構造化コメントの書式 |
-| [docs/security.md](docs/security.md) | 安全設計と受け入れているリスク |
-| [docs/glossary.md](docs/glossary.md) | 用語集 |
+| [harness/docs/operations.md](harness/docs/operations.md) | Issue の書き方、ラベル、人が関わる場面、止める仕組み |
+| [harness/docs/risk-policy.md](harness/docs/risk-policy.md) | 自動 Merge を決める8問と条件 |
+| [harness/docs/formats.md](harness/docs/formats.md) | 計画・判定などの構造化コメントの書式 |
+| [harness/docs/security.md](harness/docs/security.md) | 安全設計と受け入れているリスク |
+| [harness/docs/glossary.md](harness/docs/glossary.md) | 用語集 |
 | [docs/migration.md](docs/migration.md) | 個人の public から組織の private への移行 |
 | [docs/plan.md](docs/plan.md) | 計画と決定ログ |
 

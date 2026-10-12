@@ -2,11 +2,11 @@
 
 公式の code-review（`anthropics/claude-plugins-official` の code-review プラグイン）の手順を骨組みに、このハーネスの観点（⑥ AC・範囲、⑦ 秘密・データ破壊・退行、⑧ `npm run check`）を足したレビュー。`harness.config.json` の `reviewPanel.mode` で動かし方を決める（Epic #142、子課題 #149）。
 
-手順は [.claude/skills/review-panel/SKILL.md](../.claude/skills/review-panel/SKILL.md)、組み立てと記録は `harness/lib/review-panel.ts`、CLI は `harness/scripts/review-panel.ts`。
+手順は [.claude/skills/review-panel/SKILL.md](../../.claude/skills/review-panel/SKILL.md)、組み立てと記録は `harness/lib/review-panel.ts`、CLI は `harness/scripts/review-panel.ts`。
 
 ## 流れと担当
 
-judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.md)）が `node harness/scripts/review-panel.ts mode` を見て呼ぶ。
+judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKILL.md)）が `node harness/scripts/review-panel.ts mode` を見て呼ぶ。
 
 | 段階 | 担当（`.claude/agents/`） | モデル | すること |
 | --- | --- | --- | --- |
@@ -48,7 +48,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 | `shadow` | 判定は今の reviewer のまま。合体版を並行に動かし、結果を判定コメントとは別の記録のコメントに残す。合体版が失敗しても判定は止めない |
 | `enforce`（このリポジトリ。2026-09-30 から、#319） | reviewer を呼ばず、合体版の組み立ての出力で判定する。合体版が失敗したら判定せず人に返す。対象外（closed、同じ head）なら判定しない |
 
-`reviewPanel.mode` を見るのは付き添いのセッションの judge の skill だけ。Routine（[.claude/routine.md](../.claude/routine.md)）は対象外で、今の reviewer で判定する。
+`reviewPanel.mode` を見るのは付き添いのセッションの judge の skill だけ。Routine（[.claude/routine.md](../../.claude/routine.md)）は対象外で、今の reviewer で判定する。
 
 ## 公式との違い
 
@@ -93,7 +93,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 - ブロックの JSON の中のバッククォートは ``` で書く（`JSON.parse` で元に戻る）。モデルの出力に ```` ```agent-verdict ```` などが含まれても、`gate.yml` の `if:` や判定の読み取りに当たらないようにするため。
 - 記録のコメントは judge-input の「PR のコメント」から外す（前の head の合体版の結果を、次の reviewer・合体版が読まないように）。「前回の判定」は `agent-verdict` しか見ない。
 - 費用はセッションの記録のサブエージェント（`*.meta.json` と `*.jsonl`）から数える。Agent の説明が `panel <PR> <head7> <段階>` で種類が `review-*` のものを合体版、`reviewer <PR> <head7>` で種類が `reviewer` のものを今の reviewer とする（`harness/lib/usage.ts` の関数で集計）。
-- `docs/formats.md` からの参照は後の Issue で足す。
+- `harness/docs/formats.md` からの参照は後の Issue で足す。
 
 ## shadow の期間の読み方
 
@@ -104,15 +104,15 @@ shadow の期間の「前回の判定」と⑥⑦の `unfixedPrevious` は、今
 ## 出どころ
 
 - 元：[anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) のコミット `fa59bc9037741ecfa131aa27938272605710d7b2` の `plugins/code-review/commands/code-review.md`（Apache License 2.0）
-- 写し：[docs/upstream/claude-plugins-official/code-review.md](upstream/claude-plugins-official/code-review.md)（書き換えない）、ライセンス：[docs/upstream/claude-plugins-official/LICENSE](upstream/claude-plugins-official/LICENSE)
-- 出どころと元にしたファイルの一覧：[docs/upstream/README.md](upstream/README.md)、root の [NOTICE](../NOTICE)
+- 写し：[docs/upstream/claude-plugins-official/code-review.md](../../docs/upstream/claude-plugins-official/code-review.md)（書き換えない）、ライセンス：[docs/upstream/claude-plugins-official/LICENSE](../../docs/upstream/claude-plugins-official/LICENSE)
+- 出どころと元にしたファイルの一覧：[docs/upstream/README.md](../../docs/upstream/README.md)、root の [NOTICE](../../NOTICE)
 
-公式の更新の手順は [docs/upstream/README.md](upstream/README.md) の「更新の手順」（#141 と同じ：新しいコミットを選ぶ → 写しとの差分を人が読む → Issue → PR。元にしたファイルはガードレールなので人が Merge する）。
+公式の更新の手順は [docs/upstream/README.md](../../docs/upstream/README.md) の「更新の手順」（#141 と同じ：新しいコミットを選ぶ → 写しとの差分を人が読む → Issue → PR。元にしたファイルはガードレールなので人が Merge する）。
 
 ## 切り替えの手順
 
 1. shadow で、判定コメントと記録のコメントの組（同じ PR・同じ head）を集める。
-2. 集計の組が 20 件に達したら、人が集計（`node harness/scripts/report.ts <owner>/<repo> [日数]`）を回し、「合体版のレビュー（記録だけの期間の比較）」の節で基準（[plan.md](plan.md) の決定ログの Q91）を見る。
+2. 集計の組が 20 件に達したら、人が集計（`node harness/scripts/report.ts <owner>/<repo> [日数]`）を回し、「合体版のレビュー（記録だけの期間の比較）」の節で基準（[plan.md](../../docs/plan.md) の決定ログの Q91）を見る。
 3. 合体版だけが出した指摘と、誤検知の疑い（今の reviewer が出さず、合体版がブロッキングにしたもの）の全件を、人が diff と照らして確かめる。④の材料の量（`material`）も見る。
 4. 切り替えてよいと決めたら、人が `reviewPanel.mode` を `enforce` にする Issue を立てる（`agent:ready` は人が決めてから付ける）。変更は `harness.config.json` の1行。
 

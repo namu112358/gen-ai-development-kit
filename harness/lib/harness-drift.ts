@@ -5,7 +5,7 @@
  * 置き場所は git の共通ディレクトリの下の `agent-harness/loaded/<セッションの ID>.json`（段階のファイルと同じ流儀。worktree からも同じ場所で、commit されない）。
  * 比べ方は記録の版（L）・origin の版（O）・記録の HEAD と origin の merge-base の版（M）の3つ。ブランチが自分で変えたファイルは、origin もその後に変えたときだけ古いとする。
  * origin で違うファイルのうち、猶予を置かないファイル（NO_GRACE_PATHS）以外は、まだ読み込んでいない一番古い変更から猶予の時間（既定 6 時間）を過ぎるまで古いとしない（Issue #812）。
- * 書式は docs/formats.md の「読み込みの記録」。GitHub は呼ばない（git だけ）。
+ * 書式は harness/docs/formats.md の「読み込みの記録」。GitHub は呼ばない（git だけ）。
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';

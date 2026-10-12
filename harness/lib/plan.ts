@@ -5,7 +5,7 @@ import { globToRegExp, validateScopePattern } from './scope.ts';
 import { Checker } from './validate.ts';
 
 /**
- * 計画コメントの構造化出力（```agent-plan）。書式は docs/formats.md を参照。
+ * 計画コメントの構造化出力（```agent-plan）。書式は harness/docs/formats.md を参照。
  * ゲートはこの値だけで判断し、本文の自然言語は読まない。
  */
 export interface Plan {

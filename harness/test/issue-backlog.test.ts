@@ -65,14 +65,14 @@ test('backlogTargets：ready・plan-review と、agent:* 無し＋type:* のコ�
 
 test('bodyPaths：バッククォートのパスらしい文字列だけを取り、URL・空白を含むもの・パスでないものは取らない', () => {
   const body = [
-    '`harness/lib/backlog.ts` と `docs/operations.md` を触る。`README.md` も。',
+    '`harness/lib/backlog.ts` と `harness/docs/operations.md` を触る。`README.md` も。',
     '`.claude/skills/backlog/SKILL.md` と `.github/workflows/gate.yml` と `overview.html` と `harness.config.json`',
     '参考：`https://example.com/a/b.md`、`http://example.com/x.ts`',
     '`some dir/with space.ts` と `npm run check` と `agent:ready` と `foo`',
   ].join('\n');
   assert.deepEqual([...new Set(bodyPaths(body))].sort(), [
-    '.claude/skills/backlog/SKILL.md', '.github/workflows/gate.yml', 'README.md', 'docs/operations.md',
-    'harness.config.json', 'harness/lib/backlog.ts', 'overview.html',
+    '.claude/skills/backlog/SKILL.md', '.github/workflows/gate.yml', 'README.md',
+    'harness.config.json', 'harness/docs/operations.md', 'harness/lib/backlog.ts', 'overview.html',
   ]);
 });
 
@@ -111,7 +111,7 @@ test('issueSignals：Form として読めない本文・null の本文でも止�
 test('fileOverlaps：同じファイル・重なるパターンを挙げた組が出て、相手の番号を挙げていれば mentioned。重ならない組は出ない', () => {
   const signals = [
     issueSignals(issue(10, 'feat(harness): a', form('a', ['a'], '`harness/lib/backlog.ts`')), null),
-    issueSignals(issue(11, 'feat(docs): b', form('b', ['b'], '`docs/operations.md`')), null),
+    issueSignals(issue(11, 'feat(docs): b', form('b', ['b'], '`harness/docs/operations.md`')), null),
     issueSignals(issue(12, 'feat(harness): c', form('c', ['c'], '#10 の後。`harness/lib/*.ts`')), null),
     issueSignals(issue(20, 'feat(harness): d', form('d', ['d'])), ['overview.html']),
     issueSignals(issue(21, 'feat(harness): e', form('e', ['e'])), ['overview.html']),
@@ -144,7 +144,7 @@ test('similarity：文字の 2-gram の Jaccard（大文字小文字・空白・
 });
 
 test('similarPairs：同じ skill・docs を挙げ目的の近い2件は似た組に出て、無関係の Issue との組は出ない', () => {
-  const files = ['.claude/skills/backlog/SKILL.md', 'docs/operations.md'];
+  const files = ['.claude/skills/backlog/SKILL.md', 'harness/docs/operations.md'];
   const signals = [
     issueSignals(issue(161, 'feat(harness): 開いた Issue の重複を見つける skill を足す',
       form('開いた Issue をまとめて読み、重複と重なりの候補を一覧にする', ['重複の候補を出す', '重なりの候補を出す'])), files),

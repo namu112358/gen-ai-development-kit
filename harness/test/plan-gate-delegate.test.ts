@@ -203,7 +203,7 @@ test('delegatePlanGate：delegateMergeExclude・harness.config.json に重なり
 });
 
 test('delegatePlanGate：delegateMergeExclude が設定に無ければ、すべての files が当たり委任でも止まる', () => {
-  for (const plan of [planOf({ files: [GUARDED] }), planOf({ risk: 'high', files: ['docs/**'] })]) {
+  for (const plan of [planOf({ files: [GUARDED] }), planOf({ risk: 'high', files: ['harness/docs/**'] })]) {
     const gate = evaluatePlanGate(plan, 3, noExclude);
     for (const [mode, state] of ACTIVE) {
       const r = delegatePlanGate(gate, plan, noExclude, state);
@@ -217,7 +217,7 @@ test('delegatePlanGate：delegateMergeExclude が設定に無ければ、すべ�
 
 test('delegatePlanExclude：delegateMergeExclude か harness.config.json に重なりうる計画のパターンだけを返す', () => {
   assert.deepEqual(delegatePlanExclude(config, ['docs/a.md', GUARDED, 'harness/lib/plan.test.ts']), []);
-  assert.deepEqual(delegatePlanExclude(config, ['docs/**']), ['docs/**'], 'docs/risk-policy.md と重なりうる');
+  assert.deepEqual(delegatePlanExclude(config, ['harness/docs/**']), ['harness/docs/**'], 'harness/docs/risk-policy.md と重なりうる');
   assert.deepEqual(delegatePlanExclude(config, ['harness/gates/run.ts']), ['harness/gates/run.ts']);
   assert.deepEqual(delegatePlanExclude(config, ['harness/gates/**']), ['harness/gates/**']);
   assert.deepEqual(delegatePlanExclude(config, ['harness/**']), ['harness/**'], '広いパターンは exclude と重なりうる');

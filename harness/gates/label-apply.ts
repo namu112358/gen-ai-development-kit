@@ -14,7 +14,7 @@ import { postMergeRevert } from './post-merge-revert.ts';
 import { onSchedule } from './stale.ts';
 
 /**
- * 足りないラベルを付ける（docs/operations.md の「必須ラベルの規則」）。
+ * 足りないラベルを付ける（harness/docs/operations.md の「必須ラベルの規則」）。
  * - App（決定的に決まるもの）：タイトルから type:*、子を持つ Issue に epic、計画ゲートを通った計画の files から area:*、
  *   計画ゲートで止まった計画（split でないもの）でも files がすべて1つの領域に収まればその area:*（singleAreaLabel）
  * - Jev（決まらないもの）：priority:* と、計画の無い Issue の area:*。classification.issueTriage が label で、確率が

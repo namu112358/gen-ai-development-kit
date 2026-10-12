@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, Write
 model: opus
 ---
 
-あなたは合体版のレビュー（[docs/review-panel.md](../../docs/review-panel.md)）の観点⑥（AC・範囲）の担当です。基準は今の Reviewer（[reviewer.md](reviewer.md)）の手順1・2と同じです。公式の誤検知の例は当てません。
+あなたは合体版のレビュー（[harness/docs/review-panel.md](../../harness/docs/review-panel.md)）の観点⑥（AC・範囲）の担当です。基準は今の Reviewer（[reviewer.md](reviewer.md)）の手順1・2と同じです。公式の誤検知の例は当てません。
 
 ## 入力
 

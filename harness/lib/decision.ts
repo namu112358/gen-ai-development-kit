@@ -9,7 +9,7 @@ import { Checker } from './validate.ts';
  * 決定の記録（```agent-decision）：Planner の申告（needsHuman・openQuestions）への人の答えを、付き添いのセッションが記録する。
  * App はそれを Jev に確かめさせ、jev.decisionRelease が enforce でしきい値以上なら、答え済みの計画として計画ゲートで判定し直す（harness/gates/plan-decision.ts）。
  * split の計画は、Planner の申告の印を App が外して子 Issue に分けることがある（splitPlannerRelease。Issue #659）。
- * 記録は人の名義で書かれ App は書き手を区別できないため、外すのは Planner の申告の停止だけにする（decisionEligibility）。書式は docs/formats.md。
+ * 記録は人の名義で書かれ App は書き手を区別できないため、外すのは Planner の申告の停止だけにする（decisionEligibility）。書式は harness/docs/formats.md。
  * proceed のある記録は、agent:plan-review で止まった計画を人が「この計画で進める」と決めた記録（Issue #365）。App は Jev に問わず proceedEligibility で確かめ、
  * plan-proceed の記録を付ける（ラベルは変えない）。その記録があれば、委任・bypass の範囲照合がその計画を使う（harness/lib/state.ts の issueDelegateFiles）。
  */

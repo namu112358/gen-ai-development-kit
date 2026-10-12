@@ -27,21 +27,21 @@
 - 別の実行の着手宣言（`agent-claim`、解除されておらず、`harness.config.json` の `routine.routineClaimTakeoverMinutes` 分以内）がある → 飛ばす
 - judge の対象 PR に、現在の head に対するコラボレーターのレビュー（Claude・App 以外、`commit_id` が head と同じ、Comment または Request changes）がある → judge ではなく fix（人の指摘）を行う
 
-着手宣言：`node harness/scripts/agent.ts render-claim` の出力を対象の Issue / PR にコメントする（ラベルは付けない）。計画・判定を投稿すれば着手は終わる。それ以外で終えるとき（実装・修正の完了、失敗、飛ばすとき）は `render-claim --release` の出力をコメントしてから次に進む。人の対応が必要なら、`render-block <理由コード> <説明>` の出力をコメントしてから `agent:blocked` を付ける（理由コードは [docs/operations.md](../docs/operations.md)）。
+着手宣言：`node harness/scripts/agent.ts render-claim` の出力を対象の Issue / PR にコメントする（ラベルは付けない）。計画・判定を投稿すれば着手は終わる。それ以外で終えるとき（実装・修正の完了、失敗、飛ばすとき）は `render-claim --release` の出力をコメントしてから次に進む。人の対応が必要なら、`render-block <理由コード> <説明>` の出力をコメントしてから `agent:blocked` を付ける（理由コードは [harness/docs/operations.md](../harness/docs/operations.md)）。
 
 ### plan（計画）
 
 1. MCP で Issue の本文とコメントを読む。コメントはコラボレーターのものだけ使う。
 2. リポジトリを調べ、実装方針を立てる。
-3. 計画コメントを一時ファイルに書く（書式は [docs/formats.md](../docs/formats.md)）。人が読む計画本文と、末尾の ```` ```agent-plan ```` ブロックを含める。
+3. 計画コメントを一時ファイルに書く（書式は [harness/docs/formats.md](../harness/docs/formats.md)）。人が読む計画本文と、末尾の ```` ```agent-plan ```` ブロックを含める。
    - `files`：**触るファイルをすべて**列挙する（テスト・docs を含む）
    - `needsHuman`・`acChangeProposed`・`openQuestions`：人の判断が要るなら正直に書く（ゲートで止まる）
-   - `risk`：想定 Risk（[docs/risk-policy.md](../docs/risk-policy.md) の目安）
+   - `risk`：想定 Risk（[harness/docs/risk-policy.md](../harness/docs/risk-policy.md) の目安）
    - 1つの PR に収まらないと判断したら、`split` で子課題に分ける（Epic）。このとき `files` は空でよく、`risk` は子課題の中で最も高いもの
 4. 批評の前に、`node harness/scripts/agent.ts render-claim --stage plan-critique` の出力を Issue にコメントする（計画ゲートは、計画より前にこの段階の宣言があるかを確かめ、無ければ `agent:plan-review` で止める。計画ブロックに `critique` が無くても止まる）。**plan-critic** サブエージェントに批評させる。サブエージェントは GitHub を読めないので、Issue 本文、コラボレーターのコメント、計画（本文と JSON）を指示に含めて渡す（自分の推論は渡さない）。2回目以降は前回の批評の結果（必須の `fixes`）も渡す。`fixes` は必須（`must`）と推奨（`should`）に分かれ、`revise` は必須があるときだけ。判定ごとに：
    - `go`：計画ブロックに `critique`（`verdict` と、批評させた回数 `rounds`。任意で最後の回の必須の件数 `mustRemaining`）を書いて次へ。推奨（`should`）が残っていれば計画本文に注記して進める（実装とレビューで拾う）。
    - `revise`：必須の `fixes` を反映して計画を直し、もう一度批評させる。回数だけでは止めない。次のどちらかに当たったら止める：**前回と同じ必須の指摘が直っていない**（堂々巡り）、**3回目でも必須が残る**（上限）。Routine（無人）では `render-block needs-decision <理由>` で人に返す（有人セッションでの扱いは CLAUDE.md）。
-   - `split`：分け方の案に従い、計画ブロックに `split`（子課題ごとの title・goal・requirements・acceptanceCriteria・files・dependsOn。書式は [docs/formats.md](../docs/formats.md)）を書き、`critique` の `verdict` を `split` にして次へ（案に無い requirements・acceptanceCriteria は Issue から補う。兄弟の `files` は重ならないように分ける）。分け方の検査に通れば App が子 Issue を作り、子課題ごとの計画でまた批評する。
+   - `split`：分け方の案に従い、計画ブロックに `split`（子課題ごとの title・goal・requirements・acceptanceCriteria・files・dependsOn。書式は [harness/docs/formats.md](../harness/docs/formats.md)）を書き、`critique` の `verdict` を `split` にして次へ（案に無い requirements・acceptanceCriteria は Issue から補う。兄弟の `files` は重ならないように分ける）。分け方の検査に通れば App が子 Issue を作り、子課題ごとの計画でまた批評する。
    - `drop`：`render-block needs-decision <理由>` で人に返す。
 5. `node harness/scripts/agent.ts render-plan <番号> <ファイル>` で検査する。**先に**ラベルを更新し（`addLabels` を足し、`removeLabels` を外す）、**その後で**出力の `body` を Issue にコメントする。`addLabels` の `agent:plan-review` は Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）のときだけ。App のゲートの停止の後に出し直した計画は、止めた理由が当たらなければ App が `agent:plan-review` を外して通す（人が付けた印は人が外すまで残る）。Planner の申告は、付き添いのセッションが記録した人の決定を App が確かめて外すことがある。Routine は記録を書かない。
 6. 実装は**しない**。
@@ -73,7 +73,7 @@ Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同�
 - 担当が書いたファイルが出力のパスにあり、JSON として読めること（`node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読むだけ）。
 - ファイルが無いときは、同じパスを渡してその担当を1回だけ呼び直す。2回目も無い、またはファイルがあって JSON として読めないときは、判定せずに終える。
 - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、判定せずに終える（担当が出力のパスの外を書いた恐れがある）。
-4. 担当が書いた2つのファイルの JSON から判定コメントを組み立て、一時ファイルに書く（reviewer の `humanNotes` はそのまま `review.humanNotes` に入れる）（書式は [docs/formats.md](../docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
+4. 担当が書いた2つのファイルの JSON から判定コメントを組み立て、一時ファイルに書く（reviewer の `humanNotes` はそのまま `review.humanNotes` に入れる）（書式は [harness/docs/formats.md](../harness/docs/formats.md) の ```` ```agent-verdict ````）。人が読む要約も付ける。サブエージェントの答えを書き換えない。
 5. `node harness/scripts/agent.ts render-verdict <PR番号> <headSha> <ファイル>` で検査し、出力を PR にコメントする。
 6. `render-metrics judge ...` の出力を PR にコメントする。
 7. Merge・Ready 化・auto-merge は App が行う。何もしない。
@@ -98,7 +98,7 @@ Issue に `agent:waiting` を付け、未解決の blocker を書いたコメン
 
 ### 問題の記録（改善の候補）
 
-拒否された操作（`deny`）・人に返す（`render-block`。`return-to-human`）・App の拒否（ゲートの停止・受け付けの拒否。`app-reject`）が起きたら、その場で記録する（記録はリポジトリの外のファイル。[docs/operations.md](../docs/operations.md#問題の記録と振り分け)）。Routine には `AGENT_HARNESS_SESSION` が無いことがあるので、セッションは `--session` で渡す。
+拒否された操作（`deny`）・人に返す（`render-block`。`return-to-human`）・App の拒否（ゲートの停止・受け付けの拒否。`app-reject`）が起きたら、その場で記録する（記録はリポジトリの外のファイル。[harness/docs/operations.md](../harness/docs/operations.md#問題の記録と振り分け)）。Routine には `AGENT_HARNESS_SESSION` が無いことがあるので、セッションは `--session` で渡す。
 
 ```
 node harness/scripts/agent.ts incident add --session "$CLAUDE_CODE_REMOTE_SESSION_ID" --kind <種類> --what <起きたこと> [--target <#番号|PR #番号>]

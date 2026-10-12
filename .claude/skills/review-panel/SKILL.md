@@ -5,7 +5,7 @@ description: 人が付き添うセッションの judge の中で、公式の co
 
 # review-panel（合体版のレビュー）
 
-judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mode` が `shadow` か `enforce` のときに呼ぶ手順。流れ・担当・公式との違いは [docs/review-panel.md](../../../docs/review-panel.md)。
+judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mode` が `shadow` か `enforce` のときに呼ぶ手順。流れ・担当・公式との違いは [harness/docs/review-panel.md](../../../harness/docs/review-panel.md)。
 
 元：公式の code-review（`docs/upstream/claude-plugins-official/code-review.md`、`fa59bc9`）の手順1〜8。変えたこと：Draft・自動の PR・簡単な PR を対象から外さない、PR にコメントせず reviewer と同じ形の JSON と記録のコメントにする、観点⑥（AC・範囲）・⑦（秘密・データ破壊・退行）・⑧（検証コマンド。`project.checkCommand`、既定 `npm run check`）を足す、誤検知の例は①〜⑤にだけ当てる、④の材料は judge-input の節を使う、組み立て（閾値・再レビューの決まり）はスクリプトで行う。
 

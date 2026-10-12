@@ -372,7 +372,7 @@ test('agent.ts arch-review-drafts --loop：3件の下書きは通る', () => {
 // ---- skill・docs ----
 
 const SKILL = '.claude/skills/arch-review/SKILL.md';
-const OPERATIONS = 'docs/operations.md';
+const OPERATIONS = 'harness/docs/operations.md';
 const AGENT = '.claude/agents/arch-reviewer.md';
 const LOOP_HEADING = '## /loop で回すとき';
 
@@ -438,7 +438,7 @@ test('「## /loop で回すとき」：見る PR が無い（prs が空）なら
   assert.ok(s.some((x) => x.includes('記録を残さ') && /prs|PR/.test(x)), 'prs が空なら記録を残さない文がありません');
 });
 
-test('docs/operations.md に「## 見直しを /loop で回す」の見出しがある', () => {
+test('harness/docs/operations.md に「## 見直しを /loop で回す」の見出しがある', () => {
   assert.ok(read(OPERATIONS).split('\n').includes('## 見直しを /loop で回す'), '見出しがありません');
 });
 

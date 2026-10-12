@@ -13,7 +13,7 @@ const HQ_SKILL = '.claude/skills/hq/SKILL.md';
 const SHIP_WORKER = '## Orca の worker で ship を動かすとき';
 const AS_WORKER = '## Orca の worker として動くとき';
 const WATCH = '## 待つ間の読み直し';
-const OPERATIONS = 'docs/operations.md';
+const OPERATIONS = 'harness/docs/operations.md';
 const HQ_HEADING = '### hq（テーマごとの fleet をまとめる）';
 const VERTICAL_IS_LEFT_RIGHT = /vertical`?\s*で左右/;
 
@@ -247,9 +247,9 @@ test('fleet の skill：ship の worker の worker-start・worker-list・check �
 
 // ---- docs・設定の文（まとめずに残す） ----
 
-test('docs/operations.md：hq の節に、fleet のワークスペースのペインが 左に fleet の Claude、右に上から 進み具合（collect）→ あなたがすること（todo）→ PR と費用（prs）の並びで書かれている', () => {
+test('harness/docs/operations.md：hq の節に、fleet のワークスペースのペインが 左に fleet の Claude、右に上から 進み具合（collect）→ あなたがすること（todo）→ PR と費用（prs）の並びで書かれている', () => {
   const sub = section(readText(OPERATIONS), HQ_HEADING);
-  assert.ok(sub !== '', `docs/operations.md に「${HQ_HEADING}」の節がありません`);
+  assert.ok(sub !== '', `harness/docs/operations.md に「${HQ_HEADING}」の節がありません`);
   const line = sub.split('\n').find((l) => {
     if (!l.includes('左に fleet の Claude')) return false;
     const right = l.indexOf('右に上から');
@@ -266,9 +266,9 @@ test('docs/operations.md：hq の節に、fleet のワークスペースのペ�
   assert.ok(line.includes('fleet のワークスペースのペイン'), '並びの文に「fleet のワークスペースのペイン」がありません');
 });
 
-test('docs/operations.md：hq の節に、fleet 自身の Claude の端末は閉じないことが書かれている', () => {
+test('harness/docs/operations.md：hq の節に、fleet 自身の Claude の端末は閉じないことが書かれている', () => {
   const sub = section(readText(OPERATIONS), HQ_HEADING);
-  assert.ok(sub !== '', `docs/operations.md に「${HQ_HEADING}」の節がありません`);
+  assert.ok(sub !== '', `harness/docs/operations.md に「${HQ_HEADING}」の節がありません`);
   assert.ok(sub.includes('fleet 自身の Claude の端末は閉じない'), 'hq の節に「fleet 自身の Claude の端末は閉じない」がありません');
 });
 
@@ -279,9 +279,9 @@ test('harness/CLAUDE.harness.md：Orca の項（起動と監視・orca-cli の�
   assert.ok(VERTICAL_IS_LEFT_RIGHT.test(line), 'Orca の項の行に「vertical で左右」がありません');
 });
 
-test('docs/operations.md：hq の節で、hq のペインが真ん中の列に上から Epic/Issue（hq board）→ 人待ち（hq todo）→ ログ（hq log）の順', () => {
+test('harness/docs/operations.md：hq の節で、hq のペインが真ん中の列に上から Epic/Issue（hq board）→ 人待ち（hq todo）→ ログ（hq log）の順', () => {
   const sub = section(readText(OPERATIONS), HQ_HEADING);
-  assert.ok(sub !== '', `docs/operations.md に「${HQ_HEADING}」の節がありません`);
+  assert.ok(sub !== '', `harness/docs/operations.md に「${HQ_HEADING}」の節がありません`);
   const line = sub.split('\n').find((l) => l.includes('hq のワークスペース') && l.includes('真ん中の列'));
   assert.ok(line, 'hq の節に「hq のワークスペース」と「真ん中の列」を含む行がありません');
   const words = ['Epic/Issue', 'panes.ts hq board', '人待ち', 'panes.ts hq todo', 'ログ', 'panes.ts hq log'];
@@ -289,7 +289,7 @@ test('docs/operations.md：hq の節で、hq のペインが真ん中の列に�
   let at = 0;
   for (const w of words) {
     const i = rest.indexOf(w, at);
-    assert.ok(i >= 0, `docs/operations.md の hq のペインの並び：「${w}」が前の語句の後ろにありません（順：${words.join(' → ')}）`);
+    assert.ok(i >= 0, `harness/docs/operations.md の hq のペインの並び：「${w}」が前の語句の後ろにありません（順：${words.join(' → ')}）`);
     at = i + w.length;
   }
 });

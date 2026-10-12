@@ -10,7 +10,7 @@ import { DELEGATE_SWITCH_KIND, DELEGATED_MERGE_END_TEXT, delegatedArm, delegatio
 import { reviewDelegatedPlans } from './on-comment.ts';
 
 /**
- * 委任承認の始まりと終わりの動作（ダッシュボードの agent:delegate-plan・agent:delegate-merge の付け外し）。docs/risk-policy.md の「委任承認」。
+ * 委任承認の始まりと終わりの動作（ダッシュボードの agent:delegate-plan・agent:delegate-merge の付け外し）。harness/docs/risk-policy.md の「委任承認」。
  * 付けたら、ゲートの停止で止まっている計画を判定し直し、委任承認（計画＋Merge）なら条件を満たす PR に auto-merge を付ける。
  * agent:delegate-merge を外したら、委任で付けた auto-merge を外して Human Merge に戻す。委任で付けた agent:plan-ok は外さない。
  * 期限は無い（ラベルが付いている間ずっと有効）。apply.ts を import する側（delegation.ts は判断だけ）。

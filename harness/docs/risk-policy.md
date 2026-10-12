@@ -159,7 +159,7 @@ auto mode（Epic #339）の間の `agent/tests` の扱い（Issue #349）。
 
 ### /loop で続けて回す
 
-付き添いのセッションの `/loop` から qa-retro を続けて回し、つながった期間の報告を見直しの根拠にできる（しきい値・問いは変えない）。詳しい手順は [qa-retro の skill の「/loop で回すとき」](../.claude/skills/qa-retro/SKILL.md#loop-で回すとき)、skill によらない共通の規則は [operations.md の「見直しを /loop で回す」](operations.md#見直しを-loop-で回す) に置く。
+付き添いのセッションの `/loop` から qa-retro を続けて回し、つながった期間の報告を見直しの根拠にできる（しきい値・問いは変えない）。詳しい手順は [qa-retro の skill の「/loop で回すとき」](../../.claude/skills/qa-retro/SKILL.md#loop-で回すとき)、skill によらない共通の規則は [operations.md の「見直しを /loop で回す」](operations.md#見直しを-loop-で回す) に置く。
 
 - 呼び方：`/loop 1d /qa-retro --loop`。間隔の目安は1日〜1週間。
 - 1回分の期間：前回の回の終わりから、今の7日前まで（後追いの修正の窓の7日が閉じた PR だけを見る）。初回は14日幅。前回の回の終わりは手元の状態のファイル（`harness/scripts/qa-retro-loop.ts`）に持つので、回ごとの期間は重ならず抜けない。

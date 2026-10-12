@@ -1,5 +1,5 @@
 // Issue #409：hq がいない間の fleet の退行（見なす条件・人の判断待ち・二重に聞かない・hq が戻ったとき）、hq の控えの置き場所と引き継ぎ、
-// 閉じる handle が hq 自身の端末でないことの確かめが fleet・hq の skill と docs/operations.md に書かれていることを、語句のまとまりごとに確かめる。
+// 閉じる handle が hq 自身の端末でないことの確かめが fleet・hq の skill と harness/docs/operations.md に書かれていることを、語句のまとまりごとに確かめる。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -9,7 +9,7 @@ import { HQ_STATE_COMMANDS } from '../scripts/hq-state.ts';
 const root = join(import.meta.dirname, '..', '..');
 const FLEET_SKILL = '.claude/skills/fleet/SKILL.md';
 const HQ_SKILL = '.claude/skills/hq/SKILL.md';
-const OPERATIONS = 'docs/operations.md';
+const OPERATIONS = 'harness/docs/operations.md';
 
 const read = (path: string): string => readFileSync(join(root, path), 'utf8');
 
@@ -99,11 +99,11 @@ test('hq の skill：ORCA terminal close の前に、閉じる handle が hqHand
   assert.ok(lines.length > 0, '「閉じる handle が」と hqHandle を含む文がありません');
 });
 
-// ---- docs/operations.md ----
+// ---- harness/docs/operations.md ----
 
-test('docs/operations.md の hq の節：hq がいない間の見方と戻し方', () => {
+test('harness/docs/operations.md の hq の節：hq がいない間の見方と戻し方', () => {
   const text = section(read(OPERATIONS), '### hq（テーマごとの fleet をまとめる）');
-  assertWords(text, ['hq がいない間', 'あなたがすること', 'fleet のタブで答える', 'intel', '/hq', 'hq-fleets.json', '書き換えに数えない'], 'docs/operations.md の hq の節');
+  assertWords(text, ['hq がいない間', 'あなたがすること', 'fleet のタブで答える', 'intel', '/hq', 'hq-fleets.json', '書き換えに数えない'], 'harness/docs/operations.md の hq の節');
 });
 
 // ---- skill に出る hq-state.ts のコマンドが実在する ----
