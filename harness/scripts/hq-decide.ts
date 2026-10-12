@@ -1,7 +1,7 @@
 /**
- * hq の判定（空いた枠の割り当て・交代の判定・便りの振り分け）を、hq（モデル）が数えずに済むように、純粋な関数にしたもの（Issue #780）。
+ * hq の判定（空いた枠の割り当て・交代の判定・便りの振り分け・引き継ぎの判定）を、hq（モデル）が数えずに済むように、純粋な関数にしたもの（Issue #780）。
  * hq がすでに読んでいる材料（控え・`fleet-status --json`・`hq-watch.ts` の出力）をファイルで受け取り、「次にすること」を JSON で標準出力に書く。
- * GitHub・Orca・git は呼ばない（控えは git の共通ディレクトリから読むだけ）。判定の基準は hq の skill の手順7・8の今の文のまま。
+ * GitHub・Orca・git は呼ばない（控えは git の共通ディレクトリから読むだけ）。判定の基準は hq の skill の手順7・8・10の今の文のまま。
  *
  *   node harness/scripts/hq-decide.ts assign --fleet-status <file> [--epic-children <file>] [--live-fleets <n>] [--ledger <file>]
  *     動いている ship の数と、空いた枠の割り当て（手順8）。--fleet-status は番号を渡さない `fleet-status --json` の出力、
@@ -12,8 +12,12 @@
  *     出力：{ decision: auto | ask, theme, dispatch, failed }。
  *   node harness/scripts/hq-decide.ts route --wake <file>
  *     届いた便りの振り分け（手順7）。--wake は hq-watch.ts の {"wake":"messages",...} の出力。出力：{ deliveryId, items: [{ id, type, subject, from, dispatch, action }] }。
+ *   node harness/scripts/hq-decide.ts takeover --theme <テーマ> --fleet-status <file> [--ledger <file>]
+ *     起こし直す fleet の着手宣言を、人に聞かずに引き継いでよいか（手順9・10。#770）。--fleet-status は起こし直す fleet の Issue 番号を渡した `fleet-status --json` の出力。
+ *     自分（own）でない宣言のうち、控えのそのテーマの fleet の session と priorSessions[テーマ] にあるものが known、無いもの（session が null・控えが無いときは全部）が unknown。
+ *     出力：{ decision: auto | ask | none, theme, known, unknown }（auto は unknown が空で known がある、ask は unknown がある、none は宣言が無い）。
  *
- * 控えの fleets の要素は theme・epic・dispatch・session・issues（Issue 番号の配列）を読む。形の違う値は読み飛ばす。
+ * 控えの fleets の要素は theme・epic・dispatch・session・issues（Issue 番号の配列）を、最上位の priorSessions（{"<テーマ>": [session…]}）も読む。形の違う値は読み飛ばす。
  * 引数の誤り・読めないファイルは標準エラーに1行書いて終了コード 1。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
 import { readFileSync } from 'node:fs';
@@ -179,6 +183,30 @@ export function handoverDecision(input: HandoverInput): HandoverResult {
   return { decision: failed.length === 0 ? 'auto' : 'ask', theme: fleet.theme, dispatch, failed };
 }
 
+// ---- takeover（手順9・10：hq が自分で起こした fleet の宣言の引き継ぎ） ----
+
+export interface TakeoverClaim { issue: number; pr: number | null; stage: string | null; session: string | null }
+export interface TakeoverInput { theme: string; status: FleetStatusData; ledger: HqLedger | null }
+export interface TakeoverResult { decision: 'auto' | 'ask' | 'none'; theme: string; known: TakeoverClaim[]; unknown: TakeoverClaim[] }
+
+export function takeoverDecision(input: TakeoverInput): TakeoverResult {
+  const mine = new Set<string>();
+  for (const f of readLedgerFleets(input.ledger)) if (f.theme === input.theme && f.session !== null) mine.add(f.session);
+  const prior = input.ledger?.priorSessions;
+  const list = isObj(prior) ? prior[input.theme] : null;
+  if (Array.isArray(list)) for (const s of list) if (typeof s === 'string' && s !== '') mine.add(s);
+  const known: TakeoverClaim[] = [];
+  const unknown: TakeoverClaim[] = [];
+  for (const row of input.status.rows) {
+    for (const [c, pr] of [[row.claim, null], [row.prClaim, row.pr]] as const) {
+      if (!c || c.own) continue;
+      const t: TakeoverClaim = { issue: row.issue, pr: pr ?? null, stage: c.stage ?? null, session: c.session ?? null };
+      (t.session !== null && mine.has(t.session) ? known : unknown).push(t);
+    }
+  }
+  return { decision: unknown.length > 0 ? 'ask' : known.length > 0 ? 'auto' : 'none', theme: input.theme, known, unknown };
+}
+
 // ---- route（手順7：届いた便りの振り分け） ----
 
 export type RouteAction = 'heartbeat-save' | 'handover-check' | 'ask-human' | 'escalation' | 'worker-done' | 'tell-now' | 'list';
@@ -269,7 +297,7 @@ function loadLedgerFleets(path: string | null): { fleets: LedgerFleet[]; raw: Hq
   let raw: HqLedger | null;
   if (path) {
     const j = readJsonFile(path, '控え');
-    raw = isObj(j) && Array.isArray(j.fleets) ? ({ fleets: j.fleets.filter(isObj) } as HqLedger) : null;
+    raw = isObj(j) && Array.isArray(j.fleets) ? ({ fleets: j.fleets.filter(isObj), priorSessions: j.priorSessions } as unknown as HqLedger) : null;
   } else {
     const dir = gitCommonDir(process.cwd());
     raw = dir ? readLedgerFile(dir) : null;
@@ -318,13 +346,21 @@ function run(argv: string[]): unknown {
       ledgerFleets: loadLedgerFleets(one(f, '--ledger', false)).fleets,
     });
   }
+  if (cmd === 'takeover') {
+    const f = takeFlags(rest, ['--theme', '--fleet-status', '--ledger']);
+    return takeoverDecision({
+      theme: one(f, '--theme', true) as string,
+      status: loadStatus(one(f, '--fleet-status', true) as string),
+      ledger: loadLedgerFleets(one(f, '--ledger', false)).raw,
+    });
+  }
   if (cmd === 'route') {
     const f = takeFlags(rest, ['--wake']);
     const j = readJsonFile(one(f, '--wake', true) as string, 'hq-watch.ts の出力');
     if (!isObj(j) || !Array.isArray(j.messages)) throw new Error('hq-watch.ts の出力に messages がありません');
     return routeDelivery({ deliveryId: typeof j.deliveryId === 'string' ? j.deliveryId : null, messages: j.messages as CheckMessage[] });
   }
-  throw new Error('使い方：hq-decide.ts assign|handover|route …（引数は先頭のコメントを見る）');
+  throw new Error('使い方：hq-decide.ts assign|handover|takeover|route …（引数は先頭のコメントを見る）');
 }
 
 if (import.meta.main) {

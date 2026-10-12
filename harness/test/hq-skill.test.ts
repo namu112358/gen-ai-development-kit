@@ -50,6 +50,10 @@ const HQ_SPEC: SkillSpec = {
     { step: 7, words: ['hq-decide.ts route', 'hq-decide.ts handover'] },
     // 手順8：動いている ship の数と空いた枠の割り当ては hq-decide.ts assign の結果に従う（#780）
     { step: 8, words: ['hq-decide.ts assign'] },
+    // 手順9・10：hq が自分で起こした fleet の宣言は hq-decide.ts takeover の判定に従い、聞かずに引き継いだものは手順12の一覧に出す（#770）
+    { step: 9, words: ['手順10の引き継ぎの判定'] },
+    { step: 10, words: ['hq-decide.ts takeover'] },
+    { step: 12, words: ['決めたこと（覆すなら）'] },
     // 手順8：止まったタスクの見回し（#407）
     {
       step: 8,
