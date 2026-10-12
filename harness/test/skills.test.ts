@@ -73,7 +73,7 @@ const PLAN_SPEC: SkillSpec = {
       step: 3,
       words: [
         'openQuestions', 'needsHumanReasons', 'AskUserQuestion', '本文', '除', '答えなかった', '拒んだ', '残して投稿', '批評に渡す',
-        'Routine', '聞かない', '投稿せず', '呼び直され', 'acChangeProposed', '今までどおり',
+        'Routine', '聞かない', '投稿せず', '呼び直され', 'acChangeProposed', '消さない', '1回以上',
       ],
     },
     // plan-critic が出力のパスに書く（#217）
