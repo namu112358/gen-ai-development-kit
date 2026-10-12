@@ -128,7 +128,7 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 ### 停止スイッチ
 
-ダッシュボード Issue に付ける `agent:auto-merge-stopped` ラベル。付いている間は自動 Merge がすべて止まり、自動 Merge された PR が revert されると App が自動で付ける。詳細：[operations.md](operations.md#止める仕組み)
+ダッシュボード Issue に付ける `agent:auto-merge-stopped` ラベル。付いている間は自動 Merge がすべて止まり、自動 Merge された PR が revert されたとき、自動 Merge の後に main の必須チェックが失敗したときも App が自動で付ける。詳細：[operations.md](operations.md#止める仕組み)
 
 ### 委任承認
 

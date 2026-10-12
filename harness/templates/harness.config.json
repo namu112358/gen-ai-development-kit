@@ -62,6 +62,9 @@
   "periodicCatchUpMinutes": 90,
   "dashboardIssueTitle": "Agent ダッシュボード",
   "patrolIssueTitle": "patrol のまとめ",
+  "patrolAutoSupply": {
+    "dailyLimit": 1
+  },
   "project": {
     "checkCommand": "npm run check",
     "installCommand": "npm ci"

@@ -34,7 +34,7 @@
 | `mod-*.test.ts` | mod（`mods/agent-harness/`）：変えたら `plugin.json` の version を main より上げているか（上げないと `claude plugin update` で届かない） |
 | `incident*.test.ts` | 問題の記録（`harness/lib/incident.ts`・`agent.ts incident`）：記録の置き場所と権限、種類ごとのまとめ、秘密に見える文字列の置き換え、Issue Form の形の下書きと `agent-incident` のコメント本文 |
 | `readme-*.test.ts`・`overview-*.test.ts` | 各ディレクトリの README の表と、`overview.html` のラベル表示が、実物と食い違っていないかの検査 |
-| `account-*.test.ts` | 使用量の低い Claude のアカウントを選ぶコマンド（`harness/scripts/accounts/`）：取り元の順・取り違えの除外・選び方・外す理由・対応表が無いときの default |
+| `account-*.test.ts` | 使用量の低い Claude のアカウントを選ぶコマンド（`harness/scripts/accounts/`）：取り元の順・取り違えの除外・選び方・外す理由・対応表が無いときの default、問い合わせるコマンド（`probe.ts`）：stream-json の読み取り・古い控えだけの問い合わせ・ずれの検出 |
 | `support/` | テストが共有する補助（テストとしては動かない） |
 
 ほかのテストが README の本文に特定のファイル名を求めるときは、その行だけパターンにせずファイル名で書く（ファイル名も同じ検査でパターンとして扱う）。テストファイルはこのディレクトリの直下に置く（`support/` 以外のサブディレクトリの `*.test.ts` は、パターンの検査の対象外）。新しいテストは既存のファイルの末尾に足さず、機能・ハンドラーごとのファイルに書く。ファイル名がどれかのパターンに当たれば、この README は変えなくてよい。どのパターンにも当たらなければ `npm run check`（readme のテスト）が落ちてファイル名を出すので、そのときだけ行かパターンを足す（全部を覆う `*.test.ts` は数えない）。

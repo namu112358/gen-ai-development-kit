@@ -16,7 +16,7 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 | 持ち込まない | `harness/test/`・`package.json`・`tsconfig.json`・`.node-version`・`overview.html`・このリポジトリの docs | ゲートは依存なしで Node 24 だけで動く（`gate.yml` は `node-version: 24` を直接指定する）。ハーネスの検査（`npm run check`）はこのリポジトリの CI で行う |
 | 持ち込まない（導入先が持つ） | `.gitattributes` | 導入先が自分のバイナリや CRLF の要るファイルの例外を書くため、配らない（sync で上書きすると例外を書けない）。同じ `* text=auto eol=lf` の行を導入先にも置くとよい（[10. 改行コード](#10-改行コードgitattributes)） |
 
-導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。
+導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。自動 Merge の後に main の CI が失敗したとき App が revert の PR と停止スイッチを出す仕組み（docs/operations.md の「止める仕組み」）を使うなら、`projectChecks` のチェックを既定ブランチへの push でも動かす（GitHub Actions なら `on: push: branches: [main]`。先頭にチェックが付かないと、App は何もしない）。
 
 検証コマンドと依存の取り込みのコマンドは `harness.config.json` の `project`（`checkCommand`・`installCommand`）に書く（例：`"project": { "checkCommand": "pytest -q", "installCommand": "pip install -e ." }`）。書かなければ `npm run check`・`npm ci`、`null` なら行わない。worktree の作成と合体版のレビューの⑧の detached の worktree の中で、書いた文字列を shell でそのまま実行する（`loadConfig` が検査するのは書式（空でなく前後に空白が無い文字列か `null`）だけで、中身は見ない）。
 
@@ -170,7 +170,7 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 
 ## 11. Orca（標準の実行環境）
 
-付き添いのセッションは [Orca](https://github.com/stablyai/orca)（stablyai/orca、MIT）の上で動かすことを標準にする。Orca は**必須**とする（worktree ごとのセッションを並べ、fleet の入れ子の方式で ship を並行に動かすため）。
+付き添いのセッションは [Orca](https://github.com/stablyai/orca)（stablyai/orca、MIT）の上で動かすことを、手元（各自のパソコン）の付き添いのセッションの標準にする（worktree ごとのセッションを並べ、fleet の入れ子の方式で ship を並行に動かすため）。Orca の無い環境では、クラウドの付き添いのセッション（[節12](#12-クラウドの付き添いのセッション)）か、下の「Orca が無いとき（退行手段）」の手順で進める。
 
 **入れ方**：各自のパソコンに Orca 本体を入れる。Orca のスキルの入口（`orca-cli`・`orchestration`）はリポジトリの `.claude/skills/` にあるので、`orca skills install` は要らない（入口は書き換えずに写したもので、中身の案内は手元の Orca の `skills get` から読む）。WSL の中から Windows の Orca を使う場合も同じ（WSL では環境変数 `ORCA_CLI_COMMAND` に CLI の名前が入る）。
 
@@ -193,3 +193,19 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 **取り込んだ版と更新**：入口は Orca 1.4.215（タグ `v1.4.215`、コミット `083f583a53e4c74a65acf420eee4ca2e0efa9df1`）の `skills/orca-cli/SKILL.md`・`skills/orchestration/SKILL.md` の写し。出どころと更新の手順は [docs/upstream/README.md](upstream/README.md#stablyaiorca)。
 
 **ステータスライン**：Orca につないだアカウントの使用量をステータスラインに出すなら、[statusline.md](statusline.md) のプロンプトを新しいセッションに貼る。
+
+## 12. クラウドの付き添いのセッション
+
+Claude Code のクラウドのセッション（claude.ai/code）で、付き添いのセッションとして ship・fleet を進める選択肢。手元の Orca と同じ skill・同じ手順で進め、ペインなどの見え方は合わせない。クラウドのセッションかどうかは環境変数 `CLAUDE_CODE_REMOTE` が `true` で見分ける。
+
+**作り方**：
+
+1. Node 24 の環境を選ぶ（`.node-version` の版、`package.json` の `engines` は `>=24`）。始めに `node --version` で確かめ、検証の前に `harness.config.json` の `project.installCommand`（既定 `npm ci`）を流す。
+2. リポジトリは1つ（このリポジトリか、導入先の1つ）。Issue の worktree は今どおり `node harness/scripts/agent.ts worktree <ブランチ>` で作る（置き場所はリポジトリの外）。環境は使い捨てで、手元の状態のファイル（git の共通ディレクトリの下の `agent-harness/`）はセッションをまたいで残らない。
+3. プラグイン（節8）の `typesafe`・`pr-review-toolkit` はクラウドでは入らない。Jev に関わる計画は、plan の skill の手順どおり「typesafe の skill を使えなかった」と書き、問い・criteria を手で書く。`pr-review-toolkit` は判定の外の補助なので、無くても判定の手順は変わらない。
+
+**GitHub の読み書き**：クラウドでは GitHub が GraphQL に 403 を返す。Issue・PR の読み書きは、skill に書いてある `node harness/scripts/agent.ts rest …`・`rest-create …` の入口を使い、`gh issue`・`gh pr` は使わない。`fleet-status`・`step`・`judge-input` はクラウドでは REST で読む。Stacked PR（`gh stack`）は使えないので、層に分けず別々に `main` 宛てで出す。GraphQL を使う dashboard・panes・report はクラウドでは動かない。
+
+**セッションの ID**：着手宣言は今どおりセッションの URL の ID で出す。段階・見張りのファイルは、URL を `session_…` に読み替えた名前で書く（[formats.md](formats.md) の段階のファイル）。読み込みの記録などは `AGENT_HARNESS_SESSION` のまま。利用者がすることは無い。
+
+**Orca が無いときの進め方**：クラウドではサブエージェントの入れ子が1段までなので、`fleet.nesting` が `orca` のままでも、ship が「入れ子不可」を返し、fleet は1つのセッションで段階を交互に進める方式（`flat`）になる。この1段までという事実は Epic #706 の 2026-10-11 の動作確認によるもので、クラウドの挙動が変わったら見直す。hq・intel・ペイン・Orca の通知は無い（hq を使わず、fleet・ship を使う）。SessionStart の hook は、`CLAUDE_CODE_REMOTE_SESSION_ID` があるときは Orca の CLI が無いことを知らせない。ハーネスが更新されたときの交代は、Orca が無いときの手順（人が新しいセッションに渡す1行を示して止まる）になる。
