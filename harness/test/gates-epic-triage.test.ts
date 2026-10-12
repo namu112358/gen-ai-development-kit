@@ -7,7 +7,7 @@ import type { HarnessConfig } from '../lib/config.ts';
 import type { askJev } from '../lib/jev.ts';
 import { epicTriage } from '../gates/epic-triage.ts';
 import { onScheduleWithLabels } from '../gates/label-apply.ts';
-import { APP, config, ctxFor, FakeGitHub } from './support/gate-fixtures.ts';
+import { APP, config, ctxFor, FakeGitHub, mainChecksOk } from './support/gate-fixtures.ts';
 
 type Mode = 'shadow' | 'enforce';
 
@@ -122,7 +122,7 @@ test('下限未満：足さずに記録だけ残し、ダッシュボードの�
     .on('GET', /\/issues\?state=open&creator=/, () => [{ number: 1, title: config.dashboardIssueTitle, user: { login: APP }, labels: [] }])
     .on('GET', /\/issues\/1$/, () => ({ body: '' }))
     .on('PATCH', /\/issues\/1$/, () => ({}));
-  await onScheduleWithLabels(ctxFor(fake, 'schedule', {}, withJev(jev, 'enforce')), new Date('2026-09-27T01:00:00Z'));
+  await onScheduleWithLabels(ctxFor(mainChecksOk(fake), 'schedule', {}, withJev(jev, 'enforce')), new Date('2026-09-27T01:00:00Z'));
   assert.equal(subIssuePosts(fake).length, 0);
   assert.deepEqual(postedRecord(fake).value.added, []);
   const dashboard = String(fake.calls.find((c) => c.method === 'PATCH' && c.path.endsWith('/issues/1'))!.body.body);
