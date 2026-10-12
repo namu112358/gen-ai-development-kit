@@ -27,6 +27,7 @@
 | `periodic-catch-up.ts` | イベントで動いた gate が、前回の定期の仕事（label-apply → stale の onSchedule → queue の公開）からしきい値以上空いていれば、定期の仕事を1回補う（Issue #418）。 | ○ |
 | `plan-decision.ts` | 決定の記録（````agent-decision````）の受け付け。 | ○ |
 | `plan-link.ts` | 必須チェック agent/plan-link：PR が計画のある Issue に紐付いているか（本文の `Closes #N`、Stacked PR の層は `Refs #N` も）。 | ○ |
+| `post-merge-revert.ts` | 定期実行：既定ブランチの先頭の必須チェックが失敗していたら、停止スイッチを入れる。 | ○ |
 | `publish-queue.ts` | 次にやること（queue）を App が計算し、ダッシュボード Issue の本文に公開する。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションが Agent PR に push したことを、PR に App のコメント（kind=unclaimed-push）で知らせる（止めない）。 | ○ |
 | `rerun-failed.ts` | 定期実行：計画・判定・決定の記録のコメントで起動して失敗した gate の実行を見つけ、1回だけやり直す（#390）。 | ○ |

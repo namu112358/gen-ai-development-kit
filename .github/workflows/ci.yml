@@ -13,16 +13,21 @@
 #   取り消し・エラー・ベースラインの失敗では記録せず、次の push で走る。permissions は contents: read のまま。
 # - 壊す箇所の数（--max-mutants）と時間（--max-minutes）に上限を置く。上限で打ち切っても失敗にせず、打ち切った旨を出す。
 #
-# main への push では動かさない。Ruleset の必須チェックは strict（main に追いついていないと Merge できない）なので、
-# Merge 後の main は PR の実行で試したマージコミットと同じ内容になる（harness/lib/ruleset.ts）。
+# main への push でも ci ジョブを動かす（mutation は PR だけ）。自動 Merge の後に main の先頭で ci が失敗したとき、
+# App が定期の実行で見つけて revert の PR と停止スイッチを出すため（harness/gates/post-merge-revert.ts。Issue #802）。
+# 通常は Ruleset の必須チェックが strict（harness/lib/ruleset.ts）なので、Merge 後の main は PR の実行で試したマージコミットと同じ内容になり、
+# push の ci は成功する。
 name: ci
 
 on:
   pull_request:
+  push:
+    branches: [main]
 
-# 同じ PR に続けて push したら、古い head の実行を取り消す（必須チェックは head ごとなので、新しい head の ci が結果になる）
+# 同じ PR に続けて push したら、古い head の実行を取り消す（必須チェックは head ごとなので、新しい head の ci が結果になる）。
+# main の push は sha ごとのグループにして、続けた push どうしで取り消し合わない
 concurrency:
-  group: ci-${{ github.event.pull_request.number }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: true
 
 permissions:
@@ -44,6 +49,7 @@ jobs:
       - run: npm run check
 
   mutation:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     # npm ci・ベースライン込みの 15 分・最後の1回のテスト（90 秒）が収まる長さ
     timeout-minutes: 25
