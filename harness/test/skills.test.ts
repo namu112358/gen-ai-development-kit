@@ -112,7 +112,7 @@ const FLEET_FOR_SHIP_SPEC: SkillSpec = {
         '段階の途中では交代しない', '新しい段階', '始めない', '古いセッションでは始めない', 'claim --stage judge', 'step',
         '交代しますか', '1行', 'orca-cli', 'Resolve the CLI', 'terminal create', 'claude --permission-mode auto "/fleet',
         '--git-common-dir', 'git -C <本体> pull --ff-only', 'できなければ起動せず', 'auto mode', '確かめられない', '引き継ぎの要約',
-        'Orca が無い', '/fleet <番号…>', 'pull --ff-only', 'claude --permission-mode auto',
+        'Orca が無い', '/fleet <番号…>', 'pull --ff-only', 'claude --permission-mode auto', 'harness/scripts/relaunch.ts',
       ],
     },
     { section: HANDOFF, step: 3, words: ['聞かない', 'hq に `ask`'], absent: ['AskUserQuestion'] },

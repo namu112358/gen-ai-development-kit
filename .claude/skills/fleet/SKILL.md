@@ -243,7 +243,10 @@ Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始�
    - orca-cli の skill の端末の起動（`terminal create`。引数は Orca の `skills get` の案内に従う）で、本体で `claude --permission-mode auto "/fleet --epic <Epic番号> <番号…>"` を起動する（番号は `fleet-status` に渡した集合。受け持つ Epic が無ければ `--epic` を付けない）。権限モードは必ず明示する（人の決定 2026-09-29）。Epic の fleet なら端末の表示名を `fleet: #<Epic番号> <日本語の短い言葉>` にする（言葉は hq の指示のテーマの名前、無ければ `.agent-harness-workspace` の中身をそのまま使う。hq が無ければ hq の skill の手順4の作り方で Epic のタイトルから作る。表示のためだけで、着手宣言・usage はセッション ID で見分ける）。
    - 起動後に画面のモード表示が `auto mode` かを確かめる。bypass（`bypass permissions`）だった・確かめられないときは、新しいセッションに段階を進めさせずに人に返す。
    - 確かめられたら、引き継ぎの要約（受け持つ Epic、人の判断待ちと待つ理由、進めている Issue・PR）を示して、このセッションは終える（新しい fleet が `fleet-status` を読み直して続きから進め、Epic の終わりまで続ける）。
-5. **Orca が無い・動かないとき**：止まって、人が新しいセッションに渡す1行 `/fleet --epic <Epic番号> <番号…>`（Epic が無ければ `/fleet <番号…>`）と、始め方（本体を `git pull --ff-only` で追いつかせてから `claude --permission-mode auto` で起動し、画面の `auto mode` を確かめる）を示す。
+5. **Orca が無い・動かないとき**：クラウドの付き添いのセッションでは使わない（`check` が `ok: false` になる）。
+   - (a) `node harness/scripts/relaunch.ts check` を読む。`ok` が偽なら、`reason` を添えて、止まって人が新しいセッションに渡す1行 `/fleet --epic <Epic番号> <番号…>`（Epic が無ければ `/fleet <番号…>`）と、始め方（本体を `git pull --ff-only` で追いつかせてから `claude --permission-mode auto` で起動し、画面の `auto mode` を確かめる）を示す。
+   - (b) `ok` なら `git -C <本体> pull --ff-only` で追いつかせる。できなければ起動せず、理由と (a) の1行を示して止まる。
+   - (c) `node harness/scripts/relaunch.ts start --line "<1行>"` を流す。`verified` が真なら、引き継ぎの要約を示して、このセッションは終える。偽なら新しいセッションに1行は渡っていないので、`pane` のウィンドウと1行と始め方を示して人に返す。`started` が偽（`new-window` の失敗）なら `pane` は無いので、`reason` と1行と始め方を示して人に返す。どちらも、もう一度 `start` しない（印で止まる）。
 
 ## 待つ間の読み直し
 
@@ -271,6 +274,6 @@ App の計画ゲート・判定の受け付け・自動 Merge・CI を待つ間�
 - ship の「人に返す条件」に当たった（その Issue は止めて人に返し、ほかの Issue は進める。一覧にまとめて返す）
 - 選べる Issue が無い（止まる印・依存・着手宣言・重なり・PR 同士の衝突・`--max` の本数で全部が待つ）
 - 選んだ Issue が全部待つ状態になり、人の判断待ちだけが残った（App・CI 待ち・人の Merge 待ちが残る間は人に返さず、節「待つ間の読み直し」を続ける）
-- 交代できない（Orca が無い・本体を追いつかせられない・交代の後に `auto mode` を確かめられない。節「ハーネスが更新されたときの交代」の 4・5）
+- 交代できない（Orca も起動の手段（tmux）も無い・本体を追いつかせられない・交代の後に `auto mode` を確かめられない。節「ハーネスが更新されたときの交代」の 4・5）
 - 操作が deny などで拒否された（別の方法で試さない）
 - やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し
