@@ -12,7 +12,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 | --- | --- | --- | --- |
 | 0〜2 | `review-intake` | haiku | 対象か（closed か、前回の判定と同じ head のときだけ対象外）、CLAUDE.md のパス（CLAUDE.md が `@` で読み込むファイルも含む）、変更の要約 |
 | 3 ①〜⑤ | `review-lens`（観点の番号を変えて5回） | sonnet | ① CLAUDE.md（`@` で読み込むファイルの規則も含む）、② 明らかなバグ、③ 履歴（`git log`・`git blame`）、④ 過去の PR のコメント、⑤ コードのコメント |
-| 3 ⑥ | `review-ac-scope` | opus | AC を満たすか（`ac-unmet`）、範囲外の変更（`out-of-scope`） |
+| 3 ⑥ | `review-ac-scope` | opus | AC を満たすか（`ac-unmet`）、範囲外の変更（`out-of-scope`）、Stacked PR の層の積む必要性（3つの条件のどれにも当たらなければ `out-of-scope`） |
 | 3 ⑦ | `review-safety` | opus | `data-destruction`・`secret-leak`・`regression` |
 | 3 ⑨ | `review-overbuild` | sonnet | 計画・AC が求めていない `over-implementation`（過剰な実装）・`over-testing`（過剰なテスト）・`over-engineering`（オーバーエンジニアリング）。1判定5件まで。確信度 75 以上はブロッキング、75 未満は提案（#386。決定ログの Q103） |
 | 3 ⑧ | `review-panel.ts` の `check` | — | head の detached の worktree で、設定の取り込みのコマンド（`project.installCommand`。既定 `npm ci`）と検証コマンド（`project.checkCommand`。既定 `npm run check`。`null` なら動かさない）。終了コードと出力の末尾 60 行 |
