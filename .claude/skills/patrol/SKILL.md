@@ -116,7 +116,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 4. 人が選んだものだけを `gh issue create --title <題> --body-file <本文のファイル>` で作る（ラベルは指定しない。クラウドの付き添いのセッションでは `node harness/scripts/agent.ts rest-create issue --title <題> --body-file <ファイル>` を `--label` なしで使う）。
 5. 作るたびに採用の印を書き戻す：qa-retro は `node harness/scripts/qa-retro-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号> --state <一時>/qa-retro-loop.json`、test-prune は `node harness/scripts/test-prune-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号> --state <一時>/test-prune-loop.json`、arch-review は `node harness/scripts/agent.ts arch-review-adopt <記録のコメントID> <下書きの番号> <Issue 番号>`。回の番号と下書きの番号は、同じ pull の写しの中でだけ使う（別の pull の番号を使い回さない）。
 6. `node harness/scripts/agent.ts patrol-push --dir <一時のディレクトリ>` で採用の印をまとめの Issue に書き戻す。本文の変化で止まったら（その間に Routine が回った）、もう一度 pull し、作った Issue の題で下書きを探して `adopt` をやり直してから push する（Issue は作り直さない）。
-7. 作った Issue を plan に進めるかは、[qa-retro](../qa-retro/SKILL.md)・[test-prune](../test-prune/SKILL.md) の「出力」の手順4と同じく聞く。
+7. 作った Issue は、[qa-retro](../qa-retro/SKILL.md)・[test-prune](../test-prune/SKILL.md) の「出力」の手順4と同じく、人が「作るだけ」と言わない限り聞かずに plan に進める。
 
 ## 出力
 

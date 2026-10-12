@@ -38,7 +38,7 @@ description: 人が付き添うセッションで、減らせるテスト（ほ�
 1. 案の一覧を人に示す（文章で。PR・Issue には投稿しない）。案（削除・統合・書き直し・残す）・テストファイル・根拠（重なる先と割合、所要時間、文言を確かめる行、ミュータント・不安定なテスト）と、`notes` の読めなかったもの・打ち切り。
 2. 直す Issue の下書きを作る（削除・統合・書き直しの案ごと、または近いものをまとめて）。見出しは Issue Form（[.github/ISSUE_TEMPLATE/agent-task.yml](../../../.github/ISSUE_TEMPLATE/agent-task.yml)）に、タイトルは `harness/lib/title.ts` の書式（Conventional Commits。例 `test(harness): …`）に合わせ、本文に根拠を書く。
 3. どの下書きを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作る。`--label` は渡さない。
-4. 作った Issue を plan に進めるかを AskUserQuestion で聞く（おすすめは「作るだけ」）。進めると選ばれたら ship の skill（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）の手順に従う。
+4. 作った Issue は、harness/CLAUDE.harness.md の進め方のとおり、人が「作るだけ」と言わない限り、聞かずに同じセッションで1件ずつ `node harness/scripts/agent.ts claim <番号> --manual --stage plan` をして plan の skill（批評と投稿まで）を続ける。implement 以降は ship の skill（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）に従う。
 
 ## /loop で回すとき
 
@@ -54,7 +54,7 @@ skill によらない共通の規則（`/loop` の始め方・止め方、回の
   5. 下書きを JSON の配列（`title`・`body`、同じものがある開いた Issue があれば `duplicateOf`。`labels` は持たせない）で scratchpad に書き、`node harness/scripts/test-prune-loop.ts record <集計の JSON> [--drafts <下書きの JSON>]` で回を記録する。記録するのは報告を出した後だけ。すでに状態にある下書きと同じタイトルのものは記録されず、出力の `duplicates` に出る。
 - `record` が集計の JSON の確かめ（形が違う・前回の回の集計より新しくない）で止まったら、人に聞かずにその回を止め、理由を出す（古い JSON を渡した・ほかのセッションが同じ状態で回した恐れ）。状態は変わらない。
 - 止め方：`/loop` を止める（止めるよう頼む・セッションを閉じる）。`record` の前に止めた回は記録が残らない（次の回はまた全部のテストを見るので抜けない）。
-- 人が選ぶ場面（ループの回の外）：人が「test-prune の下書きを選ぶ」と頼んだら、`node harness/scripts/test-prune-loop.ts pending` で未採用の下書きを読み、どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作り（`--label` は渡さない）、作るたびに `node harness/scripts/test-prune-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号>` で書き戻す。作った Issue を plan に進めるかは「## 出力」の手順4どおり聞く。
+- 人が選ぶ場面（ループの回の外）：人が「test-prune の下書きを選ぶ」と頼んだら、`node harness/scripts/test-prune-loop.ts pending` で未採用の下書きを読み、どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作り（`--label` は渡さない）、作るたびに `node harness/scripts/test-prune-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号>` で書き戻す。作った Issue は「## 出力」の手順4どおり plan に進める。
 - 動作を確かめるときは、`--state <一時のパス>` を `record`・`pending`・`adopt` に渡して、手元の状態のファイルと分ける。
 
 ## やってはいけないこと

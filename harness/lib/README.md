@@ -68,6 +68,7 @@
 | `qa-retro-loop.ts` | qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と手元の状態（純粋関数）。 | ○ |
 | `qa-retro.ts` | Merge 済みの PR の振り返り（qa-retro の skill）の集計。 | ○ |
 | `queue.ts` | Routine の次の行動を決める純粋関数。 | 対象外 |
+| `related-tests.ts` | 変更したファイルに関係するテストを選ぶ（相対 import をたどる）。 | ○ |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）の純粋関数。 | ○ |
 | `repository.ts` | origin の URL から owner/repo を読む（Issue #789）。 | ○ |
 | `review-panel.ts` | 合体版のレビュー（公式の code-review に、このハーネスの観点⑥〜⑧を足したもの）の組み立てと記録。 | ○ |

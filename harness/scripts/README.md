@@ -26,6 +26,7 @@
 | `plan-companions.ts` | 計画の files に、今の規則で一緒に変えるファイルが抜けていないかを見る（`agent.ts check` が plan で使う）。 |  |
 | `qa-retro-loop.ts` | qa-retro を付き添いのセッションの `/loop` から回すときの、期間の決め方・進め方と下書きの記録（qa-retro の skill の「/loop で回すとき」が使う）。 |  |
 | `readme.ts` | README の表（名前・内容・ガードレール）を、各ディレクトリの直下の名前と先頭のコメントから作る。 |  |
+| `relaunch.ts` | Orca が無いときのハーネスの交代で、tmux の中から新しい付き添いのセッションを auto mode で起動する入口（Issue #807）。 |  |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）。 | ○ |
 | `review-panel.ts` | 合体版のレビュー（.claude/skills/review-panel/SKILL.md）の CLI。 | ○ |
 | `session-doctor.ts` | セッションの前提の確かめ（Issue #833）。 |  |
