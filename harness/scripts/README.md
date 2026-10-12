@@ -12,7 +12,7 @@
 | `dashboard.ts` | エージェントの状態をグラフで見る、手元のダッシュボード（GitHub に書くのは POST /decisions の決定の記録のコメントだけで、気づきは手元の受け箱に書く）。 |  |
 | `dashboard/` | エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。 |  |
 | `hq-compact.ts` | hq が fleet と hq 自身の端末へ `/compact` を送る判定と送り方（Issue #737）。 |  |
-| `hq-decide.ts` | hq の判定（空いた枠の割り当て・交代の判定・便りの振り分け）を、hq（モデル）が数えずに済むように、純粋な関数にしたもの（Issue #780）。 |  |
+| `hq-decide.ts` | hq の判定（空いた枠の割り当て・交代の判定・便りの振り分け・引き継ぎの判定）を、hq（モデル）が数えずに済むように、純粋な関数にしたもの（Issue #780）。 |  |
 | `hq-state.ts` | hq の控え（hq-fleets.json）と、hq がいない間の fleet の質問の控えを、git の共通ディレクトリの下に置く（Issue #409）。 |  |
 | `hq-watch.ts` | hq の見張り（Issue #559）。 |  |
 | `intel-watch.ts` | intel の見張り（Issue #854）。 |  |
