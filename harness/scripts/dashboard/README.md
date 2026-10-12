@@ -1,6 +1,6 @@
 # harness/scripts/dashboard/
 
-エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。読み取りだけで、GitHub には書かない。
+エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。GitHub には書かない（書くのは手元の受け箱だけ）。
 
 ## 起動
 
@@ -21,6 +21,7 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 - **カードのセッション**：「N セッション」の折りたたみ。閉じていても、動いているセッションかサブエージェントがあれば点滅する。開くとセッションごとの行とサブエージェント。
 - **進み**：画面の上の帯（「人がすること」の上）。開いている Epic ごとの「閉じた数／全体」（Epic の子課題 sub-issues の数。`harness/gates/epic-close.ts` と同じ数え方）、今日の Merge の数（手元の日付の 0 時以降。Merge した人が App（`harness.config.json` の `appSlug`）なら App、それ以外は人）、動いているセッションとサブエージェントの数（下の「手元のセッション」の点滅と同じ判断）。数は `graph.ts` の純粋関数 `buildProgress` が組む。Epic と Merge の数は、まだ読んでいない間は「読み込み中」。
 - **人がすること**：画面の一番上の一覧。Human Merge の PR、計画ゲートで止まった Issue、止まる印（hold・blocked・waiting）の Issue、`priority:*` の無い Issue（label-audit と同じく `agent:*` か `epic` の付いたものだけ）。自動 Merge 待ちは出さない。
+- **気づきを送る欄**：「人がすること」の下。textarea に書いて「送る」と、手元の受け箱に1件入る（4000 文字まで。intel が拾う）。欄の横に、受け箱の未読の数（「intel の受け箱：未読 N 件」）が出る。
 - **手元のセッション**：`~/.claude/projects/` のうち、このリポジトリと worktree の置き場所（既定は `<親>/<名前>.worktrees/`。`harness.config.json` の `worktreeRoot` か環境変数 `AGENT_HARNESS_WORKTREE_ROOT` で変えたときはその場所。サーバーの起動時に1回決める）のセッション記録。最後に動いた時刻と、サブエージェント（plan-critic・reviewer など）の種類と最後に動いた時刻。90 秒以内に動いていれば点滅する。右の列には動いているセッションだけを出し、残りは「ほか N 件」に畳む。会話の中身は読まない・送らない。
 
 ## 更新の仕組み
@@ -48,11 +49,21 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 - `127.0.0.1` だけで待ち受け、`Host` が `127.0.0.1:<port>` / `localhost:<port>` でない要求は 403（DNS rebinding で非公開リポジトリの状態を読まれないように）。
 - GitHub への要求は `ReadOnlyTransport` を通し、GET と mutation を含まない GraphQL のほかは送らない。トークンはブラウザに送らない。
 - タイトルなど外から入る文字は `textContent` で描く。
+- 書く入口は `POST /notes` だけ。`Host`・`Origin`（`http://127.0.0.1:<port>` か `http://localhost:<port>` に完全に一致）・起動ごとの合言葉（`x-dashboard-token`。起動のたびに作り、`GET /` で返すページの meta に埋めて配る。ログには出さない）の順で確かめ、合わなければ 403 で何も書かない。続けて `content-type` が `application/json`（違えば 415）、本文は 16 KiB まで（超えれば 413）、`text` は前後の空白を除いて 1〜4000 文字（違えば 400）。書く先はリポジトリの外の受け箱だけで、GitHub・ゲート・ラベルには触れない。
+
+## 受け箱（intel が読む）
+
+- 置き場所：git の共通ディレクトリの下の `agent-harness/inbox/`。`notes/<id>.json` に1件1ファイル（`version`・`id`・`at`・`source`・`text`）、`read/<id>` が読んだ印（空のファイル）。未読は `notes/` にあって `read/` に無いもの。書く側（ダッシュボード）と印を付ける側（intel）が別のファイルを書く。`id` は `<UTC の時刻>-<16進8桁>`で、形に合わない id は読まず・印も付けない。
+- `node harness/scripts/dashboard/inbox.ts list`：未読を古い順に JSON の配列（`id`・`at`・`text`）で出す。
+- `node harness/scripts/dashboard/inbox.ts mark-read <id>...`：読んだ印を付ける。形の合わない id・無い id があれば何も書かず終了コード 1（合わない id を標準エラーに出す）。
+- `node harness/scripts/dashboard/inbox.ts wait [--timeout-ms N]`：未読が1件以上になるまで 2 秒ごとに数え（既定 30 分）、`{"result":"unread","unread":N}` か `{"result":"timeout","unread":0}` を1行出して終了する。intel が見張りとして裏で置く（[intel](../../../.claude/skills/intel/SKILL.md)）。
+- ダッシュボードは 5 秒ごとに未読の数を数え直し、変わったときだけ画面に送る（intel が印を付けた分が画面に戻る）。
 
 | 名前 | 内容 |
 | --- | --- |
 | `graph.ts` | facts とセッションから列・タスク・辺を組む純粋関数と、前後の差分 |
 | `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し（まとめた GraphQL の問い合わせでの先読み） |
+| `inbox.ts` | 気づきの受け箱（git の共通ディレクトリの下）の読み書きと、intel が使う CLI（list・mark-read・wait） |
 | `rate-limit.ts` | API の上限の残りを応答から読み、下限を切ったらリセットまで送らない Transport と fetch の包み |
 | `scheduler.ts` | 見張りの回し方（間隔・上限で止める・失敗の後の backoff・接続が0の間は読まない） |
 | `sessions.ts` | 手元のセッション記録の読み取りと見張り |
