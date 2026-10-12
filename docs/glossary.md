@@ -22,7 +22,7 @@ App が次に Routine がやることを計算してダッシュボード Issue 
 
 ### `agent:ready`
 
-人が Issue に付けるラベル。「着手してよい」の意味で、Routine が次の実行で拾う。付けた時点で App が Issue 本文を Issue Form の書式として読めるか確かめる。詳細：[operations.md](operations.md#issue-の書き方)
+人が Issue に付けるラベル。「着手してよい」の意味で、Routine が次の実行で拾う。付けた時点で App が Issue 本文を Issue Form の書式として読めるか確かめる。詳細：[operations.md](operations.md#issue-の書き方) auto mode の間は、patrol が自動で作った Issue に、上限（`patrolAutoSupply.dailyLimit`）の範囲で付けることがある。
 
 ### claim（着手宣言）
 

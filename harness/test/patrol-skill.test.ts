@@ -29,6 +29,8 @@ const PATROL_SPEC: SkillSpec = {
         '観測の差', '動かした見直し', '勧める見直し', '下書きの数',
         // 状態のファイルが壊れていたら上書きせずに止まる
         '状態のファイル', '上書きしない',
+        // auto mode の間の自動の供給（Issue #828）
+        'patrol-supply check', 'patrol-supply ready', 'issue-creator', 'patrolAutoSupply.dailyLimit',
       ],
     },
     { section: '## やってはいけないこと', words: ['AskUserQuestion', 'gh issue create', 'ラベル'] },
