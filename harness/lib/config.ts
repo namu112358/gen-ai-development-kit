@@ -97,6 +97,8 @@ export interface HarnessConfig {
   dashboardIssueTitle: string;
   /** patrol の Routine が状態と下書きを置くまとめの Issue の題。無ければ「patrol のまとめ」（Epic #634） */
   patrolIssueTitle?: string;
+  /** 導入先の検証コマンドと依存の取り込みのコマンド。無ければ npm run check・npm ci、null は「行わない」（projectCommands。Issue #640） */
+  project?: { checkCommand?: string | null; installCommand?: string | null };
   reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
   /**
    * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、
@@ -130,14 +132,39 @@ export interface AutoModeJevQuestion {
 const CONFIG_PATH = fileURLToPath(new URL('../../harness.config.json', import.meta.url));
 
 /**
- * 設定を読み、上限の数値のキーを検査する（limitErrors）。誤りがあれば throw する（上限が効かないまま動かない。Issue #272）。
- * 上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない
+ * 設定を読み、上限の数値のキー（limitErrors）と project（検証コマンド・取り込みのコマンド。projectCommands）の書式を検査する。誤りがあれば throw する（上限が効かないまま動かない。Issue #272・#640）。
+ * Jev のしきい値・ガードレールの一覧などはここでは検査しない
  */
 export function loadConfig(path: string = CONFIG_PATH): HarnessConfig {
   const config: unknown = JSON.parse(readFileSync(path, 'utf8'));
   const errors = limitErrors(config);
   if (errors.length > 0) throw new Error(`harness.config.json の上限の設定に誤りがあります：${errors.join(' / ')}`);
+  try {
+    projectCommands(config as HarnessConfig);
+  } catch (e) {
+    throw new Error(`harness.config.json の project の設定に誤りがあります：${(e as Error).message}`);
+  }
   return config as HarnessConfig;
+}
+
+/** 検証コマンドと取り込みのコマンドの既定値（設定の project が無いとき） */
+export const PROJECT_COMMAND_DEFAULTS = { checkCommand: 'npm run check', installCommand: 'npm ci' } as const;
+
+/** project の1つのコマンド。無ければ既定、null は「行わない」、文字列は空でなく前後に空白が無いこと。誤りは throw */
+function projectCommandValue(raw: Record<string, unknown>, key: 'checkCommand' | 'installCommand'): string | null {
+  const v = raw[key];
+  if (v === undefined) return PROJECT_COMMAND_DEFAULTS[key];
+  if (v === null) return null;
+  if (typeof v !== 'string' || v === '' || v !== v.trim()) throw new Error(`project.${key} は空でなく前後に空白の無い文字列か null で書いてください`);
+  return v;
+}
+
+/** 検証コマンドと取り込みのコマンド（無い項目は既定値）。書式の誤りは throw する（loadConfig が読み込み時に呼ぶ） */
+export function projectCommands(config: Pick<HarnessConfig, 'project'>): { checkCommand: string | null; installCommand: string | null } {
+  const raw = config.project as unknown;
+  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('project はオブジェクトで書いてください（例：{ "checkCommand": "npm run check", "installCommand": "npm ci" }）');
+  const obj = (raw ?? {}) as Record<string, unknown>;
+  return { checkCommand: projectCommandValue(obj, 'checkCommand'), installCommand: projectCommandValue(obj, 'installCommand') };
 }
 
 type LimitKind = 'positiveInteger' | 'positive' | 'nonNegative';
@@ -402,7 +429,7 @@ export const GITHUB_ACTIONS_APP_ID = 15368;
 
 /**
  * projectChecks を既定値で埋めて検査する。書式の誤りは throw する。
- * loadConfig では検査しない（loadConfig が検査するのは上限の数値のキーだけ（limitErrors）。ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
+ * loadConfig では検査しない（loadConfig が検査するのは上限の数値のキー（limitErrors）と project の書式だけ。ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
  */
 export function projectChecks(config: HarnessConfig): { context: string; integrationId: number }[] {
   const raw: unknown = config.projectChecks ?? [{ context: 'ci' }];
