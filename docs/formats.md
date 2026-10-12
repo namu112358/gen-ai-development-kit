@@ -353,6 +353,15 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - `basis` が `risk-only` の判定は、投稿の前に `plan-review-check <番号>`（読むだけ。`riskOnly`・`remaining`・`touches`・`notes` を JSON で出す）と同じ検査をかけ、`riskOnly` が偽なら投稿しない（ガードレールに触れる計画に「進める」の判定を残さない）。
 - ラベルは変えない。App は読まず、ゲートも起こさない（`gate.yml` の `if:` に無い）。ship・fleet が最後の一覧に「決めたこと（覆すなら）」として載せる。
 
+### 期間の集計（session-judgment-digest）
+
+`node harness/scripts/agent.ts session-judgment-digest [--days <n>] [--since <YYYY-MM-DD>] [--until <YYYY-MM-DD>] [--sample <n>] [--weekly [--state <path>]]`（Issue #805。読むだけで、ラベル・コメントは書かない）。期間のセッションの判定を基準ごとに数え、抜き取りの一覧を JSON で出す。qa-retro の skill が週1回、人の抜き取りの点検に使う。抜き取りは見直しのための一覧で、判定の材料にしない。
+
+- 出力：`since`・`until`（ISO 時刻）、`total`、`counts`（4基準すべて。0 も出す）、`samples`（基準ごとの `{ target, stage, decision, url, createdAt }`。`url` はコメントの `html_url`）、`unreadable`（ブロックはあるが書式の誤りで読めなかったコメントの数。基準には振らない）、`lines`（基準ごとの見出し `risk-only: N 件（抜き取り M 件）` と、抜き取りごとの `- #<target> <stage>: <decision>（<url>）`）、`notes`（読み切れなかったときの「打ち切り」）。`--weekly` では `due: true` も付く。
+- 期間：既定は直近 7 日。`--days`・`--since`・`--until` は qa-retro と同じ読み方（`until` はその日を含む）。数えるのは作成時刻が `[since, until)` で、コラボレーターの、Claude の目印のあるコメントだけ。GitHub の `/issues/comments?since=` は更新時刻で絞るので、期間より後に作られたコメントや期間の前に作られて後で更新されたコメントも返り、作成時刻で絞り直す。
+- 抜き取り：基準ごとに新しい順（同じ時刻はコメントの ID の大きい順）で `--sample` 件（既定 3）。
+- `--weekly`：`--days`・`--since`・`--until` とは同時に渡せない。手元の状態のファイル（既定は git の共通ディレクトリの下の `agent-harness/session-judgment-digest.json`、`--state` で変えられる。作業ツリーにも GitHub にも書かない）の `{ "version": 1, "lastUntil": "<ISO 時刻>" }` を読み、`lastUntil` から 7 日たっていなければ GitHub を読まずに `{ "due": false, "nextAt": "<ISO 時刻>" }` を出す。たっていれば（状態が無ければ直近 7 日）`lastUntil` から今までを集計し、`lastUntil` を今に書き戻す（前回の終わりからつなぐので、抜けも重なりも出ない）。
+
 ## 問題の記録（agent-incident）
 
 セッションで起きた問題の記録（Issue #186。振り分けは [operations.md](operations.md#問題の記録と振り分け)）。記録はリポジトリの外のセッションごとの JSON Lines（`<AGENT_HARNESS_INCIDENT_DIR か ~/.agent-harness/incidents>/<セッションID>.jsonl`）に1行1件で書き、GitHub には書かない。1行の形：
