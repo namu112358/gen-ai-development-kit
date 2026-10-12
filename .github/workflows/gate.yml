@@ -1,6 +1,6 @@
 # 専用 GitHub App で動く決定論的ゲート。Claude は動かさない（数秒で終わるジョブのみ）。
 #
-# 安全の前提（docs/security.md）:
+# 安全の前提（harness/docs/security.md）:
 # - 既定ブランチの YAML だけが動くトリガー（issue_comment / issues / pull_request_target / push:main / schedule）で起動する
 # - PR の head は checkout しない。PR の中身は API で読むだけ
 # - App の鍵と Jev の鍵は Environment `gate`（既定ブランチからの実行に限定）の Secret に置く
@@ -35,7 +35,7 @@ jobs:
     # 「この App」はリポジトリ変数 AGENT_APP_SLUG で判定する（他の Bot の操作は起動する）。
     # queue（次に Routine がやること）は、定期実行（1時間ごと）と手動の起動のときだけダッシュボードに公開し直す（イベントのたびに計算すると App の API の上限を超えるため。#379）。定期実行が harness.config.json の periodicCatchUpMinutes 分以上来なければ、イベントで動いた gate が定期の仕事と queue の公開を1回補う（#418）。
     # GITHUB_TOKEN による操作は workflow を起動しないため、定期実行でも merge-route を照合し直す
-    # 委任承認のラベル（ダッシュボードの agent:delegate-plan・agent:delegate-merge）の付け外しでも起動する。期限は無い（docs/risk-policy.md）
+    # 委任承認のラベル（ダッシュボードの agent:delegate-plan・agent:delegate-merge）の付け外しでも起動する。期限は無い（harness/docs/risk-policy.md）
     if: >-
       (github.event_name != 'issue_comment' ||
         contains(github.event.comment.body, '```agent-plan') ||
@@ -90,7 +90,7 @@ jobs:
           JEV_API_KEY: ${{ secrets.JEV_API_KEY }}
 
   # 失敗した判定・計画・決定の記録の実行を、定期実行と手動の起動のときに1回だけやり直す（harness/gates/rerun-failed.ts。#390）。
-  # このジョブだけが GITHUB_TOKEN の actions: write を持つ（実行の一覧とやり直しだけに使う。ほかは App のトークン。docs/security.md）
+  # このジョブだけが GITHUB_TOKEN の actions: write を持つ（実行の一覧とやり直しだけに使う。ほかは App のトークン。harness/docs/security.md）
   rerun-failed:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest

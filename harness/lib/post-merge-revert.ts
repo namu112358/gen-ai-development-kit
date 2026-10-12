@@ -111,7 +111,7 @@ export function renderStopReason(input: { sha: string; failed: string[]; pr: num
     `- 特定した PR: ${input.pr === null ? 'なし' : `#${input.pr}`}（${input.decision.reason}）`,
     input.revertPr !== null ? `- revert の PR: #${input.revertPr}（Draft。人が確かめて Merge します）` : `- revert の PR: 出していません${input.revertNote ? `（${input.revertNote}）` : ''}`,
     '',
-    `原因を確認したら、このダッシュボードの \`${input.stopLabel}\` ラベルを外して再開してください（docs/operations.md）。`,
+    `原因を確認したら、このダッシュボードの \`${input.stopLabel}\` ラベルを外して再開してください（harness/docs/operations.md）。`,
   ];
   return lines.join('\n');
 }

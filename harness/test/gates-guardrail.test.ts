@@ -32,7 +32,7 @@ test('ガードレールに触れる PR は、low の判定でも auto-merge を
 });
 
 test('一覧自身（harness.config.json）の変更と、ガードレールからのリネームも当たる', async () => {
-  for (const files of [[{ filename: 'harness.config.json' }], [{ filename: 'docs/moved.md', previous_filename: 'docs/risk-policy.md' }]]) {
+  for (const files of [[{ filename: 'harness.config.json' }], [{ filename: 'docs/moved.md', previous_filename: 'harness/docs/risk-policy.md' }]]) {
     const fake = fakeWith(['harness.config.json', 'docs/**'], files);
     await onComment(ctxFor(fake, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
     assert.ok(!fake.writes().includes('enablePullRequestAutoMerge'), files[0]!.filename);
@@ -41,13 +41,13 @@ test('一覧自身（harness.config.json）の変更と、ガードレールか�
 });
 
 test('ガードレールに触れない PR は、従来どおり Risk Agent の答えで決まる', async () => {
-  const low = fakeWith(['docs/operations.md', '.claude/skills/implement/SKILL.md'], [{ filename: 'docs/operations.md' }, { filename: '.claude/skills/implement/SKILL.md' }]);
+  const low = fakeWith(['harness/docs/operations.md', '.claude/skills/implement/SKILL.md'], [{ filename: 'harness/docs/operations.md' }, { filename: '.claude/skills/implement/SKILL.md' }]);
   await onComment(ctxFor(low, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict()))));
   assert.ok(low.writes().includes('enablePullRequestAutoMerge'));
   assert.match(acceptanceBody(low), /\| ガードレール \| 触れない \|/);
   assert.doesNotMatch(acceptanceBody(low), /ガードレールに触れます/);
 
-  const medium = fakeWith(['docs/operations.md'], [{ filename: 'docs/operations.md' }]);
+  const medium = fakeWith(['harness/docs/operations.md'], [{ filename: 'harness/docs/operations.md' }]);
   await onComment(ctxFor(medium, 'issue_comment', verdictEvent(renderBlock('agent-verdict', verdict({ risk: { ...verdict().risk, level: 'medium' } })))));
   assert.ok(!medium.writes().includes('enablePullRequestAutoMerge'));
   assert.doesNotMatch(acceptanceBody(medium), /ガードレールに触れます/);

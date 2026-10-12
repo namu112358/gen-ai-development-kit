@@ -150,7 +150,7 @@
     ".claude/agents/reviewer.md",
     ".claude/agents/risk-agent.md",
     ".claude/skills/judge/SKILL.md",
-    "docs/risk-policy.md",
+    "harness/docs/risk-policy.md",
     "harness/lib/auto-mode.ts",
     "harness/lib/auto-mode-tests.ts",
     ".claude/agents/plan-critic.md",

@@ -122,7 +122,7 @@ Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の 
          - 触るファイルの重なり・依存・着手宣言は `fleet-status` の `selected` が見るので、割り当てで変えない。動いている ship の数が上限を超えていても、動いている ship は止めない（新しく割り当てないだけ。fleet は自分の集合から ship を起こすので、数が一時的に少し超えうる）。
        - 止まった宣言・担当のいない PR：引き継ぐかは人が決める。hq は自分で引き継がず、見つけたものを1回にまとめて AskUserQuestion で聞く（引き継ぐなら、手順10と同じく受け持つ fleet の指示に `--takeover` での出し直しを書く）。
      - Epic の振り分け（App が行い、hq は一覧に出すだけ。Epic #436）：
-       - Epic に入っていない単発の Issue は、App の定期実行が Jev に問い、`jev.epicTriage` が `enforce` のときだけ App が Epic の sub-issues に足す（規則は [docs/operations.md](../../../docs/operations.md) の「Epic の振り分け」）。
+       - Epic に入っていない単発の Issue は、App の定期実行が Jev に問い、`jev.epicTriage` が `enforce` のときだけ App が Epic の sub-issues に足す（規則は [harness/docs/operations.md](../../../harness/docs/operations.md) の「Epic の振り分け」）。
        - hq は Epic の案を人に聞かず、sub-issues に足さず、新しい Epic の Issue も作らない（intel にも作らせない）。
        - Epic の振り分け（sub-issues に足すこと）は一覧に出すだけにする（前の回と同じ行は数え直すだけ）。fleet への割り当ては上の空いた枠の割り当て（(b)(c)）で行う。
    - **空きの補充**（#663）：受け持ちの Epic が閉じて fleet に空きが出たら、待つだけにせず、開いている Epic から次の fleet を起こす。

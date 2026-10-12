@@ -7,7 +7,7 @@ import { BLOCKING_KINDS, type BlockingFinding, type BlockingKind, type HumanNote
 /**
  * 合体版のレビュー（公式の code-review に、このハーネスの観点⑥〜⑧を足したもの）の組み立てと記録。
  * 担当の出力・採点・`npm run check` の結果から reviewer と同じ形の JSON を作り、記録のコメント（```agent-review-panel）を書き出し・読み取る。
- * 純粋関数だけを置く（API・git・npm の呼び出しは harness/scripts/review-panel.ts）。流れと決まりは docs/review-panel.md。
+ * 純粋関数だけを置く（API・git・npm の呼び出しは harness/scripts/review-panel.ts）。流れと決まりは harness/docs/review-panel.md。
  */
 
 export const PANEL_MODES = ['off', 'shadow', 'enforce'] as const;
@@ -29,7 +29,7 @@ export const OVERBUILD_MAX_FINDINGS = 5;
 /** ⑨の出力が無かったときに humanNotes.concerns に残す文（「⑨が動いて指摘0件」と見分けるため） */
 export const OVERBUILD_MISSING_NOTE = '⑨（過剰さ）の担当の出力がありません（記録なし）';
 
-/** 確信度がこれ以上の指摘だけを扱う（公式の段階6は 80。採点の刻み 0/25/50/75/100 の 75 をブロッキングにするため 75。docs/review-panel.md） */
+/** 確信度がこれ以上の指摘だけを扱う（公式の段階6は 80。採点の刻み 0/25/50/75/100 の 75 をブロッキングにするため 75。harness/docs/review-panel.md） */
 export const SCORE_THRESHOLD = 75;
 
 const AC_SCOPE_KINDS = ['ac-unmet', 'out-of-scope'] as const satisfies readonly BlockingKind[];

@@ -1,6 +1,6 @@
 /**
  * 委任承認：人がダッシュボードのラベルで、計画ゲートの承認（agent:delegate-plan）か、計画ゲートの承認と Merge の判断（agent:delegate-merge）を
- * App に委ねる（docs/risk-policy.md）。期限は無く、ラベルが付いている間ずっと有効。
+ * App に委ねる（harness/docs/risk-policy.md）。期限は無く、ラベルが付いている間ずっと有効。
  * ダッシュボードのラベルから委任が有効かを決め、計画ゲートを委任で通すか、受け付けた判定が委任なら自動経路に乗せてよいかをまとめる。GitHub を呼ばない。
  */
 import { appLogin, delegateConfig, type HarnessConfig } from './config.ts';

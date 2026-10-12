@@ -8,7 +8,7 @@ import { appComment, disableAutoMerge, getPr, type GateContext } from './context
 import { delegatedRoute, delegationFor } from './delegation.ts';
 
 /**
- * bypass モードの始まりと終わりの動作（ダッシュボードのラベルの付け外しと停止スイッチ）。docs/risk-policy.md の「bypass モード」。
+ * bypass モードの始まりと終わりの動作（ダッシュボードのラベルの付け外しと停止スイッチ）。harness/docs/risk-policy.md の「bypass モード」。
  * 付けたら条件を満たす PR に auto-merge を付け、終わったら bypass で付けた auto-merge を外して Human Merge に戻す。
  * apply.ts を import する側（bypass.ts は判断だけ）。
  */

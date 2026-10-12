@@ -62,8 +62,8 @@ test('.claude/skills/README.md の表に qa-retro/ の行がある', () => {
   assert.ok(lines.some((l) => l.startsWith('| `qa-retro/` |')), '.claude/skills/README.md に `qa-retro/` の行がありません');
 });
 
-test('docs/risk-policy.md に見直しの手順の節があり、その中で qa-retro を案内している', () => {
-  const body = section(readText('docs/risk-policy.md'), '## 見直しの手順');
-  assert.ok(body !== '', 'docs/risk-policy.md に「## 見直しの手順」がありません');
+test('harness/docs/risk-policy.md に見直しの手順の節があり、その中で qa-retro を案内している', () => {
+  const body = section(readText('harness/docs/risk-policy.md'), '## 見直しの手順');
+  assert.ok(body !== '', 'harness/docs/risk-policy.md に「## 見直しの手順」がありません');
   assert.ok(body.includes('qa-retro'), '「## 見直しの手順」の節に qa-retro がありません');
 });

@@ -315,8 +315,8 @@ test('skill：ループの回では AskUserQuestion を呼ばず、gh issue crea
   assert.ok(lines.some((l) => l.includes('gh issue create') && l.includes('しない')), '「gh issue create」と「しない」を同じ行に含む行がありません');
 });
 
-test('skill：/loop で回すときの節から docs/operations.md へリンクしている', () => {
-  assert.match(loopSection(), /\]\([^)]*docs\/operations\.md[^)]*\)/, 'docs/operations.md へのリンクがありません');
+test('skill：/loop で回すときの節から harness/docs/operations.md へリンクしている', () => {
+  assert.match(loopSection(), /\]\([^)]*docs\/operations\.md[^)]*\)/, 'harness/docs/operations.md へのリンクがありません');
 });
 
 test('skill：やってはいけないことに、無人の定期 Routine を動かさない規則が残り、/loop と patrol の --routine の例外を許す文がある', () => {

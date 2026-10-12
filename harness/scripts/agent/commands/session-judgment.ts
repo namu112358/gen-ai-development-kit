@@ -8,7 +8,7 @@ import { isTrustedComment, latestPlanGate, type PlanGateRecord } from '../../../
 import { type AgentCommand, config, currentSession, fail, readJson } from '../cli.ts';
 
 /**
- * セッションの判定（Issue #340）：付き添いのセッションが、人に聞かずに決めたことを Issue か PR のコメントに残す。書式は docs/formats.md。
+ * セッションの判定（Issue #340）：付き添いのセッションが、人に聞かずに決めたことを Issue か PR のコメントに残す。書式は harness/docs/formats.md。
  *
  *   node harness/scripts/agent.ts plan-review-check <issue>   読むだけ。agent:plan-review を聞かずに「進める」と決めてよいかを JSON で出す
  *                                                           （riskOnly：止めた理由が想定 Risk だけで files がガードレール・delegateMergeExclude・harness.config.json に触れない、など。

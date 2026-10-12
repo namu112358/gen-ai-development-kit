@@ -14,7 +14,7 @@ Claude が人と一緒に作業するセッション。着手は `node harness/s
 
 ### Routine
 
-毎時起動される Claude のクラウド実行（将来の構想）。App がダッシュボードに公開する queue に従い、Issue や PR を1段階ずつ進める。GitHub の操作は MCP ツールで行う。詳細：[setup.md](setup.md#6-routine)
+毎時起動される Claude のクラウド実行（将来の構想）。App がダッシュボードに公開する queue に従い、Issue や PR を1段階ずつ進める。GitHub の操作は MCP ツールで行う。詳細：[setup.md](../../docs/setup.md#6-routine)
 
 ### queue
 
@@ -44,7 +44,7 @@ Routine が Issue に投稿する実装方針。末尾の ```` ```agent-plan ```
 
 ### 計画ゲート
 
-計画コメントの構造化出力を App が機械的に検査する段階。人の判断が必要、AC 変更の提案、未解決の質問、high 以上、ファイル一覧の欠落のどれかに当たれば `agent:plan-review` で止まり、当たらなければ `agent:plan-ok` が付く。詳細：[plan.md](plan.md#開発フロー)
+計画コメントの構造化出力を App が機械的に検査する段階。人の判断が必要、AC 変更の提案、未解決の質問、high 以上、ファイル一覧の欠落のどれかに当たれば `agent:plan-review` で止まり、当たらなければ `agent:plan-ok` が付く。詳細：[plan.md](../../docs/plan.md#開発フロー)
 
 ### `agent:plan-ok` / `agent:plan-review`
 
@@ -62,7 +62,7 @@ Routine が Issue に投稿する実装方針。末尾の ```` ```agent-plan ```
 
 ### Draft
 
-Agent が作業中であることを表す PR の状態。判定が確定した時点で App が Ready にする。詳細：[plan.md](plan.md#運用)
+Agent が作業中であることを表す PR の状態。判定が確定した時点で App が Ready にする。詳細：[plan.md](../../docs/plan.md#運用)
 
 ## 判定
 
@@ -72,7 +72,7 @@ Reviewer と Risk Agent の結果をまとめて、head SHA 付きで PR に投�
 
 ### Reviewer
 
-PR が AC を満たし、範囲を守り、既存の挙動を壊していないかを確かめるサブエージェント。ブロッキング指摘があれば Merge させない。詳細：[plan.md](plan.md#risk-ポリシーと自動-merge-条件)
+PR が AC を満たし、範囲を守り、既存の挙動を壊していないかを確かめるサブエージェント。ブロッキング指摘があれば Merge させない。詳細：[plan.md](../../docs/plan.md#risk-ポリシーと自動-merge-条件)
 
 ### Risk Agent
 
@@ -122,7 +122,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねた GitH
 
 ### 修正ループ
 
-Reviewer のブロッキング指摘を受けて Routine が直すこと。通常2回まで、3回目は critical な指摘があるときだけで、超えると `agent:blocked` になる。詳細：[plan.md](plan.md#運用)
+Reviewer のブロッキング指摘を受けて Routine が直すこと。通常2回まで、3回目は critical な指摘があるときだけで、超えると `agent:blocked` になる。詳細：[plan.md](../../docs/plan.md#運用)
 
 ## 停止
 
@@ -154,4 +154,4 @@ App が作る「Agent ダッシュボード」Issue。人の対応待ち、コ�
 
 ### Jev
 
-TypeSafe AI の判定モデル。いまは Claude の判定と並べて記録するだけ（シャドー判定）で、結果を見て外れがないと確かめてから Risk 判定を任せる。詳細：[plan.md](plan.md#jev-への段階移行)
+TypeSafe AI の判定モデル。いまは Claude の判定と並べて記録するだけ（シャドー判定）で、結果を見て外れがないと確かめてから Risk 判定を任せる。詳細：[plan.md](../../docs/plan.md#jev-への段階移行)

@@ -6,6 +6,7 @@
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
 | `CLAUDE.harness.md` | 付き添いのセッションと Routine が守る、ハーネスの進め方・立場・やってはいけないこと。 | ○ |
+| `docs/` | ハーネスの規則の文書。 | 一部 |
 | `gates/` | 専用 GitHub App として動く「ゲート」。 | ○ |
 | `lib/` | ゲート（`harness/gates/`）とコマンド（`harness/scripts/`）が共通で使うロジック。 | 一部 |
 | `managed.json` | 導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。settingsAllow は permissions.allow に足す行（導入先の行を残す和集合） |  |
@@ -14,4 +15,4 @@
 | `test/` | `node:test` のテスト。 |  |
 <!-- readme:generated end -->
 
-全体の流れは root の [overview.html](../overview.html) と [docs/operations.md](../docs/operations.md) を見る。
+全体の流れは root の [overview.html](../overview.html) と [harness/docs/operations.md](./docs/operations.md) を見る。

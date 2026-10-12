@@ -9,7 +9,7 @@
  *
  * `harness/lib/jev.ts` の `buildJevRequest`・`redact`、`harness/lib/issue-triage.ts` の `buildTriageRequest` を import するだけで、
  * 中身は変えない（どちらもガードレール harness/lib/** に入る）。集計・検査の純粋関数はネットワーク・GitHub を呼ばず単体テストの対象。
- * 素材の選び方・費用の見積もりの単価の出どころ・実行の手順は docs/security.md の「日本語の材料の実験」を参照。
+ * 素材の選び方・費用の見積もりの単価の出どころ・実行の手順は harness/docs/security.md の「日本語の材料の実験」を参照。
  *
  * CLI 部分は `import.meta.main` の中だけで動く（mutate.ts と同じ形。テストが import しても何も動かない）。
  */
@@ -297,7 +297,7 @@ export function translationProblems(items: ManifestItem[], cjkThreshold: number)
   return out;
 }
 
-/** 文字数からトークン数への換算（日本語・英語で分ける、目安）。単価の出どころは docs/security.md（https://docs.typesafe.ai/models。jev-1.13.0 は入力 $0.042 / 100万トークン、出力は無料） */
+/** 文字数からトークン数への換算（日本語・英語で分ける、目安）。単価の出どころは harness/docs/security.md（https://docs.typesafe.ai/models。jev-1.13.0 は入力 $0.042 / 100万トークン、出力は無料） */
 const CHARS_PER_TOKEN: Record<'ja' | 'en', number> = { ja: 1.5, en: 4 };
 const DEFAULT_PRICE_PER_INPUT_TOKEN = 0.042 / 1_000_000;
 
@@ -671,7 +671,7 @@ async function runCommand(manifestPath: string, resultsPath: string, confirm: bo
     const enCost = estimateCost({ lang: 'en', charCount: estimatedChars.en });
     console.log(`送る件数: ${planned.length}（--confirm と JEV_API_KEY が無いため送信しません。既に結果がある項目・言語・回は数えていません）`);
     console.log(`見積もりトークン数: 日本語 約${Math.round(jaCost.tokens)}、英語 約${Math.round(enCost.tokens)}`);
-    console.log(`見積もり費用（目安、単価の出どころは https://docs.typesafe.ai/models。docs/security.md 参照）: 約$${(jaCost.costUsd + enCost.costUsd).toFixed(2)}`);
+    console.log(`見積もり費用（目安、単価の出どころは https://docs.typesafe.ai/models。harness/docs/security.md 参照）: 約$${(jaCost.costUsd + enCost.costUsd).toFixed(2)}`);
     return;
   }
 

@@ -4,7 +4,7 @@ import { Checker } from './validate.ts';
 
 /**
  * 判定コメントの構造化出力（```agent-verdict）。Reviewer と Risk Agent の結果を1つにまとめる。
- * 書式は docs/formats.md、Risk の8問は docs/risk-policy.md を参照。
+ * 書式は harness/docs/formats.md、Risk の8問は harness/docs/risk-policy.md を参照。
  */
 
 export const NOUL = ['yes', 'no', 'unsure'] as const;

@@ -1,5 +1,5 @@
 // Issue #439：hq の書き込みの範囲（リポジトリの中で書くのは印のファイルだけ、リポジトリの外の控えは書く）が、
-// harness/CLAUDE.harness.md・hq の skill・docs/operations.md の hq の箇所に書かれ、「唯一の書き込み」の言い方が残っていないことを確かめる。
+// harness/CLAUDE.harness.md・hq の skill・harness/docs/operations.md の hq の箇所に書かれ、「唯一の書き込み」の言い方が残っていないことを確かめる。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -20,7 +20,7 @@ function part(path: string, prefix: string): string {
 const PLACES: { path: string; prefix: string }[] = [
   { path: 'harness/CLAUDE.harness.md', prefix: '- hq は' },
   { path: '.claude/skills/hq/SKILL.md', prefix: '2. ' },
-  { path: 'docs/operations.md', prefix: '- hq は Orca のプライマリ' },
+  { path: 'harness/docs/operations.md', prefix: '- hq は Orca のプライマリ' },
 ];
 
 test('hq の書き込みの範囲：リポジトリの中は印のファイルだけ、リポジトリの外の控えは書く（「唯一の書き込み」と言わない）', () => {

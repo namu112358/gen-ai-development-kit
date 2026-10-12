@@ -7,7 +7,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 
 付き添いのセッションの `/loop` か、クラウドの Routine から `--routine` で1つで呼ぶ、見直しのまとめ役。1回分で保守の観測（`harness/scripts/observe.ts`）を回し、観測の差と前回からの経過で今回まわす見直しを決め、選んだものだけを各 skill のループの回の形で動かして、回の要約を出す。patrol は中身の skill（[arch-review](../arch-review/SKILL.md)・[qa-retro](../qa-retro/SKILL.md)・[test-prune](../test-prune/SKILL.md)）を呼ぶだけで、各 skill の手順・記録・状態は書き直さない。Issue の段階ではないので着手宣言は要らない。
 
-`/loop` で回すときの共通の規則（回すのは付き添いのセッションの `/loop` か、クラウドの Routine の patrol（`--routine`）、1回分で完結させ人の答えを待たない、ループの回は Issue を作らずラベルも付けない、止め方、結果を判定の材料にしない）は [docs/operations.md の「見直しを /loop で回す」](../../../docs/operations.md#見直しを-loop-で回す) に従う。ここには patrol に固有のことだけを書く。
+`/loop` で回すときの共通の規則（回すのは付き添いのセッションの `/loop` か、クラウドの Routine の patrol（`--routine`）、1回分で完結させ人の答えを待たない、ループの回は Issue を作らずラベルも付けない、止め方、結果を判定の材料にしない）は [harness/docs/operations.md の「見直しを /loop で回す」](../../../harness/docs/operations.md#見直しを-loop-で回す) に従う。ここには patrol に固有のことだけを書く。
 
 ## 入力
 
@@ -41,7 +41,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 - (1) `{ "version": 1, "candidates": [] }` を scratchpad に書き、`node harness/scripts/agent.ts patrol-supply check <そのファイル>` を流す。`active` が偽か `remaining` が 0 なら、この手順を終えて理由を要約に書く。
 - (2) 各見直しの未採用の下書き（`node harness/scripts/agent.ts arch-review-pending`・`node harness/scripts/qa-retro-loop.ts pending`・`node harness/scripts/test-prune-loop.ts pending`）を候補にする。
    - `ref` は見直しと下書きの位置から作る（`arch-<記録のコメントID>-<下書きの番号>`・`qa-<回の番号>-<下書きの番号>`・`prune-<回の番号>-<下書きの番号>`）。
-   - `risk` はセッションが下書きを [docs/risk-policy.md](../../../docs/risk-policy.md) の目安で見積もる（決められなければ `null`）。
+   - `risk` はセッションが下書きを [harness/docs/risk-policy.md](../../../harness/docs/risk-policy.md) の目安で見積もる（決められなければ `null`）。
    - `files` は下書きの本文の Background の「触るファイルの見込み」の行（無ければ本文に書かれたファイルのパス）から取る（取れなければ空。`files-unknown` で人の側に残る）。
    - arch-review の下書きで `duplicateOf` があるものは、`overlap` を `comment` にする（人の側に残る）。
    - `overlap` は `null` で1度 `check` を流し、`manual` の理由が `overlap` の下書き（ほかの条件は満たすもの）だけを、[issue-creator](../issue-creator/SKILL.md) の下書きの役目（`from=patrol`、`ref` は上の ref）で重複を判定する。その結果の `kind` を `overlap`、下書きのパスを `draftPath` にして、もう一度 `check` を流す。
@@ -51,7 +51,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 - (6) 回の要約に、作った Issue・`agent:ready` を付けたか・人の側に残した下書きと理由（`manual` の `reason`・`detail`）を足す。
 
 6. 回の要約を文章で出す（PR・Issue には投稿しない）。
-   - 先頭に `alerts`（超えた項目・前回から増えた項目）を出す。`alerts` が空で `alertsNote` があればその旨を出す。知らせるだけで、見直しの skill は動かさない。直すのは各 Issue で行う（項目の一覧と個別の直しの Issue は [docs/operations.md の「patrol が知らせる観測の項目」](../../../docs/operations.md)）
+   - 先頭に `alerts`（超えた項目・前回から増えた項目）を出す。`alerts` が空で `alertsNote` があればその旨を出す。知らせるだけで、見直しの skill は動かさない。直すのは各 Issue で行う（項目の一覧と個別の直しの Issue は [harness/docs/operations.md の「patrol が知らせる観測の項目」](../../../harness/docs/operations.md)）
    - 観測の差：節ごとの増えた・消えた件数。差が読めない節はその旨
    - 動かした見直しと、回さなかった見直し（`skipped` と `reasons` の理由）
    - 勧める見直し：`suggest` にあれば、その見直しと理由（人がその skill を呼ぶ）

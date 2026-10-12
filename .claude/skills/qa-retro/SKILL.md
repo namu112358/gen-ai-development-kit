@@ -26,7 +26,7 @@ Merge 済みの PR を、人が呼んだときか、付き添いのセッショ�
 
 1. `followups` の組ごとに、元の PR と fix の PR の diff と判定コメントを読む（`gh pr view <番号> --comments`・`gh pr diff <番号>`）。
 2. (a) 後追いの修正が元の PR の見落としか（元の PR の変更が原因か、別の要因〔仕様の変更・外部の変化・元の PR の前からあった不具合〕か）を決める。
-3. (b) 見落としなら、どこで拾えたはずかを決める：Risk ポリシーの8問（[docs/risk-policy.md](../../../docs/risk-policy.md)）のどの問い、reviewer の観点、test-designer のテストのどこ（足りなかったテストの形）。
+3. (b) 見落としなら、どこで拾えたはずかを決める：Risk ポリシーの8問（[harness/docs/risk-policy.md](../../../harness/docs/risk-policy.md)）のどの問い、reviewer の観点、test-designer のテストのどこ（足りなかったテストの形）。
 4. `flakyCi` はテスト名ごとにまとめ、同じテストが繰り返し落ちているかを見る。`testNames` が null のものは「テスト名は読めない」として数だけ書く。
 5. 決めきれないものは「不明」とし、推測で見落としにしない。
 
@@ -39,13 +39,13 @@ Merge 済みの PR を、人が呼んだときか、付き添いのセッショ�
    - `notes` の読めなかったもの・打ち切り
    - セッションが決めたことの抜き取り（週1回）：`node harness/scripts/agent.ts session-judgment-digest --weekly` を実行する（読むだけ）。出力の `due` が真なら、`lines`（基準ごとの件数と抜き取り）を「人がすること：セッションが決めたことの抜き取り（週1回）」として報告に出す。`unreadable`・`notes` があれば添える。`due` が偽なら出さない（`nextAt` まで待つ）。人が期間を言ったときは `--weekly` を付けずに `--days <n>` か `--since`・`--until` を渡して出す（状態は変わらない）
 2. 直す Issue の下書きを作る（risk ポリシーの問いの見直し、テストの追加、不安定なテストの修正）。見出しは Issue Form（[.github/ISSUE_TEMPLATE/agent-task.yml](../../../.github/ISSUE_TEMPLATE/agent-task.yml)）に、タイトルは `harness/lib/title.ts` の書式（Conventional Commits）に合わせる。
-   また起きそうなもの（同じ型の見落とし・同じ止まり方）は「また起きそうなので patrol の観測に足す」下書きにしてよい。下書きには足す項目・見分け方・しきい値の案を書く。観測に足す PR では [docs/operations.md の「patrol が知らせる観測の項目」](../../../docs/operations.md)の表に1行足す。
+   また起きそうなもの（同じ型の見落とし・同じ止まり方）は「また起きそうなので patrol の観測に足す」下書きにしてよい。下書きには足す項目・見分け方・しきい値の案を書く。観測に足す PR では [harness/docs/operations.md の「patrol が知らせる観測の項目」](../../../harness/docs/operations.md)の表に1行足す。
 3. どの下書きを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作る。ラベルは付けない。
 4. 作った Issue を plan に進めるかを AskUserQuestion で聞く（おすすめは「作るだけ」）。進めると選ばれたら ship の skill（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）の手順に従う。
 
 ## /loop で回すとき
 
-skill によらない共通の規則（`/loop` の始め方・止め方、回の中で人に聞かないこと）は [docs/operations.md の「見直しを /loop で回す」](../../../docs/operations.md#見直しを-loop-で回す) を参照する。ここには qa-retro に固有のことだけを書く。
+skill によらない共通の規則（`/loop` の始め方・止め方、回の中で人に聞かないこと）は [harness/docs/operations.md の「見直しを /loop で回す」](../../../harness/docs/operations.md#見直しを-loop-で回す) を参照する。ここには qa-retro に固有のことだけを書く。
 
 - 間隔の目安：1日〜1週間おき（例 `/loop 1d /qa-retro --loop`）。期間の終わりは今の7日前なので、間隔を短くしても1回分の期間が細かくなるだけで、抜けも重なりも出ない。
 - 1回分の期間：前回の回の終わりから、今の7日前まで（後追いの修正は Merge 後 7 日以内の fix の PR で数えるので、窓が閉じた PR だけを見る）。初回（状態のファイルが無い）は、終わりの14日前から。前回の回の終わりは手元の状態のファイル（既定は `git rev-parse --path-format=absolute --git-common-dir` の下の `agent-harness/qa-retro-loop.json`。作業ツリーにも GitHub にも書かない）に持つ。

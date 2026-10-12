@@ -1,5 +1,5 @@
 // Issue #164：着手宣言の段階（--stage）・引き継ぎ（--takeover）・宣言の確かめ・セッション間の分担を、
-// ハーネスの規則（harness/CLAUDE.harness.md）と docs/operations.md・docs/glossary.md に書いたかを検査する。
+// ハーネスの規則（harness/CLAUDE.harness.md）と harness/docs/operations.md・harness/docs/glossary.md に書いたかを検査する。
 // あわせて、priority:*・area:* を Jev に任せ、ラベルの不足を人に聞かない規則（Issue #209）と、.claude/hooks/README.md の表の説明が括弧の途中で切れていないことを確かめる
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -38,7 +38,7 @@ function stageNames(text: string): string[] {
 }
 
 const rules = (): string => section(read('harness/CLAUDE.harness.md'), '## 進め方');
-const operations = (): string => read('docs/operations.md');
+const operations = (): string => read('harness/docs/operations.md');
 
 // ---- AC1：規則に着手宣言の時点・--stage・--takeover・release ----
 
@@ -119,7 +119,7 @@ test('規則（進め方）：priority:*・area:* は Jev に任せ、ラベル�
   assert.doesNotMatch(rules(), /人に伝える/, '規則に古い「人に伝える」が残っている');
 });
 
-// ---- AC3：docs/operations.md に --stage・--takeover・宣言の確かめ ----
+// ---- AC3：harness/docs/operations.md に --stage・--takeover・宣言の確かめ ----
 
 test('operations.md「付き添いのセッションで進める」：--stage・--takeover・宣言の確かめ・セッション間の分担が書かれている', () => {
   const text = section(operations(), '## 付き添いのセッションで進める');
@@ -160,7 +160,7 @@ test('operations.md「同時に開ける PR の数」：claim はほかのセッ
 // ---- 用語集 ----
 
 test('glossary.md「付き添いのセッション」：着手は claim <番号> --manual --stage <段階>', () => {
-  const text = section(read('docs/glossary.md'), '### 付き添いのセッション');
+  const text = section(read('harness/docs/glossary.md'), '### 付き添いのセッション');
   assert.match(text, /claim <番号> --manual --stage <段階>/);
 });
 

@@ -20,7 +20,7 @@ description: 気づき・観測を Issue Form の形の下書きにし、既存�
 
 GitHub に書かない（読むだけ）。
 
-1. 観測を Issue Form の形の下書きにして、渡されたパスに書く。書き方は [docs/operations.md](../../../docs/operations.md) の「Issue の書き方」に従う。
+1. 観測を Issue Form の形の下書きにして、渡されたパスに書く。書き方は [harness/docs/operations.md](../../../harness/docs/operations.md) の「Issue の書き方」に従う。
    - 見出しは Goal・Background・Requirements・Non-goals・Acceptance Criteria（と必要なら Dependencies・Validation Requirements）。Goal は人の言葉で1〜2文、Requirements は5つまで、AC は3つまで（`- [ ]` で1項目1条件）。1つの変更に絞る。ファイル名・行は Background の後ろに置く。AC に skill や docs の文のテストを入れない。
    - 題は Conventional Commits（`type(scope): 説明`）。
    - 本文の最後（最後の見出しの中身の後ろ）に、出どころの目印を1行置く：`<!-- agent-harness:issue-source from=<from> ref=<ref> -->`。

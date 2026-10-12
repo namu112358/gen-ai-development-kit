@@ -23,7 +23,7 @@ const OFF = { active: false, reason: 'agent:auto-mode が無い' };
 
 /** 自動にできる候補（docs の low・new、ガードレールの外のファイル）。over で項目を変える */
 const cand = (ref: string, over: Partial<AutoSupplyCandidate> = {}): AutoSupplyCandidate => ({
-  ref, title: 'docs(harness): 手順を直す', risk: 'low', files: ['docs/operations.md'], overlap: 'new', draftPath: null, ...over,
+  ref, title: 'docs(harness): 手順を直す', risk: 'low', files: ['harness/docs/operations.md'], overlap: 'new', draftPath: null, ...over,
 });
 
 const select = (candidates: AutoSupplyCandidate[], over: { autoMode?: typeof ON; dailyLimit?: number; createdLast24h?: number } = {}) =>
@@ -32,7 +32,7 @@ const select = (candidates: AutoSupplyCandidate[], over: { autoMode?: typeof ON;
 // --- parseAutoSupplyCandidates ---
 
 test('parseAutoSupplyCandidates：正しい形と空の候補を読める', () => {
-  const one = { ref: 'arch-review-D3', title: 'docs(harness): 手順を直す', risk: 'low', files: ['docs/operations.md'], overlap: 'new', draftPath: '/tmp/draft-D3.md' };
+  const one = { ref: 'arch-review-D3', title: 'docs(harness): 手順を直す', risk: 'low', files: ['harness/docs/operations.md'], overlap: 'new', draftPath: '/tmp/draft-D3.md' };
   const r = parseAutoSupplyCandidates(JSON.stringify({ version: 1, candidates: [one, { ...one, ref: 'qa-retro_1.x', risk: null, files: [], overlap: null, draftPath: null }] }));
   assert.ok(r.ok, JSON.stringify(r));
   assert.deepEqual(r.candidates[0], one);
@@ -70,7 +70,7 @@ test('selectAutoSupply：種類・Risk・触るファイル・ガードレール
     [cand('risk-medium', { risk: 'medium' }), 'risk'],
     [cand('risk-null', { risk: null }), 'risk'],
     [cand('files-empty', { files: [] }), 'files-unknown'],
-    [cand('guard-config', { files: ['docs/operations.md', 'harness.config.json'] }), 'guardrail'],
+    [cand('guard-config', { files: ['harness/docs/operations.md', 'harness.config.json'] }), 'guardrail'],
     [cand('guard-lib', { files: ['harness/lib/x.ts'] }), 'guardrail'],
     [cand('overlap-comment', { overlap: 'comment' }), 'overlap'],
     [cand('overlap-null', { overlap: null }), 'overlap'],
