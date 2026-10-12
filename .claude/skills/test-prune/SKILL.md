@@ -15,7 +15,7 @@ description: 人が付き添うセッションで、減らせるテスト（ほ�
 
 ## 集計
 
-1. `node harness/scripts/test-prune.ts [--only <glob>] [--health <observe の JSON>]` を実行する（テストファイルを1本ずつカバレッジ付きで動かすので数分かかる。GitHub にもリポジトリにも書かない）。最後の行が JSON のファイルのパス。
+1. `node harness/scripts/test-prune.ts [--only <glob>] [--health <observe の JSON>]` を実行する（テストファイルを1本ずつカバレッジ付きで動かすのでテストファイルの本数に応じて時間がかかる。GitHub にもリポジトリにも書かない）。最後の行が JSON のファイルのパス。
 2. そのファイルを読む。数はここから取り、セッションが数え直さない。
    - `files`：テストファイルごとの `tests`（定義の数）・`durationMs`・`exitCode`・`coveredLines`（本体の実行された行）・`uniqueLines`（ほかのどのテストファイルも実行しない行）・`bestOverlap`（行が最も多く含まれる相手と割合）・`pinned`（読むコード以外のファイルと文言を確かめる行の数）・`spawnsChild`・`health`
    - `candidates`：`contained`（`uniqueLines` が 0 で、ほかの1ファイルに行の大半が含まれる）・`pinned`（本体の行を実行せず、ファイルの文言を確かめる）・`no-coverage`（本体の行を実行せず、`pinned` でもない）と、その根拠（`reasons`）
@@ -44,7 +44,7 @@ description: 人が付き添うセッションで、減らせるテスト（ほ�
 
 skill によらない共通の規則（`/loop` の始め方・止め方、回の中で人に聞かないこと）は [harness/docs/operations.md の「見直しを /loop で回す」](../../../harness/docs/operations.md#見直しを-loop-で回す) を参照する。ここには test-prune に固有のことだけを書く。
 
-- 間隔の目安：1日〜2週間おき（例 `/loop 7d /test-prune --loop`）。1回に1分ほどかかる（テストファイルを4本ずつ並行）。[patrol](../patrol/SKILL.md) から回すときは、patrol の決め方（下限 1 日・上限 14 日）が回す時期を決める。
+- 間隔の目安：1日〜2週間おき（例 `/loop 7d /test-prune --loop`）。所要時間はテストファイルの本数による（既定で4本ずつ並行。`--concurrency`）。[patrol](../patrol/SKILL.md) から回すときは、patrol の決め方（下限 1 日・上限 14 日）が回す時期を決める。
 - test-prune は毎回全部のテストを見るので、期間や前回の位置は持たない。回ごとの集計の時刻と下書きを手元の状態のファイル（既定は `git rev-parse --path-format=absolute --git-common-dir` の下の `agent-harness/test-prune-loop.json`。作業ツリーにも GitHub にも書かない）に持つ。
 - 1回分の処理（回の中で人の答えを待たない）：
   1. `node harness/scripts/test-prune.ts [--only <glob>] [--health <観測の JSON>]` を実行する。patrol から回すときは、patrol がその回に作った観測の JSON を `--health` に渡す。単独の `/test-prune --loop` では渡さず、無いことを報告に書く。最後の行の JSON を「## 集計」の手順2・3どおり読む。
