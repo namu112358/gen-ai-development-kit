@@ -14,8 +14,10 @@
  * bypass permissions で始まったことは知らせない（SessionStart の入力に permission_mode が渡る保証が無い。bypass は
  * .claude/settings.json の permissions.disableBypassPermissionsMode で拒む）。
  *
- * 読み込みの記録（Issue #199）：CLAUDE_PROJECT_DIR があるときだけ、そこで読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の
+ * 読み込みの記録（Issue #199）：CLAUDE_PROJECT_DIR があるときだけ、セッションが読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の
  * ディスクの中身の版と HEAD を、git の共通ディレクトリの下の agent-harness/loaded/<セッションの ID>.json に書く（harness/lib/harness-drift.ts）。
+ * 版と HEAD は入力の cwd の作業ツリーの一番上から読む（Issue #843。desktop アプリの worktree のセッションでは CLAUDE_PROJECT_DIR が本体の checkout を指す）。
+ * cwd が無い・git の外・共通ディレクトリが CLAUDE_PROJECT_DIR と違うときは CLAUDE_PROJECT_DIR から読む。記録の置き場所は CLAUDE_PROJECT_DIR の共通ディレクトリ。
  * 同じ ID の記録が既にあれば書かない（resume・compact で上書きしない。/clear は ID が変わるので新しい記録）。CLAUDE_PROJECT_DIR が無い・
  * ID が不正・git が失敗するときは書かない。どの場合もセッションの開始を止めない。agent.ts harness-drift・fleet-status・claim・step がこれを origin と比べる。
  *
@@ -33,7 +35,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { accessSync, appendFileSync, constants, readdirSync, rmSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 /** ID の形（harness/lib/session.ts）。lib が欠けていても exit 0 で終わるよう、try の中で読む */
 let idShape: RegExp | null = null;
@@ -155,24 +157,51 @@ export function orcaNotice(
   };
 }
 
+/** 共通ディレクトリを比べる形（区切りをそろえ、Windows では大文字小文字もそろえる） */
+function samePath(a: string, b: string): boolean {
+  const norm = (p: string): string => (process.platform === 'win32' ? resolve(p).toLowerCase() : resolve(p));
+  return norm(a) === norm(b);
+}
+
 /**
- * 読み込みの記録を書く（Issue #199）。書いたパスを返す。CLAUDE_PROJECT_DIR が無い・session_id が形に合わない・git が失敗する・
+ * 読み込みの記録の版と HEAD を読むディレクトリ（Issue #843）。cwd（SessionStart の入力）が空でない文字列で、その作業ツリーの一番上と
+ * 共通ディレクトリが取れ、共通ディレクトリが commonDir と同じならその一番上。ほかは projectDir。例外を投げない
+ */
+export function recordSource(cwd: unknown, projectDir: string, commonDir: string): string {
+  try {
+    if (typeof cwd !== 'string' || cwd === '') return projectDir;
+    const top = spawnSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8' });
+    if (top.status !== 0) return projectDir;
+    const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd, encoding: 'utf8' });
+    if (common.status !== 0) return projectDir;
+    const root = (top.stdout ?? '').trim();
+    if (root === '' || !samePath((common.stdout ?? '').trim(), commonDir)) return projectDir;
+    return root;
+  } catch {
+    return projectDir;
+  }
+}
+
+/**
+ * 読み込みの記録を書く（Issue #199）。書いたパスを返す。版と HEAD は recordSource の読み先から読む（Issue #843）。CLAUDE_PROJECT_DIR が無い・session_id が形に合わない・git が失敗する・
  * 同じ ID の記録が既にある・lib が読み込めないときは null。例外を投げない
  */
 export function recordLoaded(raw: string, env: Record<string, string | undefined>, now: Date = new Date()): string | null {
   try {
     const dir = env.CLAUDE_PROJECT_DIR;
     if (!dir) return null;
-    const input = JSON.parse(raw) as { session_id?: unknown; source?: unknown };
+    const input = JSON.parse(raw) as { session_id?: unknown; source?: unknown; cwd?: unknown };
     const session = typeof input.session_id === 'string' ? input.session_id : null;
     if (!drift) return null;
     const common = spawnSync('git', ['rev-parse', '--path-format=absolute', '--git-common-dir'], { cwd: dir, encoding: 'utf8' });
     if (common.status !== 0) return null;
-    const path = drift.loadedRecordPath((common.stdout ?? '').trim(), session);
+    const commonDir = (common.stdout ?? '').trim();
+    const path = drift.loadedRecordPath(commonDir, session);
     if (!path || !session) return null;
-    const files = drift.harnessVersionsOnDisk(dir);
+    const readFrom = recordSource(input.cwd, dir, commonDir);
+    const files = drift.harnessVersionsOnDisk(readFrom);
     if (files === null) return null;
-    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: dir, encoding: 'utf8' });
+    const head = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: readFrom, encoding: 'utf8' });
     const record = {
       version: 1 as const,
       session,
