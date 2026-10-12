@@ -115,7 +115,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 | ラベル | 付ける者 | 意味 |
 | --- | --- | --- |
 | `agent:ready` | 人 | 着手してよい |
-| `agent:plan-review` | App（計画ゲート）/ Planner（申告のとき） | 計画に人の判断が必要。付き添いのセッションで実装する。外せるのは人と、App（ゲートの停止で、出し直した計画が通ったとき。Planner の申告で、人の決定の記録を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき） |
+| `agent:plan-review` | App（計画ゲート）/ Planner（申告のとき） | 計画に人の判断が必要。付き添いのセッションで実装する。外せるのは人と、App（ゲートの停止で、出し直した計画が通ったとき。Planner の申告で、人の決定の記録を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき。Planner の申告で、条件を満たす `split` の計画を出し直したとき） |
 | `agent:plan-ok` | App のみ | 計画ゲート通過 |
 | `agent:waiting` | Routine / App | 依存待ち（blocker が閉じると App が外す） |
 | `agent:blocked` | Routine / App / 人 | 人の対応が必要。付けるときは理由コードを残す（下記） |
@@ -196,7 +196,7 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 
 1つの PR に収まらない課題は、Claude が計画に `split`（子課題の一覧。書式は [formats.md](formats.md#子課題に分けるsplit)）を書いて Epic にする。分け方は人が承認しない。
 
-1. 計画ゲートが `split` を検査する（タイトルの形式、各子課題の `files` の規則、兄弟どうしの `files` の重なり、依存の順序）。Risk と空の `files` では止めない。通らなければ `agent:plan-review`（理由コード `split-invalid`）。
+1. 計画ゲートが `split` を検査する（タイトルの形式、各子課題の `files` の規則、兄弟どうしの `files` の重なり、依存の順序）。Risk と空の `files` では止めない。通らなければ `agent:plan-review`（理由コード `split-invalid`）。前の計画の Planner の申告で付いた `agent:plan-review` は、条件を満たす `split` の計画なら App が外して分ける（[formats.md](formats.md#計画)）。
 2. 通ったら App が親に `epic` を付け（`agent:plan-ok` は付けない）、親の `type:*` のうち App が付けたもの（events API でそのラベルを最後に付けた actor が App）を外し（人が付けたものは外さず、定期実行の `label-mismatch` で知らせる）、子 Issue を Issue Form の見出しで作り、Sub-issues と依存（blocked by）を登録する。親の停止（`agent:hold`・`agent:blocked`・`agent:waiting`）と、親の開いた blocker（同じリポジトリのもの）は全部の子に引き継ぐ。その後で子に親の `agent:ready` と `priority:*` を付け、最後に `kind=epic-split` の記録を親に残す。
 3. 途中で失敗したら、App が親に `agent:blocked`（理由コード `split-failed`）を付け、実行を失敗にする。人が原因を直して `agent:blocked` を外し、失敗した実行をやり直すと続きから作る（本文の目印 `<!-- agent-harness:epic-child parent=N index=i -->` で子 Issue を見つけて使い回し、二重に作らない）。
 4. 既に子課題に分けた親（`epic-split` の記録か、App が作った目印付きの子がある）に別の計画が来て検査を通っても、分け直さずに `agent:plan-review`（理由コード `resplit`）で止める。既存の子課題をどうするかは人が決める。同じ計画コメントの再実行は分け直しとみなさない。
@@ -270,7 +270,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
 
 - `routine.gateReplyTimeoutMinutes`・`routine.stalledClaimMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。
-- 読むときの検査：`loadConfig` が上限の数値のキーを型と範囲で検査する（`harness/lib/config.ts` の `limitErrors`）。回数・件数・文字数は正の整数、時間は正の数、`minRemainingMinutes` は 0 以上。必須のキー（`routine` の3つ、`fixLoop` の2つ、`staleHours`、`jev.maxDiffChars`）が無いのも誤り。誤りがあれば、キーと今の値を示して止まる（上限が効かないまま動かない）。上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない。
+- 読むときの検査：`loadConfig` が上限の数値のキーを型と範囲で検査する（`harness/lib/config.ts` の `limitErrors`）。回数・件数・文字数は正の整数、時間は正の数、`minRemainingMinutes` は 0 以上。必須のキー（`routine` の3つ、`fixLoop` の2つ、`staleHours`、`jev.maxDiffChars`）が無いのも誤り。誤りがあれば、キーと今の値を示して止まる（上限が効かないまま動かない）。上限のほかに `project`（検証コマンド・取り込みのコマンド）の書式も検査する（#640）。Jev のしきい値・ガードレールの一覧などはここでは検査しない。
 - 誤りのある設定が main に入ると、ゲートと `agent.ts` のコマンドが全部止まる。guard の hook も設定を読めず、`git … push` を送り先に関わらず止めるので、セッションは直す PR を push できない。人が手元で `harness.config.json` を直す PR を出して Merge する。`npm run check` が実物の設定と雛形を検査する（`harness/test/config-limits.test.ts`）ので、PR の段階で落ちる。
 
 ## テストの改ざん検査

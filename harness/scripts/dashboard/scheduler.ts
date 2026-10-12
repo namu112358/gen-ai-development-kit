@@ -2,7 +2,7 @@
  * 見張りの回し方：決まった間隔で読み、上限の残りが下限を切ったらリセットまで止め、失敗の後は backoff + jitter で遅らせる。
  * SSE の接続が0の間は読まず、接続が戻ったらすぐ1回読む。時計・乱数・タイマー・接続の数は差し替えられる。
  */
-import { backoffDelayMs } from './backoff.ts';
+import { backoffDelayMs } from '../../lib/backoff.ts';
 import { RateLimitPaused } from './rate-limit.ts';
 
 export type PollStatus =

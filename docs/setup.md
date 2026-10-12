@@ -17,6 +17,8 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 
 導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。
 
+検証コマンドと依存の取り込みのコマンドは `harness.config.json` の `project`（`checkCommand`・`installCommand`）に書く（例：`"project": { "checkCommand": "pytest -q", "installCommand": "pip install -e ." }`）。書かなければ `npm run check`・`npm ci`、`null` なら行わない。worktree の作成と合体版のレビューの⑧の detached の worktree の中で、書いた文字列を shell でそのまま実行する（`loadConfig` が検査するのは書式（空でなく前後に空白が無い文字列か `null`）だけで、中身は見ない）。
+
 `harness.config.json` の `guardrailPaths` に、Agent が自分を縛る仕組み（ゲート、判定の基準、deny、依存など）のパスを範囲パターンで並べ、その中で普通に判定するものを `guardrailExclude` に並べる。触れる PR は自動 Merge せず、触れる計画は計画ゲートで止まる（[risk-policy.md](risk-policy.md#ガードレール)）。`harness.config.json` 自身は常にガードレール。`guardrailPaths` を書かないと、すべてのファイルがガードレールとして扱われ自動 Merge が起きない。
 
 `classification.issueTriage` が `label` なら、Jev が Issue の `priority:*` を問う。段階ごとの基準は `classification.priorityCriteria`（`highest`・`high`・`medium`・`low`・`lowest` → 英文）で導入先の仕事に合わせて書き換えられる（雛形には既定の英文が入っている。書かない段階は既定のまま。[operations.md](operations.md#足りないラベルを付ける)）。
@@ -188,3 +190,5 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 **Orca が無いとき（退行手段）**：今の手順（ship、1セッションで段階を交互に進める fleet（`fleet.nesting` の `flat`。入れ子にできなければ fleet が自分で戻る）、`node harness/scripts/agent.ts worktree`）で進める。SessionStart の hook（`.claude/hooks/session-env.ts`）は、startup のときに Orca の CLI が無ければ、この節を案内する一言を出すだけで、セッションを止めない（CLI は実行しない。Routine では知らせない）。探し方は環境で変わる：Windows ネイティブでは `;` 区切りの PATH の `orca`（PATHEXT の拡張子付き。`orca.exe` など）、WSL（`WSL_DISTRO_NAME` か `WSL_INTEROP` がある Linux）と Linux では `ORCA_CLI_COMMAND` か `:` 区切りの PATH の `orca-ide`（素の `orca` は探さない）。どの環境でも `ORCA_CLI_COMMAND` があれば知らせない。一言には判定した環境（Windows・WSL・Linux）と探した CLI の名前が入る。bypass permissions で始まったことは hook では知らせない（SessionStart の入力に `permission_mode` が渡る保証が無く、bypass は上の `disableBypassPermissionsMode` で拒むため）。
 
 **取り込んだ版と更新**：入口は Orca 1.4.215（タグ `v1.4.215`、コミット `083f583a53e4c74a65acf420eee4ca2e0efa9df1`）の `skills/orca-cli/SKILL.md`・`skills/orchestration/SKILL.md` の写し。出どころと更新の手順は [docs/upstream/README.md](upstream/README.md#stablyaiorca)。
+
+**ステータスライン**：Orca につないだアカウントの使用量をステータスラインに出すなら、[statusline.md](statusline.md) のプロンプトを新しいセッションに貼る。

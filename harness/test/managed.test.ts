@@ -102,7 +102,7 @@ const RULE_LINES = [
   '| skill | 役割 |',
   '| --- | --- |',
   '| [ship](../.claude/skills/ship/SKILL.md) | Issue 番号から、plan → implement → judge → fix（必要なら sync）を一続きに進める |',
-  '| [fleet](../.claude/skills/fleet/SKILL.md) | 複数の Issue を選び、ship の段階を Issue ごとに交互に進めて、人がすることを1つの一覧にする |',
+  '| [fleet](../.claude/skills/fleet/SKILL.md) | 複数の Issue を選び、ship を Issue ごとにサブエージェントで並行に動かして（入れ子にできなければ ship の段階を交互に進めて）、人がすることを1つの一覧にする |',
   '| [plan](../.claude/skills/plan/SKILL.md) | 計画を書き、plan-critic に批評させて投稿する |',
   '| [implement](../.claude/skills/implement/SKILL.md) | 計画ゲートを通った計画を実装し、Draft PR を出す |',
   '| [judge](../.claude/skills/judge/SKILL.md) | Reviewer と Risk Agent に判定させ、判定コメントを投稿する |',

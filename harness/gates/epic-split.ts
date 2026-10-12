@@ -81,13 +81,15 @@ export async function splitEpic(
   plan: Plan & { split: SplitChild[] },
   record: PlanGateRecord,
   state: EpicState,
+  /** 通過のコメントの末尾に付ける一文 */
+  note = '',
 ): Promise<void> {
   const parent = issue.number;
   await ctx.gh.removeLabel(parent, LABELS.planOk);
   await ctx.gh.addLabels(parent, [LABELS.epic]);
   try {
     await removeAppTypeLabels(ctx, parent, issue.labels);
-    await createChildren(ctx, issue, comment, plan, record, state);
+    await createChildren(ctx, issue, comment, plan, record, state, note);
   } catch (e) {
     try {
       await ctx.gh.addLabels(parent, [LABELS.blocked]);
@@ -126,11 +128,12 @@ async function createChildren(
   plan: Plan & { split: SplitChild[] },
   record: PlanGateRecord,
   state: EpicState,
+  note: string,
 ): Promise<void> {
   const parent = issue.number;
   const split = plan.split;
   if (!state.gateRecorded) {
-    await appComment(ctx, parent, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。Epic として ${split.length} 件の子課題に分けます（この Issue は実装しません）。`, record);
+    await appComment(ctx, parent, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。Epic として ${split.length} 件の子課題に分けます（この Issue は実装しません）。${note}`, record);
   }
 
   const registered = new Set(state.subIssues.map((s) => s.number));

@@ -31,21 +31,21 @@ function fakeNpmCi(result: { status: number | null; error?: Error } = { status: 
 test('ensureNodeModules：lockfile があり node_modules が無ければ npm ci をそのパスで1回呼び、installed', (t) => {
   const dir = tempDir(t, { lockfile: true });
   const npm = fakeNpmCi();
-  assert.equal(ensureNodeModules(dir, npm.run), 'installed');
+  assert.equal(ensureNodeModules(dir, 'npm ci', npm.run), 'installed');
   assert.deepEqual(npm.calls, [dir]);
 });
 
 test('ensureNodeModules：node_modules があれば npm ci を呼ばず present', (t) => {
   const dir = tempDir(t, { lockfile: true, nodeModules: true });
   const npm = fakeNpmCi();
-  assert.equal(ensureNodeModules(dir, npm.run), 'present');
+  assert.equal(ensureNodeModules(dir, 'npm ci', npm.run), 'present');
   assert.deepEqual(npm.calls, []);
 });
 
 test('ensureNodeModules：package-lock.json が無ければ npm ci を呼ばず skipped', (t) => {
   const dir = tempDir(t, {});
   const npm = fakeNpmCi();
-  assert.equal(ensureNodeModules(dir, npm.run), 'skipped');
+  assert.equal(ensureNodeModules(dir, 'npm ci', npm.run), 'skipped');
   assert.deepEqual(npm.calls, []);
 });
 
@@ -53,7 +53,7 @@ test('ensureNodeModules：npm ci が 0 以外で終われば、パス付きの�
   const dir = tempDir(t, { lockfile: true });
   const npm = fakeNpmCi({ status: 1 });
   assert.throws(
-    () => ensureNodeModules(dir, npm.run),
+    () => ensureNodeModules(dir, 'npm ci', npm.run),
     (e: Error) => e.message.includes('npm ci が失敗しました') && e.message.includes(dir),
   );
   assert.equal(npm.calls.length, 1);
@@ -63,7 +63,7 @@ test('ensureNodeModules：npm ci を起動できなければ、元の理由を�
   const dir = tempDir(t, { lockfile: true });
   const npm = fakeNpmCi({ status: null, error: new Error('spawnSync npm ENOENT') });
   assert.throws(
-    () => ensureNodeModules(dir, npm.run),
+    () => ensureNodeModules(dir, 'npm ci', npm.run),
     (e: Error) => e.message.includes('npm ci を起動できませんでした') && e.message.includes(dir) && e.message.includes('spawnSync npm ENOENT'),
   );
 });

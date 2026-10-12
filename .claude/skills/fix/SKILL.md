@@ -1,6 +1,6 @@
 ---
 name: fix
-description: 人が付き添うセッションで、Agent PR のブロッキング指摘（App の変更要求レビュー）や人のレビューを直して push し、判定をやり直す。「PR #番号 の指摘を直して」と頼まれたとき、判定の後の段階で使う。
+description: "人が付き添うセッションで、Agent PR のブロッキング指摘（App の変更要求レビュー）や人のレビューを直して push し、判定をやり直す。「PR #番号 の指摘を直して」と頼まれたとき、判定の後の段階で使う。"
 ---
 
 # fix（修正）
@@ -19,7 +19,7 @@ Routine の fix（[.claude/routine.md](../../routine.md)）を、付き添いの
 2. `node harness/scripts/agent.ts worktree <PR のブランチ>` で worktree を作り（出力がパス）、そこで作業する。
 3. 指摘を直す。計画の `files` の範囲で直す。
 4. テストの assert の行を書き換える・消す必要があるときは、書き方を変えて改ざん検査（`agent/tests`）を逃れない。理由を Issue か PR にコメントする。自動 Merge の対象の PR のときは、人に `test:exempt` を付けてもらうよう頼む（自分では付けない）。Human Merge の PR では `test:exempt` は要らない（`agent/tests` は neutral になり、人が Merge の前に理由と行を確かめる）。
-5. `npm run check` を通す。
+5. 検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`。`null` なら省く）を通す。
 6. push の前に `node harness/scripts/agent.ts ensure-claim <PR番号>` を流す（宣言の持ち主と、PR が開いていることを確かめる）。止まったら push せずに `release <PR番号>` して終え、一覧に同じく書く。流せたら `git add <ファイル>` でファイルを指定して commit し、`git push origin <PR のブランチ>` で push する（`<PR のブランチ>` は手順2と同じ。force push しない。main への追従が要るなら sync の手順で merge する）。
 7. 何を直したかを PR にコメントする（先頭に `<!-- agent-harness:claude -->`）。
 8. `node harness/scripts/agent.ts release <PR番号>` で着手を解除する。
