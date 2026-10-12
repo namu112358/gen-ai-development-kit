@@ -237,8 +237,8 @@ Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始�
 
 1. **見る**：手順1・3と節「待つ間の読み直し」で `fleet-status` を読むたびに、表の下の「このセッションの読み込みは古い」の行を見る（無ければ `node harness/scripts/agent.ts harness-drift` の `stale`）。`claim` も古いと標準エラーに一言出す。
 2. **古いとき**：新しい段階・新しい ship を始めない。入れ子の方式では、動いている ship が段階の切れ目で返るのを待つ（ship は「待つ（読み込みが古い）」で返る）。その後、このセッションの着手宣言を `release <番号>` で全部解除し、その後（段階の切れ目）でだけ交代する。段階の途中では交代しない。**judge の段階は、古いセッションでは始めない**（`claim --stage judge` と `step` も止める。止まる理由 `harness-stale`）。
-3. **聞く**：AskUserQuestion で「交代しますか」を聞く（おすすめは「交代する」。Orca の worker のときは節「Orca の worker として動くとき」のとおり hq に `ask`）。拒まれた・答えが無いときは同じ質問を繰り返さず、下の 5 の1行を示して止まる。
-4. **Orca があるとき（承認の後）**：Orca の CLI は `node harness/scripts/orca-cli.ts` が出す JSON の `command` を使う（`env`・`printenv` で環境変数を読まない。orchestration・orca-cli の skill の案内より優先する。決め方は orca-cli の skill の「Resolve the CLI for this session」と同じ順＝`ORCA_CLI_COMMAND` があればその値、`ORCA_DEV_REPO_ROOT` のある dev checkout なら `orca-dev`、Linux で Orca の端末の外にいるときは `orca-ide`、それ以外は `orca`。Linux の Orca の端末の外では素の `orca` を使わない。GNOME の読み上げソフトが起動しうる）。
+3. **聞かない**：人が直接呼んだ fleet は、交代するかを人に聞かず、2 の切れ目の後すぐ 4（Orca がある）か 5（Orca が無い・動かない）に進む（人の決定 2026-10-12、#806）。Orca の worker のときは、節「Orca の worker として動くとき」の 5 のとおり hq に `ask` で「交代しますか」を聞く（hq が人に聞かずに答える）。hq が交代しないと答えた・答えが無い（`答え無し`・時間切れ）ときは、同じ質問を繰り返さず、下の 5 の1行を示して止まる。
+4. **Orca があるとき**：Orca の CLI は `node harness/scripts/orca-cli.ts` が出す JSON の `command` を使う（`env`・`printenv` で環境変数を読まない。orchestration・orca-cli の skill の案内より優先する。決め方は orca-cli の skill の「Resolve the CLI for this session」と同じ順＝`ORCA_CLI_COMMAND` があればその値、`ORCA_DEV_REPO_ROOT` のある dev checkout なら `orca-dev`、Linux で Orca の端末の外にいるときは `orca-ide`、それ以外は `orca`。Linux の Orca の端末の外では素の `orca` を使わない。GNOME の読み上げソフトが起動しうる）。
    - 本体（`git rev-parse --path-format=absolute --git-common-dir` の親。hq と同じ main の checkout）が既定ブランチで未 commit の変更が無ければ、`git -C <本体> pull --ff-only` で origin に追いつかせる。できなければ起動せず、理由と 5 の1行を示して止まる。
    - orca-cli の skill の端末の起動（`terminal create`。引数は Orca の `skills get` の案内に従う）で、本体で `claude --permission-mode auto "/fleet --epic <Epic番号> <番号…>"` を起動する（番号は `fleet-status` に渡した集合。受け持つ Epic が無ければ `--epic` を付けない）。権限モードは必ず明示する（人の決定 2026-09-29）。Epic の fleet なら端末の表示名を `fleet: #<Epic番号> <日本語の短い言葉>` にする（言葉は hq の指示のテーマの名前、無ければ `.agent-harness-workspace` の中身をそのまま使う。hq が無ければ hq の skill の手順4の作り方で Epic のタイトルから作る。表示のためだけで、着手宣言・usage はセッション ID で見分ける）。
    - 起動後に画面のモード表示が `auto mode` かを確かめる。bypass（`bypass permissions`）だった・確かめられないときは、新しいセッションに段階を進めさせずに人に返す。
@@ -271,6 +271,6 @@ App の計画ゲート・判定の受け付け・自動 Merge・CI を待つ間�
 - ship の「人に返す条件」に当たった（その Issue は止めて人に返し、ほかの Issue は進める。一覧にまとめて返す）
 - 選べる Issue が無い（止まる印・依存・着手宣言・重なり・PR 同士の衝突・`--max` の本数で全部が待つ）
 - 選んだ Issue が全部待つ状態になり、人の判断待ちだけが残った（App・CI 待ち・人の Merge 待ちが残る間は人に返さず、節「待つ間の読み直し」を続ける）
-- 交代を拒まれた、または交代の後に `auto mode` を確かめられない（節「ハーネスが更新されたときの交代」）
+- 交代できない（Orca が無い・本体を追いつかせられない・交代の後に `auto mode` を確かめられない。節「ハーネスが更新されたときの交代」の 4・5）
 - 操作が deny などで拒否された（別の方法で試さない）
 - やってはいけないこと：Merge、auto-merge の設定、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し

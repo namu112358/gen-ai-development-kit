@@ -52,7 +52,7 @@ const SHIP_SPEC: SkillSpec = {
       words: ['待つ（読み込みが古い）', '自分では交代しない', '投稿の前', '投稿せず', 'fleet に返す', '選択肢', 'パス', '呼び直され', '書き込', '除', '批評'],
       absent: ['止まらない', '申告を残して投稿し、聞くこと'],
     },
-    { section: '## 人に返す条件', words: ['振り分け', '改善の候補', '古い', 'judge', '交代を拒まれた'] },
+    { section: '## 人に返す条件', words: ['振り分け', '改善の候補', '古い', 'judge', '交代できない'], absent: ['交代を拒まれた'] },
     // fleet から起こされた ship は implementModel で実装だけを動かす（#469）
     {
       section: '## 実装のモデル（fleet から起こされた ship）',
@@ -104,23 +104,24 @@ const FLEET_FOR_SHIP_SPEC: SkillSpec = {
   path: skillPath('fleet'),
   headings: HEADINGS,
   parts: [
-    // ハーネスが更新されたときの交代（#199）
+    // ハーネスが更新されたときの交代（#199）。人に交代の承認を求めない（#806）
     {
       section: HANDOFF,
       words: [
         'このセッションの読み込みは古い', 'node harness/scripts/agent.ts harness-drift', 'fleet-status', 'release <番号>', '段階の切れ目',
         '段階の途中では交代しない', '新しい段階', '始めない', '古いセッションでは始めない', 'claim --stage judge', 'step',
-        'AskUserQuestion', '交代しますか', '拒まれた', '1行', 'orca-cli', 'Resolve the CLI', 'terminal create', 'claude --permission-mode auto "/fleet',
+        '交代しますか', '1行', 'orca-cli', 'Resolve the CLI', 'terminal create', 'claude --permission-mode auto "/fleet',
         '--git-common-dir', 'git -C <本体> pull --ff-only', 'できなければ起動せず', 'auto mode', '確かめられない', '引き継ぎの要約',
         'Orca が無い', '/fleet <番号…>', 'pull --ff-only', 'claude --permission-mode auto',
       ],
     },
+    { section: HANDOFF, step: 3, words: ['聞かない', 'hq に `ask`'], absent: ['AskUserQuestion'] },
     // 入れ子の ship の投稿の前の質問（#299）
     { section: '## 入れ子の方式', words: ['投稿の前', 'AskUserQuestion', '呼び直す', 'release <番号>'] },
     // 出来事の控えの振り分けと人がすること（#186・#209）
     { section: '## 手順', step: 8, words: TRIAGE_WORDS },
     { section: '## 手順', step: 9, words: ['**人がすること**', '改善の候補'], absent: ['ラベルの不足'] },
-    { section: '## 人に返す条件', words: ['振り分け', '改善の候補', '交代を拒まれた', 'auto mode'] },
+    { section: '## 人に返す条件', words: ['振り分け', '改善の候補', '交代できない', 'auto mode'], absent: ['交代を拒まれた'] },
     { absent: ['申告を残して投稿して質問を返す', 'agent.ts incident render-comment', 'agent.ts label-audit'] },
   ],
 };
