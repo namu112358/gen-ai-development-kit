@@ -346,10 +346,10 @@ test('implement の skill: PR を作る前に scope-check を走らせ、外れ�
   const text = readFileSync(join(root, '.claude/skills/implement/SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
   const lines = text.split('\n');
   const checkLine = lines.findIndex((l) => l.includes('scope-check'));
-  const createLine = lines.findIndex((l) => l.includes('gh pr create'));
+  const createLine = lines.findIndex((l) => l.includes('rest-create draft-pr'));
   assert.ok(checkLine >= 0, 'scope-check の手順がある');
-  assert.ok(createLine >= 0, 'gh pr create の手順がある');
-  assert.ok(checkLine < createLine, 'scope-check の手順が gh pr create の手順より前にある');
+  assert.ok(createLine >= 0, 'rest-create draft-pr の手順がある');
+  assert.ok(checkLine < createLine, 'scope-check の手順が rest-create draft-pr の手順より前にある');
   // scope-check の手順（番号付きの行から、次の番号付きの行の前まで。下の箇条書きも含む）
   const next = lines.findIndex((l, i) => i > checkLine && /^\d+\.\s/.test(l));
   const step = lines.slice(checkLine, next < 0 ? undefined : next).join('\n');
