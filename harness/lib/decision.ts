@@ -12,6 +12,7 @@ import { Checker } from './validate.ts';
  * 記録は人の名義で書かれ App は書き手を区別できないため、外すのは Planner の申告の停止だけにする（decisionEligibility）。書式は docs/formats.md。
  * proceed のある記録は、agent:plan-review で止まった計画を人が「この計画で進める」と決めた記録（Issue #365）。App は Jev に問わず proceedEligibility で確かめ、
  * plan-proceed の記録を付ける（ラベルは変えない）。その記録があれば、委任・bypass の範囲照合がその計画を使う（harness/lib/state.ts の issueDelegateFiles）。
+ * acChangeAccepted は AC の変更の提案を人が受け入れた明示で、post-decision が投稿を通すためだけに使い、App の plan-proceed は今どおり対象外にする（Issue #870）。
  */
 
 export interface DecisionAnswer {
@@ -33,6 +34,15 @@ export interface DecisionProceed {
   at: string;
 }
 
+/** 人が計画の AC の変更の提案（acChangeProposed）を受け入れたことの明示（proceed のある記録にだけ書く） */
+export interface DecisionAcChangeAccepted {
+  /** 選択肢で答えたときに選んだ項目 */
+  choice?: string;
+  /** 人の言葉そのまま */
+  quote: string;
+  at: string;
+}
+
 export interface Decision {
   version: 1;
   issue: number;
@@ -40,6 +50,7 @@ export interface Decision {
   /** proceed のある記録では空 */
   answers: DecisionAnswer[];
   proceed?: DecisionProceed;
+  acChangeAccepted?: DecisionAcChangeAccepted;
 }
 
 export type DecisionParsed = { ok: true; value: Decision } | { ok: false; errors: string[] };
@@ -54,6 +65,7 @@ export function parseDecision(raw: unknown): DecisionParsed {
   if (o.version !== 1) c.errors.push('decision.version: 1 ではありません');
   const answers: DecisionAnswer[] = [];
   let proceed: DecisionProceed | undefined;
+  let acChangeAccepted: DecisionAcChangeAccepted | undefined;
   if (o.proceed !== undefined) {
     if (o.answers !== undefined) c.errors.push('decision: proceed と answers は同じ記録に書けません（答えの記録と進める記録は分けて出す）');
     const x = c.object(o.proceed, 'decision.proceed');
@@ -64,7 +76,18 @@ export function parseDecision(raw: unknown): DecisionParsed {
       proceed = { quote, at };
       if (x.choice !== undefined) proceed.choice = c.string(x.choice, 'decision.proceed.choice', { nonEmpty: true });
     }
-  } else if (!Array.isArray(o.answers)) c.errors.push('decision.answers: 配列ではありません');
+    if (o.acChangeAccepted !== undefined) {
+      const y = c.object(o.acChangeAccepted, 'decision.acChangeAccepted');
+      if (y) {
+        const quote = c.string(y.quote, 'decision.acChangeAccepted.quote', { nonEmpty: true });
+        const at = c.string(y.at, 'decision.acChangeAccepted.at');
+        if (typeof y.at === 'string' && (!ISO_RE.test(at) || Number.isNaN(Date.parse(at)))) c.errors.push('decision.acChangeAccepted.at: ISO 8601 の日時ではありません');
+        acChangeAccepted = { quote, at };
+        if (y.choice !== undefined) acChangeAccepted.choice = c.string(y.choice, 'decision.acChangeAccepted.choice', { nonEmpty: true });
+      }
+    }
+  } else if (o.acChangeAccepted !== undefined) c.errors.push('decision.acChangeAccepted: proceed のある記録にだけ書けます');
+  else if (!Array.isArray(o.answers)) c.errors.push('decision.answers: 配列ではありません');
   else if (o.answers.length === 0) c.errors.push('decision.answers: 1件以上必要です');
   else {
     o.answers.forEach((a, i) => {
@@ -88,7 +111,29 @@ export function parseDecision(raw: unknown): DecisionParsed {
     answers,
   };
   if (proceed) decision.proceed = proceed;
+  if (acChangeAccepted) decision.acChangeAccepted = acChangeAccepted;
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: decision };
+}
+
+/**
+ * 進める記録の投稿の前の確かめ（post-decision）。issue・planCommentId の一致は呼び出し側が見る。
+ * acChangeProposed の計画は、人が受け入れたと明示した記録（acChangeAccepted）だけ通す。
+ */
+export function proceedPostErrors(input: {
+  issueNumber: number;
+  labels: { name: string }[];
+  record: { pass?: boolean; plan: Pick<Plan, 'acChangeProposed'> };
+  decision: Pick<Decision, 'acChangeAccepted'>;
+}): string[] {
+  const n = input.issueNumber;
+  const errors: string[] = [];
+  if (input.record.pass !== false) errors.push(`#${n} の最新の計画ゲートの記録は止まった記録ではありません（進める記録は要りません）`);
+  if (!input.labels.some((l) => l.name === 'agent:plan-review')) errors.push(`#${n} に agent:plan-review が付いていません`);
+  const proposed = input.record.plan.acChangeProposed;
+  const accepted = input.decision.acChangeAccepted !== undefined;
+  if (proposed && !accepted) errors.push('計画に要件・AC の変更提案があります（Issue 本文の変更は人の役割のため、人が受け入れたなら acChangeAccepted（人の言葉の quote）を書いてください）');
+  if (!proposed && accepted) errors.push('acChangeAccepted: 計画に要件・AC の変更提案が無いため、受け入れる提案がありません');
+  return errors;
 }
 
 export interface DecisionTarget {
