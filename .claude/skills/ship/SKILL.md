@@ -65,10 +65,10 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 - **購読**：Draft PR を出したら（手順3の後。起きたときにまだ購読していなければその時も）、`subscribe_pr_activity` でその PR を購読する。ほかの Claude のセッションが見ていると返った・道具が無いときは、購読しなかったとして今の待ち方（fleet の節「待つ間の読み直し」）のままにし、手順10の一覧にその旨を書く。
 - **待つ**：段階が待ちで終わったら（`step` が `wait`）、until ループ・Monitor で数分おきに読み直さずにターンを終える。
 - **起きたとき**（PR のイベント・下の見回り）：
-  1. 自分のコメント・App の記録のコメント（本文に `agent-harness:` の目印）が返ってきただけのイベントと、前に扱ったのと同じイベントは何もしない。
+  1. このセッション自身が書いたコメント（着手宣言・判定コメントなど）が返ってきただけのイベントと、前に扱ったのと同じイベントは何もしない。App のレビュー・コメント（変更要求 `kind=fix-request`・判定の受け付けなど）は捨てずに次へ進む（App の記録で次の段階が出るため）。
   2. それ以外は、手順1の「ハーネスが更新されたとき」を確かめてから `node harness/scripts/agent.ts step <Issue番号>` を読む。
   3. `node`：`step` が出した宣言（`claim`）がその段階の着手宣言の出し直しになる。その Issue の worktree が無ければ（VM が回収された後など）`node harness/scripts/agent.ts worktree <step の branch>` で作り直し、その段階の skill（fix・sync・judge）を行う。
-  4. `wait` の `app`・`human`：何もしない（宣言する段階が無いので宣言は出さない）。
+  4. `wait` の `app`・`human`・`area-limit`：何もしない（宣言する段階が無いので宣言は出さない。`area-limit` は fleet の扱いのとおり待ち、次のイベントか見回りで読み直す）。
   5. `wait` の `done`（Merge 済み）：手順1の「Merge 済みで呼び直されたとき」をしてから、下の「やめる」。
   6. `stop`：「人に返す条件」のとおり人に返す。購読は続ける。
 - **見回り**：取りこぼしに備え、`send_later` で30分後の見回りを1つだけ予約する。
@@ -78,7 +78,6 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
   - 変わらない見回りが3回続いたら予約し直さず、人に1行だけ伝える（「#番号 の見回りを止めました。次の PR のイベントか、人のメッセージで再開します」）。購読は続ける。
   - この30分・3回は、セッションの既定の見回りの間隔と回数より優先する。
 - **やめる**：PR が Merge か Close されたら、`unsubscribe_pr_activity` で購読をやめ、待っている予約を `delete_trigger` で消す。Merge されずに Close されたら、このセッションの宣言が残っていれば `release <Issue番号>` で解除する。
-- **確かめの記録**：Issue の Validation Requirements でこの待ち方を確かめるときは、届いたイベント・起きた時刻・進んだ段階・見回りの回数を scratchpad に控えて手順10の「Merge 後の確かめ」で人に示す（Issue へのコメントは人が確かめてから残す）。
 
 ## サブエージェントの ship として動くとき
 
