@@ -5,10 +5,10 @@
 ## 起動
 
 ```sh
-node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining 0.3]
+npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-open]
 ```
 
-表示された `http://127.0.0.1:<port>/` をブラウザで開く。`--interval` は GitHub を確かめる間隔（秒。既定 30、5 より短ければ 5）、`--min-remaining` は API の上限の残りの下限（割合。既定 0.3）。認証は `GH_TOKEN` / `GITHUB_TOKEN`、無ければ `gh auth token` のトークン。止めるには Ctrl+C。
+引数は `npm run dashboard -- --port 5000` のように `--` の後に書く（`node harness/scripts/dashboard.ts` でも同じ）。起動したら `http://127.0.0.1:<port>/` を既定のブラウザで開く（Windows・macOS・Linux・WSL）。開けなければ、表示された URL を開く。`--no-open` で開かない。`--interval` は GitHub を確かめる間隔（秒。既定 30、5 より短ければ 5）、`--min-remaining` は API の上限の残りの下限（割合。既定 0.3）。認証は `GH_TOKEN` / `GITHUB_TOKEN`、無ければ `gh auth token` のトークン。止めるには Ctrl+C。
 
 ## 見えるもの
 
@@ -70,6 +70,7 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 
 | 名前 | 内容 |
 | --- | --- |
+| `browser.ts` | 起動したダッシュボードの URL を既定のブラウザで開く（OS ごとのコマンドの選び方は純粋関数） |
 | `graph.ts` | facts とセッションから列・タスク・辺を組む純粋関数と、前後の差分 |
 | `decision.ts` | 答える欄の材料・決定の記録の組み立て・投稿の前の読み直し・コメントの POST だけを送る Transport・`POST /decisions` の受け皿 |
 | `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し（まとめた GraphQL の問い合わせでの先読み） |

@@ -1,9 +1,9 @@
 /**
  * エージェントの状態をグラフで見る、手元のダッシュボード（GitHub に書くのは POST /decisions の決定の記録のコメントだけで、気づきは手元の受け箱に書く）。
  *
- *   node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining 0.3]
+ *   npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-open]（node harness/scripts/dashboard.ts でも同じ）
  *
- * 127.0.0.1 で待ち受け、表示した URL をブラウザで開く。GitHub は条件付きリクエストで --interval 秒ごとに確かめ、
+ * 127.0.0.1 で待ち受け、起動したら既定のブラウザで開く（--no-open で開かない。開けなければ表示した URL を開く）。GitHub は条件付きリクエストで --interval 秒ごとに確かめ、
  * 変わった Issue / PR だけ組み直して Server-Sent Events で差分を送る。手元のセッション記録（~/.claude/projects）も見張る。
  * API の上限の残りが --min-remaining の割合を切ったらリセットまで読まず、失敗の後は backoff + jitter で遅らせ、
  * ブラウザの接続が0の間は GitHub を読まない。気づきを送る欄（POST /notes）は手元の受け箱に書き、人がすることへの答え（POST /decisions）は決定の記録のコメントを1件だけ投稿する。どちらも Host・Origin・起動ごとの合言葉で確かめる。
@@ -20,6 +20,7 @@ import { loadConfig } from '../lib/config.ts';
 import { GitHub } from '../lib/github.ts';
 import { gitCommonDir } from '../lib/local-state.ts';
 import { mainRepoRoot, worktreeRoot } from '../lib/worktree.ts';
+import { openBrowser, wantsOpen } from './dashboard/browser.ts';
 import { buildGraph, diffGraphs, type Graph, type GraphEvent } from './dashboard/graph.ts';
 import { CommentOnlyTransport, createDecisionSink, type DecisionSink } from './dashboard/decision.ts';
 import { DashboardData, ReadOnlyTransport, UpdateWatcher } from './dashboard/github.ts';
@@ -294,6 +295,7 @@ async function main(args: string[]): Promise<void> {
     decisions,
   });
   console.log(`ダッシュボード: ${server.url}（${repo}、${intervalMs / 1000} 秒ごとに確かめます。ブラウザで開いている間だけ読みます。止めるには Ctrl+C）`);
+  if (wantsOpen(args)) openBrowser(server.url, { onFail: (m) => console.error(`ブラウザを開けませんでした（${m}）。${server.url} を開いてください`) });
 
   const rebuild = () => {
     const next = build();
