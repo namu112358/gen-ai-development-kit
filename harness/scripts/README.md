@@ -5,6 +5,7 @@
 <!-- readme:generated start -->
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
+| `accounts/` | Orca につないだ Claude のアカウントのうち、使用量の低いものを選ぶ手元のコマンド（Epic #813）。 |  |
 | `actions-usage.ts` | Actions の使用分（ジョブごとに分単位で切り上げた分）を、ワークフロー・ジョブ・ci のきっかけごとに数える（読むだけ、Issue #624）。 |  |
 | `agent.ts` | Routine と人のセッションが使う CLI。 | ○ |
 | `agent/` | `harness/scripts/agent.ts` のサブコマンドの実装（`commands/`）と、コマンドが共有する補助（`cli.ts`）。 | ○ |
