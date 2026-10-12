@@ -83,10 +83,10 @@ const FLEET_SPEC: SkillSpec = {
         '書き換えない', 'Issue の worktree の中でだけ',
         '--type status', 'ready-<PR>', 'merged-<PR>', 'verdict-<PR>', 'wait-<Issue>', 'notice',
       ],
-      absent: ['まだ無い', '3回分けて', '4ペイン'],
+      absent: ['まだ無い', '3回分けて', '4ペイン', '3文の要約', '<1〜3行>', '（1〜2行）'],
     },
     // 手順3：ペインの並びと作り方。向きは Orca 1.4.216 の実際の動き。向きを決め打ちにせず、並びが違えば逆の向きで2回まで分け直し、
-    // 直らなければ表示のペイン無しで進める（#415・#430・#448）
+    // 直らなければ表示のペイン無しで進める
     {
       section: AS_WORKER,
       step: 3,
@@ -95,7 +95,7 @@ const FLEET_SPEC: SkillSpec = {
         'panes.ts todo', 'panes.ts collect', 'panes.ts prs',
         '1.4.216', '案内', '逆', '`--direction vertical` で左右', '--include-visual-layouts', '違えば', '分け直す',
         '対象の Issue が変わったら', '--interrupt', '作り方',
-        '決め打ちにしない', '逆の向き', '2回まで', '表示のペイン無しで進め', '#448',
+        '決め打ちにしない', '逆の向き', '2回まで', '表示のペイン無しで進め',
       ],
       absent: ['逆なら', 'ORCA skills get orchestration', '進み具合のペインを閉じ、'],
       order: ['左に fleet の Claude', '右に上から', '進み具合', 'あなたがすること', 'PR と費用'],
