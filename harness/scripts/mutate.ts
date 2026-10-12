@@ -37,9 +37,10 @@
  */
 import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { dirname, posix } from 'node:path';
+import { dirname } from 'node:path';
 import { loadConfig } from '../lib/config.ts';
 import { patchId } from '../lib/patch-id.ts';
+import { ALL_TESTS, readSources, relatedTestFiles, testArgsFor } from '../lib/related-tests.ts';
 import { DEFAULT_TEST_PATTERNS, isTestFile } from '../lib/test-tamper.ts';
 
 export interface ChangedLine {
@@ -340,56 +341,6 @@ export function hasTargetsSafely(count: () => number): boolean {
   }
 }
 
-/** 相対 import（`from '…'`・`import '…'`・`import('…')`）の指定。`.` で始まるものだけ */
-const RELATIVE_IMPORT = /\b(?:from|import)\s*\(?\s*['"](\.{1,2}\/[^'"]+)['"]/g;
-
-/** file の本文にある相対 import を、リポジトリからの相対パス（`/` 区切り）にして返す */
-function importsOf(file: string, body: string): string[] {
-  const out: string[] = [];
-  for (const m of body.matchAll(RELATIVE_IMPORT)) out.push(posix.normalize(posix.join(posix.dirname(file), m[1]!)));
-  return out;
-}
-
-/**
- * target（壊したファイル）に関係するテストファイルをパスの昇順で返す。
- * テストファイルから相対 import を推移的にたどって target に届くか、テストの本文に target のパスか
- * 引用符で囲んだファイル名があれば関係する（子プロセスで動かすテストを拾うため）。
- */
-export function relatedTestFiles(target: string, sources: Map<string, string>, testFiles: string[]): string[] {
-  const name = posix.basename(target);
-  const mentions = (body: string) => body.includes(target) || body.includes(`'${name}'`) || body.includes(`"${name}"`);
-  const out: string[] = [];
-  for (const test of testFiles) {
-    const body = sources.get(test) ?? '';
-    if (mentions(body)) {
-      out.push(test);
-      continue;
-    }
-    const seen = new Set<string>([test]);
-    const stack = importsOf(test, body);
-    let found = false;
-    while (stack.length > 0 && !found) {
-      const file = stack.pop()!;
-      if (seen.has(file)) continue;
-      seen.add(file);
-      if (file === target) found = true;
-      else stack.push(...importsOf(file, sources.get(file) ?? ''));
-    }
-    if (found) out.push(test);
-  }
-  return out.sort();
-}
-
-const ALL_TESTS = 'harness/test/**/*.test.ts';
-/** これを超える数のテストファイルは並べず全体で流す（コマンドラインの長さの上限を避ける） */
-const MAX_LISTED_TESTS = 100;
-
-/** node に渡す引数。関係するテストが無い・多すぎるときは全体 */
-export function testArgsFor(related: string[]): string[] {
-  if (related.length === 0 || related.length > MAX_LISTED_TESTS) return ['--test', ALL_TESTS];
-  return ['--test', ...related];
-}
-
 /** ベースラインで流すテスト。どれかのファイルが全体で試すなら []（全体）、そうでなければ和集合 */
 export function baselineTests(perFile: Map<string, string[]>): string[] {
   const all = new Set<string>();
@@ -508,16 +459,7 @@ function changedTargets(diff: string): ChangedLine[] {
 
 /** 壊すファイルごとに関係するテストを1回だけ求める（リポジトリの .ts・.js・.mjs を読む） */
 function relatedTestsByFile(mutants: Mutant[]): Map<string, string[]> {
-  const listed = execFileSync('git', ['ls-files', '*.ts', '*.js', '*.mjs'], { encoding: 'utf8' }).split('\n').filter(Boolean);
-  const sources = new Map<string, string>();
-  for (const f of listed) {
-    try {
-      sources.set(f, readFileSync(f, 'utf8'));
-    } catch {
-      // 消えたファイルは読まない
-    }
-  }
-  const tests = listed.filter((f) => /^harness\/test\/.*\.test\.ts$/.test(f));
+  const { sources, tests } = readSources();
   const perFile = new Map<string, string[]>();
   for (const m of mutants) if (!perFile.has(m.file)) perFile.set(m.file, relatedTestFiles(m.file, sources, tests));
   return perFile;
