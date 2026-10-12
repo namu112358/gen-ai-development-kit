@@ -131,7 +131,7 @@ const FLEET_SPEC: SkillSpec = {
         'plan-ok', 'Merge 後の見届けが済んでいない', '呼び直', 'sync', 'fleet 自身は衝突を直さない', 'ほかのセッション',
         'Close されていない', '見張りの記録には残さない', '最初の1回だけ', '人の判断待ちに数える', '呼び直さない',
         'App が動いていない', 'escalation', '1回だけ',
-        'gh issue view <Epic番号> --json state', 'Merge 済み', '人の判断待ちだけが残',
+        'node harness/scripts/agent.ts rest issue-view <Epic番号>', 'Merge 済み', '人の判断待ちだけが残',
       ],
     },
     { section: '## ハーネスが更新されたときの交代', words: ['/fleet --epic <Epic番号> <番号…>'] },
@@ -170,13 +170,13 @@ const HQ_FOR_FLEET_SPEC: SkillSpec = {
 /** fleet と関わる ship の skill の表 */
 const SHIP_FOR_FLEET_SPEC: SkillSpec = {
   path: SHIP_SKILL,
-  words: ['worktree-remove', 'gh issue view <番号> --json state', '何度呼ばれても', 'Validation Requirements', 'npm run check'],
+  words: ['worktree-remove', 'node harness/scripts/agent.ts rest issue-view <番号>', '何度呼ばれても', 'Validation Requirements', 'npm run check'],
   parts: [
     // Merge 済みで呼び直されたとき・/clear の後の宣言を1問で聞く（#199）
     {
       section: '## 手順',
       step: 1,
-      words: ['Merge 済み', 'worktree-remove', 'gh issue view <番号> --json state', '/clear', '1問', '1件ずつ', '--takeover', 'AskUserQuestion'],
+      words: ['Merge 済み', 'worktree-remove', 'node harness/scripts/agent.ts rest issue-view <番号>', '/clear', '1問', '1件ずつ', '--takeover', 'AskUserQuestion'],
     },
     { section: '## サブエージェントの ship として動くとき', words: ['Merge 済み', '呼び直', '返すもの', 'Merge 後の見届け済み', 'Close されていない'] },
   ],
