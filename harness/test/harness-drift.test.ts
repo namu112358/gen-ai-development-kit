@@ -67,11 +67,11 @@ test('contentVersion：LF にそろえた中身の sha256（hex）。CRLF・CR�
 
 // ---- 記録のパスと読み書き ----
 
-test('loadedRecordPath：<共通ディレクトリ>/agent-harness/loaded/<ID>.json、ID が無い・形が違えば null', () => {
+test('loadedRecordPath：<共通ディレクトリ>/agent-harness/loaded/<ID>.json、クラウドの URL は最後の部分（session_…）、ID が無い・形が違えば null', () => {
   assert.equal(loadedRecordPath('/repo/.git', SESSION), join('/repo/.git', 'agent-harness', 'loaded', `${SESSION}.json`));
   assert.equal(loadedRecordPath('/repo/.git', null), null);
   assert.equal(loadedRecordPath('/repo/.git', ''), null);
-  assert.equal(loadedRecordPath('/repo/.git', 'https://claude.ai/code/session_x'), null);
+  assert.equal(loadedRecordPath('/repo/.git', 'https://claude.ai/code/session_x'), join('/repo/.git', 'agent-harness', 'loaded', 'session_x.json'), 'URL は最後の部分の名前（Issue #708）');
   assert.equal(loadedRecordPath('/repo/.git', '../escape'), null, 'パスを抜ける ID は使わない');
 });
 
