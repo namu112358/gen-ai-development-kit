@@ -23,6 +23,7 @@ import { DashboardData, ReadOnlyTransport, UpdateWatcher } from './dashboard/git
 import { limitFetch, RateLimitedTransport, RateLimitState } from './dashboard/rate-limit.ts';
 import { PollScheduler, type PollStatus } from './dashboard/scheduler.ts';
 import { readSessions, watchSessions } from './dashboard/sessions.ts';
+import { resolveRepository } from '../lib/repository.ts';
 
 export const PAGE_PATH: string = fileURLToPath(new URL('./dashboard/page.html', import.meta.url));
 
@@ -101,11 +102,9 @@ export function startServer(opts: { port: number; html: string; snapshot: () => 
 }
 
 function repository(): string {
-  if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY;
-  const url = spawnSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).stdout?.trim() ?? '';
-  const m = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/);
-  if (!m) throw new Error(`origin から owner/repo を判別できません: ${url}`);
-  return m[1]!;
+  const r = resolveRepository(process.env.GITHUB_REPOSITORY, () => spawnSync('git', ['remote', 'get-url', 'origin'], { encoding: 'utf8' }).stdout?.trim() ?? '');
+  if (!r.ok) throw new Error(r.error);
+  return r.repository;
 }
 
 function token(): string {
