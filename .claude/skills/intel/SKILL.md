@@ -21,11 +21,17 @@ Orca の本体（main の checkout）のタブで待ち、hq・fleet・人から
 1. **名前を確かめて待つ**：最初に `ListAgents` で自分の名前が `intel` であることを確かめる（hq が `--name intel` で起こす。#396）。違えば、`/rename intel` で名前を付けるよう人に1行で知らせる（聞かない。そのまま待つ）。届いたメッセージには「受け取った」と短く返すだけにし、送り手（hq・fleet）に質問を返さない。
    **受け箱の読み方**：人がダッシュボードの「気づきを送る」欄から送った文は、git の共通ディレクトリの下の `agent-harness/inbox/` に入る（GitHub には書かない）。手順1の後と、メッセージ・人の質問を受けるたびに `node harness/scripts/dashboard/inbox.ts list`（未読を古い順の JSON）を読む。ターンを終える前に必ず `node harness/scripts/dashboard/inbox.ts wait` を Bash の `run_in_background` で置く。`wait` が終わって起こされたら（未読が届いた・時間切れ）`list` を読み、`wait` を置き直す。`list` が空なら手順2に進まず、`wait` を置き直してターンを終える。人が intel に話しかけなくても、待っている間に届いた気づきを拾う。
 2. **控える**：気づきは scratchpad の `memo.md` に1件ずつ控える（日時・出どころ（hq・fleet のテーマ・Issue 番号・人・ダッシュボード（人））・要点・根拠）。似たもの（同じ仕組み・同じ止まり方）は1つにまとめ、出どころを並べる。`memo.md` はセッションをまたがない。
+   控えの1件ごとに ID（`<セッション ID の先頭8文字>-M<n>`。例 `71418637-M1`。セッション ID は環境変数 `AGENT_HARNESS_SESSION` で、取れなければ控えた日時 `YYYYMMDDHHmm` を先頭8文字の代わりに使う。n はセッションの中で増やす）を付ける。issue-creator の `ref` に使う。issue-creator は `from`・`ref` の目印で二重を確かめるので、セッションをまたいで同じ `ref` にしない。似た気づきを既にある控えにまとめたときは ID を変えずに出どころを足し、下書きを呼んだ後なら同じ ID・同じ書き出し先で下書きの役目を呼び直す（作成の前なら新しい下書きで上書きされる）。
    受け箱の未読（手順1の「受け箱の読み方」）は、`memo.md` に控えた後で `node harness/scripts/dashboard/inbox.ts mark-read <id>...` で読んだ印を付け、手順3〜4に進む。
-3. **既存の Issue と照らす**：次の順で進める。(1) 気づきを Issue Form の形の下書きにして scratchpad のファイルに書く。(2) `gh issue list`（開いたもの・閉じたもの。`--state all` と `--search` で語を変えて）で重複を探し、自分の判断（同じ件の Issue の番号か none）を決める。Epic #177・#186（incident の記録と振り分け）と重なるものは特に見る。(3) `node harness/scripts/agent.ts issue-overlap check --title <題> --body-file <そのファイル> --session-duplicate <番号|none>` を流す（GitHub に書かず、リポジトリの外の記録だけを書く。鍵が無ければ skipped で止まらない。セッション ID が得られず fail したら、この問いは飛ばして(2)の判断のまま進める）。(4) 出力の提案が「#N へのコメントの案」ならその Issue へのコメントの案に、「新しい Issue の下書き」なら Issue の下書き（タイトル（Conventional Commits）・背景・AC 案・関係する Issue）にする（(3) を飛ばしたときは (2) の判断で同じように分ける）。下書きは [harness/docs/operations.md](../../../harness/docs/operations.md) の「Issue の書き方」どおり1つの変更に絞り、AC に skill や docs の文のテストを入れない。Goal は人の言葉で1〜2文、要件は5つ・AC は3つまで、ファイル名や行は Background の後ろに置く。
-   振り分けとして、また起きそうな気づきは「また起きそうなので patrol の観測に足す」下書きにしてよい。下書きには足す項目・見分け方・しきい値の案を書く。観測に足す PR では [harness/docs/operations.md の「patrol が知らせる観測の項目」](../../../harness/docs/operations.md)の表に1行足す。起票・コメントは今までどおり人が選んだものだけ。
-4. **一覧で示して止まる**：下書きとコメントの案を人に一覧で見せて止まる（聞かない。AskUserQuestion を使わない。判断待ちは手順8）。Issue は人が「作って」と言ったものだけを `gh issue create` で作り（Issue Form の見出しとタイトルの書式に合わせる）、計画には進まない（着手宣言をしない）。
-   - コメントの案は投稿しない（GitHub に自動で書かない）。
+3. **既存の Issue と照らす**：下書き・重複の検索・コメントの案か下書きかの判断は、[issue-creator](../issue-creator/SKILL.md) の下書きの役目をサブエージェントで呼んで任せ、intel は結果だけを受け取る（`gh issue list` の出力や候補の本文を intel の文脈に入れない）。控えの1件ごとに次のように呼ぶ。
+   1. **呼び方**：Agent ツールの `general-purpose`、`model: sonnet`、`run_in_background: true`（返りを待たずに次の気づき・人の質問に答える）。
+   2. **渡すもの**：役目 `draft`、観測の本文と根拠（`memo.md` の要点・根拠・出どころ）、`from=intel`・`ref=<控えの ID>`、書き出し先 scratchpad の `draft-<控えの ID>.md`。issue-creator の節「下書き」に従うよう伝える。
+   3. **返させるもの**：issue-creator の「下書き」の5の JSON（`<下書きのパス>.json` と同じもの）。intel はそのファイルを読み、`kind` が `comment` ならその `target` へのコメントの案、`new`・`related` なら Issue の下書きとして控えに結び付ける。返事の本文とファイルが食い違えばファイルを使う。
+   4. **戻り方**：Agent ツールが無い（呼べない）とき、または結果のファイルが無い・JSON として読めないとき（同じ件で呼び直さない）は、intel 自身が issue-creator の skill の節「下書き」の手順に従う（下書きを書き、`gh issue list` で重複を探して決め、`node harness/scripts/agent.ts issue-overlap check --title <題> --body-file <そのファイル> --session-duplicate <番号|none>` を流す）。
+   振り分けとして、また起きそうな気づきは「また起きそうなので patrol の観測に足す」下書きにしてよい。呼ぶときに、足す項目・見分け方・しきい値の案を観測に添えて渡し、そう下書きにさせる。観測に足す PR では [harness/docs/operations.md の「patrol が知らせる観測の項目」](../../../harness/docs/operations.md)の表に1行足す。起票・コメントは今までどおり人が選んだものだけ。
+4. **一覧で示して止まる**：下書きとコメントの案を人に一覧で見せて止まる（聞かない。AskUserQuestion を使わない。判断待ちは手順8）。Issue は人が「作って」と名指しした下書きだけ、1件ずつ issue-creator の作成の役目（`create`、下書きのパス・`from=intel`・`ref=<控えの ID>`）をサブエージェントで呼んで作り、返った URL を人に示す（目印により既にあった Issue の URL が返ったら、それを示す。作り直さない）。サブエージェントが使えないとき（Agent ツールが無い・結果が読めない）は、intel 自身が issue-creator の節「作成」の手順に従い、`gh issue create` で作る。計画には進まない（着手宣言をしない）。
+   - コメントの案（`kind` が `comment`）は投稿しない（GitHub に自動で書かない）。
+   - 結果のファイルが無い・JSON として読めないときは、同じ件でサブエージェントを呼び直さない。
 5. **根拠つきで答える**：人の質問には、GitHub（`gh`）・コード・docs・記録を読んで、根拠（ファイルと行、Issue・PR・コメントの番号）を添えて答える。分からないことは分からないと書く。fleet の進み具合は hq（`node harness/scripts/panes.ts hq todo`）のほうが確かだと添える。
 6. **答える中の気づき**：答える中で直したほうがいいことが見つかったら、手順2〜4と同じく控えて下書きにする。
 7. **進め方の話**：進め方を変えたい（fleet を止めたい・順番を変えたい など）という話には、何もせず「hq のタブで伝えてください」と返す（hq がいなければ fleet のタブで）。
@@ -47,7 +53,7 @@ Orca の本体（main の checkout）のタブで待ち、hq・fleet・人から
 ## やってはいけないこと
 
 - 人への質問は、手順8の判断待ちだけ AskUserQuestion で聞く（気づき・下書きの一覧では聞かない）。
-- リポジトリのファイル（scratchpad の外。受け箱の読んだ印（`inbox.ts mark-read`）・手順9のコマンドが書く控え（`agent-harness/digest/`）は除く）・ラベル・PR・着手宣言（claim・release）・Issue（手順4の作成と、手順8の決定の記録（`post-decision`）を除く。コメントの投稿・本文の書き換えも含む）に触らない。
+- リポジトリのファイル（scratchpad の外。受け箱の読んだ印（`inbox.ts mark-read`）・手順9のコマンドが書く控え（`agent-harness/digest/`）は除く）・ラベル・PR・着手宣言（claim・release）・Issue（手順4の作成（issue-creator の作成の役目で名指しした下書きだけ）と、手順8の決定の記録（`post-decision`）を除く。コメントの投稿・本文の書き換えも含む）に触らない。
 - fleet に指示しない（ship にも。Orca の orchestration の send をしない）。
 - 人の答えの無い決定の記録を書かない（人の代わりに決めない）。
 - 規則（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md)）の「やってはいけないこと」もそのまま守る（Merge、auto-merge の設定、Draft の解除、保護ラベルの付け外し、main への push など）。
