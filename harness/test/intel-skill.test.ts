@@ -31,6 +31,8 @@ const INTEL_SPEC: SkillSpec = {
         '根拠', 'ファイルと行', 'panes.ts hq',
         // 名前・受け取りの返事・進め方の話は hq に回す
         'ListAgents', '受け取った', 'hq のタブで伝えてください',
+        // 判断待ちを聞いて決定の記録に残す（#837）
+        'post-decision', 'plan-review-check', 'riskOnly',
       ],
     },
     { section: '## やってはいけないこと', words: ['AskUserQuestion', 'ラベル', '着手宣言', 'PR', 'fleet に指示しない'] },
