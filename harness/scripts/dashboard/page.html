@@ -53,6 +53,17 @@
   details.exit > summary { cursor: pointer; }
   details.exit p { margin: 4px 0 0; }
   details.exit b { color: var(--ink); font-weight: 600; }
+  #progress { margin: 12px 16px 0; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--active); border-radius: 8px; padding: 8px 12px; display: grid; gap: 4px; }
+  #progress h2 { font-size: 13px; margin: 0; }
+  #progress .epics { margin: 0; padding: 0; list-style: none; display: grid; gap: 2px; }
+  #progress .epics li { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+  #progress .epics a { color: var(--ink); font-weight: 600; text-decoration: none; }
+  #progress .epics a:hover { text-decoration: underline; }
+  #progress .bar { width: 120px; height: 6px; border-radius: 3px; background: var(--col); border: 1px solid var(--line); overflow: hidden; }
+  #progress .bar i { display: block; height: 100%; background: var(--run); }
+  #progress .count { color: var(--muted); font-variant-numeric: tabular-nums; }
+  #progress .line { margin: 0; color: var(--muted); }
+  #progress .line b { color: var(--ink); }
   #todos { margin: 12px 16px 0; background: var(--panel); border: 1px solid var(--line); border-left: 4px solid var(--waiting); border-radius: 8px; padding: 8px 12px; }
   #todos h2 { font-size: 13px; margin: 0 0 4px; }
   #todos ul { margin: 0; padding-left: 1.2em; display: grid; gap: 2px; }
@@ -107,6 +118,7 @@
   <span class="legend" id="edgeLegend"></span>
 </header>
 <p id="pollStatus" role="status" hidden></p>
+<section id="progress" aria-label="進み"><h2>進み</h2><div id="progressBody"></div></section>
 <section id="todos" aria-label="人がすること"><h2 id="todosTitle">人がすること</h2><div id="todosBody"></div></section>
 <div id="wrap">
   <div id="board"></div>
@@ -184,6 +196,8 @@ const openSessions = new Set();
 const openExits = new Set();
 let view = { cards: [], edges: [] };
 let todos = [];
+/** 進みの帯（null の間は「読み込み中」） */
+let progress = null;
 /** セッションの列の「ほか N 件」を開いているか */
 let othersOpen = false;
 
@@ -366,7 +380,42 @@ function renderTodos() {
   body.append(ul);
 }
 
+/** 進みの帯：Epic ごとの閉じた数／全体、今日の Merge、動いているセッションの数（文字は textContent で描く） */
+function renderProgress() {
+  const body = document.getElementById('progressBody');
+  body.replaceChildren();
+  const p = progress;
+  if (!p) { body.append(el('p', 'line', '読み込み中')); return; }
+  if (p.epics === null) body.append(el('p', 'line', 'Epic：読み込み中'));
+  else if (!p.epics.length) body.append(el('p', 'line', '開いている Epic はありません'));
+  else {
+    const ul = el('ul', 'epics');
+    for (const e of p.epics) {
+      const li = el('li');
+      const a = el('a', null, '#' + e.number + ' ' + e.title);
+      a.href = e.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+      const bar = el('span', 'bar');
+      const fill = el('i');
+      fill.style.width = (e.total > 0 ? Math.round((e.closed / e.total) * 100) : 0) + '%';
+      bar.append(fill);
+      li.append(a, bar, el('span', 'count', e.closed + '/' + e.total));
+      ul.append(li);
+    }
+    body.append(ul);
+  }
+  const m = p.mergedToday;
+  if (m === null) body.append(el('p', 'line', '今日の Merge：読み込み中'));
+  else {
+    const line = el('p', 'line', '今日の Merge ');
+    line.append(el('b', null, m.total + (m.truncated ? ' 件以上' : ' 件')), '（App ' + m.app + '・人 ' + m.human + '）');
+    body.append(line);
+  }
+  const r = p.running || { sessions: 0, subagents: 0 };
+  body.append(el('p', 'line', '動いている：セッション ' + r.sessions + '・サブエージェント ' + r.subagents));
+}
+
 function render() {
+  renderProgress();
   renderTodos();
   const board = document.getElementById('board');
   board.replaceChildren();
@@ -471,6 +520,7 @@ function applySnapshot(g) {
   for (const e of g.edges) { if (!edgesByFrom.has(e.from)) edgesByFrom.set(e.from, []); edgesByFrom.get(e.from).push(e); }
   sessions = g.sessions;
   todos = g.todos || [];
+  progress = g.progress || null;
   schedule();
 }
 
@@ -494,6 +544,7 @@ function connect() {
   });
   es.addEventListener('sessions', (m) => { sessions = JSON.parse(m.data).sessions; schedule(); });
   es.addEventListener('todos', (m) => { todos = JSON.parse(m.data).todos; schedule(); });
+  es.addEventListener('progress', (m) => { progress = JSON.parse(m.data).progress; schedule(); });
   es.addEventListener('status', (m) => {
     const bar = document.getElementById('pollStatus');
     const t = statusText(JSON.parse(m.data));
