@@ -6,17 +6,19 @@
  *   2. harness/scripts/agent.ts があり commands/ の下の項目が無い → commands/<名前>.ts と agent-commands.test.ts
  *   3. harness/test 直下に表のパターンに当たらない *.test.ts を足す → harness/test/README.md
  *   4. README の表を生成するディレクトリの直下に足す → そのディレクトリの README（readme.ts と同じ範囲）
+ * 材料（harness/test/README.md のパターン・README の生成の表・agent-commands.test.ts）の無いリポジトリでは、該当の規則を飛ばす（Issue #643）。
  * 一緒に変えるファイルは、files のどれかと同じ文字列か、files の glob に当たれば足りているとみなす。
  */
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import { globToRegExp } from '../lib/scope.ts';
-import { NO_GENERATE_DIRS, namesInTable, readmeFileFor, TARGET_DIRS, TEST_PATTERN_DIR, uncoveredTests } from './readme.ts';
+import { NO_GENERATE_DIRS, hasGeneratedTable, namesInTable, readmeFileFor, TARGET_DIRS, TEST_PATTERN_DIR, uncoveredTests } from './readme.ts';
 
 export interface CompanionRepo {
   exists(relPath: string): boolean;
   testPatterns(): string[];
+  hasGeneratedTable(relPath: string): boolean;
 }
 
 export interface MissingCompanion {
@@ -36,19 +38,21 @@ export function missingCompanions(files: string[], repo: CompanionRepo): Missing
   };
   const added = files.filter((f) => !f.includes('*') && !repo.exists(f));
 
+  const hasCommandsTest = repo.exists(COMMANDS_TEST);
   // 規則1
-  for (const f of added) {
+  for (const f of hasCommandsTest ? added : []) {
     if (/^harness\/scripts\/agent\/commands\/[^/]+\.ts$/.test(f)) add(COMMANDS_TEST, `${f} を足すと agent-commands.test.ts の ADDED_AFTER_SPLIT に足す必要がある`);
   }
   // 規則2
-  if (files.includes('harness/scripts/agent.ts') && !files.some((f) => f.startsWith(COMMANDS_DIR))) {
+  if (hasCommandsTest && files.includes('harness/scripts/agent.ts') && !files.some((f) => f.startsWith(COMMANDS_DIR))) {
     add(COMMAND_EXAMPLE, 'agent.ts は振り分けだけでコマンドを持たない。<名前> は足すコマンドのまとまりの名前にする');
     add(COMMANDS_TEST, 'コマンドを足すと agent-commands.test.ts の ADDED_AFTER_SPLIT に足す必要がある');
   }
   // 規則3
-  for (const f of added) {
+  const patterns = repo.testPatterns();
+  for (const f of patterns.length > 0 ? added : []) {
     const m = /^harness\/test\/([^/]+\.test\.ts)$/.exec(f);
-    if (m && uncoveredTests(repo.testPatterns(), [m[1]!]).length > 0) {
+    if (m && uncoveredTests(patterns, [m[1]!]).length > 0) {
       add(`${TEST_PATTERN_DIR}/README.md`, `${f} のファイル名が harness/test/README.md の表のどのパターンにも当たらない`);
     }
   }
@@ -61,6 +65,7 @@ export function missingCompanions(files: string[], repo: CompanionRepo): Missing
     while (dir !== '' && !repo.exists(dir)) dir = dir.slice(0, Math.max(0, dir.lastIndexOf('/')));
     if (!TARGET_DIRS.includes(dir) || NO_GENERATE_DIRS.includes(dir)) continue;
     const readme = relative('.', readmeFileFor('.', dir)).split(sep).join('/');
+    if (!repo.hasGeneratedTable(readme)) continue;
     add(readme, `${dir}/ に ${name} を足すと README の表に行が要る（node harness/scripts/readme.ts write）`);
   }
   return out;
@@ -72,6 +77,10 @@ export function repoAt(root: string): CompanionRepo {
     testPatterns: () => {
       const readme = join(root, ...TEST_PATTERN_DIR.split('/'), 'README.md');
       return existsSync(readme) ? namesInTable(readFileSync(readme, 'utf8')) : [];
+    },
+    hasGeneratedTable: (p) => {
+      const f = join(root, ...p.split('/'));
+      return existsSync(f) && hasGeneratedTable(readFileSync(f, 'utf8'));
     },
   };
 }
