@@ -14,6 +14,17 @@ export function sessionFromEnv(env: Record<string, string | undefined>): string 
 export const TRANSCRIPT_SESSION_ID = /^[A-Za-z0-9_-]+$/;
 
 /**
+ * 手元の状態のファイル名（stage・watch・loaded）に使う形への読み替え。URL（`https://claude.ai/code/session_…`）は最後の `/` の後ろ、
+ * `cse_` は `session_` に読み替え、URL（http(s)://）でなければそのまま（`../escape` のように `/` を含むだけのものは形に当たらず null）。結果が TRANSCRIPT_SESSION_ID に当たらなければ null（書かない・読まない）。
+ */
+export function sessionFileKey(session: string | null): string | null {
+  if (!session) return null;
+  const last = /^https?:\/\//.test(session) ? session.slice(session.lastIndexOf('/') + 1) : session;
+  const key = last.replace(/^cse_/, 'session_');
+  return TRANSCRIPT_SESSION_ID.test(key) ? key : null;
+}
+
+/**
  * 今のセッションの記録（`~/.claude/projects/<…>/<ID>.jsonl`）を選ぶための ID。付き添いのセッションの
  * AGENT_HARNESS_SESSION が記録のファイル名に使える形のときだけ返す。Routine（CLAUDE_CODE_REMOTE_SESSION_ID）は
  * クラウドで動き、記録の置き場所が同じとは確かめられていないので対象にしない（null）。

@@ -9,7 +9,7 @@ import type { FlowNodeId, FlowStep, FlowStopReason } from './flow.ts';
 import { postClaim, writeClaim, type ClaimIo } from './claim.ts';
 import { claimBlocker, isOwnClaim, type Claim, type ClaimStage, type StoredClaim } from './queue.ts';
 import { PROJECT_COMMAND_DEFAULTS, type ReasonCode } from './config.ts';
-import { TRANSCRIPT_SESSION_ID } from './session.ts';
+import { sessionFileKey } from './session.ts';
 import type { CritiqueRound } from './stage-file.ts';
 import type { BlockingFinding } from './verdict.ts';
 
@@ -127,7 +127,7 @@ function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, po
     case 'plan':
       return {
         allowed: ['node harness/scripts/agent.ts check <計画のファイル>', `${STEP} ${n} --plan <計画のファイル>`],
-        inputs: [`gh issue view ${n} --comments（コラボレーターのコメントだけ）`, 'リポジトリ（触るファイル、参照元、テスト、docs）'],
+        inputs: [`node harness/scripts/agent.ts rest issue-view ${n}（コラボレーターのコメントだけ）`, 'リポジトリ（触るファイル、参照元、テスト、docs）'],
         output: '計画のファイル（docs/formats.md の「計画（agent-plan）」。投稿はまだしない）',
       };
     case 'plan-critique':
@@ -151,7 +151,7 @@ function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, po
           `git push -u origin ${prefix}<短い名前>（force push しない）`,
           `node harness/scripts/agent.ts scope-check ${n}`,
           `node harness/scripts/agent.ts ensure-claim ${n}`,
-          'gh pr create --draft --base <既定ブランチ>',
+          `node harness/scripts/agent.ts rest-create draft-pr ${n} --head ${prefix}<短い名前> --title <題> --body-file <ファイル>`,
         ],
         inputs: [`node harness/scripts/agent.ts show-plan ${n}（計画の files が触ってよいファイル）`, 'Issue の AC と Validation Requirements'],
         output: `Closes #${n} 付きの Draft PR（.github/pull_request_template.md）`,
@@ -199,9 +199,9 @@ export function decideStep(input: StepInput): StepDecision {
   const base = (node: FlowNodeId, pr: number | null) => ({ version: 1 as const, issue: n, pr, node });
   let critique = [...input.critique];
 
-  if (!input.session || !TRANSCRIPT_SESSION_ID.test(input.session)) {
+  if (!input.session || sessionFileKey(input.session) === null) {
     const detail = input.session
-      ? 'このセッションの ID が付き添いのセッションの形ではありません（step は付き添いのセッション用。Routine は queue を使う）'
+      ? 'このセッションの ID がファイル名に使える形に読み替えられません（step は付き添いのセッション用。Routine は queue を使う）'
       : 'このセッションの ID が得られません（SessionStart の hook の AGENT_HARNESS_SESSION が要る）';
     return { result: { ...base('issue', null), kind: 'stop', reason: 'no-session', detail, released: false }, claim: null, release: [], critique };
   }
