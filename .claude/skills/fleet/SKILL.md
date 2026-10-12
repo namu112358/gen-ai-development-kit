@@ -118,13 +118,19 @@ Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の 
 
 1. **Orca の有無を確かめる**：`node harness/scripts/panes.ts config` の `shipMode` が `worker` のとき、`ORCA status --json` と `ORCA skills get orchestration` を走らせる。両方が成功すれば、この節で進める。どちらかが失敗したら、Orca が無い・動かないとして、今の手順（「手順」と「入れ子の方式（orca）」の節。中身は変えない）で進める（戻り先は下の 7）。この分かれ道は、入口の skill（orca-cli・orchestration）の「エラーを報告して止まる」「`ORCA open` で起動する」より優先する。`ORCA open` は試さない。
 2. **Run を作る**：`ORCA orchestration run-create --objective "<テーマか Issue 番号の集合>" --json` で fleet の Run を1つ作り、ship の worker の `worker-start`・`check`・`worker-list` には `--run <fleet の Run ID>` を付ける。hq の Run と分かれるので、hq が数える fleet に ship の worker が混ざらない。
-3. **worker を起こす条件**：`node harness/scripts/agent.ts fleet-status` の「選ぶ」の Issue のうち、次にやることが段階（plan・implement・judge・fix・sync）で、控え（scratchpad の `fleet-ship-workers.json`：Issue 番号・Dispatch ID・worktree・起こしたときの次にやること）に settle していない Dispatch が無い Issue だけを起こす。
+3. **worker を起こす条件**：`node harness/scripts/agent.ts fleet-status` の「選ぶ」の Issue のうち、次にやることが段階（plan・implement・judge・fix・sync）で、控え（scratchpad の `fleet-ship-workers.json`：Issue 番号・Dispatch ID・worktree・起こしたときの次にやること・選んだアカウントの `name`・待つ理由と `resetAt`）に settle していない Dispatch が無い Issue だけを起こす。
    - `worker_done`（人の判断待ち・人の Merge 待ち）で返った Issue は、表の次にやることが控えと変わるまで起こし直さない。
    - 「—」（計画ゲート・判定の受け付け・Merge 経路を待つ）の Issue は起こさない。
    - 同時に動かすのは、表の「同時に動かす ship は <n> まで」の数まで。
-4. **worker を起こす**：Issue ごとに次の順で進める。
+   - アカウントの使用量で `wait` になった Issue（控えに「待つ（アカウントの使用量）」と `resetAt` がある）は、次の読み直し（`worker_done` を受けたとき・`fleet-status` を読み直すとき）と、`resetAt` を過ぎた後の読み直しで、手順4の問い合わせ → 選ぶからやり直す。
+4. **worker を起こす**：起こす回（同じ読み直しで起こす Issue の束）の最初に1回だけ `node harness/scripts/accounts/probe.ts` を流して、使用量の控えを新しくする（結果の `skipped`・`failed` では止めず、選ぶに進む。10 分以内の控えがあるアカウントは呼ばない）。そのあと Issue ごとに、次の順で1つずつ進める（並行に流さない）。
    - `node harness/scripts/agent.ts claim <番号> --manual --stage <次にやることの段階>`（次の `worktree` がこのセッションの宣言を要るため。PR の段階なら `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge|fix|sync`）
    - `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>`（PR があれば、その head のブランチ）
+   - `node harness/scripts/accounts/pick.ts` を流し、標準出力の JSON の `result` で分ける（Issue ごとに順に流す。`launches.json` に起こした数が足され、続けて起こす Issue が同じアカウントに偏らない）。
+     - `picked`：`terminal send` の文を `<prefix>claude --permission-mode auto` にする（`prefix` は出力の `CLAUDE_CONFIG_DIR='<dir>' ` をそのまま前に付ける）。選んだアカウントの `name` を控えの Issue の行に足す。
+     - `default`（対応表が無い・Orca が読めない・候補が無い）、pick が 0 以外で終わった、出力が JSON として読めない：前置き無しの `claude --permission-mode auto` のまま起こす。
+     - `wait`：その Issue は起こさず、端末も作らない。`node harness/scripts/agent.ts release <番号>` で宣言を解除し、控えに「待つ（アカウントの使用量）」と `resetAt` を書く。
+     - `picked` の後に端末の作成・画面の確かめで失敗して起こさなかったときも、`launches.json` の起こした数は残る（そのアカウントが少しの間選ばれにくくなるだけで、直さない）。
    - `ORCA terminal create --worktree path:<worktree の絶対パス> --json` で素のシェルのターミナルを作り、`ORCA terminal send --terminal <handle> --text "claude --permission-mode auto" --enter` で権限モードを明示して Claude を起動する（`--command` に空白を含めて渡さない決まりのため、`terminal send` で送る）。
    - `ORCA terminal read --terminal <handle> --json` で起動した画面を読み、モードの表示が `auto mode` かを確かめる。bypass（`bypass permissions`）だった・auto でない・確かめられないときは、その worker を起こさず、`ORCA terminal close --terminal <handle>` で閉じ、その Issue を進めずに人に返す（hq に起こされた fleet なら hq に `escalation`）。
    - `node harness/scripts/agent.ts release <番号>`（worker が自分のセッションで宣言し直すため）
@@ -149,6 +155,7 @@ Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の 
    - hq に起こされた fleet（前置きがあるとき）：入れ子の方式に戻るだけ。入れ子にできなければ、節「Orca の worker として動くとき」の 2 のとおり理由を hq に `escalation` で送って止める（交互の方式では fleet がファイルを書き換えるため）。
    - ship をサブエージェントとして並べる決まり（交互の方式では ship をサブエージェントにしない・入れ子の方式の本数の上限）は残す。Orca の worker は独立したセッションなので、この決まりには当たらない。
 8. **人がすることの一覧**：手順9の一覧は、各 worker の `worker_done` のレポートをまとめて作る。worker の ship の費用は、記録のディレクトリが worker ごとに分かれるので `node harness/scripts/agent.ts usage` の合計に入らない。一覧の「費用」にこの限界を書く（合計は別の Issue。人の決定 2026-09-30）。
+   - 動いている worker（控えに settle していない Dispatch）が無く、残りの起こす候補が全部 `wait` のときは、一覧に「アカウントの使用量が全部しきい値以上（一番早いリセット：`resetAt`）」と書いて終える（hq に起こされた fleet は `worker_done` のレポートに書く）。
 
 ## Orca の worker として動くとき
 
