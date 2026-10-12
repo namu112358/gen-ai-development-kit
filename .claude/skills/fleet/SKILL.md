@@ -250,6 +250,7 @@ Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始�
 App の計画ゲート・判定の受け付け・自動 Merge・CI を待つ間も、fleet が見る（#199。人の決定 2026-09-30）。
 
 1. **いつ**：選んだ Issue が全部「待つ」（App・CI 待ち）か人の Merge 待ち（`human-merge`・`auto-merge`）になったら、手順9の一覧を出した後も終わらずに、表の下の間隔（`harness.config.json` の `fleet.watch.intervalMinutes`、既定 3 分）ごとに `node harness/scripts/agent.ts fleet-status --watch <番号>...` を読み直す。待ち方は付き添いのセッションの中の道具（Bash の `run_in_background` の until ループ・Monitor など）で、schedule・Actions・クラウドの Routine は使わない。
+   - クラウドの付き添いのセッション（`CLAUDE_CODE_REMOTE` が `true`）では、ship の節「クラウドで PR を出した後（PR のイベントで進める）」で購読した PR の行を、この間隔の読み直しから外す（その行は PR のイベントと30分おきの見回りで進める。#892）。待っている行が全部購読中の PR なら、until ループ・Monitor で待たずにターンを終える（取りこぼしに備える `send_later` の見回りは、上の「schedule・Actions・クラウドの Routine は使わない」の例外として ship の節のとおり使う）。購読していない行（購読できなかった・PR の無い計画ゲート待ちなど）だけ今どおり読み直す。下の 6 の「App が動いていない」の行は、起きたときに読む `fleet-status` で見る。
 2. **交代の行もここで見る**：読み直すたびに、表の下の「このセッションの読み込みは古い」の行も見る（節「ハーネスが更新されたときの交代」）。
 3. **ship を呼び直す**：次にやることが出たら（plan-ok・fix・judge（判定のやり直し）など。`plan-review` の行にship の手順2の `plan-proceed` の確かめが当たったら（段階 implement）も）、または表の下の「Merge 後の見届けが済んでいない」の行（Issue が開いている・`claude/issue-<番号>-` の worktree が残る。見張りの記録に頼らず事実で見分けるので、最初の読み直しでも交代の後の新しい fleet でも出る）が出たら、その Issue の ship を、入れ子の方式の手順1の (a)(b) の段階で新しいサブエージェントとして呼び直す（次にやることは (a)、見届けの行は (b)。Merge の後は Epic #281 の決定どおり、ship が Merge 後の確かめ・worktree の片付け・Close の見届けをする）。
 4. **「Close されていない」の扱い**：このセッションで既に呼び直して ship が「Close されていない（理由）」で返した Issue は、人の判断待ちとして手順9の一覧に載せ、同じ行が出続けても呼び直さない。この印はセッションの中で持ち、見張りの記録には残さない。交代の後の新しい fleet は最初の1回だけ呼び直す。終わり方の「人の判断待ちだけが残った」でもこの Issue を人の判断待ちに数える。
