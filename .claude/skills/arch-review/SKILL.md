@@ -101,4 +101,13 @@ arch-reviewer（[.claude/agents/arch-reviewer.md](../../agents/arch-reviewer.md)
 - `arch-review-record` がダッシュボードの無いことで止まった（記録の JSON を人に示す）、本文がコメントの上限を超えて止まった（下書きの本文を短くして残し直す）
 - `arch-review-adopt` が止まった（ほかの人のセッションが書いた記録で編集が拒否された、番号の範囲外・採用済み・宛先の違い）。Issue やコメントは作った後なので、作った番号を人に示す
 - hook（`.claude/hooks/guard.ts`）が操作を止めた、操作が拒否された（別の方法で試さない）
-- やってはいけないこと：見つけたずれをその場で直す（直すのは作った Issue の ship で）、PR・判定コメントへの投稿、結果を reviewer・risk-agent・review-panel に渡すこと、人が選んでいない Issue の作成やコメントの投稿、`agent:ready` やほかのラベルの付け外し（`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-merge` と `*:exempt` を含む）、Issue 本文の書き換え、Merge
+
+## やってはいけないこと
+
+- 見つけたずれをその場で直すこと（直すのは作った Issue の ship で）
+- PR・判定コメントへの投稿
+- 結果を reviewer・risk-agent・review-panel に渡すこと
+- 人が選んでいない Issue の作成やコメントの投稿
+- ラベルの付け外し（作る Issue にも `agent:ready` を付けない）
+- Issue 本文の書き換え
+- 規則（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md)）の「やってはいけないこと」もそのまま守る
