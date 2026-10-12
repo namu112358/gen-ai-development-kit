@@ -38,6 +38,7 @@ Merge 済みの PR を、人が呼んだときか、付き添いのセッショ�
    - 不安定なテストの一覧（テスト名・回数・実行へのリンク）
    - `notes` の読めなかったもの・打ち切り
 2. 直す Issue の下書きを作る（risk ポリシーの問いの見直し、テストの追加、不安定なテストの修正）。見出しは Issue Form（[.github/ISSUE_TEMPLATE/agent-task.yml](../../../.github/ISSUE_TEMPLATE/agent-task.yml)）に、タイトルは `harness/lib/title.ts` の書式（Conventional Commits）に合わせる。
+   また起きそうなもの（同じ型の見落とし・同じ止まり方）は「また起きそうなので patrol の観測に足す」下書きにしてよい。下書きには足す項目・見分け方・しきい値の案を書く。観測に足す PR では [docs/operations.md の「patrol が知らせる観測の項目」](../../../docs/operations.md)の表に1行足す。
 3. どの下書きを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作る。ラベルは付けない。
 4. 作った Issue を plan に進めるかを AskUserQuestion で聞く（おすすめは「作るだけ」）。進めると選ばれたら ship の skill（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）の手順に従う。
 

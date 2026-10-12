@@ -26,7 +26,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 
 1. `node harness/scripts/patrol.ts previous [--state <path>]` で前回の観測の JSON のパスを読む（何も出なければ初回）。状態のファイルが壊れている・`version` が違うと誤りで終わるので、その回は観測も見直しも動かさずに、理由（状態のファイルのパス。人が直すか消せば次の回から初回として回る）を出して終える。状態のファイルは上書きしない。
 2. `node harness/scripts/observe.ts [--previous <前回の JSON>]` を実行し、最後の行の JSON のパスを得る（`--run-tests` は付けない。遅いテストの節は読めない扱いになり、差は null になる）。失敗したら、その回は見直しを動かさずに理由を出して終える（状態は変えない）。
-3. `node harness/scripts/patrol.ts select <観測の JSON> [--max <n>] [--state <path>]` で今回まわす見直しを決める。出力の JSON は `run`（動かす見直し。動かす順）・`suggest`（人に勧めるだけの見直し）・`skipped`（回さないものと理由）・`reasons`（見直しごとの理由の文）。
+3. `node harness/scripts/patrol.ts select <観測の JSON> [--max <n>] [--state <path>]` で今回まわす見直しを決める。出力の JSON は `run`（動かす見直し。動かす順）・`suggest`（人に勧めるだけの見直し）・`skipped`（回さないものと理由）・`reasons`（見直しごとの理由の文）・`alerts`（運用の健康のうち、しきい値を超えた項目と前回から値が増えた項目。id・題・値・しきい値）・`alertsNote`（知らせが空の理由など）。
 4. `run` の順に、各 skill の「/loop で回すとき」の1回分の処理を行う（`--dry-run` なら動かさない）。
    - arch-review：`arch-review --loop` の回（[arch-review の「/loop で回すとき」](../arch-review/SKILL.md)）。観測は arch-review の回が自分で回すので、patrol の観測の JSON は渡さない。
    - qa-retro：`qa-retro --loop` の回（[qa-retro の「/loop で回すとき」](../qa-retro/SKILL.md)）。
@@ -34,6 +34,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
    - 1つの見直しが失敗・中断しても、残りの見直しは続ける。失敗したものは次の手順で「回した」に数えない。
 5. `node harness/scripts/patrol.ts record <観測の JSON> [--ran <回した見直し>]... [--suggested <勧めた見直し>]... [--state <path>]` で回を記録する（回した見直しの時刻・勧めた見直しの時刻を更新し、観測の JSON を状態の置き場所に写す）。回した見直しが無くても記録する（観測の写しが次の回の `--previous` になる）。`--suggested` は `suggest` に入った見直しがあるときだけ渡す。
 6. 回の要約を文章で出す（PR・Issue には投稿しない）。
+   - 先頭に `alerts`（超えた項目・前回から増えた項目）を出す。`alerts` が空で `alertsNote` があればその旨を出す。知らせるだけで、見直しの skill は動かさない。直すのは各 Issue で行う（項目の一覧と個別の直しの Issue は [docs/operations.md の「patrol が知らせる観測の項目」](../../../docs/operations.md)）
    - 観測の差：節ごとの増えた・消えた件数。差が読めない節はその旨
    - 動かした見直しと、回さなかった見直し（`skipped` と `reasons` の理由）
    - 勧める見直し：`suggest` にあれば、その見直しと理由（人がその skill を呼ぶ）
@@ -56,6 +57,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 - 見直しごとに、上から最初に当たったもの：一度も回していない（勧めていない）→ 選ぶ（`never`）／前回から上限以上 → 選ぶ（`overdue`）／下限未満 → 選ばない（`too-soon`）／対応する節に差がある → 選ぶ（`diff`）／それ以外 → 選ばない（`no-diff`）。
 - 経過は、動かす形なら前回回した時刻（`lastRunAt`）、勧めるだけの形なら前回勧めた時刻（`lastSuggestedAt`）から測る。今は3つとも動かす形（前の状態のファイルで test-prune に `lastSuggestedAt` しか無ければ、次の回は `never` として回す）。
 - 読めない節（null）と、前回の観測が無いとき（初回・写しが消えた）は差なしとして数える。
+- 運用の健康（`opsHealth`）は見直しの選び方に使わない。`alerts` に知らせるだけ。
 - 動かすものが `--max` を超えたら、`never` → `overdue`（超えた時間の長い順）→ `diff`（差の件数の多い順）で上限までにし、残りは `limit` で次の回に回す。
 
 ## 出力
