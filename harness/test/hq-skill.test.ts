@@ -10,6 +10,7 @@ import { frontmatter, readText, section, skillProblems, type SkillSpec } from '.
 const HQ_SKILL = '.claude/skills/hq/SKILL.md';
 const FLEET_SKILL = '.claude/skills/fleet/SKILL.md';
 const AS_WORKER = '## Orca の worker として動くとき';
+const DIRECT = '## ship を直接起こす進め方（`--direct`）';
 const skill = (): string => readText(HQ_SKILL);
 
 /** hq の skill の構造の表 */
@@ -23,6 +24,9 @@ const HQ_SPEC: SkillSpec = {
     'exited', 'unverifiable', '1時間に2回', '人に知らせる', 'agent-harness:hq-restart', '--takeover',
     // プライマリで動く・書き換えない・進んでいない fleet・Orca が無い環境（#287）
     'isMainWorktree', '書き換えない', 'panes.ts fleets --session', 'Orca が無い',
+    // fleet を挟まずに ship を直接起こす進め方（#756）
+    // '--direct <' は入力の書き方（'--direct' だけでは '--direction' に当たる）
+    DIRECT, '--direct <', 'directEpics',
   ],
   parts: [
     { section: '## 手順', order: ['テーマを決めて知らせる', 'worker-start', 'reply', 'Epic が Close'] },
@@ -75,6 +79,8 @@ const HQ_SPEC: SkillSpec = {
         '長く出力の無いタブ', '期限切れの着手宣言', 'session の短い ID', '引き継がなかった宣言',
       ],
     },
+    // 直接の進め方：ship の worker に、質問（ask）と終わりの知らせ（worker_done）を hq に送らせ、実装のモデルの節に従わせる（#756）
+    { section: DIRECT, words: ['ask', 'worker_done', 'hq', '実装のモデル'] },
     // 相談・アイデアを intel に回す（#396）
     {
       section: '## 相談・アイデアを intel に回す',

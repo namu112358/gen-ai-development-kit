@@ -9,6 +9,7 @@
  * - Orca が失敗したら標準エラーに1行書いて終了コード 1。
  * - 区切り（timeout）で戻る前に、hq.compactMinutes 以上経って hq の端末がターンを終えていれば、hq 自身に /compact を送り、縮め終わるのを待つ
  *   （出力に `"compacted":true`。失敗しても見張りは止めない。Issue #737。hq-compact.ts）。
+ * - 直接の ship（#756）の heartbeat も、控えの ships の Dispatch からテーマを引いて控える。
  * - 区切りは起動からの全体の締め切り。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
 import { spawnSync } from 'node:child_process';
@@ -52,7 +53,16 @@ export function themeForHeartbeat(m: CheckMessage, ledger: HqLedger | null, work
   else dispatch = workers?.find((w) => w.agentTerminalHandle === m.from_handle)?.dispatchId ?? null;
   if (!dispatch) return null;
   const fleet = ledger.fleets.find((f) => f.dispatch === dispatch);
-  return fleet && typeof fleet.theme === 'string' && fleet.theme ? fleet.theme : null;
+  if (fleet && typeof fleet.theme === 'string' && fleet.theme) return fleet.theme;
+  // 直接起こした ship（#756）の Dispatch は控えの ships にある（hq-state.ts は知らないキーをそのまま残す）
+  const ships = (ledger as unknown as Record<string, unknown>).ships;
+  if (!Array.isArray(ships)) return null;
+  for (const s of ships) {
+    if (typeof s !== 'object' || s === null) continue;
+    const r = s as Record<string, unknown>;
+    if (r.dispatch === dispatch && typeof r.theme === 'string' && r.theme) return r.theme;
+  }
+  return null;
 }
 
 export function checkArgs(opts: WatchOpts): string[] {
