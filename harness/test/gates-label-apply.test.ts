@@ -16,7 +16,7 @@ import {
 } from '../gates/label-apply.ts';
 import { onIssue } from '../gates/on-issue.ts';
 import { onPullRequest } from '../gates/on-pr.ts';
-import { acceptanceFake, APP, config, ctxFor, FakeGitHub, pr } from './support/gate-fixtures.ts';
+import { acceptanceFake, APP, config, ctxFor, FakeGitHub, mainChecksOk, pr } from './support/gate-fixtures.ts';
 
 const NONE = new Set<string>();
 const issueTarget = (title: string, labels: string[], patch: Partial<LabelTarget> = {}): LabelTarget => ({ kind: 'issue', title, labels, ...patch });
@@ -279,7 +279,7 @@ test('定期実行の入口：ラベルを付けてからダッシュボード�
     .on('GET', /\/issues\?state=open&creator=/, () => [{ number: 1, title: config.dashboardIssueTitle, user: { login: APP }, labels: [] }])
     .on('GET', /\/issues\/1$/, () => ({ body: '' }))
     .on('PATCH', /\/issues\/1$/, () => ({}));
-  await onScheduleWithLabels(ctxFor(fake, 'schedule', {}), new Date('2026-09-27T01:00:00Z'));
+  await onScheduleWithLabels(ctxFor(mainChecksOk(fake), 'schedule', {}), new Date('2026-09-27T01:00:00Z'));
   const w = fake.writes();
   assert.ok(w.indexOf('label+type:feat') >= 0 && w.indexOf('label+type:feat') < w.indexOf('PATCH /repos/o/r/issues/1'), w.join(' '));
   const body = String(fake.calls.find((c) => c.method === 'PATCH')!.body.body);

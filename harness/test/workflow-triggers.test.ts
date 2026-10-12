@@ -1,4 +1,4 @@
-// ワークフローの起動条件（gate.yml の issue_comment の対象、ci.yml の on と concurrency）のテスト
+// ワークフローの起動条件（gate.yml の issue_comment の対象、ci.yml の on と concurrency と mutation の if）のテスト
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -73,25 +73,53 @@ test('gate.yml：issue_comment の項に agent-plan・agent-verdict・agent-deci
   assert.ok(!clause.includes('agent-claim'), `agent-claim が残っています: ${clause}`);
 });
 
-test('ci.yml：on の直下のキーは pull_request だけ（main への push では起動しない）', () => {
+/** jobs の下のジョブ（name）のブロック（コメント・空行を除く） */
+function jobBlock(lines: string[], name: string): string[] {
+  const jobs = topBlock(lines, 'jobs');
+  const jobIndent = Math.min(...jobs.map(indentOf));
+  const start = jobs.findIndex((l) => indentOf(l) === jobIndent && l.trim() === `${name}:`);
+  assert.ok(start >= 0, `jobs に ${name}: がありません`);
+  const out: string[] = [];
+  for (const l of jobs.slice(start + 1)) {
+    if (indentOf(l) <= jobIndent) break;
+    out.push(l);
+  }
+  return out;
+}
+
+test('ci.yml：on の直下のキーは pull_request と push で、push は main だけ（Merge 後の main にも ci を付ける。#802）', () => {
   const block = topBlock(read('ci.yml'), 'on');
   assert.ok(block.length > 0, 'on: の下が空です');
   const childIndent = Math.min(...block.map(indentOf));
   const keys = block.filter((l) => indentOf(l) === childIndent).map((l) => l.trim().replace(/:.*$/, ''));
-  assert.deepEqual(keys, ['pull_request']);
+  assert.deepEqual([...keys].sort(), ['pull_request', 'push']);
+  const at = block.findIndex((l) => indentOf(l) === childIndent && l.trim().startsWith('push:'));
+  const push: string[] = [];
+  for (const l of block.slice(at + 1)) {
+    if (indentOf(l) <= childIndent) break;
+    push.push(l.trim());
+  }
+  const branches = push.join(' ').replace(/\s+/g, ' ');
+  assert.ok(/branches: (\[ ?main ?\]|- main)$/.test(branches), `push は branches: [main] だけにします: ${branches}`);
 });
 
-test('ci.yml：concurrency は PR 番号のグループで、古い実行を取り消す', () => {
+test('ci.yml：concurrency は PR 番号か sha のグループで、古い実行を取り消す（main の push どうしは取り消し合わない）', () => {
   const block = topBlock(read('ci.yml'), 'concurrency');
   const group = block.find((l) => /^\s+group:/.test(l));
   assert.ok(group, 'concurrency に group がありません');
   assert.ok(group.includes('github.event.pull_request.number'), `group に PR 番号がありません: ${group.trim()}`);
+  assert.ok(group.includes('github.sha'), `group に sha がありません: ${group.trim()}`);
   const cancel = block.find((l) => /^\s+cancel-in-progress:/.test(l));
   assert.ok(cancel, 'concurrency に cancel-in-progress がありません');
   assert.equal(cancel.trim().replace(/\s+#.*$/, ''), 'cancel-in-progress: true');
 });
 
-test('ci.yml：コメント行を除いて github.event_name を使わない（pull_request だけで起動するので分岐が要らない）', () => {
-  const found = read('ci.yml').filter((l) => !isBlankOrComment(l) && l.includes('github.event_name'));
-  assert.deepEqual(found, []);
+test('ci.yml：コメント行を除いて github.event_name を使うのは mutation の if だけ（main の push では mutation を動かさない）', () => {
+  const lines = read('ci.yml');
+  const found = lines.filter((l) => !isBlankOrComment(l) && l.includes('github.event_name')).map((l) => l.trim());
+  assert.deepEqual(found, ["if: github.event_name == 'pull_request'"]);
+  const mutation = jobBlock(lines, 'mutation');
+  const jobIf = mutation.filter((l) => indentOf(l) === Math.min(...mutation.map(indentOf)) && l.trim().startsWith('if:'));
+  assert.deepEqual(jobIf.map((l) => l.trim()), ["if: github.event_name == 'pull_request'"]);
+  assert.ok(!jobBlock(lines, 'ci').some((l) => l.includes('github.event_name')), 'ci ジョブは main の push でも動かします');
 });
