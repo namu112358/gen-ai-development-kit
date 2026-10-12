@@ -33,6 +33,7 @@
     "harness/scripts/agent/commands/arch-review.ts",
     "harness/scripts/agent/commands/qa-retro.ts",
     "harness/scripts/agent/commands/patrol-issue.ts",
+    "harness/scripts/agent/commands/patrol-supply.ts",
     ".claude/skills/arch-review/**",
     ".claude/skills/qa-retro/**",
     ".claude/skills/test-prune/**",
