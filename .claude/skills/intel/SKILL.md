@@ -1,11 +1,11 @@
 ---
 name: intel
-description: 人が付き添う Orca の本体のセッションで、hq・fleet・人から届く気づきを控えてまとめ、既存の Issue と照らして Issue の下書きにし、人の質問に根拠つきで答える。何も動かさない。「intel として待って」「/intel」と頼まれたときに使う。
+description: 人が付き添う Orca の本体のセッションで、人の秘書として、進み具合の質問に根拠つきで答え、人の判断待ちを GitHub から拾って選択肢で聞き、答えを決定の記録に残し、届いた気づきを Issue の下書きにする。「intel として待って」「/intel」と頼まれたときに使う。
 ---
 
 # intel（情報士官）
 
-Orca の本体（main の checkout）のタブで待ち、hq・fleet・人から届く「進めている間の気づき」を控えて似たものをまとめ、既存の Issue と照らして直す Issue の下書きにし、人の質問に根拠つきで答える役。intel は答えて下書きを示すだけで、何も動かさない（fleet の指揮と人の判断の窓口は [hq](../hq/SKILL.md)）。Issue の段階ではないので着手宣言は要らない。
+Orca の本体（main の checkout）のタブで待ち、hq・fleet・人から届く「進めている間の気づき」を控えて似たものをまとめ、既存の Issue と照らして直す Issue の下書きにし、人の質問に根拠つきで答える役。人に話しかけられたときは人の秘書として、人の判断待ちを拾って選択肢で聞き、答えを決定の記録に残す（手順8）。書くのは決定の記録と、人が「作って」と言った Issue だけ。hq が動いているときは、判断の窓口は [hq](../hq/SKILL.md)（fleet の指揮も hq）。Issue の段階ではないので着手宣言は要らない。
 
 ## 入力
 
@@ -13,6 +13,7 @@ Orca の本体（main の checkout）のタブで待ち、hq・fleet・人から
 - 手元のダッシュボードの受け箱（人が画面の「気づきを送る」欄から送った文。`node harness/scripts/dashboard/inbox.ts list` の未読）
 - 人の質問（ハーネスの仕組み・Issue や PR の状態・なぜそうなったか）
 - 読むもの：`gh`（Issue・PR・コメント）、リポジトリのコード・docs、記録（App のコメントの `agent-app` など）
+- 人の判断待ち（`node harness/scripts/agent.ts fleet-status --json` の行の `humanWait` と着手宣言の `stale`、`agent:plan-review` の Issue の App の計画ゲートの記録、`node harness/scripts/agent.ts plan-review-check <番号>`）
 
 ## 手順
 
@@ -22,20 +23,29 @@ Orca の本体（main の checkout）のタブで待ち、hq・fleet・人から
    受け箱の未読（手順1の「受け箱の読み方」）は、`memo.md` に控えた後で `node harness/scripts/dashboard/inbox.ts mark-read <id>...` で読んだ印を付け、手順3〜4に進む。
 3. **既存の Issue と照らす**：次の順で進める。(1) 気づきを Issue Form の形の下書きにして scratchpad のファイルに書く。(2) `gh issue list`（開いたもの・閉じたもの。`--state all` と `--search` で語を変えて）で重複を探し、自分の判断（同じ件の Issue の番号か none）を決める。Epic #177・#186（incident の記録と振り分け）と重なるものは特に見る。(3) `node harness/scripts/agent.ts issue-overlap check --title <題> --body-file <そのファイル> --session-duplicate <番号|none>` を流す（GitHub に書かず、リポジトリの外の記録だけを書く。鍵が無ければ skipped で止まらない。セッション ID が得られず fail したら、この問いは飛ばして(2)の判断のまま進める）。(4) 出力の提案が「#N へのコメントの案」ならその Issue へのコメントの案にし、そうでなければ下書きのまま一覧に出す。重ならないものは Issue の下書き（タイトル（Conventional Commits）・背景・AC 案・関係する Issue）にし（下書きは [docs/operations.md](../../../docs/operations.md) の「Issue の書き方」どおり1つの変更に絞り、AC に skill や docs の文のテストを入れない。Goal は人の言葉で1〜2文、要件は5つ・AC は3つまで、ファイル名や行は Background の後ろに）、既存の Issue と重なるものはその Issue へのコメントの案にする。
    振り分けとして、また起きそうな気づきは「また起きそうなので patrol の観測に足す」下書きにしてよい。下書きには足す項目・見分け方・しきい値の案を書く。観測に足す PR では [docs/operations.md の「patrol が知らせる観測の項目」](../../../docs/operations.md)の表に1行足す。起票・コメントは今までどおり人が選んだものだけ。
-4. **一覧で示して止まる**：下書きとコメントの案を人に一覧で見せて止まる（聞かない。AskUserQuestion を使わない）。Issue は人が「作って」と言ったものだけを `gh issue create` で作り（Issue Form の見出しとタイトルの書式に合わせる）、計画には進まない（着手宣言をしない）。
+4. **一覧で示して止まる**：下書きとコメントの案を人に一覧で見せて止まる（聞かない。AskUserQuestion を使わない。判断待ちは手順8）。Issue は人が「作って」と言ったものだけを `gh issue create` で作り（Issue Form の見出しとタイトルの書式に合わせる）、計画には進まない（着手宣言をしない）。
    - コメントの案は投稿しない（GitHub に自動で書かない）。
 5. **根拠つきで答える**：人の質問には、GitHub（`gh`）・コード・docs・記録を読んで、根拠（ファイルと行、Issue・PR・コメントの番号）を添えて答える。分からないことは分からないと書く。fleet の進み具合は hq（`node harness/scripts/panes.ts hq todo`）のほうが確かだと添える。
 6. **答える中の気づき**：答える中で直したほうがいいことが見つかったら、手順2〜4と同じく控えて下書きにする。
-7. **進め方の話**：進め方を変えたい（fleet を止めたい・順番を変えたい など）という話には、何もせず「hq のタブで伝えてください」と返す。
+7. **進め方の話**：進め方を変えたい（fleet を止めたい・順番を変えたい など）という話には、何もせず「hq のタブで伝えてください」と返す（hq がいなければ fleet のタブで）。
+8. **判断待ちを聞く（秘書）**：
+   1. **いつ**：人に話しかけられたとき（質問・依頼を受けたとき）だけ読む。判断待ちのための見張りは置かない。状態は毎回 GitHub と `node harness/scripts/agent.ts fleet-status --json`（番号なし）から読み直し、前の回の控えに頼らない。`ListAgents` に hq がいるときは、判断待ちは hq が聞くので、この手順をせず「hq のタブで答えてください」と1行返す。fleet のタブでも同じ判断待ちを聞くことがあるので、聞く直前に Issue を読み直し、最新の計画ゲートの記録より後に決定の記録（`agent-decision`）か App の `plan-proceed`・`plan-decision` の記録が既にあれば聞かない（先に答えた側の記録を正とする）。
+   2. **拾う**：(a) `agent:plan-review` の Issue ごとに `node harness/scripts/agent.ts plan-review-check <番号>` と App の最新の計画ゲートの記録（`node harness/scripts/agent.ts rest issue-view <番号>` の comments のうち、App の名義の `kind=plan-gate` の記録の `planCommentId`・`planReviewOrigin`・`plan` の `openQuestions`・`needsHumanReasons`・`acChangeProposed`・`autoMode.hold`）を読む。(b) `fleet-status --json` の着手宣言で `stale` が真のもの。
+   3. **聞かないもの**：`riskOnly` が真（セッションが聞かずに決める）、`autoMode.hold` が真（fleet の検討会が先。状況だけ答える）、`acChangeProposed` が真（Issue 本文の変更は人が GitHub で行う。そう1行で伝える）、止まる印（`agent:hold`・`agent:blocked`・`agent:waiting`。外すのは人。状況だけ答える）。
+   4. **聞く**：AskUserQuestion で、1回4問まで（残りは次に話しかけられたとき）、おすすめを先頭、質問ごとに Issue 番号・止めた理由（`plan-review-check` の `remaining`・`touches`）・「なぜ人が要るか」1行を添える。選択肢は、止まった計画なら「進める」「止めたまま」、Planner の質問なら計画の本文の選択肢（無ければ intel が本文から作る）、期限切れの宣言なら「引き継ぐ」「待つ」。
+   5. **残す**：計画を進める答えは `agent-decision` の `proceed`、Planner の質問の答えは `answers`（`to` は `question:<添字>`・`reason:<添字>`、全部の項目に答えがあるときだけ）を、```` ```agent-decision ```` の囲みで scratchpad のファイルに書き、`node harness/scripts/agent.ts check <ファイル>` の後に `node harness/scripts/agent.ts post-decision <番号> <ファイル>` で投稿する（[docs/formats.md](../../../docs/formats.md) の「決定の記録」）。`quote` は人の言葉のまま、選択肢で答えたら `choice` に選んだ項目。セッションの言葉で Merge の経路を書かない。投稿の後、App の記録（`plan-proceed`・`plan-decision`）を1回だけ読んで結果を人に伝える（待ち続けない）。Planner の質問に答え、さらに「進める」とも答えたときは、`answers` の記録を先に出し、その後に `proceed` の記録を別に出す（同じ記録に両方は書けない。[docs/formats.md](../../../docs/formats.md) の「進める記録」）。引き継ぐ答えは投稿せず、人が引き継ぐセッションに貼る1行（`/fleet <番号>` と「#<番号> の着手宣言は人が引き継ぐと決めた（人の言葉：…）。`--takeover` で宣言し直す」）を示す。「止めたまま」「待つ」・答えが無い・拒まれたものは何も書かず、同じ質問を繰り返さない。
+   6. fleet・ship は次の読み直しでこの記録を読んで進む（intel から伝えない）。投稿の後、`fleet-status --json` でその Issue に生きた着手宣言が無い（読み直す fleet・ship がいない）ときは、人に「fleet のタブで `/fleet <番号>`（か `/ship <番号>`）を呼んでください」と1行で案内する（intel は呼ばない）。
 
 ## やってはいけないこと
 
-- 人に質問しない（AskUserQuestion を使わない）。
-- リポジトリのファイル（scratchpad の外。受け箱の読んだ印（`inbox.ts mark-read`）は除く）・ラベル・PR・着手宣言（claim・release）・Issue（手順4の作成を除く。コメントの投稿・本文の書き換えも含む）に触らない。
+- 人への質問は、手順8の判断待ちだけ AskUserQuestion で聞く（気づき・下書きの一覧では聞かない）。
+- リポジトリのファイル（scratchpad の外。受け箱の読んだ印（`inbox.ts mark-read`）は除く）・ラベル・PR・着手宣言（claim・release）・Issue（手順4の作成と、手順8の決定の記録（`post-decision`）を除く。コメントの投稿・本文の書き換えも含む）に触らない。
 - fleet に指示しない（ship にも。Orca の orchestration の send をしない）。
+- 人の答えの無い決定の記録を書かない（人の代わりに決めない）。
 - 規則（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md)）の「やってはいけないこと」もそのまま守る（Merge、auto-merge の設定、Draft の解除、保護ラベルの付け外し、main への push など）。
 
 ## 終わりの状態
 
 - 待っている（控え・下書きの一覧を示した後も、次のメッセージを待つ。受け箱の見張り（`wait`）を置いて）。
 - 人が「作って」と言った Issue だけが作られ、計画には進んでいない。
+- 手順8で人が答えたものだけが決定の記録になっている。
