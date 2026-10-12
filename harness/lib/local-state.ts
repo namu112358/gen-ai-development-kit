@@ -8,7 +8,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { TRANSCRIPT_SESSION_ID } from './session.ts';
+import { sessionFileKey } from './session.ts';
 
 /** git の共通ディレクトリ（worktree からも本体と同じ）。git の外・取れなければ null */
 export function gitCommonDir(cwd: string = process.cwd()): string | null {
@@ -24,10 +24,11 @@ export function harnessStateDir(commonDir: string): string {
 
 export type SessionFileKind = 'loaded' | 'watch' | 'stage';
 
-/** セッションごとの記録のパス。ID が記録のファイル名に使える形（TRANSCRIPT_SESSION_ID）でなければ null（書かない・読まない） */
+/** セッションごとの記録のパス。ID は sessionFileKey でファイル名に読み替える（URL は最後の部分、cse_ は session_）。読み替えても TRANSCRIPT_SESSION_ID の形でなければ null（書かない・読まない） */
 export function sessionFilePath(commonDir: string, kind: SessionFileKind, session: string | null): string | null {
-  if (!session || !TRANSCRIPT_SESSION_ID.test(session)) return null;
-  return join(harnessStateDir(commonDir), kind, `${session}.json`);
+  const key = sessionFileKey(session);
+  if (key === null) return null;
+  return join(harnessStateDir(commonDir), kind, `${key}.json`);
 }
 
 export interface LocalStateIo {

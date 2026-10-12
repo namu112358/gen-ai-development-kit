@@ -45,10 +45,32 @@ test('no-session：セッションの ID が無い → stop no-session（宣言�
   expectStop(d, 'no-session');
 });
 
-test('no-session：ID の形が違う（クラウドの URL）→ stop no-session、その ID の宣言があっても解除しない', () => {
+test('no-session：ID の形が違う（パスを抜ける ID・末尾が / の URL・形の違う最後の部分）→ stop no-session、その ID の宣言があっても宣言も解除もしない', () => {
+  for (const bad of ['../escape', '', 'https://claude.ai/code/', 'https://claude.ai/code/session_x?y']) {
+    const d = decideStep(stepInput(fleetIssue(planOkFacts({ claim: manual(bad, 'implement') })), { session: bad }));
+    expectStop(d, 'no-session');
+  }
+});
+
+// ---- クラウドの URL の ID（Issue #708） ----
+
+test('クラウドの URL の ID → no-session で止まらずにノードを返し、宣言は URL のまま（計画なし → plan、計画ゲート通過 → implement、同じ段階の自分の宣言があれば宣言しない）', () => {
   const cloud = 'https://claude.ai/code/session_x';
-  const d = decideStep(stepInput(fleetIssue(planOkFacts({ claim: manual(cloud, 'implement') })), { session: cloud }));
-  expectStop(d, 'no-session');
+  const cases: [string, ReturnType<typeof fleetIssue>, string, string][] = [
+    ['計画なし', fleetIssue(issueFacts()), 'plan', 'plan'],
+    ['計画ゲート通過', fleetIssue(planOkFacts()), 'implement', 'implement'],
+  ];
+  for (const [label, issue, node, stage] of cases) {
+    const d = decideStep(stepInput(issue, { session: cloud }));
+    assert.equal(d.result.kind, 'node', `${label}: ${JSON.stringify(d.result)}`);
+    assert.equal(d.result.node, node, label);
+    assert.deepEqual(d.claim, { target: N, stage }, `${label}: 宣言する`);
+    assert.deepEqual(d.release, [], label);
+  }
+  const own = decideStep(stepInput(fleetIssue(planOkFacts({ claim: manual(cloud, 'implement') })), { session: cloud }));
+  assert.equal(own.result.kind, 'node', JSON.stringify(own.result));
+  assert.equal(own.result.node, 'implement');
+  assert.equal(own.claim, null, 'その URL の自分の宣言が同じ段階なら宣言し直さない');
 });
 
 // ---- 止まる印・Epic・依存 ----

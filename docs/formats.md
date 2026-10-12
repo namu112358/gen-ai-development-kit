@@ -195,7 +195,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 | 理由 | いつ | 宣言 |
 | --- | --- | --- |
-| `no-session` | このセッションの ID が無いか、付き添いのセッションの形（英数字と `-` `_`）でない（Routine は `queue` を使う） | 書き込まない |
+| `no-session` | このセッションの ID が無いか、ファイル名に読み替えても英数字と `-` `_` の形にならない（URL の ID は最後の部分に、`cse_` は `session_` に読み替えるので止まらない。Routine は `queue` を使う） | 書き込まない |
 | `hold`・`blocked`・`waiting`・`epic`・`dependency` | Issue・PR の止まる印、Epic、未解決の依存 | 解除する |
 | `fix-limit` | PR が `agent:blocked` で、App・Claude の最新の理由コードが `fix-limit` | 解除する |
 | `plan-review` | 計画ゲートで人の判断待ち（`--proceed` が無い） | 解除する |
@@ -215,7 +215,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 ### 段階のファイル
 
-`step` は結果を、git の共通ディレクトリ（`git rev-parse --path-format=absolute --git-common-dir`。worktree からも同じ）の下の `agent-harness/stage/<セッションの ID>.json` に毎回書き直す（`harness/lib/stage-file.ts`。commit されない）。段階に合わない操作を止める hook（別 Issue）がこれを読む。
+`step` は結果を、git の共通ディレクトリ（`git rev-parse --path-format=absolute --git-common-dir`。worktree からも同じ）の下の `agent-harness/stage/<セッションの ID>.json`（URL の ID は最後の部分、`cse_` は `session_` に読み替えた名前。`harness/lib/session.ts` の `sessionFileKey`。ファイルの `session` も同じ名前）に毎回書き直す（`harness/lib/stage-file.ts`。commit されない）。段階に合わない操作を止める hook（別 Issue）がこれを読む。
 
 ```json
 { "version": 1, "session": "3f2a9c1e-…", "at": "2026-09-30T12:00:00.000Z", "issue": 306, "pr": null, "node": "implement", "kind": "node",
@@ -227,7 +227,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 ### 読み込みの記録
 
-付き添いのセッションが始めたときに読み込んだハーネスのファイル（`CLAUDE.md`・`harness/CLAUDE.harness.md`・`.claude/agents/`・`.claude/skills/`・`.claude/settings.json`）の版を、SessionStart の hook（`.claude/hooks/session-env.ts`）が git の共通ディレクトリの下の `agent-harness/loaded/<セッションの ID>.json` に書く（`harness/lib/harness-drift.ts`。#199）。`CLAUDE_PROJECT_DIR` があるときだけ書き、同じ ID の記録が既にあれば書かない（resume・compact で上書きしない）。
+付き添いのセッションが始めたときに読み込んだハーネスのファイル（`CLAUDE.md`・`harness/CLAUDE.harness.md`・`.claude/agents/`・`.claude/skills/`・`.claude/settings.json`）の版を、SessionStart の hook（`.claude/hooks/session-env.ts`）が git の共通ディレクトリの下の `agent-harness/loaded/<セッションの ID>.json`（名前の読み替えは段階のファイルと同じ）に書く（`harness/lib/harness-drift.ts`。#199）。`CLAUDE_PROJECT_DIR` があるときだけ書き、同じ ID の記録が既にあれば書かない（resume・compact で上書きしない）。
 
 ```json
 { "version": 1, "session": "3f2a9c1e-…", "at": "2026-09-30T12:00:00.000Z", "source": "startup", "head": "8339a47…",
@@ -239,7 +239,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 ### 見張りの記録
 
-fleet の待つ間の読み直し（`agent.ts fleet-status --watch`）が、git の共通ディレクトリの下の `agent-harness/watch/<セッションの ID>.json` に書く（`harness/lib/fleet-watch.ts`。#199）。App を待つ段階（`plan-gate`・`auto-merge`）の行ごとに、その状態を最初に見た時刻と、知らせ済みかを持つ。
+fleet の待つ間の読み直し（`agent.ts fleet-status --watch`）が、git の共通ディレクトリの下の `agent-harness/watch/<セッションの ID>.json`（名前の読み替えは段階のファイルと同じ。URL の ID なら `watch/session_….json`）に書く（`harness/lib/fleet-watch.ts`。#199）。App を待つ段階（`plan-gate`・`auto-merge`）の行ごとに、その状態を最初に見た時刻と、知らせ済みかを持つ。
 
 ```json
 { "version": 1, "session": "3f2a9c1e-…", "entries": { "199:-:plan-gate": { "since": "2026-09-30T12:00:00.000Z", "notified": false } } }
