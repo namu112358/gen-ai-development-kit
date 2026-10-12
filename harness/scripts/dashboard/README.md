@@ -48,6 +48,19 @@ npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-o
 - セッション記録：`fs.watch` で変化を拾う（2秒ごとにも見直す）。
 - ブラウザには Server-Sent Events（`/events`）で、接続時に全体、その後は変わったタスクだけを送る。
 
+## まとめ（digest.ts）
+
+```sh
+node harness/scripts/dashboard/digest.ts show [--no-mark]
+```
+
+前回のまとめからの動きと、今の人がすることを短い Markdown にして標準出力に出す（ブラウザは開かない）。見張りと intel の手順（#854）がこれを呼ぶ。
+
+- **中身**：1行目が結論（前回の時刻、Merge の数と App・人の内訳、閉じた Issue と Epic の数、人がすることの数と群ごとの内訳）。続けて「人がすること」を人の Merge 待ち → 計画ゲートで止まった Issue → 止まる印 → 止まっていそうな宣言 の順に3つまで出し、残りは件数とダッシュボードの案内の1行にする。「進んだこと」には Merge した PR（5件まで。残りは件数）・閉じた Epic・閉じた Issue の件数を出す。動きも人がすることも無ければ結論の1行だけ。`priority:*` の不足は出さない。
+- **前回の時刻**：git の共通ディレクトリの下の `agent-harness/digest/state.json`（`{ "version": 1, "lastDigestAt": "<ISO>" }`）。無い・壊れている・今より後のときは24時間前。`show` は本文を出した後に今の時刻を書き、`--no-mark` では書かない。
+- **材料**：開いた Issue と PR は `DashboardData.loadAll` と `buildGraph`（手元のセッションは渡さない）の `todos` と `tasks`。Merge と閉じた Issue は GraphQL の問い合わせ1回（検索は前回の UTC の日付の前の日から広めに読み、時刻での絞り込みは組み立てで行う。100件を超えれば「N 件以上」）。
+- **止まっていそうな宣言**：ダッシュボードの「停滞」と同じ判断（手動の着手宣言が `humanClaimStaleHours` を超えた）。止まる印・依存・衝突のあるカードの古い宣言は、先にその状態で決まるので、この群には出ない（止まる印の Issue は止まる印の群に出る）。
+
 ## 見えないもの
 
 - ほかの PC やクラウドのセッションの細かい動き（着手宣言の段階とセッションの短い形まで）。
@@ -57,6 +70,7 @@ npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-o
 
 - `127.0.0.1` だけで待ち受け、`Host` が `127.0.0.1:<port>` / `localhost:<port>` でない要求は 403（DNS rebinding で非公開リポジトリの状態を読まれないように）。
 - GitHub からの読み取りは `ReadOnlyTransport` を通し、GET と mutation を含まない GraphQL のほかは送らない。書く経路は `CommentOnlyTransport`（`decision.ts`）で、`POST /repos/{repo}/issues/{n}/comments` だけを送り、ほかは送らない。トークンはブラウザに送らない。
+- `digest.ts` も GitHub からの読み取りを `ReadOnlyTransport` に通し、GitHub には書かない（書くのは前回の時刻の控えのファイルだけ）。
 - タイトルなど外から入る文字は `textContent` で描く。
 - 書く入口は `POST /notes` と `POST /decisions`。どちらも同じ確かめで、`Host`・`Origin`（`http://127.0.0.1:<port>` か `http://localhost:<port>` に完全に一致）・起動ごとの合言葉（`x-dashboard-token`。起動のたびに作り、`GET /` で返すページの meta に埋めて配る。ログには出さない）の順で確かめ、合わなければ 403 で何も書かない。続けて `content-type` が `application/json`（違えば 415）、本文は 16 KiB まで（超えれば 413）、`text` は前後の空白を除いて 1〜4000 文字（違えば 400）。`/notes` の書く先はリポジトリの外の受け箱だけ。`/decisions` は上の「人がすることの答え方」の投稿だけで、ラベル・Issue の本文・Merge には触れない。
 
@@ -73,6 +87,7 @@ npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-o
 | `browser.ts` | 起動したダッシュボードの URL を既定のブラウザで開く（OS ごとのコマンドの選び方は純粋関数） |
 | `graph.ts` | facts とセッションから列・タスク・辺を組む純粋関数と、前後の差分 |
 | `decision.ts` | 答える欄の材料・決定の記録の組み立て・投稿の前の読み直し・コメントの POST だけを送る Transport・`POST /decisions` の受け皿 |
+| `digest.ts` | 前回のまとめからの Merge・閉じた Issue と Epic・人がすること3つまでを組む純粋関数と、まとめを標準出力に出す `show`（前回の時刻の控えつき。GitHub には書かない） |
 | `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し（まとめた GraphQL の問い合わせでの先読み） |
 | `inbox.ts` | 気づきの受け箱（git の共通ディレクトリの下）の読み書きと、intel が使う CLI（list・mark-read・wait） |
 | `rate-limit.ts` | API の上限の残りを応答から読み、下限を切ったらリセットまで送らない Transport と fetch の包み |
