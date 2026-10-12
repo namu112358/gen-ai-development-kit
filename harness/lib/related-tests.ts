@@ -101,7 +101,8 @@ export function changedTestPlan(changed: string[], sources: Map<string, string>,
   const perFile = new Map<string, string[]>();
   for (const f of code) {
     if (TEST_FILE.test(f)) {
-      tests.add(f);
+      // 削除されたテストは sources に無いので流さない
+      if (sources.has(f)) tests.add(f);
       continue;
     }
     if (!sources.has(f)) return { mode: 'all', reason: `ファイルが読めない（${f}）`, changed };
@@ -110,6 +111,7 @@ export function changedTestPlan(changed: string[], sources: Map<string, string>,
     perFile.set(f, related);
     for (const t of related) tests.add(t);
   }
+  if (tests.size === 0) return { mode: 'all', reason: '流すテストが無い（削除したテストだけ）', changed };
   const list = [...tests].sort();
   if (list.length > MAX_LISTED_TESTS) return { mode: 'all', reason: `関係するテストが ${MAX_LISTED_TESTS} 件を超える`, changed };
   return { mode: 'subset', tests: list, changed, perFile };

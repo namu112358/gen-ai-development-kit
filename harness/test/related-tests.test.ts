@@ -42,6 +42,18 @@ test('テストファイル自身の変更はそのまま一覧に入り、コ�
   );
 });
 
+test('削除されたテスト（sources に無い）は一覧に入れず、残るテストだけ流す', () => {
+  assert.deepEqual(
+    subsetTests(changedTestPlan(['harness/test/gone.test.ts', 'harness/test/bar.test.ts'], sources, testFiles)),
+    ['harness/test/bar.test.ts'],
+  );
+});
+
+test('削除されたテストだけの変更は全体に倒す', () => {
+  const plan = changedTestPlan(['harness/test/gone.test.ts'], sources, testFiles);
+  assert.equal(plan.mode, 'all');
+});
+
 test('コード以外（.md など）は無視し、コードの変更と一緒なら絞る', () => {
   const plan = changedTestPlan(['docs/x.md', 'harness/lib/bar.ts'], sources, testFiles);
   assert.deepEqual(subsetTests(plan), ['harness/test/bar.test.ts']);
