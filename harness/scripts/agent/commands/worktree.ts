@@ -11,7 +11,7 @@ import { type AgentCommand, type CommandContext, config, ensureOwnClaim } from '
  *                                                           node_modules が無ければ設定の取り込みのコマンド（既定 npm ci）も行う（npm の出力は標準エラー。標準出力の最終行がパス）。
  *                                                           claude/issue-<番号>- のブランチなら、先にこのセッションの着手宣言
  *                                                           （そのブランチの開いた PR があれば PR の宣言、無ければ Issue の宣言）を確かめる。
- *                                                           定期 Routine は --routine を付けて確かめない（Routine の環境には gh が無い）
+ *                                                           定期 Routine は --routine を付けて確かめない（Routine の環境では gh api の REST は通るが、GraphQL は 403）
  *   node harness/scripts/agent.ts worktree-remove <ブランチ|SHA>           worktree を削除
  *
  * ref（ブランチか SHA）は先頭に書き、フラグはその後ろに書く。ref が無い・`-` で始まるときは、着手宣言の確かめより前に
