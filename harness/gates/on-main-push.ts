@@ -6,13 +6,21 @@ import type { StackLinkRecord } from './plan-link.ts';
 import { ensureDashboard } from './stale.ts';
 
 /**
- * main に push されたときの処理。
+ * 既定ブランチに push されたときの処理。
+ * - イベントの ref と repository.default_branch が両方あり、ref が既定ブランチでなければ、API を呼ばずに戻る（harness.config.json の defaultBranch では戻らない）
  * - 自動 Merge された PR の revert を検知したら自動 Merge モードを切る（人が戻すまで再開しない）
  * - Agent PR を main に追従させる（差分が同じなら判定は引き継がれる。衝突したものは Routine が解消する）。
  *   判定中（着手宣言の段階が judge）の PR は判定の後まで待つ（auto-merge の PR は除く）
  * - Stacked PR の層が Merge されたら、App の stack-link の記録の Issue を閉じる（層の Closes は GitHub が閉じない見込みのため）
+ * - 最後に、harness.config.json の defaultBranch が未設定か GitHub の既定ブランチと違えば、両方の値を書いたエラーで失敗する（上の処理は先に済ませる）
  */
 export async function onMainPush(ctx: GateContext): Promise<void> {
+  const ref = ctx.event.ref;
+  const eventDefault = ctx.event.repository?.default_branch;
+  if (typeof ref === 'string' && ref !== '' && typeof eventDefault === 'string' && eventDefault !== '' && ref !== `refs/heads/${eventDefault}`) {
+    ctx.log(`既定ブランチ（${eventDefault}）以外への push（${ref}）なので何もしません`);
+    return;
+  }
   const commits = (ctx.event.commits ?? []) as { id: string; message: string }[];
   const reverted = new Set<number>();
   for (const c of commits) {
@@ -30,6 +38,16 @@ export async function onMainPush(ctx: GateContext): Promise<void> {
   if (autoMerged.length > 0) await stopAutoMerge(ctx, autoMerged);
   await updateWaitingBranches(ctx);
   await closeStackedIssues(ctx, commits);
+  const problem = defaultBranchProblem(ctx.config.defaultBranch, eventDefault);
+  if (problem) throw new Error(problem);
+}
+
+/** harness.config.json の defaultBranch とイベントの repository.default_branch が合っていなければ、両方の値を書いた文。合っていれば null */
+export function defaultBranchProblem(configured: string | undefined, eventDefault: string | undefined): string | null {
+  const a = configured ? configured : '未設定';
+  const b = eventDefault ? eventDefault : '不明';
+  if (configured && eventDefault && configured === eventDefault) return null;
+  return `harness.config.json の defaultBranch（${a}）が GitHub の既定ブランチ（${b}）と合っていません。defaultBranch を GitHub の既定ブランチに合わせてください`;
 }
 
 export function revertedPrNumbers(message: string): number[] {
