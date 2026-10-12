@@ -29,7 +29,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 - 人の判断待ち（`plan-review`・Issue の止まる印）が `hq.humanWaitMinutes`（既定 120 分）を超えた Issue と、PR の止まる印（`agent:hold`・`agent:blocked`）の Issue は、脇に置く（`plan-review` は表の選択が「待つ：人の判断待ちが N 分…脇に置く」になる。`--json` の行の `humanWait` に始まり・分・`overdue`・決めてほしいこと。PR の止まる印は時刻を読まないので分は無い）。人の判断が付く（印が外れる・計画の出し直し）と、また「選ぶ」に戻る（#667）。
 - PR が無い段階の Issue は、既に選んだ Issue・PR 段階・実装中の Issue と計画の files が重なれば待つ。重なりの相手にする着手宣言は、ほかのセッションの解除されていない宣言と、このセッションの実装中（段階 `implement`）の宣言だけ。このセッションのほかの段階（plan・plan-gate など）の宣言どうしで重なれば、並べた順の先の側を選び、後の側が待つ（入れ子の方式では ship が全部このセッションの ID で宣言するため）。
 - 既に選んだ Issue のうち段階が `plan-review`（人の判断待ち）のものは、ほかの Issue の重なりの相手にしない（今は進まないので、進められる Issue を待たせない）。`plan-review` の Issue 自身は、PR 段階・実装中の Issue と重なれば待つ。人が進めると決めた後は、手順3で読み直した表で改めて重なりを判定し、相手が既に実装中（`implement` の宣言）ならその Issue が待つ。
-- `harness.config.json` の `fleet.sharedFiles`（無ければ空。このリポジトリの `harness.config.json` では決定ログ・記録用の docs・各 README.md）だけで重なる組は待たせない（表の「重なり」列に「共有ファイルのみ（並行可）」と出る）。
+- `harness.config.json` の `fleet.sharedFiles`（書かなければ空。このリポジトリの `harness.config.json` では `docs/plan.md`・`docs/formats.md`・`docs/operations.md`・`docs/security.md`・`docs/glossary.md` と `**/README.md`）だけで重なる組は待たせない（表の「重なり」列に「共有ファイルのみ（並行可）」と出る）。
 - 両方に PR がある組は、`fleet-status` が PR の head を fetch して `git merge-tree` で実際に試し、衝突する組だけ、並べた順の後の側が待つ。衝突しなければ、同じファイルを変えていても並行して進める。
 - `git merge-tree --write-tree` が使えない環境（git 2.38 未満）や fetch に失敗したときは、PR 同士が全部「衝突」扱いになる（表のメモに「試せなかったため衝突ありとして扱う」と出る）。
 
@@ -114,7 +114,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 
 `fleet.shipMode` が `worker` で、かつ Orca があるときだけ、Issue ごとに ship を Orca の worker（独立した Claude のセッション）で起こす（#197。人の決定 2026-09-30）。既定の `subagent` と、Orca が無いときの手順（「手順」「入れ子の方式（orca）」の節）は変えない。ここに書いていないことは、上の節（入力・選び方・手順）のとおりに進める。hq に起こされた fleet（節「Orca の worker として動くとき」）も、この節で ship を worker で動かしてよい（質問は ship → fleet → hq の順に `ask` で上げる）。
 
-Orca のコマンドは、orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」で決めた実行ファイルを使う（下では `ORCA` と書く。そのまま打たずに置き換える。Linux で素の実行ファイル名を使わない）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
+Orca のコマンドは、orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」で決めた実行ファイルを使う（下では `ORCA` と書く。そのまま打たずに置き換える。Linux で Orca の端末の外にいるときは素の `orca` を使わない）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
 
 1. **Orca の有無を確かめる**：`node harness/scripts/panes.ts config` の `shipMode` が `worker` のとき、`ORCA status --json` と `ORCA skills get orchestration` を走らせる。両方が成功すれば、この節で進める。どちらかが失敗したら、Orca が無い・動かないとして、今の手順（「手順」と「入れ子の方式（orca）」の節。中身は変えない）で進める（戻り先は下の 7）。この分かれ道は、入口の skill（orca-cli・orchestration）の「エラーを報告して止まる」「`ORCA open` で起動する」より優先する。`ORCA open` は試さない。
 2. **Run を作る**：`ORCA orchestration run-create --objective "<テーマか Issue 番号の集合>" --json` で fleet の Run を1つ作り、ship の worker の `worker-start`・`check`・`worker-list` には `--run <fleet の Run ID>` を付ける。hq の Run と分かれるので、hq が数える fleet に ship の worker が混ざらない。
@@ -231,7 +231,7 @@ Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始�
 1. **見る**：手順1・3と節「待つ間の読み直し」で `fleet-status` を読むたびに、表の下の「このセッションの読み込みは古い」の行を見る（無ければ `node harness/scripts/agent.ts harness-drift` の `stale`）。`claim` も古いと標準エラーに一言出す。
 2. **古いとき**：新しい段階・新しい ship を始めない。入れ子の方式では、動いている ship が段階の切れ目で返るのを待つ（ship は「待つ（読み込みが古い）」で返る）。その後、このセッションの着手宣言を `release <番号>` で全部解除し、その後（段階の切れ目）でだけ交代する。段階の途中では交代しない。**judge の段階は、古いセッションでは始めない**（`claim --stage judge` と `step` も止める。止まる理由 `harness-stale`）。
 3. **聞く**：AskUserQuestion で「交代しますか」を聞く（おすすめは「交代する」。Orca の worker のときは節「Orca の worker として動くとき」のとおり hq に `ask`）。拒まれた・答えが無いときは同じ質問を繰り返さず、下の 5 の1行を示して止まる。
-4. **Orca があるとき（承認の後）**：Orca の CLI は orca-cli の skill の「Resolve the CLI for this session」で選ぶ（Windows のほかでは素の `orca` を使わない）。
+4. **Orca があるとき（承認の後）**：Orca の CLI は orca-cli の skill の「Resolve the CLI for this session」で選ぶ（`ORCA_CLI_COMMAND` があればその値、`ORCA_DEV_REPO_ROOT` のある dev checkout なら `orca-dev`、Linux で Orca の端末の外にいるときは `orca-ide`、それ以外は `orca`。Linux の Orca の端末の外では素の `orca` を使わない。GNOME の読み上げソフトが起動しうる）。
    - 本体（`git rev-parse --path-format=absolute --git-common-dir` の親。hq と同じ main の checkout）が既定ブランチで未 commit の変更が無ければ、`git -C <本体> pull --ff-only` で origin に追いつかせる。できなければ起動せず、理由と 5 の1行を示して止まる。
    - orca-cli の skill の端末の起動（`terminal create`。引数は Orca の `skills get` の案内に従う）で、本体で `claude --permission-mode auto "/fleet --epic <Epic番号> <番号…>"` を起動する（番号は `fleet-status` に渡した集合。受け持つ Epic が無ければ `--epic` を付けない）。権限モードは必ず明示する（人の決定 2026-09-29）。Epic の fleet なら端末の表示名を `fleet: #<Epic番号> <日本語の短い言葉>` にする（言葉は hq の指示のテーマの名前、無ければ `.agent-harness-workspace` の中身をそのまま使う。hq が無ければ hq の skill の手順4の作り方で Epic のタイトルから作る。表示のためだけで、着手宣言・usage はセッション ID で見分ける）。
    - 起動後に画面のモード表示が `auto mode` かを確かめる。bypass（`bypass permissions`）だった・確かめられないときは、新しいセッションに段階を進めさせずに人に返す。
