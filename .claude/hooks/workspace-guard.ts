@@ -25,7 +25,7 @@
  * スクリプト・別のプロセスの中で設定や環境を変えてから pull する形、外で定義した alias・関数で git を動かす形。
  * Bash のコマンドは guard.ts の parseScript で字句に分ける（guard.ts が読み込めないと、この hook も動けないときの deny になる）。
  */
-import { spawnSync } from 'node:child_process';
+import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, posix, resolve, win32 } from 'node:path';
@@ -33,9 +33,15 @@ import { parseScript } from './guard.ts';
 
 export const MARKER = '.agent-harness-workspace';
 
+/** git の呼び出しの打ち切りの時間（ミリ秒）。Issue #730 */
+export const GIT_TIMEOUT_MS = 5000;
+
 export type Decision = { deny: false } | { deny: true; reason: string };
 
-export type Located = { kind: 'repo'; toplevel: string; mainRoot: string } | { kind: 'none' } | { kind: 'error' };
+export type Located = { kind: 'repo'; toplevel: string; mainRoot: string } | { kind: 'none' } | { kind: 'error'; timedOut?: boolean };
+
+/** git の呼び出し（timeoutMs が undefined なら打ち切らない）。テストで差し替える */
+export type RunGit = (args: string[], timeoutMs: number | undefined) => SpawnSyncReturns<string>;
 
 export interface WorkspaceContext {
   /** 常に通す置き場所（OS の一時ディレクトリ・~/.claude） */
@@ -172,7 +178,15 @@ function classify(target: string, isDir: boolean, ctx: WorkspaceContext): Decisi
   // まだ無いディレクトリでもよい（locate が今ある祖先で git を読む。印は無いディレクトリには無い）
   const start = isDir ? abs : o.p.dirname(abs);
   const loc = ctx.locate(start);
-  if (loc.kind === 'error') return unknownDeny(`git で ${start} の作業ツリーを読めなかった`);
+  if (loc.kind === 'error') {
+    if (loc.timedOut === true) {
+      return {
+        deny: true,
+        reason: `hook（workspace-guard）が止めました：git が ${start} の作業ツリーを ${GIT_TIMEOUT_MS}ms 以内に返さなかったため、書き換えてよい場所か判定できません（PC が混んでいるかもしれません。少し待ってやり直してください）。${ADVICE}`,
+      };
+    }
+    return unknownDeny(`git で ${start} の作業ツリーを読めなかった`);
+  }
   const top = loc.kind === 'repo' ? canonical(o, loc.toplevel) : null;
   let cur = start;
   for (;;) {
@@ -652,14 +666,17 @@ export function decideRaw(raw: string, ctx: WorkspaceContext): Decision {
 }
 
 /** 実際の git・ファイルシステムを使う文脈。allowRoots の既定は OS の一時ディレクトリと ~/.claude */
-export function realContext(opts: { allowRoots?: string[] } = {}): WorkspaceContext {
+export function realContext(opts: { allowRoots?: string[]; gitTimeoutMs?: number; runGit?: RunGit } = {}): WorkspaceContext {
+  const gitTimeoutMs = opts.gitTimeoutMs ?? GIT_TIMEOUT_MS;
+  const timeoutMs = gitTimeoutMs === 0 ? undefined : gitTimeoutMs;
+  const runGit: RunGit =
+    opts.runGit ?? ((args, t) => spawnSync('git', args, t === undefined ? { encoding: 'utf8' } : { encoding: 'utf8', timeout: t }));
   return {
     allowRoots: opts.allowRoots ?? [tmpdir(), join(homedir(), '.claude')],
     locate: (dir: string): Located => {
-      const r = spawnSync(
-        'git',
+      const r = runGit(
         ['-C', existingDir(resolve(dir)), 'rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir', '--show-superproject-working-tree'],
-        { encoding: 'utf8', timeout: 5000 },
+        timeoutMs,
       );
       if (r.status === 0 && typeof r.stdout === 'string') {
         // --show-superproject-working-tree は submodule でないと何も出さない（ふつうは3行、submodule では4行）
@@ -673,12 +690,13 @@ export function realContext(opts: { allowRoots?: string[] } = {}): WorkspaceCont
         return { kind: 'repo', toplevel: top, mainRoot: isMain ? top : dirname(common) };
       }
       if (typeof r.stderr === 'string' && /not a git repository/i.test(r.stderr)) return { kind: 'none' };
+      if ((r.error as NodeJS.ErrnoException | undefined)?.code === 'ETIMEDOUT') return { kind: 'error', timedOut: true };
       return { kind: 'error' };
     },
     hasMarker: (dir: string): boolean => existsSync(join(dir, MARKER)),
     pullSettings: (dir: string): PullSettings | null => {
       const cwd = existingDir(resolve(dir));
-      const run = (...args: string[]) => spawnSync('git', ['-C', cwd, ...args], { encoding: 'utf8', timeout: 5000 });
+      const run = (...args: string[]) => runGit(['-C', cwd, ...args], timeoutMs);
       /** 未設定（終了コード 1）は null。ほかの失敗は読めない */
       const get = (k: string): string | null => {
         const r = run('config', '--get', k);

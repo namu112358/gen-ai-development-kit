@@ -62,7 +62,7 @@ writeFileSync(join(markedPlain, MARKER), '');
 const plain = join(base, 'plain');
 mkdirSync(plain);
 
-const ctx: WorkspaceContext = realContext({ allowRoots: [allowDir] });
+const ctx: WorkspaceContext = realContext({ allowRoots: [allowDir], gitTimeoutMs: 0 });
 
 // ---- 補助 ----
 
@@ -165,9 +165,9 @@ test('AC1：一時ディレクトリ（allowRoots）・~/.claude の中は通す
 });
 
 test('AC1：allowRoots はパスの区切りの単位で比べ（main/sr は main/src を含まない）、main の checkout の判定より先に効く', () => {
-  const c = realContext({ allowRoots: [join(main, 'sr')] });
+  const c = realContext({ allowRoots: [join(main, 'sr')], gitTimeoutMs: 0 });
   assertDeny(decide(write(join(main, 'src', 'a.ts')), c), 'main/sr は main/src を含まない');
-  const c2 = realContext({ allowRoots: [join(main, 'src')] });
+  const c2 = realContext({ allowRoots: [join(main, 'src')], gitTimeoutMs: 0 });
   assertAllow(decide(write(join(main, 'src', 'a.ts')), c2), 'allowRoots が先に効く（main の中でも）');
 });
 
