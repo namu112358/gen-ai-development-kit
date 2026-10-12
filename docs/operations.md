@@ -112,7 +112,7 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 
 `fleet.implementModel` を戻す目安：数日分の PR で、実装のモデルごとの判定に1回で合格した割合（`report.ts` の「実装のモデルごとの品質」の節）を比べ、`sonnet` が `opus` のときより大きく落ちたら、`opus` に戻すかを人が決める。戻すときは `"implementModel": "opus"` と書く。
 
-Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときか、人が付き添うセッションで始めた `/loop` の各回（`/loop 6h /arch-review --loop`。下の「見直しを /loop で回す」）に動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。ループの回は下書きを記録に残すまでで、Issue にするのは人が「arch-review の下書きを選ぶ」と頼んだときに選んだものだけ。
+Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときか、人が付き添うセッションで始めた `/loop` の各回（`/loop 6h /arch-review --loop`。下の「見直しを /loop で回す」）か、patrol の `--routine` から呼ばれるループの回に動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。ループの回は下書きを記録に残すまでで、Issue にするのは人が「arch-review の下書きを選ぶ」と頼んだときに選んだものだけ。
 
 いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../harness/scripts/dashboard/README.md)）で見られる。`node harness/scripts/dashboard.ts` を実行して表示された URL を開くと、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。GitHub には書かない（画面の「気づきを送る」欄から送った文は、手元の受け箱に書き、intel が拾う）。
 
@@ -235,7 +235,7 @@ Epic に入っていない Issue を、App の定期実行（label-apply の後�
 
 Stacked PR は、下の層のブランチを base にした PR を重ねたもの（GitHub のスタック）。層ごとの diff が小さくなり、判定も層ごとに行える。
 
-- 使える場所：付き添いのセッションだけ（Routine の環境には gh が無い）。組み方は [gh-stack の skill](../.claude/skills/gh-stack/SKILL.md)、実装の手順は implement の skill の「Stacked PR で出すとき」。
+- 使える場所：付き添いのセッションだけ（クラウドの Routine では `gh api` の REST は通るが、GraphQL は 403 なので `gh stack`・`gh pr` は使えない）。組み方は [gh-stack の skill](../.claude/skills/gh-stack/SKILL.md)、実装の手順は implement の skill の「Stacked PR で出すとき」。
 - 積んでよい条件：上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に `main` 宛てで出す。Reviewer は、どれにも当たらない層をブロッキング指摘（`out-of-scope`）にする。
 - 紐付け：1層＝1 Issue。下の層の本文は `Refs #N`、一番上の層は `Closes #N`（どちらも1つだけ）。App は層を計画に紐付け（`agent/plan-link`）、紐付けの記録（`kind=stack-link`）を PR に残す（[formats.md](formats.md#app-の記録agent-app)）。
 - 組み方：層ごとに `gh pr create --draft --base <下の層のブランチ>` で Draft PR を出し、全部そろったら `gh stack link <下の PR 番号> <上の PR 番号>` で組む。上の層は組むまで base が既定ブランチでもスタックでもないので、App が一時的に orphan-base（Draft に留めて `agent:blocked`、理由コード `orphan-base`）にする。組めば（`stacked` のイベント）App が `kind=base-resolved` を残して戻す。
@@ -553,12 +553,12 @@ node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run
 
 見直し（Merge 済みの変更の arch-review・qa-retro と、テストの test-prune）は、人が付き添うセッションの `/loop` から続けて回せる。skill によらない規則をここに書き、1回分の処理（間隔の目安・見る範囲や期間・記録や状態の書式）は各 skill の「/loop で回すとき」の節に書く。
 
-- 回すのは、人が付き添うセッションの `/loop` だけ（`/loop 6h /arch-review --loop` のように）。schedule（Actions・クラウドの Routine）は使わない。セッションの中なので `gh` をそのまま使える。
+- 回すのは、付き添いのセッションの `/loop`（`/loop 6h /arch-review --loop` のように）か、クラウドの Routine の patrol（`--routine`。[patrol-routine.md](patrol-routine.md)）。Actions は使わない。Routine で動かすのは patrol だけ。付き添いのセッションでは `gh` をそのまま使える。
 - `/loop` から呼ぶときは skill に `--loop` を付け、skill は `--loop` のあるときだけループの回として動く。人が `--loop` なしで呼んだときは、今までどおりの手順。
 - 1回分はその回の中で完結させ、人の答えを待たない（AskUserQuestion を呼ばない）。人の判断が要る状態に当たったら、その回を止めて理由を出す。
 - 前回の位置は、その skill の記録・状態から読む（arch-review はダッシュボード Issue の記録の `headSha`）。見るものが無い回は記録を残さず、次の回を待つ。
 - 1回に出す直す Issue の下書きは3件まで。超える分は直す価値の高い順に絞り、残りは要約にだけ書く。
-- ループの回は Issue を作らず、ラベルも付けない。例外は patrol の auto mode の間の自動の供給だけ（上限は `patrolAutoSupply.dailyLimit`。詳細は patrol の skill）。Issue にするのは、人が「〜の下書きを選ぶ」（例：「arch-review の下書きを選ぶ」）と頼んだときに、人が選んだものだけ。
+- ループの回は Issue を作らず、ラベルも付けない。例外は patrol の auto mode の間の自動の供給だけ（上限は `patrolAutoSupply.dailyLimit`。詳細は patrol の skill）。patrol の Routine がまとめの Issue を初回に1回作るのも例外。Routine の回は自動の供給を行わない。Issue にするのは、人が「〜の下書きを選ぶ」（例：「arch-review の下書きを選ぶ」）と頼んだときに、人が選んだものだけ。
 - 止め方：`/loop` を止める（セッションで止めるよう頼む・セッションを閉じる）。記録を残す前に止めた回は、次の回が同じ範囲を見直す。
 - 結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。
 
