@@ -306,6 +306,8 @@ export class GitHub {
   readonly owner: string;
   readonly repo: string;
   private readonly transport: Transport;
+  /** true なら GraphQL を使わず REST だけで読む（クラウドのセッション。graphqlUnavailable）。既定は偽で、GraphQL の経路は変わらない */
+  restOnly = false;
 
   constructor(transport: Transport, repository: string) {
     const [owner, repo] = repository.split('/');
@@ -391,6 +393,11 @@ export interface IssueComment {
   updated_at: string;
   author_association: string;
   user: { login: string; type: string } | null;
+}
+
+/** GraphQL の読みが使えない環境か（クラウドのセッション CLAUDE_CODE_REMOTE=true。GitHub が GraphQL に 403 を返す）。env は既定で process.env */
+export function graphqlUnavailable(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.CLAUDE_CODE_REMOTE === 'true';
 }
 
 /**
