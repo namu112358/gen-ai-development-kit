@@ -1,9 +1,10 @@
-// /guild：hq board の JSON から冒険者ギルドのドット絵をペインに出し、ペインが見えている間だけ 0.1 秒ごとに動かし、15 秒ごとに読み直す。
+// /guild：hq board の JSON から冒険者ギルドのドット絵をペインに出し（desktop では SVG）、terminal のペインが見えている間だけ 0.1 秒ごとに動かし、15 秒ごとに読み直す。
 import { atom, read, update } from 'claude-code'
 import type { Register } from 'claude-code'
 
 import type { HqBoard } from '../types'
 import { GUILD_INTEL_PREFIX, GUILD_INTEL_TO } from './guild-intel'
+import { drawGuildSvg, guildSvgAlt, SVG_WIDTH } from './guild-svg'
 import { GUILD_COLUMNS, GUILD_ROWS, drawGuild, guildScene, phaseOf } from './guild-scene'
 
 export const GUILD_PANE = 'guild'
@@ -28,6 +29,7 @@ export const registerGuild: Register = on => {
   let started = false
   let busy = false
   let blitting = false
+  let rasterDrawn = false
   let tick = 0
   let latest: HqBoard | null = null
 
@@ -75,6 +77,7 @@ export const registerGuild: Register = on => {
     }
 
     const frame = async (): Promise<void> => {
+      if (!rasterDrawn) return
       if (blitting || latest === null) return
       blitting = true
       try {
@@ -110,9 +113,22 @@ export const registerGuild: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: GUILD_PANE }, async ($, e) => {
-    const { Box, Text, Raster, Button, Input } = $.ui.resolve(e)
+    const { Box, Text, Button, Input } = $.ui.resolve(e)
     const board = await read($, guildBoard)
     const isTerminal = e.surface === 'terminal'
+
+    let art: JSX.Element | null = null
+    if (board !== null && board !== 'unreadable') {
+      if (e.surface === 'terminal') {
+        const { Raster } = $.ui.resolve(e)
+        rasterDrawn = true
+        art = <Raster key={GUILD_RASTER_KEY} columns={GUILD_COLUMNS} rows={GUILD_ROWS} cells={drawGuild(guildScene(board), 0)} />
+      } else if (e.surface === 'desktop') {
+        const { Svg } = $.ui.resolve(e)
+        const scene = guildScene(board)
+        art = <Svg source={drawGuildSvg(scene)} alt={guildSvgAlt(scene)} width={SVG_WIDTH} isInteractive />
+      }
+    }
 
     const waiting: { issue: number; pr: number | null }[] = []
     if (board !== null && board !== 'unreadable') {
@@ -145,16 +161,9 @@ export const registerGuild: Register = on => {
 
     return (
       <Box flexDirection="column">
-        {!isTerminal && (
-          <Text dimColor>現在はターミナル版だけに対応しています（ドット絵はターミナルで /guild を開くと見られます）</Text>
-        )}
-        {isTerminal && board !== null && board !== 'unreadable' && (
-          <Raster
-            key={GUILD_RASTER_KEY}
-            columns={GUILD_COLUMNS}
-            rows={GUILD_ROWS}
-            cells={drawGuild(guildScene(board), 0)}
-          />
+        {art}
+        {e.surface !== 'terminal' && e.surface !== 'desktop' && (
+          <Text dimColor>現在はターミナル版と desktop 版だけに対応しています（絵はターミナルか desktop で /guild を開くと見られます）</Text>
         )}
         {board === null && <Text dimColor>読み込み中</Text>}
         {board === 'unreadable' && <Text color="red">ギルドの様子を読めません（panes.ts hq board が動くか確かめる）</Text>}
