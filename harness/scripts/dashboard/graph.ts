@@ -8,6 +8,7 @@ import { LABELS, PRIORITY_LABELS } from '../../lib/config.ts';
 import { parseChildMarker } from '../../lib/epic.ts';
 import { fleetStatus, type FleetIssue, type FleetPr, type FleetRow, type FleetStage } from '../../lib/fleet.ts';
 import type { Claim, IssueFacts } from '../../lib/queue.ts';
+import type { DecisionInfo } from './decision.ts';
 import type { SessionInfo } from './sessions.ts';
 
 export type ColumnId =
@@ -46,6 +47,8 @@ export interface DashIssue {
   url: string;
   /** 計画ゲートの記録の計画の写し（記録が無ければ null） */
   plan: PlanCopy | null;
+  /** 計画ゲートで止まったときの答える欄の材料（止まっていなければキーが無い） */
+  decision?: DecisionInfo;
 }
 
 export interface DashPr {
@@ -93,7 +96,7 @@ export interface SessionNode {
 }
 
 /** 人がすることの1行（Merge・人の判断・止まる印・priority の不足） */
-export interface Todo { id: string; kind: 'issue' | 'pr'; number: number; url: string; title: string; reason: string }
+export interface Todo { id: string; kind: 'issue' | 'pr'; number: number; url: string; title: string; reason: string; decision?: DecisionInfo }
 
 /** 進みの帯の材料（GitHub から読んだもの。harness/scripts/dashboard/github.ts の progressFacts が組む）。merged は今日より前のものも含みうる */
 export interface ProgressFacts {
@@ -161,7 +164,10 @@ export function buildTodos(issues: DashIssue[], prs: DashPr[], rows: FleetRow[])
     if (p) merge.push({ id: `merge-pr-${p.number}`, kind: 'pr', number: p.number, url: p.url, title: p.title, reason: 'PR を確かめて Merge する' });
   }
   const review = issues.filter((i) => rows.some((r) => r.issue === i.fleet.facts.number && r.stage === 'plan-review'))
-    .map((i) => issueTodo(i, 'review', '計画ゲートで止まった。進めるか決める'));
+    .map((i) => {
+      const t = issueTodo(i, 'review', '計画ゲートで止まった。進めるか決める');
+      return i.decision ? { ...t, decision: i.decision } : t;
+    });
   const stop = issues.flatMap((i) => {
     const on = STOP_LABELS.filter((l) => i.fleet.facts.labels.includes(l));
     return on.length > 0 ? [issueTodo(i, 'stop', `止まる印（${on.join('・')}）の対応`)] : [];
