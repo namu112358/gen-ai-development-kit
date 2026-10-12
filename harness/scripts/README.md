@@ -26,6 +26,7 @@
 | `readme.ts` | README の表（名前・内容・ガードレール）を、各ディレクトリの直下の名前と先頭のコメントから作る。 |  |
 | `report.ts` | 判定の集計（Jev の切り替え判断用）。 | ○ |
 | `review-panel.ts` | 合体版のレビュー（.claude/skills/review-panel/SKILL.md）の CLI。 | ○ |
+| `session-doctor.ts` | セッションの前提の確かめ（Issue #833）。 |  |
 | `setup.ts` | リポジトリ設定を冪等に適用する（人が手元で、リポジトリ管理者の gh 認証で実行する）。 | ○ |
 | `sync.ts` | kit の版（タグ・ブランチ・SHA）を指定して、配布物を導入先に写す。 |  |
 | `test-prune-loop.ts` | test-prune を付き添いのセッションの `/loop` から回すときの、回の記録と下書きの採用（test-prune の skill の「/loop で回すとき」が使う）。 |  |

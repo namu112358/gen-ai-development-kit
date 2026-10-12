@@ -1,3 +1,6 @@
+import { LABELS, RISK_LEVELS, type RiskLevel } from './config.ts';
+import { guardrailPatterns, type GuardrailConfig } from './guardrail.ts';
+import { parseTitle } from './title.ts';
 import { OBSERVE_SECTIONS, type ObserveReport, type ObserveSection } from './observe.ts';
 import { OPS_ITEM_IDS, type OpsItemId } from './ops-health.ts';
 
@@ -276,4 +279,138 @@ export function parsePatrolArgs(args: string[]): Result<{ sub: string; positiona
     else out.positional.push(a);
   }
   return errors.length ? { ok: false, errors } : { ok: true, ...out };
+}
+
+// --- auto mode の間の自動の供給（Issue #827。GitHub は読まない） ---
+
+export type AutoSupplyOverlap = 'new' | 'comment' | 'related';
+export interface AutoSupplyCandidate {
+  ref: string;
+  title: string;
+  risk: RiskLevel | null;
+  files: string[];
+  overlap: AutoSupplyOverlap | null;
+  draftPath: string | null;
+}
+export type AutoSupplyReason = 'auto-mode-off' | 'type' | 'risk' | 'files-unknown' | 'guardrail' | 'overlap' | 'limit';
+
+const AUTO_SUPPLY_REF = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const AUTO_SUPPLY_OVERLAPS: readonly string[] = ['new', 'comment', 'related'];
+const AUTO_SUPPLY_TYPES: readonly string[] = ['test', 'docs', 'fix'];
+
+/** 候補の JSON（{ "version": 1, "candidates": [...] }）を読む。形の誤りは throw せず誤りの文の一覧で返す。candidates が空の配列も受け付ける */
+export function parseAutoSupplyCandidates(text: string): Result<{ candidates: AutoSupplyCandidate[] }> {
+  let v: unknown;
+  try {
+    v = JSON.parse(text);
+  } catch (e) {
+    return { ok: false, errors: [`候補の JSON が読めません：${(e as Error).message}`] };
+  }
+  if (!isObject(v)) return { ok: false, errors: ['候補の JSON はオブジェクト'] };
+  if (v.version !== 1) return { ok: false, errors: [`候補の JSON の version が 1 ではありません：${JSON.stringify(v.version)}`] };
+  if (!Array.isArray(v.candidates)) return { ok: false, errors: ['candidates は配列'] };
+  const errors: string[] = [];
+  const candidates: AutoSupplyCandidate[] = [];
+  const seen = new Set<string>();
+  v.candidates.forEach((c: unknown, i) => {
+    const at = `candidates の ${i + 1} 件目`;
+    if (!isObject(c)) return void errors.push(`${at}はオブジェクト`);
+    const before = errors.length;
+    if (typeof c.ref !== 'string' || !AUTO_SUPPLY_REF.test(c.ref)) errors.push(`${at}：ref は英数字で始まり、英数字と . _ - だけの文字列`);
+    else if (seen.has(c.ref)) errors.push(`${at}：ref「${c.ref}」が重複しています`);
+    else seen.add(c.ref);
+    if (typeof c.title !== 'string' || c.title === '') errors.push(`${at}：title は空でない文字列`);
+    if (!(c.risk === null || (typeof c.risk === 'string' && (RISK_LEVELS as readonly string[]).includes(c.risk)))) errors.push(`${at}：risk は ${RISK_LEVELS.join(' / ')} か null`);
+    if (!Array.isArray(c.files) || !c.files.every((f) => typeof f === 'string' && f !== '')) errors.push(`${at}：files は空でない文字列の配列`);
+    if (!(c.overlap === null || (typeof c.overlap === 'string' && AUTO_SUPPLY_OVERLAPS.includes(c.overlap)))) errors.push(`${at}：overlap は new / comment / related か null`);
+    if (!(c.draftPath === undefined || c.draftPath === null || typeof c.draftPath === 'string')) errors.push(`${at}：draftPath は文字列か null`);
+    if (errors.length === before) candidates.push({ ref: c.ref as string, title: c.title as string, risk: c.risk as RiskLevel | null, files: c.files as string[], overlap: c.overlap as AutoSupplyOverlap | null, draftPath: (c.draftPath as string | null | undefined) ?? null });
+  });
+  return errors.length ? { ok: false, errors } : { ok: true, candidates };
+}
+
+export interface AutoSupplySelection {
+  active: boolean;
+  limit: number;
+  used: number;
+  /** max(0, limit - used)。create を引く前の値 */
+  remaining: number;
+  create: AutoSupplyCandidate[];
+  manual: { ref: string; title: string; reason: AutoSupplyReason; detail: string }[];
+}
+
+/** 候補のうち自動で Issue にするものと、人が選ぶ側に残すもの（理由つき）。候補ごとに上から順に見て、最初に当たった理由で残す。auto mode でなければ全部残す */
+export function selectAutoSupply(input: {
+  autoMode: { active: boolean; reason: string };
+  candidates: AutoSupplyCandidate[];
+  guardrail: GuardrailConfig;
+  dailyLimit: number;
+  createdLast24h: number;
+}): AutoSupplySelection {
+  const { autoMode, candidates, guardrail, dailyLimit, createdLast24h } = input;
+  const remaining = Math.max(0, dailyLimit - createdLast24h);
+  const create: AutoSupplyCandidate[] = [];
+  const manual: AutoSupplySelection['manual'] = [];
+  const keep = (c: AutoSupplyCandidate, reason: AutoSupplyReason, detail: string): void => void manual.push({ ref: c.ref, title: c.title, reason, detail });
+  for (const c of candidates) {
+    const t = parseTitle(c.title);
+    const hit = guardrailPatterns(guardrail, c.files);
+    if (!autoMode.active) keep(c, 'auto-mode-off', autoMode.reason);
+    else if (!t.ok || !AUTO_SUPPLY_TYPES.includes(t.type)) keep(c, 'type', t.ok ? `種類は ${t.type}（test・docs・fix だけ）` : '題の種類が読めない');
+    else if (c.risk !== 'low') keep(c, 'risk', `想定 Risk は ${c.risk ?? '見積りなし'}（low だけ）`);
+    else if (c.files.length === 0) keep(c, 'files-unknown', '触るファイルの見込みが0件');
+    else if (hit.length > 0) keep(c, 'guardrail', `ガードレールに当たる：${hit.join('、')}`);
+    else if (c.overlap !== 'new') keep(c, 'overlap', `重複の判定は ${c.overlap ?? '未判定'}（new だけ）`);
+    else if (create.length >= remaining) keep(c, 'limit', `1日の上限 ${dailyLimit} 件のうち直近 24 時間に ${createdLast24h} 件作成済み`);
+    else create.push(c);
+  }
+  return { active: autoMode.active, limit: dailyLimit, used: createdLast24h, remaining, create, manual };
+}
+
+/** Issue の本文の出どころの目印（<!-- agent-harness:issue-source from=patrol ref=<ref> -->）から patrol の ref。無ければ null（from が patrol 以外は数えない） */
+export function autoSupplySourceRef(body: string): string | null {
+  const m = body.match(/<!--\s*agent-harness:issue-source\s+from=patrol\s+ref=([A-Za-z0-9][A-Za-z0-9._-]*)\s*-->/);
+  return m ? m[1]! : null;
+}
+
+export interface AutoSupplyIssue { number: number; body: string; author: string; createdAt: string; labels: string[]; pullRequest: boolean }
+export type AutoSupplyReadyReason = 'auto-mode-off' | 'pull-request' | 'no-marker' | 'not-self' | 'too-old' | 'limit' | 'already-ready';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/** 自動で作った Issue に agent:ready を付けてよいか。満たさない条件は全部 reasons に並べる（auto mode でなければ常に ready は偽） */
+export function autoSupplyReady(input: {
+  autoMode: { active: boolean };
+  issue: AutoSupplyIssue;
+  recent: AutoSupplyIssue[];
+  self: string;
+  now: Date;
+  dailyLimit: number;
+}): { ready: boolean; reasons: AutoSupplyReadyReason[] } {
+  const { autoMode, issue, recent, self, now, dailyLimit } = input;
+  const counts = (i: AutoSupplyIssue): { pullRequest: boolean; marker: boolean; self: boolean; fresh: boolean } => {
+    const at = Date.parse(i.createdAt);
+    return {
+      pullRequest: i.pullRequest,
+      marker: autoSupplySourceRef(i.body) !== null,
+      self: i.author === self,
+      fresh: Number.isFinite(at) && at <= now.getTime() && now.getTime() - at <= DAY_MS,
+    };
+  };
+  const me = counts(issue);
+  const reasons: AutoSupplyReadyReason[] = [];
+  if (!autoMode.active) reasons.push('auto-mode-off');
+  if (me.pullRequest) reasons.push('pull-request');
+  if (!me.marker) reasons.push('no-marker');
+  if (!me.self) reasons.push('not-self');
+  if (!me.fresh) reasons.push('too-old');
+  if (!me.pullRequest && me.marker && me.self && me.fresh) {
+    const byNumber = new Map<number, AutoSupplyIssue>();
+    for (const i of [...recent, issue]) if (i.number === issue.number || !byNumber.has(i.number)) byNumber.set(i.number, i.number === issue.number ? issue : i);
+    const counted = [...byNumber.values()].filter((i) => { const c = counts(i); return !c.pullRequest && c.marker && c.self && c.fresh; });
+    counted.sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || a.number - b.number);
+    if (counted.findIndex((i) => i.number === issue.number) >= dailyLimit) reasons.push('limit');
+  }
+  if (issue.labels.includes(LABELS.ready)) reasons.push('already-ready');
+  return { ready: reasons.length === 0, reasons };
 }
