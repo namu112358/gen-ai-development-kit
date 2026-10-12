@@ -179,7 +179,7 @@ async function onPlan(
   const releasedNote = !(gate.pass && released)
     ? ''
     : splitReleased
-      ? 'Planner の申告で付いた `agent:plan-review` を、申告の無い split の計画（ガードレールに触れない）なので外しました。子課題はそれぞれの計画でゲートがもう一度見ます。'
+      ? 'Planner の申告で付いた `agent:plan-review` を、申告の無い split の計画（計画と子課題の files がガードレール・delegateMergeExclude に触れない）なので外しました。子課題はそれぞれの計画でゲートがもう一度見ます。'
       : decision
       ? `人の決定の記録（[コメント](${decision.url})）を Jev が確かめ、Planner の申告による \`agent:plan-review\` を外しました。`
       : '前の計画ゲートの停止（`agent:plan-review`）を外しました。';
@@ -258,7 +258,7 @@ async function releasesPlannerReviewForSplit(ctx: GateContext, issueNumber: numb
     value: g.value,
   }));
   const events = await ctx.gh.paginate<TimelineEvent>(`/issues/${issueNumber}/events`);
-  const r = splitPlannerRelease({ plan, gates, events });
+  const r = splitPlannerRelease({ plan, gates, events, config: ctx.config });
   if (!r.release) ctx.log(`#${issueNumber} の split の計画で Planner の申告の印を外しません: ${r.reasons.join(' / ')}`);
   return r.release;
 }
