@@ -6,7 +6,7 @@
 
 ### 付き添いのセッション
 
-Claude が人と一緒に作業するセッション。着手は `node harness/scripts/agent.ts claim <番号> --manual --stage <段階>`、ブランチは `claude/`、出す PR は Agent PR として判定・修正・自動 Merge の経路に乗る（critical は人が Merge する）。詳細：[operations.md](operations.md#付き添いのセッションで進める)
+Claude が人と一緒に作業するセッション。着手は `node harness/scripts/agent.ts claim <番号> --manual --stage <段階>`、ブランチは `claude/`、出す PR は Agent PR として判定・修正・自動 Merge の経路に乗る（critical・ガードレールはふだん Human Merge だが、bypass・委任承認（計画＋Merge）・auto mode の間は合格すれば App が自動 Merge することがある。Merge の経路は App が決める）。詳細：[operations.md](operations.md#付き添いのセッションで進める)
 
 ### ship
 
@@ -48,7 +48,7 @@ Routine が Issue に投稿する実装方針。末尾の ```` ```agent-plan ```
 
 ### `agent:plan-ok` / `agent:plan-review`
 
-計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は、付き添いのセッションで、人が進めると決めてから実装する。App のゲートの停止による `agent:plan-review` は、止めた理由が当たらない計画を出し直せば App が外す。Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが記録した人の決定（```` ```agent-decision ````）を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき App が外す。AC の変更提案と人が付けた印は、人が外すまで残る。詳細：[operations.md](operations.md#ラベル)
+計画ゲートの結果。`agent:plan-ok` は App だけが付けられ、Routine は App が付けたことを確かめてから実装する。`agent:plan-review` の Issue は、付き添いのセッションで、人か、止めた理由が想定 Risk だけでガードレールに触れない計画ならセッションの判定（`post-judgment`）で進めると決めてから実装する。App のゲートの停止による `agent:plan-review` は、止めた理由が当たらない計画を出し直せば App が外す。Planner の申告（`needsHuman`・`openQuestions`）は、付き添いのセッションが記録した人の決定（```` ```agent-decision ````）を Jev が確かめ、`jev.decisionRelease` が `enforce` のとき App が外す。Planner の申告の印は、条件を満たす `split` の計画（計画自身に申告が無く、委任・auto mode の前のゲートを通り、印が計画の投稿か App の停止の窓で付いた）なら App が外して分ける。AC の変更提案と人が付けた印は、人が外すまで残る。詳細：[operations.md](operations.md#ラベル)
 
 ## 実装
 

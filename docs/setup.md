@@ -10,12 +10,15 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 | 区分 | パス | 扱い |
 | --- | --- | --- |
 | kit が持つ（`managed`） | `harness/lib/**`・`harness/gates/**`・`harness/scripts/**`・`harness/templates/**`・`harness/CLAUDE.harness.md`・`.claude/skills/**`・`.claude/agents/**`・`.claude/hooks/**`・`.claude/routine.md`・`.github/workflows/gate.yml`・`.github/ISSUE_TEMPLATE/agent-task.yml` | そのまま写す。導入先では書き換えない。`.claude/skills/**` は Orca のスキルの入口（`orca-cli`・`orchestration`、[11. Orca](#11-orca標準の実行環境)）も含む |
+| kit が持つが配らない（`exclude`） | 観測系（observe・test-prune・mutate・patrol・qa-retro・arch-review）の scripts・lib・commands・skill・agent（一覧は `harness/managed.json` の `exclude`） | `managed` に当たっても写さない。このリポジトリの `harness/test/`・README の表・CI を前提にするため。配られる README の表には除外したファイルの行が残り、hq の skill の patrol の下書きの手順はこのリポジトリだけ |
 | 初回だけ雛形から作る（`projectOwned`） | `harness.config.json`（← `harness/templates/harness.config.json`）、`CLAUDE.md`（← `harness/templates/CLAUDE.template.md`） | 写した後は導入先が持つ。CLAUDE.md の `@harness/CLAUDE.harness.md` の行は消さない（ハーネスの規則を読み込む） |
 | 両方が混ざる | `.claude/settings.json` | ハーネスのキー（`settingsKeys`：`permissions.deny`・`permissions.disableBypassPermissionsMode`・`hooks`）だけを導入先の設定に入れる |
 | 持ち込まない | `harness/test/`・`package.json`・`tsconfig.json`・`.node-version`・`overview.html`・このリポジトリの docs | ゲートは依存なしで Node 24 だけで動く（`gate.yml` は `node-version: 24` を直接指定する）。ハーネスの検査（`npm run check`）はこのリポジトリの CI で行う |
 | 持ち込まない（導入先が持つ） | `.gitattributes` | 導入先が自分のバイナリや CRLF の要るファイルの例外を書くため、配らない（sync で上書きすると例外を書けない）。同じ `* text=auto eol=lf` の行を導入先にも置くとよい（[10. 改行コード](#10-改行コードgitattributes)） |
 
 導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。
+
+検証コマンドと依存の取り込みのコマンドは `harness.config.json` の `project`（`checkCommand`・`installCommand`）に書く（例：`"project": { "checkCommand": "pytest -q", "installCommand": "pip install -e ." }`）。書かなければ `npm run check`・`npm ci`、`null` なら行わない。worktree の作成と合体版のレビューの⑧の detached の worktree の中で、書いた文字列を shell でそのまま実行する（`loadConfig` が検査するのは書式（空でなく前後に空白が無い文字列か `null`）だけで、中身は見ない）。
 
 `harness.config.json` の `guardrailPaths` に、Agent が自分を縛る仕組み（ゲート、判定の基準、deny、依存など）のパスを範囲パターンで並べ、その中で普通に判定するものを `guardrailExclude` に並べる。触れる PR は自動 Merge せず、触れる計画は計画ゲートで止まる（[risk-policy.md](risk-policy.md#ガードレール)）。`harness.config.json` 自身は常にガードレール。`guardrailPaths` を書かないと、すべてのファイルがガードレールとして扱われ自動 Merge が起きない。
 
@@ -188,3 +191,5 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 **Orca が無いとき（退行手段）**：今の手順（ship、1セッションで段階を交互に進める fleet（`fleet.nesting` の `flat`。入れ子にできなければ fleet が自分で戻る）、`node harness/scripts/agent.ts worktree`）で進める。SessionStart の hook（`.claude/hooks/session-env.ts`）は、startup のときに Orca の CLI が無ければ、この節を案内する一言を出すだけで、セッションを止めない（CLI は実行しない。Routine では知らせない）。探し方は環境で変わる：Windows ネイティブでは `;` 区切りの PATH の `orca`（PATHEXT の拡張子付き。`orca.exe` など）、WSL（`WSL_DISTRO_NAME` か `WSL_INTEROP` がある Linux）と Linux では `ORCA_CLI_COMMAND` か `:` 区切りの PATH の `orca-ide`（素の `orca` は探さない）。どの環境でも `ORCA_CLI_COMMAND` があれば知らせない。一言には判定した環境（Windows・WSL・Linux）と探した CLI の名前が入る。bypass permissions で始まったことは hook では知らせない（SessionStart の入力に `permission_mode` が渡る保証が無く、bypass は上の `disableBypassPermissionsMode` で拒むため）。
 
 **取り込んだ版と更新**：入口は Orca 1.4.215（タグ `v1.4.215`、コミット `083f583a53e4c74a65acf420eee4ca2e0efa9df1`）の `skills/orca-cli/SKILL.md`・`skills/orchestration/SKILL.md` の写し。出どころと更新の手順は [docs/upstream/README.md](upstream/README.md#stablyaiorca)。
+
+**ステータスライン**：Orca につないだアカウントの使用量をステータスラインに出すなら、[statusline.md](statusline.md) のプロンプトを新しいセッションに貼る。

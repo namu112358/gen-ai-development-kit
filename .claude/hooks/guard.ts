@@ -22,6 +22,10 @@
  * Windows の中身の無い `python3`・`python`（Microsoft\WindowsApps の下のスタブ。何も出さずに終わる）を呼ぶ Bash も止め、node か Edit・Write ツールを案内する（#529）。
  * 見分けは ctx.pythonStub（main が isWindowsPythonStub を渡す。無ければ止めない）。xargs・find -exec・スクリプトの中の呼び出しは、ほかの判定と同じく拾わない。
  *
+ * ルート・ドライブ全体（`/`・`/c`・`/mnt/c`・`/cygdrive/c`・`C:`、末尾の `/`・`\`・`/.` は無視）から始める `find` も止め、探す場所を絞るか Glob ツールを使うよう案内する（#598。
+ * ドライブ全体を辿って終わらず、Bash の時間切れの後も find だけが残って PC を重くするため）。見るのは find の探す場所の語（先頭の -H・-L・-P・-O・-D を除き、- ( ) ! , までの語）。
+ * 展開しないと分からない語（`"$ROOT"`）、`cd / && find .`、`xargs find /`、スクリプトファイルの中の find は拾わない。Windows の find.exe（`/c`・`/i` を引数に取る）も止めすぎを受け入れる。
+ *
  * 判定の担当のサブエージェント（hook の入力の agent_type が JUDGE_AGENT_TYPES にある。reviewer・risk-agent・review-*）からの git は、
  * 読むだけの操作（diff・show・log・fetch・status など）だけを通し、ブランチ・HEAD・作業ツリー・索引を動かす操作
  * （checkout・switch・reset・restore・merge・stash・worktree add など）を、場所（-C）に関わらず止める（#637）。
@@ -99,7 +103,9 @@ const ALLOW: Decision = { deny: false };
 
 const ROLE = 'これは人か App の役割です（CLAUDE.md の「やってはいけないこと」）。別の方法で試さず、人に返してください。';
 const pythonStubReason = (name: string): string =>
-  `hook が止めました：${name} は Windows の中身の無い入口（Microsoft\WindowsApps の下のスタブ）で、何もせずに終わります。ファイルの読み書き・加工は node（node -e …）か Edit・Write ツールを使ってください。`;
+  `hook が止めました：${name} は Windows の中身の無い入口（Microsoft\\WindowsApps の下のスタブ）で、何もせずに終わります。ファイルの読み書き・加工は node（node -e …）か Edit・Write ツールを使ってください。`;
+const rootFindMessage = (place: string): string =>
+  `hook が止めました：ルート（${place}）から始める find は、ドライブ全体を辿って終わらず、Bash の時間切れの後も find だけが残って PC を重くします。探す場所を絞るか（例：find mods -name x）、Glob ツールを使ってください。mod の型定義（claude-code.d.ts）の場所は mods/agent-harness/README.md にあります。`;
 const role = (what: string): string => `hook が止めました：${what}。${ROLE}`;
 const unknown = (what: string): string =>
   `hook が止めました：${what}が展開しないと分かりません。値をそのまま書けば判定できます（main への push・Merge・保護ラベルの操作は CLAUDE.md の「やってはいけないこと」なので、その場合は人に返してください）。`;
@@ -1052,6 +1058,35 @@ function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | 
   return null;
 }
 
+/** find の探す場所の語。先頭の -H・-L・-P・-O<数>・-D <値> を飛ばし、- で始まる語か ( ) ! , が出るまで */
+function findRoots(args: Word[]): Word[] {
+  let i = 0;
+  for (let w = args[i]; w; w = args[i]) {
+    const t = w.text;
+    if (t === '-H' || t === '-L' || t === '-P' || /^-O\d*$/.test(t)) i++;
+    else if (t === '-D') i += 2;
+    else break;
+  }
+  const out: Word[] = [];
+  for (let w = args[i]; w; w = args[++i]) {
+    const t = w.text;
+    if (t.startsWith('-') || t === '(' || t === ')' || t === '!' || t === ',') break;
+    out.push(w);
+  }
+  return out;
+}
+
+const isRootPath = (text: string): boolean => {
+  if (text === '') return false;
+  const t = text.replace(/(?:[/\\]+\.?)+$/, '');
+  return t === '' || /^(?:\/(?:mnt\/|cygdrive\/)?[a-z]|[a-z]:)$/i.test(t);
+};
+
+function rootFindReason(args: Word[]): string | null {
+  const hit = findRoots(args).find((w) => !w.dynamic && isRootPath(w.text));
+  return hit ? rootFindMessage(hit.text) : null;
+}
+
 function checkSegment(seg: Segment, where: Where, ctx: Ctx, depth: number, script: string): string | null {
   const nested: string[] = [];
   const { start, assigns, chdirs } = commandStart(seg.words, nested);
@@ -1110,6 +1145,10 @@ function checkSegment(seg: Segment, where: Where, ctx: Ctx, depth: number, scrip
   if (name === 'eval') return analyze(args.map((a) => a.text).join(' '), { ...here }, ctx, depth + 1);
   const file = head.text.slice(Math.max(head.text.lastIndexOf('/'), head.text.lastIndexOf('\\')) + 1);
   if (ctx.pythonStub && /^python3?(\.exe)?$/i.test(file) && ctx.pythonStub(head.text)) return pythonStubReason(file);
+  if (/^find(\.exe)?$/i.test(file)) {
+    const r = rootFindReason(args);
+    if (r) return r;
+  }
   if (name === 'git') return checkGit(args, here, ctx, assigns);
   if (name === 'gh') return checkGh(args, ctx, { bodies: [...seg.heredocs, ...seg.herestrings], script });
   // gh-stack の直接の実行（Windows の `\` 区切りのパスも）

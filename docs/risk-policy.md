@@ -101,6 +101,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 - auto mode でも止めるもの：Planner の申告（`needsHuman`・`acChangeProposed`・`openQuestions`）、人が付けた `agent:plan-review`、批評の関所（`critique` が無い・`plan-critique` の着手宣言が無い）、`files` の欠落・書式の誤り、`split` の不正、`issue` の不一致（委任と同じ）。
 - 止める理由が飛ばす理由だけのとき、Jev に計画の危険を問い、保留にならなければ `agent:plan-ok` を付ける。通過の記録（`plan-gate`）に `autoMode` が残り、コメントに飛ばした理由・ラベル・付けた人・付けた時刻と Jev の1行を書く（[formats.md](formats.md#app-の記録agent-app)）。
 - ラベルを付けたとき（auto mode が有効になったとき）と定期実行で、App のゲートの停止で止まっている計画を判定し直す。委任の判定し直しと同じく、Planner の申告・人の印・批評の関所に当たるもの・計画コメントの本文が変わったものは止まったまま。保留のままの計画と、auto mode の記録の無い古い停止には、保留のコメントを増やさない。
+- 保留の引き継ぎ：同じ Issue の App の計画ゲートの記録のうち、保留にした・Jev が `ok`・今の問いの版で、記録の計画の `files` が今の計画の `files` と集合として同じものがあれば、最も新しいものの Jev の記録を今の保留の線に通し、保留なら Jev に問い直さずに保留のままにする（中身が同じかは見ない。`skipped`・`error`・計画の写しの無い古い記録は使わない。`files` が違えば今までどおり問う。判定し直しも同じ）。言い回しだけ変えた出し直しで保留をすり抜けないため（Issue #680）。記録の `autoMode.inheritedFrom` に元の計画コメントが残り、その記録の Jev は使い回さず、次は元の保留の記録を今の保留の線に通し直す。
 - ラベルを外しても、auto mode で付けた `agent:plan-ok` は外さない。
 
 ### Merge
@@ -115,7 +116,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 - 危険の判定は Jev だけに問う（人の決定、[Epic #339 のコメント](https://github.com/namu112358/gen-ai-development-kit/issues/339#issuecomment-5906306309)、#382）。plan-critic・Risk Agent には問わない。セッションが自分の計画・判定に「危険ではない」と書くのは自分で承認を出す形で、App は写しが本物か見分けられないため（[security.md](security.md#受け入れているリスク)）。
 - 問い：守り（ゲート・必須チェック・hook・deny・ラベルの権限・Secret の保護）を弱める・外すか、データを戻せない形で壊すか、auto mode が保留にするものを減らすか（Noul の1問。yes が危険）。既定の英文と境界の例（criteria）は `harness/lib/auto-mode.ts` にあり、`harness.config.json` の `autoMode.jev.plan`・`autoMode.jev.pr` で上書きできる。分からなければ yes と答えるよう問う。
 - 材料：計画は計画コメントの本文と `files`、PR は App が集めた diff と変更ファイルだけ。Risk Agent の `facts` などセッションが書いたものは渡さない。
-- 保留にする条件：安全側の確率（1 − 危険の確率）が `autoMode.jev.dangerSafe`（既定 0.9）未満、記録が無い・確率が読めない、Jev が `skipped`・`error`（diff が `jev.maxDiffChars` を超えるときも `skipped`）。
+- 保留にする条件：安全側の確率（1 − 危険の確率）が `autoMode.jev.dangerSafe`（既定 0.8。危険の確率が 20% を超えると保留）未満、記録が無い・確率が読めない、Jev が `skipped`・`error`（diff が `jev.maxDiffChars` を超えるときも `skipped`）。
 - Jev の危険の問いは `jev.mode` と独立（`jev.testTamper` と同じ）で、`jev.mode` が `shadow` でも auto mode の間は問う。`JEV_API_KEY` が無いと問わずに `skipped` になるので、いつも保留になる（auto mode は実質、人の判断に戻る）。
 - 同じ計画コメントで本文の同じもの（sha256）、同じ patch-id には1回だけ問い、`ok` の記録を使い回す（判定し直し・定期実行のたびに問い直さない）。問いの版（`questionSet`）が変わったら問い直す。
 - 問いを変える PR は `harness.config.json` か `harness/lib/auto-mode.ts` に触れ、どちらも `delegateMergeExclude` の中にあるので委任承認では緩められず、auto mode の中でも危険の判定（「auto mode が保留にするものを減らすか」）の対象になる。

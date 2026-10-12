@@ -98,7 +98,7 @@ test('AC5：ガードレールだけ・critical だけの PR も、Jev が安全
 test('AC5：Jev が危険と答えた・鍵なし・diff が大きすぎる・error なら autoMode.eligible が偽で、reasons に理由が残る', async () => {
   const small: HarnessConfig = { ...config, jev: { ...config.jev, maxDiffChars: 10 } };
   const cases: [string, { jev: ReturnType<typeof fakeJev>; key?: boolean; config?: HarnessConfig }, string, RegExp, number][] = [
-    ['危険', { jev: fakeJev(0.5) }, 'ok', /Jev：危険の確率 50%（保留の線 10%。超えると保留）（保留）/, 1],
+    ['危険', { jev: fakeJev(0.5) }, 'ok', /Jev：危険の確率 50%（保留の線 20%。超えると保留）（保留）/, 1],
     ['鍵なし', { jev: fakeJev(0.01), key: false }, 'skipped', /JEV_API_KEY/, 0],
     ['diff が大きすぎる', { jev: fakeJev(0.01), config: small }, 'skipped', /diff が大きすぎます/, 0],
     ['error', { jev: fakeJev('error') }, 'error', /HTTP 500/, 1],

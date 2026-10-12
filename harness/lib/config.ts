@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { TITLE_TYPES } from './title.ts';
+import type { OpsHealthThresholds } from './ops-health.ts';
 import type { PricingTable } from './usage.ts';
 
 /**
@@ -97,6 +98,8 @@ export interface HarnessConfig {
   dashboardIssueTitle: string;
   /** patrol の Routine が状態と下書きを置くまとめの Issue の題。無ければ「patrol のまとめ」（Epic #634） */
   patrolIssueTitle?: string;
+  /** 導入先の検証コマンドと依存の取り込みのコマンド。無ければ npm run check・npm ci、null は「行わない」（projectCommands。Issue #640） */
+  project?: { checkCommand?: string | null; installCommand?: string | null };
   reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
   /**
    * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、
@@ -112,8 +115,10 @@ export interface HarnessConfig {
     /** 実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル。無ければ sonnet（implementModelConfig。Issue #469） */
     implementModel?: 'sonnet' | 'opus';
   };
-  /** hq（テーマごとの fleet をまとめて見る）の設定。maxFleets は hq のペインがまとめる fleet の数の目安（超えると警告。hqConfig） */
-  hq?: { maxFleets?: number };
+  /** 保守の観測（harness/scripts/observe.ts）の運用の健康のしきい値。型と範囲は loadConfig では検査せず、observe の実行時に検査する（opsHealthConfigErrors）。無いキーは OPS_HEALTH_DEFAULTS */
+  observe?: { opsHealth?: Partial<OpsHealthThresholds> };
+  /** hq（テーマごとの fleet をまとめて見る）の設定。maxFleets は hq のペインがまとめる fleet の数の目安（超えると警告。hqConfig）。maxParallelShips は全体で同時に動かす ship の数の上限（hq が空いた枠に Issue を割り当てる上限） */
+  hq?: { maxFleets?: number; maxParallelShips?: number };
   /** fleet と hq のペイン表示（harness/scripts/panes.ts）。collectIntervalSeconds は collect が GitHub と記録を読む間隔（panesConfig） */
   panes?: { collectIntervalSeconds?: number };
   jev: { mode: 'off' | 'shadow' | 'enforce'; model: string; maxDiffChars: number; /** 人の決定の記録で Planner の申告の停止を外すか（無ければ shadow） */ decisionRelease?: 'off' | 'shadow' | 'enforce'; /** テストの改ざんの検査が見つけたアサーションの書き換えを Jev に問うか（無ければ shadow。jev.mode とは独立。Q95） */ testTamper?: 'off' | 'shadow' | 'enforce'; /** 判定の⑨（過剰さ）のブロッキング指摘を Jev に問うか（無ければ shadow。jev.mode とは独立。harness/lib/overbuild-jev.ts。Epic #497） */ overbuild?: 'off' | 'shadow' | 'enforce'; /** 実装のモデルを Jev に問うか（無ければ shadow。jev.mode とは独立。Issue #139） */ modelRouting?: 'off' | 'shadow' | 'enforce'; /** Epic に入っていない Issue の Epic を Jev に問うか（無ければ shadow。harness/lib/epic-triage.ts。Epic #436） */ epicTriage?: 'off' | 'shadow' | 'enforce'; /** 1回の定期実行で Epic の振り分けを Jev に問う Issue の数の上限（無ければ 3） */ epicTriagePerRun?: number; /** Issue の下書きが開いた Issue と同じ件かを Jev に問うか（無ければ shadow。harness/lib/issue-overlap.ts。Issue #499） */ issueOverlap?: 'off' | 'shadow' | 'enforce'; /** 1つの下書きで問う候補の Issue の数の上限（無ければ 5） */ issueOverlapMaxCandidates?: number; /** 決定の記録を Jev に問う項目の数の上限（超えれば問わない。無ければ 20。harness/lib/decision.ts。Issue #272） */ decisionMaxTargets?: number; /** 決定の記録を Jev に問う答えの文字数の上限（無ければ 20000） */ decisionMaxAnswerChars?: number; thresholds: { lowProbability: number; noulSafe: number; /** issueTriage が label のとき、ラベルを付ける確率の下限 */ labelProbability?: number; /** ラベルごとの下限（ラベル → 0〜1）。当たらないラベルは labelProbability。labelProbability が未設定なら使わない（Q94） */ labelProbabilityByLabel?: Record<string, number>; /** 決定の記録がすべてに答えているとみなす確率の下限（無ければ 0.9） */ decisionProbability?: number; /** testTamper が enforce のとき、agent/tests を通す確率の下限（無ければ通さない） */ testTamperProbability?: number; /** overbuild が enforce のとき、⑨をブロッキングに残す「Merge を止める」確率の下限（無ければ外さない） */ overbuildBlockProbability?: number; /** auto mode の経路の PR で、テストを弱める変更を Jev が妥当と答えたとみなして agent/tests を通す確率の下限（無ければ通さない。Issue #349） */ autoModeTestsProbability?: number; /** Epic に足す確率の下限（無ければ 0.9） */ epicProbability?: number; /** Epic の1番目と2番目の確率の差の下限（無ければ 0.2） */ epicMargin?: number; /** 下書きを開いた Issue と同じ件とみなす確率の下限（無ければ 0.9） */ issueOverlapProbability?: number } };
@@ -130,14 +135,39 @@ export interface AutoModeJevQuestion {
 const CONFIG_PATH = fileURLToPath(new URL('../../harness.config.json', import.meta.url));
 
 /**
- * 設定を読み、上限の数値のキーを検査する（limitErrors）。誤りがあれば throw する（上限が効かないまま動かない。Issue #272）。
- * 上限でない設定（Jev のしきい値・ガードレールの一覧など）はここでは検査しない
+ * 設定を読み、上限の数値のキー（limitErrors）と project（検証コマンド・取り込みのコマンド。projectCommands）の書式を検査する。誤りがあれば throw する（上限が効かないまま動かない。Issue #272・#640）。
+ * Jev のしきい値・ガードレールの一覧などはここでは検査しない
  */
 export function loadConfig(path: string = CONFIG_PATH): HarnessConfig {
   const config: unknown = JSON.parse(readFileSync(path, 'utf8'));
   const errors = limitErrors(config);
   if (errors.length > 0) throw new Error(`harness.config.json の上限の設定に誤りがあります：${errors.join(' / ')}`);
+  try {
+    projectCommands(config as HarnessConfig);
+  } catch (e) {
+    throw new Error(`harness.config.json の project の設定に誤りがあります：${(e as Error).message}`);
+  }
   return config as HarnessConfig;
+}
+
+/** 検証コマンドと取り込みのコマンドの既定値（設定の project が無いとき） */
+export const PROJECT_COMMAND_DEFAULTS = { checkCommand: 'npm run check', installCommand: 'npm ci' } as const;
+
+/** project の1つのコマンド。無ければ既定、null は「行わない」、文字列は空でなく前後に空白が無いこと。誤りは throw */
+function projectCommandValue(raw: Record<string, unknown>, key: 'checkCommand' | 'installCommand'): string | null {
+  const v = raw[key];
+  if (v === undefined) return PROJECT_COMMAND_DEFAULTS[key];
+  if (v === null) return null;
+  if (typeof v !== 'string' || v === '' || v !== v.trim()) throw new Error(`project.${key} は空でなく前後に空白の無い文字列か null で書いてください`);
+  return v;
+}
+
+/** 検証コマンドと取り込みのコマンド（無い項目は既定値）。書式の誤りは throw する（loadConfig が読み込み時に呼ぶ） */
+export function projectCommands(config: Pick<HarnessConfig, 'project'>): { checkCommand: string | null; installCommand: string | null } {
+  const raw = config.project as unknown;
+  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('project はオブジェクトで書いてください（例：{ "checkCommand": "npm run check", "installCommand": "npm ci" }）');
+  const obj = (raw ?? {}) as Record<string, unknown>;
+  return { checkCommand: projectCommandValue(obj, 'checkCommand'), installCommand: projectCommandValue(obj, 'installCommand') };
 }
 
 type LimitKind = 'positiveInteger' | 'positive' | 'nonNegative';
@@ -157,6 +187,7 @@ const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
   { path: 'delegateMerge.hours', kind: 'positive', required: false },
   { path: 'delegateMerge.minRemainingMinutes', kind: 'nonNegative', required: false },
   { path: 'fleet.maxParallelShips', kind: 'positiveInteger', required: false },
+  { path: 'hq.maxParallelShips', kind: 'positiveInteger', required: false },
   { path: 'jev.maxDiffChars', kind: 'positiveInteger', required: true },
   { path: 'jev.decisionMaxTargets', kind: 'positiveInteger', required: false },
   { path: 'jev.decisionMaxAnswerChars', kind: 'positiveInteger', required: false },
@@ -282,13 +313,14 @@ export function implementModelConfig(config: Pick<HarnessConfig, 'fleet'>): { im
 }
 
 /** hq の既定値 */
-export const HQ_DEFAULTS = { maxFleets: 2 } as const;
+export const HQ_DEFAULTS = { maxFleets: 2, maxParallelShips: 6 } as const;
 
-/** hq の設定（無い項目は既定値）。maxFleets は正の整数。書式の誤りは throw する */
-export function hqConfig(config: Pick<HarnessConfig, 'hq'>): { maxFleets: number } {
-  const { maxFleets = HQ_DEFAULTS.maxFleets } = sectionOf(config.hq, 'hq', '{ "maxFleets": 2 }');
+/** hq の設定（無い項目は既定値）。maxFleets・maxParallelShips は正の整数。書式の誤りは throw する */
+export function hqConfig(config: Pick<HarnessConfig, 'hq'>): { maxFleets: number; maxParallelShips: number } {
+  const { maxFleets = HQ_DEFAULTS.maxFleets, maxParallelShips = HQ_DEFAULTS.maxParallelShips } = sectionOf(config.hq, 'hq', '{ "maxFleets": 2, "maxParallelShips": 6 }');
   if (typeof maxFleets !== 'number' || !Number.isInteger(maxFleets) || maxFleets <= 0) throw new Error('hq.maxFleets は正の整数で書いてください');
-  return { maxFleets };
+  if (typeof maxParallelShips !== 'number' || !Number.isInteger(maxParallelShips) || maxParallelShips <= 0) throw new Error('hq.maxParallelShips は正の整数で書いてください');
+  return { maxFleets, maxParallelShips };
 }
 
 /** ペイン表示の既定値。GitHub の API の二次の上限に当たったことがあるので、読む間隔は長め */
@@ -400,7 +432,7 @@ export const GITHUB_ACTIONS_APP_ID = 15368;
 
 /**
  * projectChecks を既定値で埋めて検査する。書式の誤りは throw する。
- * loadConfig では検査しない（loadConfig が検査するのは上限の数値のキーだけ（limitErrors）。ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
+ * loadConfig では検査しない（loadConfig が検査するのは上限の数値のキー（limitErrors）と project の書式だけ。ゲートはこのキーを使わないので、誤りで全ゲートを止めない）。使うのは setup.ts の ruleset
  */
 export function projectChecks(config: HarnessConfig): { context: string; integrationId: number }[] {
   const raw: unknown = config.projectChecks ?? [{ context: 'ci' }];

@@ -78,19 +78,45 @@ export interface PanelScore {
 export interface CheckResult {
   headSha: string;
   exitCode: number;
-  /** npm run check の出力の末尾 */
+  /** 検証コマンドの出力の末尾 */
   outputTail: string;
+  /** 動かした検証コマンド。null は設定で行わないとした（project.checkCommand が null）。無ければ npm run check とみなす */
+  command?: string | null;
 }
 
+/** spawnSync（encoding: 'utf8'）の結果のうち使うところ */
+type RunResult = { status: number | null; error?: Error; stdout?: string | null; stderr?: string | null };
+
+/** ⑧の出力の末尾の行数 */
+const TAIL_LINES = 60;
+
 /**
- * ⑧の `npm ci` が失敗したときのメッセージ。起動できなければその理由、0 以外で終われば終了コードと出力の末尾 20 行。
- * Windows では shell を通すので、npm が見つからないときは起動の失敗ではなく 0 以外の終了になり、理由は出力の末尾に入る
+ * ⑧の取り込みのコマンド（既定 `npm ci`）が失敗したときのメッセージ。起動できなければその理由、0 以外で終われば終了コードと出力の末尾 20 行。
+ * Windows では shell を通すので、コマンドが見つからないときは起動の失敗ではなく 0 以外の終了になり、理由は出力の末尾に入る
  */
-export function npmCiFailureMessage(r: { status: number | null; error?: Error; stdout?: string | null; stderr?: string | null }): string {
-  const head = 'npm ci が失敗しました（⑧の指摘にはしません。やり直すか人に返す）:';
+export function installFailureMessage(command: string, r: RunResult): string {
+  const head = `${command} が失敗しました（⑧の指摘にはしません。やり直すか人に返す）:`;
   if (r.error) return `${head}\n起動できませんでした: ${r.error.message}`;
   const tail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trim().split('\n').slice(-20).join('\n');
   return `${head}\n終了コード ${r.status ?? '(シグナルで終了)'}${tail ? `\n${tail}` : ''}`;
+}
+
+/**
+ * ⑧：設定の取り込みのコマンドがあれば先に run し（失敗なら throw）、検証コマンドを run して結果にする。
+ * 検証コマンドが null なら run を呼ばず通る扱い。run は worktree の中でコマンドを動かす（harness/scripts/review-panel.ts）
+ */
+export function runProjectCheck(headSha: string, commands: { checkCommand: string | null; installCommand: string | null }, run: (command: string) => RunResult): CheckResult {
+  if (commands.installCommand !== null) {
+    const ci = run(commands.installCommand);
+    if (ci.error || ci.status !== 0) throw new Error(installFailureMessage(commands.installCommand, ci));
+  }
+  if (commands.checkCommand === null) {
+    return { headSha, exitCode: 0, outputTail: '検証コマンドは設定されていません（project.checkCommand が null）', command: null };
+  }
+  const r = run(commands.checkCommand);
+  if (r.error) throw r.error;
+  const outputTail = `${r.stdout ?? ''}${r.stderr ?? ''}`.trimEnd().split('\n').slice(-TAIL_LINES).join('\n');
+  return { headSha, exitCode: r.status ?? 1, outputTail, command: commands.checkCommand };
 }
 
 /** ファイル → 新しい側の変わった行 */
@@ -307,7 +333,7 @@ export function composePanel(input: {
   const nonBlocking: string[] = [];
   const humanNotes: HumanNotes = { concerns: [...(input.notes?.concerns ?? [])], checkPoints: [...(input.notes?.checkPoints ?? [])] };
   if (input.check.exitCode !== 0) {
-    blocking.push({ kind: 'typecheck-test-failure', detail: `npm run check が終了コード ${input.check.exitCode} で失敗しました。出力の末尾:\n${input.check.outputTail}` });
+    blocking.push({ kind: 'typecheck-test-failure', detail: `${input.check.command ?? 'npm run check'} が終了コード ${input.check.exitCode} で失敗しました。出力の末尾:\n${input.check.outputTail}` });
   }
 
   const results = input.findings.map((f): PanelFindingResult => {

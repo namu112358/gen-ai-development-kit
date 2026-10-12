@@ -113,3 +113,21 @@ test('recent：前回の受け付けの head が違えば、その head から�
   assert.deepEqual(Object.keys(req.questions).sort(), ['block_0', 'block_1', 'recent_0', 'recent_1']);
   assert.deepEqual(a.overbuildJev?.findings.map((f: any) => f.recent), [0.1, 0.9]);
 });
+
+test('読み取りの失敗：前回の受け付けを探すコメントの読み取りが失敗しても受け付けは最後まで進み、⑨は前回の差分なしで問って記録に残す', async () => {
+  let failed = 0;
+  const fake = fakeGh().on('GET', /\/issues\/5\/comments/, () => {
+    if (failed++ === 0) throw new Error('comments: 502');
+    return [];
+  });
+  const jev = fakeJev([0.3, 0.8]);
+  const a = await accept(fake, blockingVerdict([OVER_1, OVER_2]), jev, configWith('shadow', 0.5));
+
+  assert.ok(a, '受け付けの記録が投稿されていない');
+  assert.equal(a.overbuildJev?.status, 'ok');
+  assert.deepEqual(a.overbuildJev.findings.map((f: any) => f.recent), [null, null], '前回の差分なしなのに recent がある');
+  assert.equal(jev.overbuild().length, 1, '⑨の問いは1回だけ');
+  assert.deepEqual(Object.keys(jev.overbuild()[0]!.state).sort(), ['diff', 'findings'], '前回の差分が state に入っている');
+  assert.ok(!fake.calls.some((c) => c.method === 'GET' && c.path.includes(`/compare/${'b'.repeat(40)}...`)), '前回の head からの compare を呼んだ');
+  assert.ok(failed >= 1, '失敗させたコメントの読み取りが呼ばれていない');
+});

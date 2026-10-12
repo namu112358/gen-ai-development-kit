@@ -5,9 +5,10 @@
  * 作業したセッションの見解（authorView）があれば見解ありでも問い、記録の withView に残す（shadow。結論に使わない。#426）。
  * 見解ありの問いが問えない（diff が大きすぎる）ときは問わずに withView を skipped にし、見解なしで問い直さない（#449）。
  * auto mode で PR に auto-merge を付けた・外した記録（kind=auto-mode-merge・auto-mode-merge-end）と、auto mode で自動経路に乗せるかの判断（autoModeRoute）もここに置く。
+ * files が前に保留した計画と同じ計画は Jev に問い直さず保留を引き継ぐ（inheritedPlanJev。#680）。
  * on-comment.ts・apply.ts・tests-check.ts・auto-mode-merge.ts・delegate-merge.ts・bypass-merge.ts から使う。apply.ts を import しない（循環させない）。
  */
-import { AUTO_MODE_JEV_QUESTION_SET, autoModeConfig, autoModeJevRecord, autoModePlanJevRequest, autoModePrJevRequest, autoModeState, type AutoModeJevRecord, type AutoModeJevViewRecord, type AutoModeState } from '../lib/auto-mode.ts';
+import { AUTO_MODE_JEV_QUESTION_SET, autoModeConfig, autoModeDanger, autoModeJevRecord, autoModePlanJevRequest, autoModePrJevRequest, autoModeState, type AutoModeJevRecord, type AutoModeJevViewRecord, type AutoModeState } from '../lib/auto-mode.ts';
 import type { HarnessConfig } from '../lib/config.ts';
 import { delegatePlanExclude } from '../lib/delegate.ts';
 import type { IssueComment } from '../lib/github.ts';
@@ -43,11 +44,38 @@ export function autoModePlanSkips(gate: GateResult, plan: Plan, config: Paramete
   return [...skippable, ...(excluded.length > 0 ? [`委任承認でも通さない files（delegateMergeExclude・harness.config.json に重なりうる）: ${excluded.join(', ')}`] : [])];
 }
 
-/** 計画の Jev の記録を使い回せるか：同じ計画コメント・同じ本文の sha256 の、ok で今の問いの版の記録（error・skipped は使い回さない） */
+/**
+ * 計画の Jev の記録を使い回せるか：同じ計画コメント・同じ本文の sha256 の、ok で今の問いの版の記録（error・skipped は使い回さない）。
+ * 引き継いだ記録（autoMode.inheritedFrom）は別の計画への答えの写しなので使い回さない（呼ぶ側は inheritedPlanJev で今の設定に通し直す）
+ */
 export function reusablePlanJev(previous: (PlanGateRecord & { planBodySha256?: string }) | undefined, planCommentId: number, bodySha256: string): AutoModeJevRecord | null {
   const jev = previous?.autoMode?.jev;
-  if (!previous || previous.planCommentId !== planCommentId || previous.planBodySha256 !== bodySha256) return null;
+  if (!previous || previous.autoMode?.inheritedFrom || previous.planCommentId !== planCommentId || previous.planBodySha256 !== bodySha256) return null;
   return jev?.status === 'ok' && jev.questionSet === AUTO_MODE_JEV_QUESTION_SET ? jev : null;
+}
+
+function sameFileSet(a: string[], b: string[]): boolean {
+  const x = new Set(a);
+  const y = new Set(b);
+  return x.size === y.size && [...x].every((f) => y.has(f));
+}
+
+/**
+ * files が前に保留した計画と同じなら、その保留の Jev の記録を引き継ぐ（言い回しを変えた出し直しで保留をすり抜けない。Issue #680）。
+ * 同じ Issue の App の plan-gate の記録を新しい順に見て、保留にした・Jev が ok・今の問いの版・記録の計画（plan）の files が集合として同じ、の最初の1件を選ぶ。
+ * 選んだ記録の Jev を今の設定の autoModeDanger に通し、保留でなければ null（古い候補にさかのぼらず、今の計画を問い直す）。
+ * 返す jev は見解あり（withView）を除く（report.ts の見解あり・なしの比べで二重に数えない）
+ */
+export function inheritedPlanJev(config: HarnessConfig, comments: IssueComment[], files: string[]): { jev: AutoModeJevRecord; planCommentId: number; planUrl: string | null } | null {
+  const candidates = appRecords<PlanGateRecord & { plan?: Plan }>(config, comments, 'plan-gate').reverse();
+  const found = candidates.find(({ value }) => {
+    const jev = value.autoMode?.jev;
+    return value.autoMode?.hold === true && jev?.status === 'ok' && jev.questionSet === AUTO_MODE_JEV_QUESTION_SET && Array.isArray(value.plan?.files) && sameFileSet(value.plan.files, files);
+  });
+  if (!found) return null;
+  const { withView: _withView, ...jev } = found.value.autoMode!.jev;
+  if (!autoModeDanger(config, { jev }).hold) return null;
+  return { jev, planCommentId: found.value.planCommentId, planUrl: comments.find((c) => c.id === found.value.planCommentId)?.html_url ?? null };
 }
 
 /** PR の Jev の記録を使い回せるか：同じ patch-id の受け付けの記録の autoMode.jev が ok で今の問いの版のもの */

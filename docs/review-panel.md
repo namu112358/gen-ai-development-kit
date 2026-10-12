@@ -15,7 +15,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 | 3 ⑥ | `review-ac-scope` | opus | AC を満たすか（`ac-unmet`）、範囲外の変更（`out-of-scope`） |
 | 3 ⑦ | `review-safety` | opus | `data-destruction`・`secret-leak`・`regression` |
 | 3 ⑨ | `review-overbuild` | sonnet | 計画・AC が求めていない `over-implementation`（過剰な実装）・`over-testing`（過剰なテスト）・`over-engineering`（オーバーエンジニアリング）。1判定5件まで。確信度 75 以上はブロッキング、75 未満は提案（#386。決定ログの Q103） |
-| 3 ⑧ | `review-panel.ts` の `check` | — | head の detached の worktree で `npm ci` と `npm run check`。終了コードと出力の末尾 60 行 |
+| 3 ⑧ | `review-panel.ts` の `check` | — | head の detached の worktree で、設定の取り込みのコマンド（`project.installCommand`。既定 `npm ci`）と検証コマンド（`project.checkCommand`。既定 `npm run check`。`null` なら動かさない）。終了コードと出力の末尾 60 行 |
 | 4 | `review-scorer`（指摘ごと） | haiku（⑥⑦の指摘は opus） | 指摘1件の確信度（0〜100）。公式の採点基準を英文のまま使う。⑥⑦の指摘には Issue 本文と計画の節も渡す |
 | 5・6 | `review-panel.ts` の `compose`・`post` | — | head の再確認、組み立て、記録のコメントの投稿 |
 
@@ -63,7 +63,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../.claude/skills/judge/SKILL.
 | 誤検知の例を段階4・5のすべてに当てる | ①〜⑤の指摘にだけ当てる | ⑥⑦の既存の問題・セキュリティの問題を誤検知として落とさない |
 | ④は担当が `gh` で過去の PR を読む | セッションが judge-input の「過去の PR のコメント」の節に集めたものを使う。App と Claude の目印のコメントは含めない | 担当は GitHub を読まない。前の reviewer の指摘の再掲を避ける（下の「④の材料」） |
 | 段階7で対象かをもう一度確かめる | `compose`・`post` が今の PR の head が判定する head と同じかを確かめる | head が変われば組み立て直す |
-| ビルド・型検査を動かさない | ⑧で `npm run check` を動かし、失敗は必ずブロッキング | 今の reviewer の手順3を引き継ぐ |
+| ビルド・型検査を動かさない | ⑧で設定の検証コマンドを動かし、失敗は必ずブロッキング | 今の reviewer の手順3を引き継ぐ |
 | 確信度 80 未満の指摘を捨てる | しきい値を 75 にする（採点の刻み 0/25/50/75/100 の 75 をブロッキングにする） | 公式は人向けのコメントで、確実なもの（刻みでは実質 100）だけを出す。ここは合否を決めるゲートで、shadow の記録 80 件では 80 以上が 0 件だった（#317） |
 | 出力は決まった書式の Markdown | 担当ごとの決まった JSON。組み立てはスクリプトが行う | 閾値と再レビューの決まりを機械的に当てる |
 

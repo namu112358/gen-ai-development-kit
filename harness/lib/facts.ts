@@ -143,7 +143,32 @@ export function critiqueClaimedBefore(comments: IssueComment[], planCommentId: n
   return claimTimeline(comments).some((i) => i.kind === 'claim' && i.position < planCommentId && i.claim!.stage === 'plan-critique' && !i.claim!.released);
 }
 
-function latestClaudeBlockAt(comments: IssueComment[], kind: 'agent-plan' | 'agent-verdict'): IssueComment | null {
+/**
+ * 人の判断待ち（plan-review・Issue の止まる印）の始まりの時刻。待ちでなければ null（Issue #667）。
+ * 止まる印（hold → blocked → waiting の順で最初に付いているもの）はその印を付けた時刻。
+ * plan-review（印が付いている、または止まった計画ゲートの記録がある）は、印を付けた時刻・止まったゲートの時刻・最新の決定の記録の時刻のうち最も遅いもの
+ * （決定の記録はラベルもゲートも変えないので、記録で待ちを消さず記録の時刻から数え直す）。印もゲートの停止の時刻も無ければ null。
+ * 始まりより後に計画コメントがあれば、計画の出し直しでゲートの返事待ちなので null。
+ */
+export function humanWaitSince(input: {
+  labels: string[];
+  labeledAt: Partial<Record<string, string>>;
+  gate: { pass: boolean; at: string } | null;
+  latestPlanAt: string | null;
+  latestDecisionAt: string | null;
+}): string | null {
+  const stop = [LABELS.hold, LABELS.blocked, LABELS.waiting].find((l) => input.labels.includes(l));
+  if (stop) return input.labeledAt[stop] ?? null;
+  const stoppedGate = input.gate !== null && !input.gate.pass;
+  const labeled = input.labels.includes(LABELS.planReview) ? (input.labeledAt[LABELS.planReview] ?? null) : null;
+  if (labeled === null && !stoppedGate) return null;
+  const times = [labeled, stoppedGate ? input.gate!.at : null, input.latestDecisionAt].filter((t): t is string => t !== null);
+  const start = times.reduce((a, b) => (a < b ? b : a));
+  if (input.latestPlanAt !== null && input.latestPlanAt > start) return null;
+  return start;
+}
+
+function latestClaudeBlockAt(comments: IssueComment[], kind: 'agent-plan' | 'agent-verdict' | 'agent-decision'): IssueComment | null {
   return [...comments].reverse().find((c) => isTrustedComment(c) && hasClaudeMark(c.body) && extractBlock(c.body, kind).found) ?? null;
 }
 
@@ -166,10 +191,16 @@ export async function issueFacts(
   const gate = latestPlanGate(cfg, comments);
   const plan = latestClaudeBlockAt(comments, 'agent-plan');
   const planOk = lastLabeled(events, LABELS.planOk);
+  const labeledAt: Partial<Record<string, string>> = {};
+  for (const l of [LABELS.planReview, LABELS.hold, LABELS.blocked, LABELS.waiting]) {
+    const at = lastLabeled(events, l)?.created_at;
+    if (at !== undefined) labeledAt[l] = at;
+  }
+  const labels = issue.labels.map((l) => l.name);
   return {
     number: issue.number,
     title: issue.title,
-    labels: issue.labels.map((l) => l.name),
+    labels,
     readyAt: lastLabeled(events, LABELS.ready)?.created_at ?? null,
     claim: claimOf(comments),
     openBlockers: await openBlockers(gh, issue.number),
@@ -178,6 +209,13 @@ export async function issueFacts(
     planOkByApp: planOk?.actor?.login === appLogin(cfg),
     openPr: prByIssue.get(issue.number) ?? null,
     areaFull: areaFullFor(cfg, gate, openPrLabels),
+    humanWaitSince: humanWaitSince({
+      labels,
+      labeledAt,
+      gate: gate ? { pass: gate.value.pass, at: gate.comment.created_at } : null,
+      latestPlanAt: plan?.created_at ?? null,
+      latestDecisionAt: latestClaudeBlockAt(comments, 'agent-decision')?.created_at ?? null,
+    }),
   };
 }
 

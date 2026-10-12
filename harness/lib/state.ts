@@ -103,6 +103,8 @@ export interface PlanGateRecord {
   delegated?: PlanDelegation;
   /** 批評で必須の指摘が残ったまま、人が進めると決めて通った計画（critique が revise で mustRemaining が1以上）。古い記録には無い */
   critiqueProceeded?: { verdict: 'revise'; mustRemaining: number };
+  /** split の計画で、Planner の申告で付いた agent:plan-review を外して通したとき（Issue #659）。古い記録には無い */
+  splitReleased?: true;
   /** auto mode の危険の判定をかけたとき（通した・保留にした）。harness/gates/auto-mode.ts と on-comment.ts の onPlan。古い記録には無い */
   autoMode?: PlanAutoMode;
   /** 実装に勧めるモデル（Jev）。jev.modelRouting が off なら無い。古い記録には無い。Issue #139 */
@@ -123,6 +125,8 @@ export interface PlanAutoMode {
   hold: boolean;
   /** 危険の判定の理由（Jev の1行） */
   reasons: string[];
+  /** files が前に保留した計画と同じため、Jev に問い直さずにその計画の保留を引き継いだときの元の計画コメント（Issue #680）。古い記録・引き継がなかった記録には無い */
+  inheritedFrom?: { planCommentId: number };
 }
 
 export function latestPlanGate(config: HarnessConfig, comments: IssueComment[]): { comment: IssueComment; value: PlanGateRecord } | null {
@@ -178,6 +182,7 @@ export interface DashboardIssue {
   user: { login: string } | null;
   labels: { name: string }[];
   pull_request?: unknown;
+  body?: string | null;
 }
 
 /** patrol のまとめの Issue の題の既定値 */

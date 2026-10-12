@@ -1,11 +1,14 @@
 import type { HarnessConfig } from './config.ts';
-import type { Plan } from './plan.ts';
+import { delegatePlanExclude } from './delegate.ts';
+import { guardrailPatterns, type GuardrailConfig } from './guardrail.ts';
+import { plannerRequestsHuman, recordedOrigin, type Plan } from './plan.ts';
 import type { PlanGateRecord, TimelineEvent } from './state.ts';
 import { Checker } from './validate.ts';
 
 /**
  * 決定の記録（```agent-decision）：Planner の申告（needsHuman・openQuestions）への人の答えを、付き添いのセッションが記録する。
  * App はそれを Jev に確かめさせ、jev.decisionRelease が enforce でしきい値以上なら、答え済みの計画として計画ゲートで判定し直す（harness/gates/plan-decision.ts）。
+ * split の計画は、Planner の申告の印を App が外して子 Issue に分けることがある（splitPlannerRelease。Issue #659）。
  * 記録は人の名義で書かれ App は書き手を区別できないため、外すのは Planner の申告の停止だけにする（decisionEligibility）。書式は docs/formats.md。
  * proceed のある記録は、agent:plan-review で止まった計画を人が「この計画で進める」と決めた記録（Issue #365）。App は Jev に問わず proceedEligibility で確かめ、
  * plan-proceed の記録を付ける（ラベルは変えない）。その記録があれば、委任・bypass の範囲照合がその計画を使う（harness/lib/state.ts の issueDelegateFiles）。
@@ -219,6 +222,54 @@ export function proceedEligibility(input: ProceedEligibilityInput): { eligible: 
   }
   if (input.priorProceedIds.includes(input.decisionCommentId)) reasons.push('この決定の記録は確かめ済みです');
   return { eligible: reasons.length === 0, reasons };
+}
+
+export interface SplitReleaseInput {
+  /** 新しい split の計画 */
+  plan: Plan;
+  /** App の計画ゲートの記録（古い順）。planCreatedAt は記録の計画コメントの作成時刻（見つからなければ null） */
+  gates: { planCreatedAt: string | null; gateCreatedAt: string; value: PlanGateRecord & { plan?: Plan } }[];
+  /** Issue のイベント（古い順） */
+  events: TimelineEvent[];
+  /** 子課題の files の照合に使う設定（ガードレールと delegateMergeExclude） */
+  config: GuardrailConfig & Pick<HarnessConfig, 'delegateMergeExclude'>;
+}
+
+/**
+ * split の計画で、Planner の申告で付いた agent:plan-review を App が外してよいか（Issue #659）。理由（外さない理由）が空なら release: true。
+ * 計画自身に Planner の申告が無い・最新の記録が Planner の申告による停止・印が計画の投稿か App の停止の窓で付いた・
+ * 印を付けた計画に申告があり、その計画と最新の計画に acChangeProposed が無いときだけ外す。窓の外で付いた印（人が付けた印）は外さない。
+ * 計画自身の files のガードレールの判定は呼び出し元が委任・auto mode の前のゲートで見る。子課題の files は、ガードレール・delegateMergeExclude・harness.config.json に触れれば外さない（Issue #779）。
+ */
+export function splitPlannerRelease(input: SplitReleaseInput): { release: boolean; reasons: string[] } {
+  const reasons: string[] = [];
+  const { plan, gates, events } = input;
+  if (!plan.split) reasons.push('split の計画ではありません');
+  if (plannerRequestsHuman(plan)) reasons.push('この計画に Planner の申告（needsHuman・acChangeProposed・openQuestions）があります');
+  const latest = gates.at(-1)?.value;
+  if (!latest) reasons.push('App の計画ゲートの記録がありません');
+  else if (latest.pass !== false || recordedOrigin(latest) !== 'planner') reasons.push('最新の計画ゲートの記録が Planner の申告による停止ではありません');
+  else if (!latest.plan) reasons.push('最新の計画ゲートの記録に計画の写しがありません');
+  else if (latest.plan.acChangeProposed) reasons.push('最新の計画に要件・AC の変更提案があります');
+  if (reasons.length === 0) {
+    const labeled = lastLabeledAt(events, 'agent:plan-review');
+    const hit =
+      labeled === null
+        ? undefined
+        : gates.find((g) => g.planCreatedAt !== null && labeled >= Date.parse(g.planCreatedAt) - LABEL_GRACE_MS && labeled <= Date.parse(g.gateCreatedAt));
+    if (!hit) reasons.push('`agent:plan-review` が計画の投稿か App の停止の外で付いています（人が付けた印は人が外します）');
+    else if (!hit.value.plan) reasons.push('印を付けた計画の写しが記録にありません');
+    else if (!(hit.value.plan.needsHuman || hit.value.plan.openQuestions.length > 0)) reasons.push('印を付けた計画に Planner の申告（needsHuman・openQuestions）がありません');
+    else if (hit.value.plan.acChangeProposed) reasons.push('印を付けた計画に要件・AC の変更提案があります');
+  }
+  (plan.split ?? []).forEach((child, i) => {
+    const label = `子課題 ${i + 1}「${child.title}」の files が`;
+    const guard = guardrailPatterns(input.config, child.files);
+    if (guard.length > 0) reasons.push(`${label}ガードレールに触れます: ${guard.join(', ')}`);
+    const noDelegate = delegatePlanExclude(input.config, child.files);
+    if (noDelegate.length > 0) reasons.push(`${label}delegateMergeExclude か harness.config.json に触れます（一覧が無い設定ではすべて当たる）: ${noDelegate.join(', ')}`);
+  });
+  return { release: reasons.length === 0, reasons };
 }
 
 /** 今付いている印の最後の labeled の時刻（外されていれば null） */

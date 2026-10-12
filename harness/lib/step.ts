@@ -8,7 +8,7 @@ import { issueNode, type FleetIssue } from './fleet.ts';
 import type { FlowNodeId, FlowStep, FlowStopReason } from './flow.ts';
 import { postClaim, writeClaim, type ClaimIo } from './claim.ts';
 import { claimBlocker, isOwnClaim, type Claim, type ClaimStage, type StoredClaim } from './queue.ts';
-import type { ReasonCode } from './config.ts';
+import { PROJECT_COMMAND_DEFAULTS, type ReasonCode } from './config.ts';
 import { TRANSCRIPT_SESSION_ID } from './session.ts';
 import type { CritiqueRound } from './stage-file.ts';
 import type { BlockingFinding } from './verdict.ts';
@@ -57,6 +57,8 @@ export interface StepInput {
    * judge のノードの前だけ見て、宣言を出さずに stop（harness-stale。自分の宣言は解除する）を返す（Issue #199）
    */
   harnessStale?: string | null;
+  /** 設定の検証コマンド（config.ts の projectCommands）。null なら allowed に出さない。無ければ既定（npm run check）。Issue #640 */
+  checkCommand?: string | null;
 }
 
 interface StepBase {
@@ -120,7 +122,7 @@ export const CRITIQUE_LIMIT = 3;
 const STEP = 'node harness/scripts/agent.ts step';
 
 /** ノードごとの許す操作・入力・出力の書式（n は Issue 番号、pr は PR 番号） */
-function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, postPlan: boolean): Pick<StepNodeResult, 'allowed' | 'inputs' | 'output'> {
+function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, postPlan: boolean, check: string | null): Pick<StepNodeResult, 'allowed' | 'inputs' | 'output'> {
   switch (node) {
     case 'plan':
       return {
@@ -144,7 +146,7 @@ function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, po
         allowed: [
           `node harness/scripts/agent.ts worktree ${prefix}<短い名前>`,
           'test-designer サブエージェント',
-          'npm run check',
+          ...(check !== null ? [check] : []),
           'git add <ファイル> / git commit',
           `git push -u origin ${prefix}<短い名前>（force push しない）`,
           `node harness/scripts/agent.ts scope-check ${n}`,
@@ -167,13 +169,13 @@ function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, po
       };
     case 'fix':
       return {
-        allowed: [`node harness/scripts/agent.ts worktree <PR のブランチ>`, 'npm run check', 'git add <ファイル> / git commit', 'git push origin <PR のブランチ>（force push しない）', `gh pr comment ${pr}（何を直したか）`],
+        allowed: [`node harness/scripts/agent.ts worktree <PR のブランチ>`, ...(check !== null ? [check] : []), 'git add <ファイル> / git commit', `node harness/scripts/agent.ts ensure-claim ${pr}（push の前。Merge 済み・Closed なら止まる）`, 'git push origin <PR のブランチ>（force push しない）', `gh pr comment ${pr}（何を直したか）`],
         inputs: [`App の最新の変更要求レビュー（kind=fix-request）と、現在の head へのコラボレーターのレビュー（gh api repos/{owner}/{repo}/pulls/${pr}/reviews）`, `node harness/scripts/agent.ts show-plan ${n}`],
         output: '指摘を直した commit の push と、何を直したかの PR のコメント',
       };
     case 'sync':
       return {
-        allowed: [`node harness/scripts/agent.ts worktree <PR のブランチ>`, 'git fetch origin / git merge origin/<既定ブランチ>（rebase・force push しない）', 'npm run check', 'git push origin <PR のブランチ>（force push しない）', `gh pr comment ${pr}（取り込みと衝突の解消）`],
+        allowed: [`node harness/scripts/agent.ts worktree <PR のブランチ>`, 'git fetch origin / git merge origin/<既定ブランチ>（rebase・force push しない）', ...(check !== null ? [check] : []), `node harness/scripts/agent.ts ensure-claim ${pr}（push の前。Merge 済み・Closed なら止まる）`, 'git push origin <PR のブランチ>（force push しない）', `gh pr comment ${pr}（取り込みと衝突の解消）`],
         inputs: ['衝突したファイルと、両方の変更の意図'],
         output: 'main を取り込んだ merge commit の push',
       };
@@ -227,7 +229,7 @@ export function decideStep(input: StepInput): StepDecision {
     const current = onPr ? prClaim : issueClaim;
     const blocker = claimBlocker(current, session, { takeover: false, now: input.now, humanClaimStaleHours: input.humanClaimStaleHours });
     if (blocker) return stop(node, 'claimed', `#${target}: ${blocker}`, false);
-    const s = spec(node, n, at.pr, branchPrefix, extra.postPlan === true);
+    const s = spec(node, n, at.pr, branchPrefix, extra.postPlan === true, input.checkCommand === undefined ? PROJECT_COMMAND_DEFAULTS.checkCommand : input.checkCommand);
     const result: StepNodeResult = {
       ...base(node, onPr ? at.pr : null),
       kind: 'node',

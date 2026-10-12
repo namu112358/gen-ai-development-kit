@@ -1,6 +1,6 @@
 ---
 name: sync
-description: 人が付き添うセッションで、判定済みの PR に main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる（変わっていれば判定し直す）。「PR #番号 に main を取り込んで」「衝突を直して」と頼まれたときに使う。
+description: "人が付き添うセッションで、判定済みの PR に main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる（変わっていれば判定し直す）。「PR #番号 に main を取り込んで」「衝突を直して」と頼まれたときに使う。"
 ---
 
 # sync（main の取り込み）
@@ -14,12 +14,12 @@ Routine の resolve-conflict（[.claude/routine.md](../../routine.md)）に、�
 
 ## 手順
 
-1. `node harness/scripts/agent.ts claim <PR番号> --manual --stage sync` で着手を宣言する（`worktree` は PR の宣言を確かめる）。
+1. `node harness/scripts/agent.ts claim <PR番号> --manual --stage sync` で着手を宣言する（`worktree` は PR の宣言を確かめる）。PR が Merge 済み・Closed なら `claim` は宣言せずに止まる。そのときは worktree を作らず push せずに終え、人がすることの一覧に「PR #N は Merge 済み（Closed）のため sync をしなかった」と書く。
 2. `node harness/scripts/agent.ts worktree <PR のブランチ>` で worktree を作り（出力がパス）、そこで作業する。
 3. `git fetch origin` のあと、前回の判定の head での PR 自身の差分の patch-id を控える：`git diff origin/<PR の base>...<前回の判定の head> | git patch-id --verbatim`（PR の base は `gh pr view <PR番号> --json baseRefName`。既定ブランチ宛ての PR は `main`。App の patch-id は PR の base からの差分で取るため）
 4. `git merge origin/<PR の base>` で base を取り込み、衝突を解消する（既定ブランチ宛ての PR は `git merge origin/main`）。Stacked PR の層は、下の層が変わったら下の層から順に取り込む（`main` を一番下の層に、下の層を上の層に）。rebase と force push はしない。App は既定ブランチへの push のたびに Agent PR を base に追従させる（update-branch＝merge）ので、この `git merge` と食い違わない。両方の変更の意図を残す（main 側の変更を消さない）。判断できない衝突は解消せず、人に返す。
-5. `npm run check` を通す。
-6. `git add <ファイル>` でファイルを指定して merge を commit し、`git push origin <PR のブランチ>` で push する（`<PR のブランチ>` は手順2と同じ。force push しない）。
+5. 検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`。`null` なら省く）を通す。
+6. push の前に `node harness/scripts/agent.ts ensure-claim <PR番号>` を流す（宣言の持ち主と、PR が開いていることを確かめる）。止まったら push せずに `release <PR番号>` して終え、一覧に同じく書く。流せたら `git add <ファイル>` でファイルを指定して merge を commit し、`git push origin <PR のブランチ>` で push する（`<PR のブランチ>` は手順2と同じ。force push しない）。
 7. 取り込み後の patch-id を同じ方法で取る：`git diff origin/<PR の base>...HEAD | git patch-id --verbatim`（`origin/<PR の base>` は手順3で取ってきたもの）。
 8. 手順3と比べる。
    - **同じ**：判定は作り直さない。App が前回の判定を引き継いだことを `gh pr view <PR番号> --json isDraft,statusCheckRollup` で確かめる（新しい head で `agent/review`・`agent/risk` が成功し、`isDraft` が false）。数分待っても引き継がれなければ judge（再レビュー）をやる。
@@ -35,7 +35,8 @@ Routine の resolve-conflict（[.claude/routine.md](../../routine.md)）に、�
 
 ## 人に返す条件
 
+- PR が Merge 済み・Closed（`claim` か `ensure-claim` が止まった。push しない）
 - 両方の意図を残して解消できない衝突がある
-- 取り込み後に `npm run check` が落ち、この PR の範囲で直せない
+- 取り込み後に検証コマンド（`project.checkCommand`）が落ち、この PR の範囲で直せない
 - patch-id が同じなのに App が判定を引き継がず、judge でも受け付けられない
 - やってはいけないこと：古い判定の head の書き換え、force push、rebase、Merge、Draft の解除、`agent:plan-ok`・`agent:hold`・`agent:auto-merge-stopped`・`agent:delegate-plan`・`agent:delegate-merge`・`agent:bypass-merge`・auto mode のラベル（既定 `agent:auto-mode`。名前は `harness.config.json` の `autoMode.label`）と `*:exempt` のラベルの付け外し
