@@ -237,6 +237,9 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 - 版は、改行コードを LF にそろえた中身の sha256。`head` は記録したときの作業ツリーの HEAD（読めなければ null）。
 - `agent.ts harness-drift`（と `claim`・`fleet-status`・`step`）が、記録の版 L・`origin/<既定ブランチ>` の版 O・`head` と origin の merge-base の版 M で比べる。L と O が同じなら古くない。違うとき、L と M が同じ（ブランチが変えていない）なら古い。L と M が違う（ブランチ・未 commit で自分で変えた）なら、O と M が違うときだけ古い。M が求まらなければ L と O だけで比べる。記録が無い・読めなければ判断しない。
+- 比べるときは `.claude/skills/`・`.claude/agents/` の下の `README.md` を飛ばす（セッションが読み込まない。記録には残る）。
+- 猶予（#812）：上で違うファイルのうち、猶予を置かないファイル（`harness/CLAUDE.harness.md`・`.claude/settings.json` と判定の担当（`.claude/agents/` の `reviewer.md`・`risk-agent.md`・`review-*`、`.claude/skills/judge/`・`.claude/skills/review-panel/`））は、違えばすぐ古い。そのほかは、記録の `head` から `origin/<既定ブランチ>` までの commit でそのファイルに最初に触れた commit の committer の時刻から、`harness.config.json` の `harnessDrift.graceHours`（既定 6、0 で猶予なし）を過ぎたら古い。時刻が分からない（`head` が無い・git が失敗した・log にそのパスが出ない）ときは古い。squash merge のリポジトリではこの時刻は Merge の時刻、merge commit で取り込むリポジトリでは取り込んだ枝の commit の時刻（Merge より前）なので、猶予は早く切れる。
+- `harness-drift` の出力：`changed`・`added`・`removed` は違うファイル、`stale` は古い（judge を止め、段階の切れ目で交代する）。`pending` は違うが猶予の内のファイル、`graceHours` は使った猶予、`pendingUntil` は `pending` の一番古い変更 + 猶予の時刻（無ければ null）。猶予の内の違いだけのときは、`claim` の標準エラーと `fleet-status` の表の下に知らせる1行が出る。
 
 ### 見張りの記録
 

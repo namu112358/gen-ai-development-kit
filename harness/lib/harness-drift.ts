@@ -4,6 +4,7 @@
  * 記録は SessionStart の hook（.claude/hooks/session-env.ts）が書き、agent.ts（harness-drift・claim・fleet-status・step）が読む。
  * 置き場所は git の共通ディレクトリの下の `agent-harness/loaded/<セッションの ID>.json`（段階のファイルと同じ流儀。worktree からも同じ場所で、commit されない）。
  * 比べ方は記録の版（L）・origin の版（O）・記録の HEAD と origin の merge-base の版（M）の3つ。ブランチが自分で変えたファイルは、origin もその後に変えたときだけ古いとする。
+ * origin で違うファイルのうち、猶予を置かないファイル（NO_GRACE_PATHS）以外は、まだ読み込んでいない一番古い変更から猶予の時間（既定 6 時間）を過ぎるまで古いとしない（Issue #812）。
  * 書式は docs/formats.md の「読み込みの記録」。GitHub は呼ばない（git だけ）。
  */
 import { spawnSync } from 'node:child_process';
@@ -121,6 +122,32 @@ export function harnessVersionsAt(cwd: string, ref: string): Record<string, stri
   return out;
 }
 
+/** 比べるときに飛ばすファイル：`.claude/skills/`・`.claude/agents/` の下の README.md（セッションが読み込まない。記録には残る） */
+function ignoredInCompare(path: string): boolean {
+  return (path.startsWith('.claude/skills/') || path.startsWith('.claude/agents/')) && path.split('/').pop() === 'README.md';
+}
+
+/**
+ * 猶予を置かないファイル（`/` か `-` で終わるものは前方一致）：規則・settings と判定の担当（reviewer・risk-agent・review-* の agent、judge・review-panel の skill）。
+ * 判定の担当を入れるのは、judge だけが止まって交代が起きない場面を作らないため（Issue #812）
+ */
+export const NO_GRACE_PATHS: readonly string[] = [
+  'harness/CLAUDE.harness.md',
+  '.claude/settings.json',
+  '.claude/agents/reviewer.md',
+  '.claude/agents/risk-agent.md',
+  '.claude/agents/review-',
+  '.claude/skills/judge/',
+  '.claude/skills/review-panel/',
+];
+
+/** 猶予の時間の既定（harness.config.json の harnessDrift.graceHours が無いとき） */
+export const DEFAULT_GRACE_HOURS = 6;
+
+function noGrace(path: string): boolean {
+  return NO_GRACE_PATHS.some((p) => (p.endsWith('/') || p.endsWith('-') ? path.startsWith(p) : path === p));
+}
+
 /** 比べた結果 */
 export interface DriftResult {
   stale: boolean;
@@ -143,6 +170,7 @@ export function compareHarness(loaded: Record<string, string>, origin: Record<st
   const removed: string[] = [];
   const paths = [...new Set([...Object.keys(loaded), ...Object.keys(origin)])].sort();
   for (const path of paths) {
+    if (ignoredInCompare(path)) continue;
     const l = loaded[path];
     const o = origin[path];
     if (l === o) continue;
@@ -157,8 +185,69 @@ export function compareHarness(loaded: Record<string, string>, origin: Record<st
   return { stale: changed.length + added.length + removed.length > 0, changed, added, removed };
 }
 
-/** fleet-status の表の下に足す1行。古いときだけ。判断しない（null）・古くないときは '' */
-export function driftLine(result: DriftResult | null): string {
+/**
+ * from（記録の HEAD）から ref（origin の既定ブランチ）までの commit で、パスごとに最初に触れた commit の committer の時刻（Unix 秒）。
+ * from が null・paths が空・git が失敗すれば null（時刻が分からない）。log に出ないパスは入らない
+ */
+export function firstChangeTimes(cwd: string, from: string | null, ref: string, paths: string[]): Record<string, number> | null {
+  if (from === null || paths.length === 0) return null;
+  const r = git(cwd, ['log', '--reverse', '--format=%x01%ct', '--name-only', `${from}..${ref}`, '--', ...paths]);
+  if (!r.ok) return null;
+  const wanted = new Set(paths);
+  const out: Record<string, number> = {};
+  let time: number | null = null;
+  for (const line of r.stdout.toString('utf8').split('\n')) {
+    if (line.startsWith('\x01')) {
+      time = Number(line.slice(1));
+      continue;
+    }
+    if (time !== null && Number.isFinite(time) && wanted.has(line) && !(line in out)) out[line] = time;
+  }
+  return out;
+}
+
+/** 猶予を置いて決め直した結果 */
+export interface DriftAssessment extends DriftResult {
+  /** 違うが猶予の内のファイル */
+  pending: string[];
+  graceHours: number;
+  /** pending の一番古い変更 + 猶予の時刻（ISO 8601）。pending が空なら null */
+  pendingUntil: string | null;
+}
+
+/**
+ * compareHarness の結果の stale を、猶予を置いて決め直す（changed・added・removed はそのまま）。
+ * 猶予を置かないファイルの違い、猶予を過ぎた違い、時刻が分からない違い（times が null か、times にパスが無い）があれば古い。
+ * 猶予の内の違いだけなら古くなく、pending に並べる。graceHours が 0 なら違いがあれば古い（猶予なし）
+ */
+export function assessDrift(raw: DriftResult, times: Record<string, number> | null, nowMs: number, graceHours: number): DriftAssessment {
+  const graceMs = graceHours * 3600 * 1000;
+  const pending: string[] = [];
+  let stale = false;
+  let oldest: number | null = null;
+  for (const path of [...raw.changed, ...raw.added, ...raw.removed]) {
+    const t = times?.[path];
+    if (noGrace(path) || t === undefined) {
+      stale = true;
+      continue;
+    }
+    const ms = t * 1000;
+    if (nowMs - ms >= graceMs) {
+      stale = true;
+      continue;
+    }
+    pending.push(path);
+    if (oldest === null || ms < oldest) oldest = ms;
+  }
+  return { ...raw, stale, pending, graceHours, pendingUntil: oldest === null ? null : new Date(oldest + graceMs).toISOString() };
+}
+
+/** fleet-status の表の下・claim の標準エラーに足す1行。古いときは交代の文、猶予の内の違いだけなら知らせる文。判断しない（null）・違いが無いときは '' */
+export function driftLine(result: (DriftResult & { pending?: string[]; pendingUntil?: string | null }) | null): string {
+  if (result && !result.stale && result.pending && result.pending.length > 0) {
+    const until = result.pendingUntil ? `${result.pendingUntil} を過ぎたら` : '猶予を過ぎたら';
+    return `origin でハーネスのファイル ${result.pending.length} 件が変わったが猶予の内（${until}段階の切れ目で交代する）`;
+  }
   if (!result?.stale) return '';
   const paths = [...result.changed, ...result.added, ...result.removed];
   const head = paths.slice(0, 3).join('、');

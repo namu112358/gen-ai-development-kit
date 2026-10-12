@@ -30,7 +30,7 @@ Routine か付き添いのセッションが作業の前に残す、着手者を
 
 ### 読み込みの記録 / 読み込みが古い
 
-付き添いのセッションが始めたときに読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の版を、SessionStart の hook がセッションごとに記録したもの。今の `origin/<既定ブランチ>` と比べて違えば「読み込みが古い」で、judge を始めず、段階の切れ目で新しいセッションに交代する（#199）。詳細：[formats.md](formats.md#読み込みの記録)・[operations.md](operations.md#付き添いのセッションで進める)
+付き添いのセッションが始めたときに読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の版を、SessionStart の hook がセッションごとに記録したもの。今の `origin/<既定ブランチ>` と比べ、規則・settings・判定の担当（reviewer・risk-agent・review-* の agent、judge・review-panel の skill）が違うか、そのほかのファイルの違いが猶予（`harnessDrift.graceHours`、既定 6 時間）を過ぎていれば「読み込みが古い」で（#812）、judge を始めず、段階の切れ目で新しいセッションに交代する（#199）。詳細：[formats.md](formats.md#読み込みの記録)・[operations.md](operations.md#付き添いのセッションで進める)
 
 ## 計画
 

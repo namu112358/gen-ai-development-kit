@@ -13,7 +13,7 @@ import { parseHandoff } from '../../lib/handoff.ts';
 import { GitHub, graphqlUnavailable, RateLimitError, type Transport, transportFromEnv } from '../../lib/github.ts';
 import { judgedHeadError, samePrPatch } from '../../lib/patch-id.ts';
 import { gitCommonDir } from '../../lib/local-state.ts';
-import { compareHarness, type DriftResult, harnessVersionsAt, loadedRecordPath, readLoadedRecord } from '../../lib/harness-drift.ts';
+import { assessDrift, compareHarness, DEFAULT_GRACE_HOURS, type DriftAssessment, firstChangeTimes, harnessVersionsAt, loadedRecordPath, readLoadedRecord } from '../../lib/harness-drift.ts';
 import { expectedPlanGate, parsePlan, type Plan, plannerRequestsHuman } from '../../lib/plan.ts';
 import { type Claim, CLAIM_STAGES, type ClaimStage, type StoredClaim } from '../../lib/queue.ts';
 import { transcriptSessionId } from '../../lib/session.ts';
@@ -49,7 +49,7 @@ export function currentSession(): string | null {
 }
 
 /** このセッションの読み込みを origin と比べた結果（harness-drift のコマンドと claim・fleet-status・step が使う。Issue #199） */
-export interface HarnessDrift extends DriftResult {
+export interface HarnessDrift extends DriftAssessment {
   judged: true;
   /** 比べた origin の ref と commit */
   base: string;
@@ -61,7 +61,8 @@ export interface HarnessDrift extends DriftResult {
 
 /**
  * このセッション（AGENT_HARNESS_SESSION。Routine では判断しない）の読み込みの記録を、origin の既定ブランチと比べる。記録が無ければ null（fetch もしない）。
- * fetch に失敗しても止めず、手元の origin の ref で比べたことを note に書く。merge-base が求まらなければ M 無しで比べる（安全側）
+ * fetch に失敗しても止めず、手元の origin の ref で比べたことを note に書く。merge-base が求まらなければ M 無しで比べる（安全側）。
+ * 違うファイルは、記録の HEAD から origin までの commit の時刻で猶予を置いて決め直す（assessDrift。時刻が読めなければ猶予を置かない。Issue #812）
  */
 export function harnessDrift(): HarnessDrift | null {
   const session = transcriptSessionId(process.env);
@@ -85,7 +86,11 @@ export function harnessDrift(): HarnessDrift | null {
       notes.push('記録の HEAD と origin の merge-base が求まらないため、記録と origin だけで比べた');
     }
   } else notes.push('記録に HEAD が無いため、記録と origin だけで比べた');
-  const result = compareHarness(record.files, origin, base);
+  const raw = compareHarness(record.files, origin, base);
+  const differing = [...raw.changed, ...raw.added, ...raw.removed];
+  const times = differing.length === 0 ? {} : firstChangeTimes(process.cwd(), record.head, ref, differing);
+  if (times === null) notes.push('変更の時刻が読めないため、猶予を置かずに比べた');
+  const result = assessDrift(raw, times, Date.now(), config.harnessDrift?.graceHours ?? DEFAULT_GRACE_HOURS);
   return { judged: true, ...result, base: `${ref} (${spawnGit(['rev-parse', ref])})`, mergeBase, recordedAt: record.at, note: notes.length > 0 ? notes.join('。') : null };
 }
 
