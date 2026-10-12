@@ -1,5 +1,5 @@
 // hq の手順8の Epic の案を人に聞く手順を、App の Epic の振り分けの結果を一覧に出す手順に置き換えた文を確かめる（Issue #566、Epic #436）。
-// hq の skill・docs/operations.md の「Epic の振り分け」・intel の skill・overview.html を support/skill-text.ts の構造の表で見る。
+// hq の skill・harness/docs/operations.md の「Epic の振り分け」・intel の skill・overview.html を support/skill-text.ts の構造の表で見る。
 // 語句は要点だけに絞り、文言を丸ごと固定しない。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -26,10 +26,10 @@ test('hq の skill：手順8は Epic の案を人に聞かず、App の振り分
   );
 });
 
-test('docs/operations.md：Epic の振り分けの規則と、下限を含む設定がある', () => {
+test('harness/docs/operations.md：Epic の振り分けの規則と、下限を含む設定がある', () => {
   assert.deepEqual(
     skillProblems({
-      path: 'docs/operations.md',
+      path: 'harness/docs/operations.md',
       parts: [
         {
           section: '### Epic の振り分け',

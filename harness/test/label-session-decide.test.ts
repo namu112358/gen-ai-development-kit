@@ -1,5 +1,5 @@
 // Issue #235：Jev の確度が下限未満で付かなかった priority:*・area:* は、付き添いのセッションが判断して付けてよい。
-// 規則（harness/CLAUDE.harness.md）・ship・fleet の skill・docs/operations.md・overview.html に、付けてよい範囲と、
+// 規則（harness/CLAUDE.harness.md）・ship・fleet の skill・harness/docs/operations.md・overview.html に、付けてよい範囲と、
 // 付けたら理由を Issue のコメントに残すこと、label-triage の記録が無いうちは付けないこと、人や App のラベル・保護ラベル・違反は変えないことが
 // 書かれているかと、label-triage のコメント（renderLabelTriage）の文言がこの扱いと合っているかを確かめる
 import assert from 'node:assert/strict';
@@ -137,9 +137,9 @@ for (const [path, n] of skillSteps) {
   });
 }
 
-// ---- docs/operations.md ----
+// ---- harness/docs/operations.md ----
 
-const labelApply = (): string => section(read('docs/operations.md'), '#### 足りないラベルを付ける');
+const labelApply = (): string => section(read('harness/docs/operations.md'), '#### 足りないラベルを付ける');
 
 test('operations.md「足りないラベルを付ける」：セッションが下限未満のものを決めて付け、理由をコメントに残す', () => {
   const line = nonEmptyLines(labelApply()).find((l) => l.includes('セッション') && l.includes('下限未満'));

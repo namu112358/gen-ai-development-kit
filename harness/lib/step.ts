@@ -2,7 +2,7 @@
  * agent.ts step の判断（Issue #306）：GitHub の事実と段階のグラフ（flow.ts）から、今やってよいノードを1つだけ返す。GitHub を呼ばない純粋関数。
  * 段階は fleet の表と同じ issueNode（fleet.ts）で決め、前提（セッションの ID・担当・着手宣言）、ループの上限、同じ指摘の繰り返しをここで確かめる。
  * 宣言の投稿・解除と段階のファイルの書き込みは、呼び出し元（harness/scripts/agent.ts）がこの結果の claim・release・critique に従って行う。
- * 流れと止まる理由の一覧は docs/formats.md の「agent.ts step の出力」。
+ * 流れと止まる理由の一覧は harness/docs/formats.md の「agent.ts step の出力」。
  */
 import { issueNode, type FleetIssue } from './fleet.ts';
 import type { FlowNodeId, FlowStep, FlowStopReason } from './flow.ts';
@@ -128,7 +128,7 @@ function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, po
       return {
         allowed: ['node harness/scripts/agent.ts check <計画のファイル>', `${STEP} ${n} --plan <計画のファイル>`],
         inputs: [`node harness/scripts/agent.ts rest issue-view ${n}（コラボレーターのコメントだけ）`, 'リポジトリ（触るファイル、参照元、テスト、docs）'],
-        output: '計画のファイル（docs/formats.md の「計画（agent-plan）」。投稿はまだしない）',
+        output: '計画のファイル（harness/docs/formats.md の「計画（agent-plan）」。投稿はまだしない）',
       };
     case 'plan-critique':
       return {
@@ -139,7 +139,7 @@ function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, po
           ...(postPlan ? [`node harness/scripts/agent.ts post-plan ${n} <計画のファイル>`] : []),
         ],
         inputs: ['critic-input の出力のファイル', ...(postPlan ? ['批評が go か split になった計画（critique を書いて投稿する）'] : [])],
-        output: postPlan ? '計画コメント（post-plan。docs/formats.md の「計画（agent-plan）」）' : 'plan-critic の出力（批評のファイル）',
+        output: postPlan ? '計画コメント（post-plan。harness/docs/formats.md の「計画（agent-plan）」）' : 'plan-critic の出力（批評のファイル）',
       };
     case 'implement':
       return {
@@ -165,7 +165,7 @@ function spec(node: StepNodeId, n: number, pr: number | null, prefix: string, po
           `node harness/scripts/agent.ts post-verdict ${pr} <file>`,
         ],
         inputs: ['judge-input の出力のファイル'],
-        output: '判定コメント（docs/formats.md の「判定（agent-verdict）」）',
+        output: '判定コメント（harness/docs/formats.md の「判定（agent-verdict）」）',
       };
     case 'fix':
       return {

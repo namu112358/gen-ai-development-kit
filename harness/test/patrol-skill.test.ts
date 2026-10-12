@@ -9,17 +9,19 @@ import { documentedAgentCommands } from './support/agent-source.ts';
 import { frontmatter, readText, ROOT, skillProblems, type SkillSpec } from './support/skill-text.ts';
 
 const SKILL = '.claude/skills/patrol/SKILL.md';
-const OPERATIONS_LINK = '../../../docs/operations.md#見直しを-loop-で回す';
+const OPERATIONS_LINK = '../../../harness/docs/operations.md#見直しを-loop-で回す';
 const OPERATIONS_HEADING = '## 見直しを /loop で回す';
 const skill = (): string => readText(SKILL);
 
 /** patrol の skill の構造の表 */
 const PATROL_SPEC: SkillSpec = {
   path: SKILL,
-  headings: ['## 入力', '## 手順', '## 出力', '## やってはいけないこと', '## 終わりの状態'],
-  words: ['/loop 6h /patrol'],
+  headings: [
+    '## 入力', '## 手順', '## Routine で回すとき（--routine）', '## 人が選ぶ場面（patrol の下書きを選ぶ）', '## 出力', '## やってはいけないこと', '## 終わりの状態',
+  ],
+  words: ['/loop 6h /patrol', 'patrol の下書きを選ぶ'],
   parts: [
-    { section: '## 入力', words: ['--max', '--state', '--dry-run'] },
+    { section: '## 入力', words: ['--max', '--state', '--dry-run', '--routine'] },
     {
       section: '## 手順',
       words: [
@@ -29,9 +31,15 @@ const PATROL_SPEC: SkillSpec = {
         '観測の差', '動かした見直し', '勧める見直し', '下書きの数',
         // 状態のファイルが壊れていたら上書きせずに止まる
         '状態のファイル', '上書きしない',
+        // auto mode の間の自動の供給（Issue #828）
+        'patrol-supply check', 'patrol-supply ready', 'issue-creator', 'patrolAutoSupply.dailyLimit',
       ],
     },
-    { section: '## やってはいけないこと', words: ['AskUserQuestion', 'gh issue create', 'ラベル'] },
+    // クラウドの Routine の1回分（Issue #671）：浅い clone を解き、まとめの Issue から写して、下書きの重なりを除き、書き戻す
+    { section: '## Routine で回すとき（--routine）', words: ['--unshallow', 'patrol-pull', 'patrol-dedupe', 'patrol-push'] },
+    // 人が付き添いのセッションで Routine の下書きを選ぶ（Issue #671）
+    { section: '## 人が選ぶ場面（patrol の下書きを選ぶ）', words: ['patrol-pull', 'patrol-push', 'adopt', 'arch-review-adopt'] },
+    { section: '## やってはいけないこと', words: ['AskUserQuestion', 'gh issue create', 'ラベル', '--routine'] },
   ],
 };
 
@@ -51,6 +59,14 @@ test('patrol の skill の構造の表', () => {
   assert.deepEqual(skillProblems(PATROL_SPEC), []);
 });
 
+test('docs/patrol-routine.md があり、Routine の作り方（setup script・Connectors・Tools・Prompt・/patrol --routine・GraphQL）を書いている', () => {
+  assert.ok(existsSync(join(ROOT, 'docs', 'patrol-routine.md')), 'docs/patrol-routine.md がありません');
+  const text = readText('docs/patrol-routine.md');
+  for (const w of ['setup script', 'Connectors', 'Tools', 'Prompt', '/patrol --routine', 'GraphQL']) {
+    assert.ok(text.includes(w), `docs/patrol-routine.md に「${w}」がありません`);
+  }
+});
+
 test('patrol の SKILL.md があり、frontmatter の name が patrol で description がある', () => {
   assert.ok(existsSync(join(ROOT, SKILL)), 'patrol/SKILL.md がありません');
   const fm = frontmatter(skill());
@@ -58,10 +74,10 @@ test('patrol の SKILL.md があり、frontmatter の name が patrol で descri
   assert.ok(fm.description, 'description がありません');
 });
 
-test('docs/operations.md の「見直しを /loop で回す」へリンクし、リンク先の見出しがある', () => {
+test('harness/docs/operations.md の「見直しを /loop で回す」へリンクし、リンク先の見出しがある', () => {
   assert.ok(skill().includes(`](${OPERATIONS_LINK})`), `${OPERATIONS_LINK} へのリンクがありません`);
-  const lines = readText('docs/operations.md').split('\n');
-  assert.ok(lines.includes(OPERATIONS_HEADING), `docs/operations.md に「${OPERATIONS_HEADING}」がありません`);
+  const lines = readText('harness/docs/operations.md').split('\n');
+  assert.ok(lines.includes(OPERATIONS_HEADING), `harness/docs/operations.md に「${OPERATIONS_HEADING}」がありません`);
 });
 
 test('skill が使う patrol.ts のサブコマンド（previous・select・record）は、スクリプトの使い方のコメントに実在する', () => {

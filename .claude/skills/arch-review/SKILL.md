@@ -7,7 +7,7 @@ description: 人が付き添うセッションで、Merge 済みの PR をまと
 
 PR ごとの判定（reviewer・risk-agent・review-panel）は1つの PR の diff しか見ないので、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、置き場所の崩れ、docs と実装の食い違い）は拾えない。この skill は人が呼んだとき（または人が始めた `/loop` の各回。下の「/loop で回すとき」）に動き、Merge 済みの PR をまとめて読んで、直す Issue の下書きを人に示す。直すかどうか・どれを Issue にするかは人が決める。結果は PR ごとの判定の材料にしない。
 
-決まる部分（前回見た位置の読み書き・対象の PR の割り出し・下書きの書式検査）は `harness/lib/arch-review.ts` にあり、下の手順のコマンドから使う。記録の書式は [docs/formats.md](../../../docs/formats.md) の「arch-review の記録」。
+決まる部分（前回見た位置の読み書き・対象の PR の割り出し・下書きの書式検査）は `harness/lib/arch-review.ts` にあり、下の手順のコマンドから使う。記録の書式は [harness/docs/formats.md](../../../harness/docs/formats.md) の「arch-review の記録」。
 
 ## 入力
 
@@ -24,7 +24,7 @@ arch-reviewer（[.claude/agents/arch-reviewer.md](../../agents/arch-reviewer.md)
 
 1. **重複**：同じ役割の関数・型・書式（コメントのブロック・目印・コマンドの引数の読み方など）が、別の PR で別の場所に作られている。
 2. **置き場所**：`harness/lib/`（ロジック）・`harness/gates/`（App として動くゲート）・`harness/scripts/`（コマンド）の分け方（CLAUDE.md の構成の表と各 README）から外れた置き場所。
-3. **docs との食い違い**：docs（`docs/operations.md`・`docs/formats.md`・`docs/glossary.md`）と skill・実装の書いていることが違う。
+3. **docs との食い違い**：docs（`harness/docs/operations.md`・`harness/docs/formats.md`・`harness/docs/glossary.md`）と skill・実装の書いていることが違う。
 4. **コードの書き方**：CLAUDE.md の「コードの書き方」の規則（型注釈を剥がすだけで消えない構文、相対 import の拡張子、依存の追加、テストの置き場所、README の表など）が守られていない。
 
 ## 手順
@@ -45,7 +45,7 @@ arch-reviewer（[.claude/agents/arch-reviewer.md](../../agents/arch-reviewer.md)
 
 ## /loop で回すとき
 
-人が始めた `/loop` から、`--loop` を付けて呼ぶ。共通の規則（1回分で完結させ人の答えを待たない、見るものが無い回は記録を残さない、下書きは3件まで、Issue は人が選んだものだけ、止め方）は [docs/operations.md](../../../docs/operations.md#見直しを-loop-で回す) の「見直しを /loop で回す」。ここには arch-review の1回分の処理を書く。
+人が始めた `/loop` から、`--loop` を付けて呼ぶ。共通の規則（1回分で完結させ人の答えを待たない、見るものが無い回は記録を残さない、下書きは3件まで、Issue は人が選んだものだけ、止め方）は [harness/docs/operations.md](../../../harness/docs/operations.md#見直しを-loop-で回す) の「見直しを /loop で回す」。ここには arch-review の1回分の処理を書く。
 
 ```
 /loop 6h /arch-review --loop

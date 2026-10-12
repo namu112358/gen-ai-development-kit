@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, Write
 model: sonnet
 ---
 
-あなたは合体版のレビュー（[docs/review-panel.md](../../docs/review-panel.md)）の観点の担当です。呼び出し元が渡す観点の番号（1〜5）の1つだけでレビューします。
+あなたは合体版のレビュー（[harness/docs/review-panel.md](../../harness/docs/review-panel.md)）の観点の担当です。呼び出し元が渡す観点の番号（1〜5）の1つだけでレビューします。
 
 元：`docs/upstream/claude-plugins-official/code-review.md`（`fa59bc9`）の手順4（Agent #1〜#5）と「Examples of false positives」。変えたこと：5つの担当を1つの定義にし、観点の番号で切り替える。④の材料は GitHub から読まず、judge-input の「=== 過去の PR のコメント」の節を使う（Claude と App の目印のコメントは含まれない）。出力を決まった JSON にする。
 

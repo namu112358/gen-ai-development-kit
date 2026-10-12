@@ -62,7 +62,7 @@ export interface HarnessConfig {
    */
   humanMergePaths?: string[];
   /**
-   * 委任承認（人が計画ゲートの承認と Merge の判断を App に委ねる。docs/risk-policy.md）。ダッシュボードの planLabel は計画ゲートの承認だけを、
+   * 委任承認（人が計画ゲートの承認と Merge の判断を App に委ねる。harness/docs/risk-policy.md）。ダッシュボードの planLabel は計画ゲートの承認だけを、
    * mergeLabel は計画ゲートの承認と Merge の判断を委ねる。期限は無く、ラベルが付いている間ずっと有効。無ければ既定値（delegateConfig）
    */
   delegate?: { planLabel?: string; mergeLabel?: string };
@@ -92,6 +92,8 @@ export interface HarnessConfig {
   fixLoop: { normalLimit: number; criticalLimit: number };
   /** sync ⇄ judge のループの上限（agent.ts step。PR の main からの取り込みの数）。無ければ既定値（syncLoopConfig）。Issue #306 */
   syncLoop?: { limit?: number };
+  /** auto mode の間に patrol が直近 24 時間で自動で Issue にする下書きの数の上限（0 で自動にしない）。無ければ既定値（patrolAutoSupplyConfig）。Issue #827 */
+  patrolAutoSupply?: { dailyLimit?: number };
   staleHours: number;
   /** イベントで動いた gate が定期の仕事を補うまでの、前回の定期の仕事からの分。無ければ 90。Issue #418 */
   periodicCatchUpMinutes?: number;
@@ -100,7 +102,7 @@ export interface HarnessConfig {
   patrolIssueTitle?: string;
   /** 導入先の検証コマンドと依存の取り込みのコマンド。無ければ npm run check・npm ci、null は「行わない」（projectCommands。Issue #640） */
   project?: { checkCommand?: string | null; installCommand?: string | null };
-  reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
+  reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（harness/docs/review-panel.md）。無ければ off
   /**
    * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、
    * flat なら1つのセッションで段階を交互に進める。maxParallelShips は --max が無いときに同時に動かす ship の数。無ければ既定値（fleetConfig）
@@ -172,7 +174,7 @@ export function projectCommands(config: Pick<HarnessConfig, 'project'>): { check
   return { checkCommand: projectCommandValue(obj, 'checkCommand'), installCommand: projectCommandValue(obj, 'installCommand') };
 }
 
-type LimitKind = 'positiveInteger' | 'positive' | 'nonNegative';
+type LimitKind = 'positiveInteger' | 'positive' | 'nonNegative' | 'nonNegativeInteger';
 
 /** 上限の数値のキー（パス・求める形・必須か）。areaConcurrency の各値と fixLoop の大小は limitErrors が別に調べる */
 const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
@@ -184,6 +186,7 @@ const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
   { path: 'fixLoop.normalLimit', kind: 'positiveInteger', required: true },
   { path: 'fixLoop.criticalLimit', kind: 'positiveInteger', required: true },
   { path: 'syncLoop.limit', kind: 'positiveInteger', required: false },
+  { path: 'patrolAutoSupply.dailyLimit', kind: 'nonNegativeInteger', required: false },
   { path: 'staleHours', kind: 'positive', required: true },
   { path: 'periodicCatchUpMinutes', kind: 'positive', required: false },
   { path: 'delegateMerge.hours', kind: 'positive', required: false },
@@ -199,11 +202,12 @@ const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
   { path: 'classification.issueTriageJevPerRun', kind: 'positiveInteger', required: false },
 ];
 
-const LIMIT_KIND_TEXT: Record<LimitKind, string> = { positiveInteger: '正の整数', positive: '正の数', nonNegative: '0 以上の数' };
+const LIMIT_KIND_TEXT: Record<LimitKind, string> = { positiveInteger: '正の整数', positive: '正の数', nonNegative: '0 以上の数', nonNegativeInteger: '0 以上の整数' };
 
 function limitOk(kind: LimitKind, value: unknown): boolean {
   if (typeof value !== 'number' || !Number.isFinite(value)) return false;
   if (kind === 'positiveInteger') return Number.isInteger(value) && value > 0;
+  if (kind === 'nonNegativeInteger') return Number.isInteger(value) && value >= 0;
   return kind === 'positive' ? value > 0 : value >= 0;
 }
 
@@ -350,6 +354,18 @@ export function syncLoopConfig(config: Pick<HarnessConfig, 'syncLoop'>): { limit
   const { limit = SYNC_LOOP_DEFAULTS.limit } = (raw ?? {}) as { limit?: unknown };
   if (typeof limit !== 'number' || !Number.isInteger(limit) || limit <= 0) throw new Error('syncLoop.limit は正の整数で書いてください');
   return { limit };
+}
+
+/** patrol が auto mode の間に自動で Issue にする数（直近 24 時間）の既定値。0 は自動にしない */
+export const PATROL_AUTO_SUPPLY_DEFAULTS = { dailyLimit: 1 } as const;
+
+/** patrol の自動の供給の上限（無い項目は既定値）。書式の誤りは throw する（上限が決まらないまま動かさない） */
+export function patrolAutoSupplyConfig(config: Pick<HarnessConfig, 'patrolAutoSupply'>): { dailyLimit: number } {
+  const raw = config.patrolAutoSupply as unknown;
+  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('patrolAutoSupply はオブジェクトで書いてください（例：{ "dailyLimit": 1 }）');
+  const { dailyLimit = PATROL_AUTO_SUPPLY_DEFAULTS.dailyLimit } = (raw ?? {}) as { dailyLimit?: unknown };
+  if (typeof dailyLimit !== 'number' || !Number.isInteger(dailyLimit) || dailyLimit < 0) throw new Error('patrolAutoSupply.dailyLimit は 0 以上の整数で書いてください');
+  return { dailyLimit };
 }
 
 /** App が操作したことを示す GitHub 上のログイン名 */

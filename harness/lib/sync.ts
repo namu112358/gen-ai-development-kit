@@ -15,6 +15,8 @@ export interface ManagedJson {
   exclude?: string[];
   projectOwned: { path: string; template: string }[];
   settingsKeys: string[];
+  /** permissions.allow に足す行（和集合。無ければ空） */
+  settingsAllow?: string[];
 }
 
 export interface SyncInput {
@@ -61,6 +63,8 @@ export function isManaged(managed: string[], exclude: string[], path: string): b
   return matcher(managed)(path) && !matcher(exclude)(path);
 }
 
+const ALLOW_KEY = 'permissions.allow';
+
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** キーのパス（a.b.c）の値。途中が無ければ undefined */
@@ -85,15 +89,27 @@ const setPath = (obj: Record<string, unknown>, parts: string[], value: unknown):
 
 /**
  * keys のパスごとに kit の値で丸ごと置き換え（配列は merge しない）、ほかのキーは target のまま。
- * kit に無いパスは触らない。changedKeys は keys に書かれた順。target がオブジェクトでなければ throw
+ * kit に無いパスは触らない。changedKeys は keys に書かれた順。target がオブジェクトでなければ throw。
+ * ただし permissions.allow だけは和集合：kit の値は見ず、導入先の配列に allowRows のうち無い行を足す（導入先の行と順は残す）。
+ * 導入先の permissions.allow が配列でなければ throw
  */
-export function mergeSettings(target: unknown, kit: unknown, keys: string[]): { merged: Record<string, unknown>; changedKeys: string[] } {
+export function mergeSettings(target: unknown, kit: unknown, keys: string[], allowRows: readonly string[] = []): { merged: Record<string, unknown>; changedKeys: string[] } {
   if (!isObject(target)) throw new Error('導入先の .claude/settings.json がオブジェクトではない');
   if (!isObject(kit)) throw new Error('kit の .claude/settings.json がオブジェクトではない');
   const merged = structuredClone(target);
   const changedKeys: string[] = [];
   for (const key of keys) {
     const parts = key.split('.');
+    if (key === ALLOW_KEY) {
+      const current = getPath(merged, parts);
+      if (current !== undefined && !Array.isArray(current)) throw new Error('導入先の .claude/settings.json の permissions.allow が配列ではない');
+      const have: unknown[] = current === undefined ? [] : current;
+      const add = [...new Set(allowRows)].filter((row) => !have.includes(row));
+      if (add.length === 0) continue;
+      setPath(merged, parts, [...have, ...add]);
+      changedKeys.push(key);
+      continue;
+    }
     const value = getPath(kit, parts);
     if (value === undefined) continue;
     if (isDeepStrictEqual(getPath(merged, parts), value)) continue;
@@ -116,7 +132,9 @@ const planSettings = (input: SyncInput): SyncPlan['settings'] => {
   } catch (e) {
     throw new Error(`kit の ${KIT_SETTINGS_PATH} を JSON として読めない: ${(e as Error).message}`);
   }
-  return mergeSettings(targetSettings ?? {}, kitSettings, input.managed.settingsKeys);
+  const allowRows = input.managed.settingsAllow ?? [];
+  if (!Array.isArray(allowRows) || !allowRows.every((r) => typeof r === 'string')) throw new Error('managed.json の settingsAllow が文字列の配列ではない');
+  return mergeSettings(targetSettings ?? {}, kitSettings, input.managed.settingsKeys, allowRows);
 };
 
 /** sync で何をするかを決める */

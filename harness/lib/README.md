@@ -5,6 +5,7 @@
 <!-- readme:generated start -->
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
+| `accepted-ac-change.ts` | 人が受け入れた AC の変更の提案を、judge が照らす AC にするかの判断（Issue #869）。 | ○ |
 | `api-count.ts` | GitHub API の呼び出しの回数を、メソッドとパスの形（番号などを伏せたもの）ごとに数える（#247）。 | ○ |
 | `arch-review.ts` | arch-review（Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す skill）の決まる部分。 | ○ |
 | `assignee.ts` | 担当（Issue の Assignee）の確かめ（Issue #172）。 | ○ |
@@ -18,7 +19,7 @@
 | `concurrency.ts` | 領域（area）ごとの、同時に開いてよい PR の上限。 | 対象外 |
 | `config.ts` | `harness.config.json` の読み込みと、ラベル・理由コード・必須チェックの名前などの定義。 | ○ |
 | `decision.ts` | 決定の記録（````agent-decision````）：Planner の申告（needsHuman・openQuestions）への人の答えを、付き添いのセッションが記録する。 | ○ |
-| `delegate.ts` | 委任承認：人がダッシュボードのラベルで、計画ゲートの承認（agent:delegate-plan）か、計画ゲートの承認と Merge の判断（agent:delegate-merge）をApp に委ねる（docs/risk-policy.md）。 | ○ |
+| `delegate.ts` | 委任承認：人がダッシュボードのラベルで、計画ゲートの承認（agent:delegate-plan）か、計画ゲートの承認と Merge の判断（agent:delegate-merge）をApp に委ねる（harness/docs/risk-policy.md）。 | ○ |
 | `epic-triage.ts` | Epic に入っていない Issue の Epic を Jev に問う材料・問い・判定・記録の読み書きの本文（Epic #436）。 | ○ |
 | `epic.ts` | Epic：計画の `split` で大きな課題を子課題に分ける。 | ○ |
 | `exempt.ts` | 人が付ける例外ラベル（review:exempt・test:exempt）は、付けた時点の PR の差分にだけ効く。 | ○ |
@@ -45,7 +46,7 @@
 | `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。 | 対象外 |
 | `jev.ts` | TypeSafe AI の Jev（https://docs.typesafe.ai/api）で、Risk ポリシーの8問に1回の呼び出しで答えさせる。 | ○ |
 | `label-fill.ts` | 付き添いのセッションが、Jev の提案のラベルを付ける（agent.ts label-fill、Issue #538）。 | ○ |
-| `label-rules.ts` | 必須ラベルの検査（docs/operations.md の「必須ラベルの規則」）。 | ○ |
+| `label-rules.ts` | 必須ラベルの検査（harness/docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `local-state-loop.ts` | 見直しの loop（test-prune・qa-retro・patrol）の状態のファイルの読み書きの補助（Issue #414）。 | ○ |
 | `local-state.ts` | 手元の状態のファイル（git の共通ディレクトリの下の agent-harness/ と panes のスナップショット）の場所の決め方と一時ファイル経由の書き込み（Issue #653）。 | ○ |
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
@@ -62,6 +63,7 @@
 | `patrol-issue.ts` | patrol のまとめの Issue の本文に置く状態（patrol-state）の読み書き・縮め方・題名の照らし・回のコメント（純粋関数）。 | ○ |
 | `patrol.ts` | 見直しのまとめ役（patrol の skill）が、観測の差と前回からの経過で今回まわす見直しを決める（純粋関数）。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
+| `post-merge-revert.ts` | Merge 後の main の CI の失敗（Issue #802）の判断：既定ブランチの先頭の必須チェックの結果の見分け、revert の PR を出すか・停止だけか・何もしないかの分かれ目、revert の commit のメッセージ・PR の題と本文・ダッシュボードの理由の本文。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
 | `qa-retro-loop.ts` | qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と手元の状態（純粋関数）。 | ○ |
 | `qa-retro.ts` | Merge 済みの PR の振り返り（qa-retro の skill）の集計。 | ○ |

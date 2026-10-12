@@ -10,7 +10,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 ## 入力
 
 - PR 番号
-- `node harness/scripts/agent.ts judge-input <PR番号>` が書くファイル（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの `agent-plan` ブロックは省く〕、Epic の子課題なら親 Epic の子課題の一覧と Validation Requirements、計画ゲートの記録の計画、PR 本文、PR のコラボレーターのコメント〔判定コメントを除く〕、`agent/scope` の結果〔無い・未完了・結論〕、前回の判定の head とブロッキング指摘、再レビューの範囲の補足、PR の状態〔state・draft・merged〕、変更ファイルを触った Merge 済みの過去の PR のコラボレーターのコメント〔App・Claude の目印のものを除く〕、スタックの節〔Stacked PR の層なら base・位置・下の層と変更ファイル〕）
+- `node harness/scripts/agent.ts judge-input <PR番号>` が書くファイル（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの `agent-plan` ブロックは省く〕、Epic の子課題なら親 Epic の子課題の一覧と Validation Requirements、計画ゲートの記録の計画、人が受け入れた AC の変更の節〔決定の記録の `acChangeAccepted` と、その後に App 以外のコラボレーターが `agent:plan-review` を外した事実の両方があるときだけ〕、PR 本文、PR のコラボレーターのコメント〔判定コメントを除く〕、`agent/scope` の結果〔無い・未完了・結論〕、前回の判定の head とブロッキング指摘、再レビューの範囲の補足、PR の状態〔state・draft・merged〕、変更ファイルを触った Merge 済みの過去の PR のコラボレーターのコメント〔App・Claude の目印のものを除く〕、スタックの節〔Stacked PR の層なら base・位置・下の層と変更ファイル〕）
 
 ## 手順
 
@@ -18,9 +18,9 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 2. 現在の head に、Claude・App 以外のコラボレーターのレビュー（Comment か Request changes）があれば、判定ではなく fix を先にする。
 3. `node harness/scripts/review-panel.ts mode` で合体版のレビュー（[review-panel](../review-panel/SKILL.md)）の動かし方を確かめ、次のどれかで進める。
    - `off`：今までどおり。手順4〜5で reviewer と risk-agent だけを動かす。
-   - `shadow`：手順4の reviewer・risk-agent と、review-panel の skill（段階0〜4）を並行に動かす。全部が終わってから、review-panel の compose と post で合体版の記録を投稿し、その後に手順6・7（判定は reviewer の出力）。合体版が失敗しても判定は止めず、記録が無いことを人に伝える。
+   - `shadow`：手順4の reviewer・risk-agent と、review-panel の skill（段階0〜4）を並行に動かす（入れ子のときの呼び方は [ship の skill](../ship/SKILL.md) の節「サブエージェントの ship として動くとき」）。全部が終わってから、review-panel の compose と post で合体版の記録を投稿し、その後に手順6・7（判定は reviewer の出力）。合体版が失敗しても判定は止めず、記録が無いことを人に伝える。
    - `enforce`：reviewer を呼ばない。手順4の risk-agent と review-panel の skill を動かし、review-panel の compose の出力 `review-<PR番号>-<head7>.json` を、手順6の compose-verdict の reviewer の出力の位置に渡す。合体版が失敗したら判定せず人に返す。review-intake が `eligible: false`（PR が closed、または前回の判定と同じ head）を返したら、判定を投稿せずに終え、理由を人に伝える（同じ head を二重に判定しない。closed の PR は判定しない）。
-4. 担当を呼ぶ前に、`git status --porcelain --untracked-files=all` の結果を scratchpad の `worktree-<PR番号>-<head7>.txt` に書き出して控える（`shadow`・`enforce` で review-panel を並行に動かすときも、控えるのはここの1回で、review-panel の skill は控えない）。あわせて `git rev-parse HEAD` と `git branch --show-current` の結果を、別のファイル scratchpad の `head-<PR番号>-<head7>.txt` に書き出して控える（git status の控えと混ぜない）。続けてサブエージェントを並列に呼ぶ。どれにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押し、出力のパスを渡して「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。出力のパスは scratchpad の `reviewer-<PR番号>-<head7>.json`・`risk-<PR番号>-<head7>.json`（head7 は headSha の先頭7文字）。PR 番号と head を名前に入れるのは、並行して別の PR や別の head を判定しても取り違えないため。
+4. 担当を呼ぶ前に、`git status --porcelain --untracked-files=all` の結果を scratchpad の `worktree-<PR番号>-<head7>.txt` に書き出して控える（`shadow`・`enforce` で review-panel を並行に動かすときも、控えるのはここの1回で、review-panel の skill は控えない）。あわせて `git rev-parse HEAD` と `git branch --show-current` の結果を、別のファイル scratchpad の `head-<PR番号>-<head7>.txt` に書き出して控える（git status の控えと混ぜない）。続けてサブエージェントを並列に呼ぶ。入れ子のサブエージェントの ship の中で判定するときは、担当を `run_in_background` にせず前で呼び、並行は1つのメッセージに複数の Agent 呼び出しを並べる（[ship の skill](../ship/SKILL.md) の節「サブエージェントの ship として動くとき」）。どれにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押し、出力のパスを渡して「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。出力のパスは scratchpad の `reviewer-<PR番号>-<head7>.json`・`risk-<PR番号>-<head7>.json`（head7 は headSha の先頭7文字）。PR 番号と head を名前に入れるのは、並行して別の PR や別の head を判定しても取り違えないため。
    - **reviewer**（`enforce` では呼ばない）：judge-input のファイルの中身と、出力のパス `reviewer-<PR番号>-<head7>.json` を指示に含めて渡す。Agent の説明は `reviewer <PR番号> <head7>` にする（合体版と費用を分けて数えるため）。
    - **risk-agent**：PR 番号と head SHA と、PR の base のブランチ名（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `baseRefName`）と、出力のパス `risk-<PR番号>-<head7>.json` **だけ**を渡す（Issue・PR の説明は渡さない）。diff は `git fetch origin && git diff origin/<PR の base>...<headSha>` で読むよう伝える（既定ブランチ宛ての PR は base が `main` で今までと同じ）。
 5. 全部の担当（`shadow`・`enforce` では review-panel の担当も）が返った後に、次を確かめる。呼び出し元は担当の出力のファイルを書かない、直さない（担当の代わりに書かない）。
@@ -33,6 +33,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
    - その PR を実装したセッション（ship の中で同じセッションが judge するとき）だけ、任意で `--author-view <file>`（実装したセッションの見解を書いたテキストのファイル。scratchpad に置く）を渡せる。判定の `agent-verdict` の `authorView` に入り、auto mode の危険の問い（Jev）の見解ありの問いにだけ渡る。保留するかには使われない（shadow。Issue #426）。judge を単独で呼んだ別のセッションは渡さない。
 7. `node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル>` で投稿する。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら判定した head のまま投稿する。patch-id が違って止まったら手順1からやり直す。
 8. App が受け付けたかを `node harness/scripts/agent.ts rest pr-view <PR番号>` の `isDraft`・`statusCheckRollup` で確かめる。合格なら `agent/review`・`agent/risk` が成功し、`isDraft` が false になる。数分待っても変わらなければ、PR のコメント（App の `verdict-rejected` など）とゲートの実行（`gh run list --workflow gate.yml`）の結果を見る。確かめてから人に報告する。
+9. judge-input に「受け入れた AC の変更」の節があれば、Issue 本文の AC を節のとおりに書き換えた案を scratchpad の `issue-body-draft-<Issue番号>.md` に下書きし、人に報告する項目にそのパスを載せる。投稿は人が選んだときだけ。Issue 本文はセッションが書き換えない。`agent:plan-review` はセッションが付け外ししない。
 
 ### 修正後の再レビュー
 

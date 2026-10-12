@@ -207,7 +207,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     <li class="step">
       <div class="step-head"><span class="num">2</span><h3>計画</h3><span class="who claude">Claude</span><span class="who app">App</span></div>
       <p>Claude が実装方針と「触るファイル一覧」・想定 Risk を計画コメントに書きます（投稿前に plan-critic が批評）。App の<strong>計画ゲート</strong>が中身を機械的に検査し、通れば <code>agent:plan-ok</code> を付けます。</p>
-      <div class="branch"><strong>人に返る分かれ道：</strong>人の判断が要る、AC を変える提案がある、未解決の質問がある、Risk が high 以上、触るファイル一覧が無い、ガードレールに触れる、批評の記録か批評の着手宣言が無い、のどれかなら <code>agent:plan-review</code> で止まります。Risk だけで止まりガードレールに触れない計画は、付き添いのセッションが決めて「セッションの判定」を残し、それ以外は人が「進める／直す／やめる」を決めます。ただし人がダッシュボードに委任承認（<code>agent:delegate-plan</code> か <code>agent:delegate-merge</code>）を付けている間は、Risk が high 以上・ガードレールに触れる、だけで止まる計画は App が通します（<code>delegateMergeExclude</code> に重なる計画と、批評の関所を含むほかの理由では止まります）。</div>
+      <div class="branch"><strong>人に返る分かれ道：</strong>人の判断が要る、AC を変える提案がある、未解決の質問がある、Risk が high 以上、触るファイル一覧が無い、ガードレールに触れる、批評の記録か批評の着手宣言が無い、のどれかなら <code>agent:plan-review</code> で止まります。Risk だけで止まりガードレールに触れない計画は、付き添いのセッションが決めて「セッションの判定」を残し、それ以外は人が「進める／直す／やめる」を決めます。ただし人がダッシュボードに委任承認（<code>agent:delegate-plan</code> か <code>agent:delegate-merge</code>）を付けている間は、Risk が high 以上・ガードレールに触れる、だけで止まる計画は App が通します（<code>delegateMergeExclude</code> に重なる計画と、批評の関所を含むほかの理由では止まります）。人は手元のダッシュボードの「人がすること」から、選択肢のボタンで答えられ、答えは決定の記録として Issue に残ります。</div>
     </li>
     <li class="step">
       <div class="step-head"><span class="num">3</span><h3>実装</h3><span class="who claude">Claude</span></div>
@@ -241,6 +241,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
           <li>App が auto-merge を付ける</li>
           <li>必須チェックが揃うと GitHub が Merge する</li>
           <li>人の手は要らない</li>
+          <li>Merge の後に main の CI が落ちたら、App が revert の PR（Draft）を出して停止スイッチを入れる</li>
         </ul>
         <p class="aside">止めたいときは <code>agent:hold</code>（全体なら停止スイッチ）</p>
       </section>
@@ -254,7 +255,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <p class="aside">当たるもの：ガードレールに触れる、計画の範囲の外を変えた、<code>humanMergePaths</code>（人が Merge するパス）に触れる、Stacked PR の層（base が main 以外）、停止スイッチが入っている など</p>
       </section>
     </div>
-    <figcaption>自動 Merge の条件：CI の成功、<code>agent/review</code> の合格、Risk が low で8問すべて安全側、範囲照合 OK、<code>agent:hold</code> が無い、停止スイッチが入っていない。まとめて必須チェック merge-route が確かめます。ダッシュボードの <code>agent:delegate-merge</code>（委任承認（計画＋Merge））と <code>agent:bypass-merge</code>（bypass モード）が付いている間は、Human Merge の理由の一部を飛ばして自動 Merge に回します（詳しくは <a href="docs/risk-policy.md">docs/risk-policy.md</a>）。</figcaption>
+    <figcaption>自動 Merge の条件：CI の成功、<code>agent/review</code> の合格、Risk が low で8問すべて安全側、範囲照合 OK、<code>agent:hold</code> が無い、停止スイッチが入っていない。まとめて必須チェック merge-route が確かめます。ダッシュボードの <code>agent:delegate-merge</code>（委任承認（計画＋Merge））と <code>agent:bypass-merge</code>（bypass モード）が付いている間は、Human Merge の理由の一部を飛ばして自動 Merge に回します（詳しくは <a href="harness/docs/risk-policy.md">harness/docs/risk-policy.md</a>）。</figcaption>
   </figure>
 
   <h2 id="roles">誰が何をするか</h2>
@@ -278,7 +279,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <li>判定する（Reviewer・Risk Agent）</li>
         <li>指摘を直す、main を取り込む</li>
         <li>複数の Issue は fleet で進める。<code>fleet.shipMode</code> が <code>worker</code> で Orca があれば、Issue ごとに ship を Orca の worker（独立したセッション）で起こし、無ければ1つのセッションの中（サブエージェントか、段階を交互に）で進める</li>
-        <li>intel は Orca の本体のタブで待ち、hq・fleet・人から届く気づきを控えて Issue の下書きにし、人の質問に根拠つきで答える。何も動かさない</li>
+        <li>intel は Orca の本体のタブで待ち、人に話しかけられたときに判断待ちを GitHub から拾って選択肢で聞き、答えを決定の記録に残す。hq・fleet・人から届く気づき（と手元のダッシュボードの受け箱）を控えて Issue の下書きにし、人の質問に根拠つきで答える。朝と夕（と頼まれたとき）に、進んだこと・止まっていること・人がすること3つまでのまとめを出し、すぐ知らせるのは人の Merge 待ちの PR と計画ゲートで止まった Issue が新しく出たときだけ（hq がいれば hq に任せる）。fleet・ship に指示しない</li>
         <li>issue-creator は気づき・観測を Issue の下書きにして既存の Issue との重複を二段で確かめ、呼び出し元が名指しした下書きだけを作る（intel などがサブエージェントで呼ぶ。人には聞かない）</li>
         <li>hq は人の判断が要る相談を人に聞き、今すぐの判断が要らない気づき・改善案は intel に回す（fleet も hq を通さず intel に送る）。人が hq に言ったアイデアも intel に回し、次からは intel のタブに送るよう案内する</li>
       </ul>
@@ -348,6 +349,12 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
       </ul>
     </section>
     <section class="dir">
+      <h3><code>review-api/</code> PR レビューの試作</h3>
+      <ul>
+        <li>Claude API + Cloudflare で PR レビューを既存の判定と並走させる試作（Shadow Mode。Merge の経路には影響しない）。説明は <code>docs/review-api.md</code></li>
+      </ul>
+    </section>
+    <section class="dir">
       <h3>root の主なファイル</h3>
       <ul>
         <li><code>README.md</code> 入口の説明</li>
@@ -359,17 +366,17 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
   </div>
 
   <h2 id="labels">ラベルの意味</h2>
-  <p>主なものです。すべての一覧と細かい決まりは <a href="docs/operations.md">docs/operations.md</a> の「ラベル」にあります。</p>
+  <p>主なものです。すべての一覧と細かい決まりは <a href="harness/docs/operations.md">harness/docs/operations.md</a> の「ラベル」にあります。</p>
   <table>
     <thead><tr><th>ラベル</th><th>付ける者</th><th>意味</th></tr></thead>
     <tbody>
-      <tr><td><code>agent:ready</code></td><td data-k="付ける者">人</td><td data-k="意味">着手してよい</td></tr>
+      <tr><td><code>agent:ready</code></td><td data-k="付ける者">人 / patrol（auto mode の間）</td><td data-k="意味">着手してよい</td></tr>
       <tr><td><code>agent:plan-ok</code></td><td data-k="付ける者">App のみ</td><td data-k="意味">計画ゲートを通った。実装に進める</td></tr>
       <tr><td><code>agent:plan-review</code></td><td data-k="付ける者">Claude / App</td><td data-k="意味">計画に人の判断が要る。人が付き添うセッションで進める</td></tr>
       <tr><td><code>agent:waiting</code></td><td data-k="付ける者">Claude / App</td><td data-k="意味">ほかの Issue の完了待ち（終わると App が外す）</td></tr>
       <tr><td><code>agent:blocked</code></td><td data-k="付ける者">Claude / App / 人</td><td data-k="意味">人の対応が必要。理由をコメントに残す</td></tr>
       <tr><td><code>agent:hold</code></td><td data-k="付ける者">人</td><td data-k="意味">この Issue・PR だけ止める</td></tr>
-      <tr><td><code>agent:auto-merge-stopped</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">停止スイッチ。ダッシュボードに付くと自動 Merge が全部止まる（自動 Merge した PR が revert されると App が付ける）</td></tr>
+      <tr><td><code>agent:auto-merge-stopped</code></td><td data-k="付ける者">人 / App</td><td data-k="意味">停止スイッチ。ダッシュボードに付くと自動 Merge が全部止まる（自動 Merge した PR が revert されたとき、自動 Merge の後に main の CI が落ちたときに App が付ける）</td></tr>
       <tr><td><code>agent:delegate-plan</code></td><td data-k="付ける者">人のみ</td><td data-k="意味">委任承認（計画）。ダッシュボードに付けている間、ガードレール・Risk だけで止まる計画に App が <code>agent:plan-ok</code> を付ける（期限なし。停止スイッチが優先）。外すと計画の委任が終わるだけ</td></tr>
       <tr><td><code>agent:delegate-merge</code></td><td data-k="付ける者">人のみ</td><td data-k="意味">委任承認（計画＋Merge）。ダッシュボードに付けている間、計画の委任に加えて、ガードレール・Risk が理由の PR も自動 Merge する（期限なし。停止スイッチが優先）。外す・停止スイッチで、委任で付けた auto-merge を外す</td></tr>
       <tr><td><code>agent:bypass-merge</code></td><td data-k="付ける者">人のみ</td><td data-k="意味">bypass モード。ダッシュボードに付けている間（期限なし）、ブロッキング指摘が無く範囲照合と <code>agent/tests</code> を通る Agent PR を、Human Merge の理由（Risk・ガードレール・ハーネス自身の変更など）を飛ばして自動 Merge する。外す・停止スイッチで、bypass で付けた auto-merge を外す</td></tr>
@@ -384,7 +391,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     </tbody>
   </table>
 
-  <p class="note">このページは要約です。ラベルと役割は <a href="docs/operations.md">docs/operations.md</a>、言葉の意味は <a href="docs/glossary.md">docs/glossary.md</a> が正しい内容で、食い違ったらそちらに従います。仕組みを変えたらこのページも直します。</p>
+  <p class="note">このページは要約です。ラベルと役割は <a href="harness/docs/operations.md">harness/docs/operations.md</a>、言葉の意味は <a href="harness/docs/glossary.md">harness/docs/glossary.md</a> が正しい内容で、食い違ったらそちらに従います。仕組みを変えたらこのページも直します。</p>
 
   <footer>外部のファイルを何も読み込まない1枚のページです。手元に clone してブラウザで開いてください。</footer>
 </main>

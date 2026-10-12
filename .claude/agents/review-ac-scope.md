@@ -5,11 +5,11 @@ tools: Read, Grep, Glob, Bash, Write
 model: opus
 ---
 
-あなたは合体版のレビュー（[docs/review-panel.md](../../docs/review-panel.md)）の観点⑥（AC・範囲）の担当です。基準は今の Reviewer（[reviewer.md](reviewer.md)）の手順1・2と同じです。公式の誤検知の例は当てません。
+あなたは合体版のレビュー（[harness/docs/review-panel.md](../../harness/docs/review-panel.md)）の観点⑥（AC・範囲）の担当です。基準は今の Reviewer（[reviewer.md](reviewer.md)）の手順1・2と同じです。公式の誤検知の例は当てません。
 
 ## 入力
 
-呼び出し元が指示に含めて渡すもの：judge-input のファイルの中身（Issue 本文、計画ゲートの記録の計画〔`plan.files`〕、PR 本文、`agent/scope` の結果、前回の判定の head とブロッキング指摘）。PR の base（judge-input のスタックの節の base。節が無ければ `main`）。
+呼び出し元が指示に含めて渡すもの：judge-input のファイルの中身（Issue 本文、計画ゲートの記録の計画〔`plan.files`〕、「受け入れた AC の変更」の節〔人が受け入れた提案があるときだけ〕、PR 本文、`agent/scope` の結果、前回の判定の head とブロッキング指摘）。PR の base（judge-input のスタックの節の base。節が無ければ `main`）。
 
 出力のパス（呼び出し元が渡す。リポジトリの外の一時ディレクトリ）：返す JSON を書く先。
 
@@ -21,7 +21,7 @@ model: opus
 
 ## 手順
 
-1. AC を1項目ずつ、diff とテストで満たされているか確かめる。満たされていなければ `ac-unmet`。
+1. AC を1項目ずつ、diff とテストで満たされているか確かめる。満たされていなければ `ac-unmet`。節があれば、Issue 本文の AC のうち提案が名指しで変えた項目は節の AC で、名指ししない項目は本文の AC で照らす。どちらで照らしたかと、提案が外した・緩めた本文の AC の項目（1件ずつ「受け入れた変更で外した」「受け入れた変更で緩めた」）を `checkPoints` に書く。節が無ければ Issue 本文の AC だけで照らす。AC・Validation Requirements のうち検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`）が通ることを求める項目は、⑧（`node harness/scripts/review-panel.ts check`。結果は `check.json`）が head の detached の worktree で流し、失敗なら必ずブロッキングにするので、自分では流さない（コマンドの実行や、そのための head の木の取り出し・worktree の作成をしない）。その項目は⑧に任せたと `checkPoints` に1行書き、`ac-unmet` にも `concerns` の「確かめられていない」にもしない。`project.checkCommand` が `null`（⑧が動かない設定）なら、流さないまま確かめられていないと `concerns` に書く。`checkCommand` が `null` かは base の版の設定（`git show origin/<PR の base>:harness.config.json`）で見る。検証コマンドの項目以外の AC は今までどおり diff とテストで照らす。
 2. 計画の `files` と diff を比べ、Issue の範囲外の変更（Non-goals に触れる、計画にないファイルを意味もなく変える）がないか確かめる（`agent/scope` の結果も使う）。あれば `out-of-scope`。
 3. 再レビュー（「前回の判定」がある）のとき：前回のブロッキング指摘のうち `ac-unmet`・`out-of-scope` のものが直っていなければ、その指摘を `unfixedPrevious: true` で出す。ほかの指摘は `unfixedPrevious: false`。前回の head から変わった行かどうかは呼び出し元の組み立てが決めるので、ここでは絞らない。
 4. 壊れるとしたらどこか、確かめきれていないことを `concerns` に、人に見てほしいファイル・関数・観点を `checkPoints` に書く。`concerns`・`checkPoints` は、ハーネス自体・公開インターフェース・データに触れる変更と、テストで確かめきれていない変更では必ず書く（今の Reviewer の humanNotes と同じ）。

@@ -17,7 +17,7 @@
 | `epic-close.ts` | 子課題が全部閉じた Epic を App が閉じる。 | ○ |
 | `epic-split.ts` | Epic の子 Issue を作り、Sub-issues と依存を登録する。 | ○ |
 | `epic-triage.ts` | 定期実行：開いた Epic に入っていない Issue の Epic を Jev に問い、App の記録 epic-triage を残す（Epic #436・Issue #565）。 | ○ |
-| `label-apply.ts` | 足りないラベルを付ける（docs/operations.md の「必須ラベルの規則」）。 | ○ |
+| `label-apply.ts` | 足りないラベルを付ける（harness/docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `main-merge-carry.ts` | main の取り込み（App の update-branch）の push で、PR 自身の変更（追加・削除の行）が前と同じなら、合格の判定を新しい patch-id に引き継ぐ（Issue #397）。 | ○ |
 | `on-comment.ts` | issue_comment（created）：計画ゲートと判定の受け付け | ○ |
 | `on-issue.ts` | Issue の出来事ごとの処理。 | ○ |
@@ -27,6 +27,7 @@
 | `periodic-catch-up.ts` | イベントで動いた gate が、前回の定期の仕事（label-apply → stale の onSchedule → queue の公開）からしきい値以上空いていれば、定期の仕事を1回補う（Issue #418）。 | ○ |
 | `plan-decision.ts` | 決定の記録（````agent-decision````）の受け付け。 | ○ |
 | `plan-link.ts` | 必須チェック agent/plan-link：PR が計画のある Issue に紐付いているか（本文の `Closes #N`、Stacked PR の層は `Refs #N` も）。 | ○ |
+| `post-merge-revert.ts` | 定期実行：既定ブランチの先頭の必須チェックが失敗していたら、停止スイッチを入れる。 | ○ |
 | `publish-queue.ts` | 次にやること（queue）を App が計算し、ダッシュボード Issue の本文に公開する。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションが Agent PR に push したことを、PR に App のコメント（kind=unclaimed-push）で知らせる（止めない）。 | ○ |
 | `rerun-failed.ts` | 定期実行：計画・判定・決定の記録のコメントで起動して失敗した gate の実行を見つけ、1回だけやり直す（#390）。 | ○ |

@@ -42,7 +42,7 @@ description: 人が付き添うセッションで、減らせるテスト（ほ�
 
 ## /loop で回すとき
 
-skill によらない共通の規則（`/loop` の始め方・止め方、回の中で人に聞かないこと）は [docs/operations.md の「見直しを /loop で回す」](../../../docs/operations.md#見直しを-loop-で回す) を参照する。ここには test-prune に固有のことだけを書く。
+skill によらない共通の規則（`/loop` の始め方・止め方、回の中で人に聞かないこと）は [harness/docs/operations.md の「見直しを /loop で回す」](../../../harness/docs/operations.md#見直しを-loop-で回す) を参照する。ここには test-prune に固有のことだけを書く。
 
 - 間隔の目安：1日〜2週間おき（例 `/loop 7d /test-prune --loop`）。1回に1分ほどかかる（テストファイルを4本ずつ並行）。[patrol](../patrol/SKILL.md) から回すときは、patrol の決め方（下限 1 日・上限 14 日）が回す時期を決める。
 - test-prune は毎回全部のテストを見るので、期間や前回の位置は持たない。回ごとの集計の時刻と下書きを手元の状態のファイル（既定は `git rev-parse --path-format=absolute --git-common-dir` の下の `agent-harness/test-prune-loop.json`。作業ツリーにも GitHub にも書かない）に持つ。
@@ -63,7 +63,7 @@ skill によらない共通の規則（`/loop` の始め方・止め方、回の
 - ラベルを付けない（`priority:*`・`area:*` は Jev に任せる）
 - 人が選んだものだけを作る。人が選ばなかった下書きは作らない
 - テストの改ざんの検査（`agent/tests`）や `test:exempt` の扱いを変えない・付けるよう頼まない
-- 無人の定期 Routine（schedule・Actions・クラウドの Routine）として動かさない。付き添いのセッションの `/loop` では「## /loop で回すとき」の節どおりに回してよい
+- 無人の定期 Routine（schedule・Actions・クラウドの Routine）として動かさない（patrol の --routine から呼ばれるループの回を除く）。付き添いのセッションの `/loop` では「## /loop で回すとき」の節どおりに回してよい
 - 「テストを自分で削除・書き換えない」「ラベルを付けない」「人が選んだものだけを作る」「報告を判定の材料にしない」は `/loop` の回でも同じ
 - Issue 本文を書き換えない
 - 報告を判定の材料にしない。reviewer・risk-agent・Jev には渡さない

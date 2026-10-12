@@ -40,7 +40,7 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           （Issue が開いている・claude/issue-<番号>- の worktree が残る）と、読み直しの間隔（fleet.watch.intervalMinutes）を表の下に足す
  *                                                           （--json と一緒なら JSON の watch に入れる。harness/lib/fleet-watch.ts）
  *   node harness/scripts/agent.ts step <番号> [--plan <file> | --critique <file>] [--proceed]
- *                                                           今やってよいノードを1つだけ返す（JSON。harness/lib/step.ts、書式は docs/formats.md の「agent.ts step の出力」。#306）。
+ *                                                           今やってよいノードを1つだけ返す（JSON。harness/lib/step.ts、書式は harness/docs/formats.md の「agent.ts step の出力」。#306）。
  *                                                           段階は fleet-status と同じ事実と判断（fleet.ts の issueNode）で決め、セッションの ID・担当・着手宣言・ループの上限
  *                                                           （sync は harness.config.json の syncLoop.limit、批評は 3 回）・同じ指摘の繰り返しを確かめる。node なら宣言を出し
  *                                                           （同じ段階の自分の宣言があれば出さない）、stop ならこのセッションの宣言を解除する（批評の止まり方と claimed は解除しない）。

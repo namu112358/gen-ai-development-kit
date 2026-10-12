@@ -19,7 +19,7 @@
  * 展開を含む値・条件付き・パイプ・サブシェル・ブロックの中の代入、引用符の無い使い方などは今までどおり止める。
  * 引用符の境目で名前が切れる使い方（`"$W"o`）と、関数の定義・trap・readonly・declare などの文の後も、変数を読まずに止める。
  *
- * 拾いきれない経路（抜け道。docs/security.md）：Bash のリダイレクト（`>`）・`sed -i`・`rm`・`cp` などの git 以外の書き換え、
+ * 拾いきれない経路（抜け道。harness/docs/security.md）：Bash のリダイレクト（`>`）・`sed -i`・`rm`・`cp` などの git 以外の書き換え、
  * スクリプトや別のプロセス（`node harness/scripts/agent.ts` など）の中で動く git、xargs・find -exec などで動かす git、印を消すこと、
  * ヒアストリング（`bash <<< 'git pull'`）の中の git、`export GIT_DIR=…`・`GIT_WORK_TREE` で後の文の作業場所を変える形、
  * スクリプト・別のプロセスの中で設定や環境を変えてから pull する形、外で定義した alias・関数で git を動かす形。

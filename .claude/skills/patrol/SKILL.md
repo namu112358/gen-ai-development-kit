@@ -1,13 +1,13 @@
 ---
 name: patrol
-description: 人が付き添うセッションの /loop から、保守の観測を回して今回まわすべき見直し（arch-review・qa-retro・test-prune）を選んで動かし、下書きを集める。「/loop で見直しを回して」「patrol で見回って」と頼まれたとき、`/loop <間隔> /patrol` の各回で使う。
+description: 人が付き添うセッションの /loop から、保守の観測を回して今回まわすべき見直し（arch-review・qa-retro・test-prune）を選んで動かし、下書きを集める。「/loop で見直しを回して」「patrol で見回って」と頼まれたとき、`/loop <間隔> /patrol` の各回で使う。クラウドの Routine からは `/patrol --routine` で1回分を回す。「patrol の下書きを選ぶ」と頼まれたときにも使う。
 ---
 
 # patrol（見直しのまとめ役）
 
-付き添いのセッションの `/loop` から1つで呼ぶ、見直しのまとめ役。1回分で保守の観測（`harness/scripts/observe.ts`）を回し、観測の差と前回からの経過で今回まわす見直しを決め、選んだものだけを各 skill のループの回の形で動かして、回の要約を出す。patrol は中身の skill（[arch-review](../arch-review/SKILL.md)・[qa-retro](../qa-retro/SKILL.md)・[test-prune](../test-prune/SKILL.md)）を呼ぶだけで、各 skill の手順・記録・状態は書き直さない。Issue の段階ではないので着手宣言は要らない。
+付き添いのセッションの `/loop` か、クラウドの Routine から `--routine` で1つで呼ぶ、見直しのまとめ役。1回分で保守の観測（`harness/scripts/observe.ts`）を回し、観測の差と前回からの経過で今回まわす見直しを決め、選んだものだけを各 skill のループの回の形で動かして、回の要約を出す。patrol は中身の skill（[arch-review](../arch-review/SKILL.md)・[qa-retro](../qa-retro/SKILL.md)・[test-prune](../test-prune/SKILL.md)）を呼ぶだけで、各 skill の手順・記録・状態は書き直さない。Issue の段階ではないので着手宣言は要らない。
 
-`/loop` で回すときの共通の規則（回すのは付き添いのセッションの `/loop` だけ、1回分で完結させ人の答えを待たない、ループの回は Issue を作らずラベルも付けない、止め方、結果を判定の材料にしない）は [docs/operations.md の「見直しを /loop で回す」](../../../docs/operations.md#見直しを-loop-で回す) に従う。ここには patrol に固有のことだけを書く。
+`/loop` で回すときの共通の規則（回すのは付き添いのセッションの `/loop` か、クラウドの Routine の patrol（`--routine`）、1回分で完結させ人の答えを待たない、ループの回は Issue を作らずラベルも付けない、止め方、結果を判定の材料にしない）は [harness/docs/operations.md の「見直しを /loop で回す」](../../../harness/docs/operations.md#見直しを-loop-で回す) に従う。ここには patrol に固有のことだけを書く。
 
 ## 入力
 
@@ -19,6 +19,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 - `--max <n>`：1回に動かす見直しの上限（既定 2）。`patrol.ts select` に渡す。形が suggest（人に勧めるだけ）の見直しは枠を使わない。
 - `--state <path>`：状態のファイル（`patrol.ts previous`・`select`・`record` に渡す）。確かめるときの一時の状態に使う。既定は `git rev-parse --path-format=absolute --git-common-dir` の下の `agent-harness/patrol.json`（worktree をまたいで同じ。作業ツリーにも GitHub にも書かない）。
 - `--dry-run`：見直しを動かさず、観測・選択・記録と要約だけを行う（確かめるときに arch-review・qa-retro・test-prune の本物の記録・状態を進めないため）。記録では `select` の `run` を `--ran` として渡す。`--dry-run` は `--state` と一緒のときだけ受け付け、`--state` が無ければその回を止めて理由を出す（既定の状態に、動かしていない見直しを記録しないため）。
+- `--routine`：クラウドの Routine の1回分として動く（手順は下の「Routine で回すとき（--routine）」）。状態の置き場所はまとめの Issue から写したディレクトリに決まるので、`--state`・`--dry-run` と同時には使わない（渡されたらその回を止めて理由を出す）。
 
 ## 手順
 
@@ -33,16 +34,36 @@ description: 人が付き添うセッションの /loop から、保守の観測
    - test-prune：`test-prune --loop` の回（[test-prune の「/loop で回すとき」](../test-prune/SKILL.md)）。手順2の観測の JSON を `test-prune.ts` の `--health` に渡す。
    - 1つの見直しが失敗・中断しても、残りの見直しは続ける。失敗したものは次の手順で「回した」に数えない。
 5. `node harness/scripts/patrol.ts record <観測の JSON> [--ran <回した見直し>]... [--suggested <勧めた見直し>]... [--state <path>]` で回を記録する（回した見直しの時刻・勧めた見直しの時刻を更新し、観測の JSON を状態の置き場所に写す）。回した見直しが無くても記録する（観測の写しが次の回の `--previous` になる）。`--suggested` は `suggest` に入った見直しがあるときだけ渡す。
+### 5a. auto mode の間の自動の供給
+
+`--dry-run` の回では行わない。上限は `patrolAutoSupply.dailyLimit`（下の「設定」）。
+
+- (1) `{ "version": 1, "candidates": [] }` を scratchpad に書き、`node harness/scripts/agent.ts patrol-supply check <そのファイル>` を流す。`active` が偽か `remaining` が 0 なら、この手順を終えて理由を要約に書く。
+- (2) 各見直しの未採用の下書き（`node harness/scripts/agent.ts arch-review-pending`・`node harness/scripts/qa-retro-loop.ts pending`・`node harness/scripts/test-prune-loop.ts pending`）を候補にする。
+   - `ref` は見直しと下書きの位置から作る（`arch-<記録のコメントID>-<下書きの番号>`・`qa-<回の番号>-<下書きの番号>`・`prune-<回の番号>-<下書きの番号>`）。
+   - `risk` はセッションが下書きを [harness/docs/risk-policy.md](../../../harness/docs/risk-policy.md) の目安で見積もる（決められなければ `null`）。
+   - `files` は下書きの本文の Background の「触るファイルの見込み」の行（無ければ本文に書かれたファイルのパス）から取る（取れなければ空。`files-unknown` で人の側に残る）。
+   - arch-review の下書きで `duplicateOf` があるものは、`overlap` を `comment` にする（人の側に残る）。
+   - `overlap` は `null` で1度 `check` を流し、`manual` の理由が `overlap` の下書き（ほかの条件は満たすもの）だけを、[issue-creator](../issue-creator/SKILL.md) の下書きの役目（`from=patrol`、`ref` は上の ref）で重複を判定する。その結果の `kind` を `overlap`、下書きのパスを `draftPath` にして、もう一度 `check` を流す。
+- (3) `check` の `create` の順に、1件ずつ issue-creator の作成の役目で Issue を作る（名指しはその下書きだけ）。
+- (4) 作った Issue ごとに、作成の役目が返した URL（作った Issue か、目印で既にあった Issue）の末尾から番号を取り、`node harness/scripts/agent.ts patrol-supply ready <番号>` を流す。`added` が偽なら理由を要約に書き、ラベルはそのまま（人が決める）。
+- (5) 各見直しの採用を書き戻す（`node harness/scripts/agent.ts arch-review-adopt <記録のコメントID> <下書きの番号> <Issue 番号>`・`node harness/scripts/qa-retro-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号>`・`node harness/scripts/test-prune-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号>`）。
+- (6) 回の要約に、作った Issue・`agent:ready` を付けたか・人の側に残した下書きと理由（`manual` の `reason`・`detail`）を足す。
+
 6. 回の要約を文章で出す（PR・Issue には投稿しない）。
-   - 先頭に `alerts`（超えた項目・前回から増えた項目）を出す。`alerts` が空で `alertsNote` があればその旨を出す。知らせるだけで、見直しの skill は動かさない。直すのは各 Issue で行う（項目の一覧と個別の直しの Issue は [docs/operations.md の「patrol が知らせる観測の項目」](../../../docs/operations.md)）
+   - 先頭に `alerts`（超えた項目・前回から増えた項目）を出す。`alerts` が空で `alertsNote` があればその旨を出す。知らせるだけで、見直しの skill は動かさない。直すのは各 Issue で行う（項目の一覧と個別の直しの Issue は [harness/docs/operations.md の「patrol が知らせる観測の項目」](../../../harness/docs/operations.md)）
    - 観測の差：節ごとの増えた・消えた件数。差が読めない節はその旨
    - 動かした見直しと、回さなかった見直し（`skipped` と `reasons` の理由）
    - 勧める見直し：`suggest` にあれば、その見直しと理由（人がその skill を呼ぶ）
    - たまった下書きの数：`node harness/scripts/agent.ts arch-review-pending`・`node harness/scripts/qa-retro-loop.ts pending`・`node harness/scripts/test-prune-loop.ts pending` の未採用の数
-   - 「Issue にするなら『arch-review の下書きを選ぶ』『qa-retro の下書きを選ぶ』『test-prune の下書きを選ぶ』と頼む」（人が選ぶ場面は各 skill の手順のまま）
+   - 「Issue にするなら『arch-review の下書きを選ぶ』『qa-retro の下書きを選ぶ』『test-prune の下書きを選ぶ』と頼む」（人が選ぶ場面は各 skill の手順のまま）。`--routine` の回の下書きは「patrol の下書きを選ぶ」で選ぶと頼む
 
 - 止め方：`/loop` を止める（止めるよう頼む・セッションを閉じる）。手順5の前に止めた回は、次の回が同じ前回から観測の差を出し、見直しの時刻も進んでいない。
 - 同時に2つのセッションで patrol を回さない（状態のファイルは1つ。後から書く側は上書きせずに誤りで止まり、その回は記録されないので、もう一度 record を流す）。
+
+## 設定
+
+`harness.config.json` の `patrolAutoSupply.dailyLimit`：直近 24 時間に自動で Issue にする数の上限。0 以上の整数、既定 1、0 で自動にしない。数えるのは、本文に `<!-- agent-harness:issue-source from=patrol ref=… -->` の目印があり、自分が作った、PR でない Issue。
 
 ## 決め方
 
@@ -60,22 +81,61 @@ description: 人が付き添うセッションの /loop から、保守の観測
 - 運用の健康（`opsHealth`）は見直しの選び方に使わない。`alerts` に知らせるだけ。
 - 動かすものが `--max` を超えたら、`never` → `overdue`（超えた時間の長い順）→ `diff`（差の件数の多い順）で上限までにし、残りは `limit` で次の回に回す。
 
+## Routine で回すとき（--routine）
+
+クラウドの Routine の1回分。回の中で人の答えを待たない（AskUserQuestion を呼ばない）。下書きごとの Issue を作らず、ラベルも付けない（まとめの Issue は `patrol-pull` が初回に1回作るだけ）。上の「手順」の 5a（auto mode の間の自動の供給）は、`--routine` の回では行わない。Routine の下書きは「patrol の下書きを選ぶ」で人が選ぶ。
+
+1. 浅い clone を解く：`git rev-parse --is-shallow-repository` が `true` なら `git fetch --unshallow`（Routine は毎回既定ブランチから浅く clone し直す。arch-review の範囲・qa-retro の期間に履歴が要る）。
+2. `<dir>` を scratchpad の `patrol-routine/` に決め、`node harness/scripts/agent.ts patrol-pull --dir <dir>` を流す（まとめの Issue が無ければ作る）。失敗したら、その回は何も動かさずに理由を出して終える。
+3. 「手順」の 1〜5 を `--state <dir>/patrol.json` で行う。手順2の `observe.ts` は約4分かかる（CI の実行を1000件まで読む）ので、背景で動かして終わるのを待ち、最後の行の JSON のパスを読む（Bash の 120 秒の上限で止めない）。
+4. 手順4の見直しの回：
+   - qa-retro の回は `qa-retro-loop.ts` の `data`・`advance` に `--state <dir>/qa-retro-loop.json` を、test-prune の回は `test-prune-loop.ts` の `pending`・`record` に `--state <dir>/test-prune-loop.json` を渡す。
+   - 下書きは `advance`・`record` の前に `node harness/scripts/agent.ts patrol-dedupe <下書きの JSON> --out <パス> --max <残りの枠>` を通し、出力の `--out` を `--drafts` に渡す。枠は回の合計で3件で、qa-retro → test-prune の順に使う（qa-retro の `kept` を引いた残りを test-prune の `--max` に。残りが 0 なら空の配列が書かれる）。
+   - arch-review の回は今までどおりダッシュボード Issue に記録を残し（`arch-review-record`）、出力の記録のコメントの URL を控える（arch-review の下書きは自分の記録の3件のまま。枠には数えない）。
+5. 回の中で各 skill が `gh issue`・`gh pr` で読むところ（GraphQL で 403 になる）は、`gh api` の REST と `node harness/scripts/agent.ts rest issue-search <語>...` で読む（各 skill の文は変えない）。
+
+   | 各 skill の読み方 | Routine での読み方 |
+   | --- | --- |
+   | PR の情報（`gh pr view <番号>`） | `gh api repos/{owner}/{repo}/pulls/<番号>` |
+   | PR の diff・ファイル（`gh pr diff`） | `gh api repos/{owner}/{repo}/pulls/<番号>/files` |
+   | PR・Issue のコメント（`gh pr view --comments`） | `gh api repos/{owner}/{repo}/issues/<番号>/comments` |
+   | 開いた Issue の検索（`gh issue list --search`） | `node harness/scripts/agent.ts rest issue-search <語>...` |
+   | Issue の作成 | しない |
+
+6. 手順6の要約を scratchpad のファイルに書き、`node harness/scripts/agent.ts patrol-push --dir <dir> --summary <要約のファイル> [--arch-review <記録の URL>]` を流す。push が「pull の後にまとめの Issue の本文が変わりました」で止まったら、手順2の pull からその回をやり直す。2回目も止まったら、その回を終えて理由を出す（状態はまとめの Issue に書かれないので、次の回が同じ前回から回る）。
+
+注記（2本の状態）：手元の `/loop` の patrol（git の共通ディレクトリの下の状態）と Routine の patrol（まとめの Issue の本文）は、同じリポジトリで両方回さない（回すなら手元は `--dry-run` にするか Routine を止める）。Routine の下書きは「qa-retro の下書きを選ぶ」「test-prune の下書きを選ぶ」（手元の状態を読む）と hq の未採用の数には出ず、「patrol の下書きを選ぶ」で選ぶ。作り方は [docs/patrol-routine.md](../../../docs/patrol-routine.md)。
+
+## 人が選ぶ場面（patrol の下書きを選ぶ）
+
+付き添いのセッションだけ。Routine では行わない。「patrol の下書きを選ぶ」と頼まれたとき、Routine がまとめの Issue に積んだ下書きと、ダッシュボードの arch-review の下書きから選ばせる。
+
+1. `node harness/scripts/agent.ts patrol-pull --dir <一時のディレクトリ>` でまとめの Issue の状態を写す。
+2. 未採用の下書きを読む：`node harness/scripts/qa-retro-loop.ts pending --state <一時>/qa-retro-loop.json`・`node harness/scripts/test-prune-loop.ts pending --state <一時>/test-prune-loop.json`（ファイルが無ければその見直しの下書きは無い）・`node harness/scripts/agent.ts arch-review-pending`（ダッシュボードの記録）。
+3. どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。
+4. 人が選んだものだけを `gh issue create --title <題> --body-file <本文のファイル>` で作る（ラベルは指定しない。クラウドの付き添いのセッションでは `node harness/scripts/agent.ts rest-create issue --title <題> --body-file <ファイル>` を `--label` なしで使う）。
+5. 作るたびに採用の印を書き戻す：qa-retro は `node harness/scripts/qa-retro-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号> --state <一時>/qa-retro-loop.json`、test-prune は `node harness/scripts/test-prune-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号> --state <一時>/test-prune-loop.json`、arch-review は `node harness/scripts/agent.ts arch-review-adopt <記録のコメントID> <下書きの番号> <Issue 番号>`。回の番号と下書きの番号は、同じ pull の写しの中でだけ使う（別の pull の番号を使い回さない）。
+6. `node harness/scripts/agent.ts patrol-push --dir <一時のディレクトリ>` で採用の印をまとめの Issue に書き戻す。本文の変化で止まったら（その間に Routine が回った）、もう一度 pull し、作った Issue の題で下書きを探して `adopt` をやり直してから push する（Issue は作り直さない）。
+7. 作った Issue を plan に進めるかは、[qa-retro](../qa-retro/SKILL.md)・[test-prune](../test-prune/SKILL.md) の「出力」の手順4と同じく聞く。
+
 ## 出力
 
 - 回の要約（手順6）。PR・Issue には投稿しない。
+- `--routine` の回：まとめの Issue の本文と回のコメントが更新される（`patrol-push`）。Issue は作られず（まとめの Issue の初回を除く）、ラベルも付かない。
 - 状態のファイルと観測の写し（手元だけ）。動かした見直しの記録・状態は、各 skill の手順どおりその skill が残す。
 
 ## やってはいけないこと
 
 - 無人の回で AskUserQuestion を呼ばない。人の判断が要る状態に当たったら、その見直しを止めて理由を要約に書く
-- `gh issue create` をしない（Issue にするのは、人が「〜の下書きを選ぶ」と頼んだときに各 skill の手順で）
-- ラベルを付けない（`agent:ready`・`priority:*`・`area:*` も）
-- PR・Issue に要約を投稿しない
+- `gh issue create` をしない（Issue にするのは、人が「〜の下書きを選ぶ」「patrol の下書きを選ぶ」と頼んだときに各 skill の手順で。まとめの Issue は `patrol-pull` が作る。例外は auto mode の間の自動の供給の、issue-creator の作成の役目だけ。`--routine` の回では、この例外も使わない）
+- ラベルを付けない（`agent:ready`・`priority:*`・`area:*` も）。例外は auto mode の間の自動の供給の `patrol-supply ready` が付ける `agent:ready` だけ。`gh issue edit` でラベルを付けない。`agent:ready` 以外のラベル（`priority:*`・`area:*` を含む）は付けない。`--routine` の回では `patrol-supply ready` の例外も使わない
+- PR・Issue に要約を投稿しない（`--routine` の回のコメントは `patrol-push` が書く）
 - 各 skill の記録・状態（arch-review の記録、`qa-retro-loop.json`・`test-prune-loop.json` など）を patrol が書き換えない
-- schedule（Actions・クラウドの Routine）で動かさない
+- Routine で動かすのは patrol の `--routine` だけ（Actions では動かさない。ほかの skill の段階は動かさない）
 - 要約を判定の材料にしない（reviewer・risk-agent・review-panel に渡さない）
 
 ## 終わりの状態
 
 - 回の要約を出した。状態のファイルに回が1件増えている（手順1・2で止めた回、手順5の前に止めた回は増えない）。
-- Issue は作られず、ラベルも付いていない。
+- `--routine` の回：まとめの Issue の本文と回のコメントを更新した（手順の途中で止めた回は、状態を書き戻していない）。
+- Issue は作られず、ラベルも付いていない（例外は、auto mode の間の自動の供給で作った Issue と、`patrol-supply ready` が付けた `agent:ready`）。

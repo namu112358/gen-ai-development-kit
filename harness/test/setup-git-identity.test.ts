@@ -47,7 +47,7 @@ test('利用者の準備の節に、設定を確かめるコマンド git var GI
   assert.ok(section().includes('git var GIT_AUTHOR_IDENT'), '確かめのコマンド git var GIT_AUTHOR_IDENT が無い');
 });
 
-// 既存のリンクのアンカー（docs/glossary.md の `#6-routine`、CLAUDE.md・harness/CLAUDE.harness.md・docs/security.md・
+// 既存のリンクのアンカー（harness/docs/glossary.md の `#6-routine`、CLAUDE.md・harness/CLAUDE.harness.md・harness/docs/security.md・
 // harness/test/managed.test.ts の `#8-プラグイン全員に同じ版で入れる`）を守るため、節を足しても既存の見出しが変わっていないことを確かめる
 test('既存の見出し（## 6. Routine・## 8. プラグイン（全員に同じ版で入れる））がそのまま残っている', () => {
   const lines = setup().split(/\r?\n/);

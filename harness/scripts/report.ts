@@ -52,7 +52,7 @@ import { revertedPrNumbers, revertedShas } from '../gates/on-main-push.ts';
  *
  *   node harness/scripts/report.ts <owner/repo> [days=30]
  *
- * ここでは GitHub から事実を集めて行にするだけ。集計と基準の判定は harness/lib/report.ts、基準の意味は docs/security.md の「Jev」。
+ * ここでは GitHub から事実を集めて行にするだけ。集計と基準の判定は harness/lib/report.ts、基準の意味は harness/docs/security.md の「Jev」。
  * 受け付けられなかった判定コメントも件数に出す。テストの改ざんの Jev の記録と人の判断（test:exempt・Merge した差分）の一致も数える（Q95）。
  * 実装のモデル（PR 本文の「実装のモデル:」の行）ごとに、1回で合格した割合・修正の回数・計画に返した回数を出す節も付ける（#473）。
  * 勧め（計画ゲートの記録の modelRouting）×実装のモデルごとの結果の節も付ける（#139）。

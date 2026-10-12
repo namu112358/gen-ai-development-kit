@@ -23,9 +23,11 @@
 | `judge*.test.ts`・`verdict*.test.ts`・`compose-verdict-*.test.ts`・`facts*.test.ts`・`scope*.test.ts` | 判定の入力と出力、判定コメント（`agent-verdict`）の書式と判定した head のずれ、facts、PR を出す前の範囲照合 |
 | `merge-*.test.ts`・`human-merge*.test.ts`・`tests-*.test.ts`・`exempt*.test.ts`・`patch-id*.test.ts`・`revert*.test.ts`・`pr-*.test.ts`・`main-push*.test.ts`・`stack*.test.ts` | Merge の経路（自動 Merge と Human Merge）、テストの結果と例外ラベル、patch-id、revert、PR と Issue の結び付け、main への push、Stacked PR |
 | `review-panel-*.test.ts` | 合体版のレビューの組み立て・記録・担当の定義と、今の判定と比べる集計 |
+| `review-api-*.test.ts` | PR レビューの試作（`review-api/`）の Node で動く部分のテスト：設定（`review.config.json`）の読み取りなど |
 | `report-*.test.ts`・`render-*.test.ts` | 判定の集計（`harness/lib/report.ts`）：外れの数え方、fix の PR の結び付け、Jev の問いごとの確率、テストの改ざんの判定と人の判断の一致、文字数とトークン数の比、指標の描き方 |
 | `test-*.test.ts`・`mutate*.test.ts`・`observe*.test.ts`・`hotspot*.test.ts`・`patrol*.test.ts` | テストの改ざんの検査と Jev への問い方、テストの健康・減らせるテスト、ミュータントの検査、保守の観測（docs の照合・ホットスポット）、見直しのまとめ役 patrol |
 | `dashboard-*.test.ts` | 手元のダッシュボード（`harness/scripts/dashboard.ts`・`harness/scripts/dashboard/`）：グラフ・カード・サーバー・画面、GitHub の見張りと API の上限の扱い |
+| `intel-watch*.test.ts` | intel の見張り（`harness/scripts/intel-watch.ts`）：まとめの時刻の決め方（止まっていた間に過ぎた時刻を含む）と、新しく出た人の Merge 待ち・計画ゲートで止まった Issue の見分け方 |
 | `ship-stage-*.test.ts` | fleet の入れ子の ship が段階ごとに返す引き継ぎ（`agent-handoff`）の書式の検査と、ship・fleet の skill の文 |
 | `usage*.test.ts`・`api-*.test.ts`・`gh-*.test.ts`・`graphql-*.test.ts` | usage の集計、API の呼び出しの数え方、`gh` の呼び出し方と GraphQL の読み取りを REST の形にそろえる変換 |
 | `agent-*.test.ts`・`config-*.test.ts`・`settings-*.test.ts`・`managed*.test.ts`・`setup-*.test.ts`・`ruleset*.test.ts`・`gitattributes*.test.ts` | `agent.ts` の入口、設定（`harness.config.json`・`.claude/settings.json`）のキーと上限、導入先に配るファイルの一覧、setup・Ruleset、改行コードの設定 |
@@ -34,6 +36,7 @@
 | `mod-*.test.ts` | mod（`mods/agent-harness/`）：変えたら `plugin.json` の version を main より上げているか（上げないと `claude plugin update` で届かない） |
 | `incident*.test.ts` | 問題の記録（`harness/lib/incident.ts`・`agent.ts incident`）：記録の置き場所と権限、種類ごとのまとめ、秘密に見える文字列の置き換え、Issue Form の形の下書きと `agent-incident` のコメント本文 |
 | `readme-*.test.ts`・`overview-*.test.ts` | 各ディレクトリの README の表と、`overview.html` のラベル表示が、実物と食い違っていないかの検査 |
+| `account-*.test.ts` | 使用量の低い Claude のアカウントを選ぶコマンド（`harness/scripts/accounts/`）：取り元の順・取り違えの除外・選び方・外す理由・対応表が無いときの default、問い合わせるコマンド（`probe.ts`）：stream-json の読み取り・古い控えだけの問い合わせ・ずれの検出 |
 | `support/` | テストが共有する補助（テストとしては動かない） |
 
 ほかのテストが README の本文に特定のファイル名を求めるときは、その行だけパターンにせずファイル名で書く（ファイル名も同じ検査でパターンとして扱う）。テストファイルはこのディレクトリの直下に置く（`support/` 以外のサブディレクトリの `*.test.ts` は、パターンの検査の対象外）。新しいテストは既存のファイルの末尾に足さず、機能・ハンドラーごとのファイルに書く。ファイル名がどれかのパターンに当たれば、この README は変えなくてよい。どのパターンにも当たらなければ `npm run check`（readme のテスト）が落ちてファイル名を出すので、そのときだけ行かパターンを足す（全部を覆う `*.test.ts` は数えない）。

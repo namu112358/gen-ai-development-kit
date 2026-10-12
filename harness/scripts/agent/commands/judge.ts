@@ -1,10 +1,12 @@
 import { readFileSync } from 'node:fs';
+import { acceptedAcChange } from '../../../lib/accepted-ac-change.ts';
 import { parseChildMarker } from '../../../lib/epic.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { pastPrsFor } from '../../../lib/past-pr-reads.ts';
 import { checkJudgeInput, type CheckRun, composeVerdict, epicChildrenFromRecords, type JudgeFacts, lowerLayers, type ParentEpic, parseComposeArgs, type PrCommit, readAuthorViewFile, renderJudgeInput, type StackFacts } from '../../../lib/session-inputs.ts';
 import { classifyBase, stackOf } from '../../../lib/stack.ts';
-import { changedFiles, linkedIssues, type PullRequest } from '../../../lib/state.ts';
+import { appLogin, LABELS, type HarnessConfig } from '../../../lib/config.ts';
+import { changedFiles, linkedIssues, type PullRequest, timeline, type TimelineEvent } from '../../../lib/state.ts';
 import { type AgentCommand, config, currentSession, fail, type IssueItem, readJson, renderVerdict, samePatchAsCurrent, sessionUrl, writeTemp } from '../cli.ts';
 
 /**
@@ -19,6 +21,10 @@ import { type AgentCommand, config, currentSession, fail, type IssueItem, readJs
  *                                                           〔Merge の新しい順に最大 10 件〕のコラボレーターのコメント〔App・Claude の目印・空の本文を除き、
  *                                                           1件 1500 字・節全体 20000 字で切る〕。過去の PR の節は GraphQL でまとめて読む〔harness/lib/past-pr-reads.ts。#249〕）
  *                                                           をファイルに書き、パスを出力
+ *                                                           人が受け入れた AC の変更があれば節「受け入れた AC の変更」も入る（harness/lib/accepted-ac-change.ts。決定の記録の
+ *                                                           acChangeAccepted と、その後に App 以外のコラボレーターが agent:plan-review を外した事実の両方があるときだけ。
+ *                                                           外した人の権限は GET /collaborators/{login}/permission が admin か write の login だけ〔失敗した login は入れない・
+ *                                                           同じ login は1回だけ読む・unlabeled が無ければ API を呼ばない・App の login は呼ばない〕。無いときの理由は標準エラーに1行）
  *   node harness/scripts/agent.ts compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>] [--author-view <file>]
  *                                                           サブエージェントの出力から判定コメントを作って検査し、ファイルのパスを出力（投稿は post-verdict）。
  *                                                           オプションの位置は問わない。judge-input のファイルの PR 番号が <pr> と違えば止まる。
@@ -62,13 +68,38 @@ async function stackFactsFor(gh: GitHub, pr: PullRequest): Promise<StackFacts | 
   return { base: pr.base.ref, number: stack.number, position: stack.position, size: stack.size, lower };
 }
 
+/** agent:plan-review を外した App 以外の actor のうち、権限が admin か write の login（API が失敗した login は入れない。同じ login は1回だけ読む） */
+async function collaboratorsWhoUnlabeled(gh: GitHub, cfg: HarnessConfig, events: TimelineEvent[], label: string): Promise<Set<string>> {
+  const logins = new Set<string>();
+  for (const e of events) {
+    const login = e.actor?.login;
+    if (e.event === 'unlabeled' && e.label?.name === label && login && login !== appLogin(cfg)) logins.add(login);
+  }
+  const out = new Set<string>();
+  for (const login of logins) {
+    try {
+      const r = await gh.get<{ permission?: string }>(`/collaborators/${encodeURIComponent(login)}/permission`);
+      if (r.permission === 'admin' || r.permission === 'write') out.add(login);
+    } catch {
+      // 確かめられない login はコラボレーターとして扱わない
+    }
+  }
+  return out;
+}
+
 async function judgeInput(gh: GitHub, n: number): Promise<string> {
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
   const issues: JudgeFacts['issues'] = [];
   for (const i of await linkedIssues(gh, config, pr)) {
-    const issue = await gh.get<IssueItem>(`/issues/${i}`);
+    const issue = await gh.get<IssueItem & { labels?: { name?: string }[] }>(`/issues/${i}`);
     const epic = await parentEpic(gh, issue.body);
-    issues.push({ number: i, title: issue.title, body: issue.body, comments: await gh.listComments(i), ...(epic ? { epic } : {}) });
+    const comments = await gh.listComments(i);
+    const events = await timeline(gh, i);
+    const accepted = acceptedAcChange(config, {
+      issue: i, comments, events, labels: issue.labels ?? [], collaborators: await collaboratorsWhoUnlabeled(gh, config, events, LABELS.planReview),
+    });
+    if (!accepted.value) console.error(`#${i}: 受け入れた AC の変更の節は入れません（${accepted.reason}）`);
+    issues.push({ number: i, title: issue.title, body: issue.body, comments, acceptedAcChange: accepted.value, ...(epic ? { epic } : {}) });
   }
   const text = renderJudgeInput(config, {
     pr: { number: n, headSha: pr.head.sha, body: pr.body, baseRef: pr.base.ref },

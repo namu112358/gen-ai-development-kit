@@ -1,14 +1,14 @@
 # harness/scripts/dashboard/
 
-エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。読み取りだけで、GitHub には書かない。
+エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。GitHub に書くのは、人がすることへの答えの決定の記録のコメント1件だけ（ほかに書くのは手元の受け箱）。
 
 ## 起動
 
 ```sh
-node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining 0.3]
+npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-open]
 ```
 
-表示された `http://127.0.0.1:<port>/` をブラウザで開く。`--interval` は GitHub を確かめる間隔（秒。既定 30、5 より短ければ 5）、`--min-remaining` は API の上限の残りの下限（割合。既定 0.3）。認証は `GH_TOKEN` / `GITHUB_TOKEN`、無ければ `gh auth token` のトークン。止めるには Ctrl+C。
+引数は `npm run dashboard -- --port 5000` のように `--` の後に書く（`node harness/scripts/dashboard.ts` でも同じ）。起動したら `http://127.0.0.1:<port>/` を既定のブラウザで開く（Windows・macOS・Linux・WSL）。開けなければ、表示された URL を開く。`--no-open` で開かない。`--interval` は GitHub を確かめる間隔（秒。既定 30、5 より短ければ 5）、`--min-remaining` は API の上限の残りの下限（割合。既定 0.3）。認証は `GH_TOKEN` / `GITHUB_TOKEN`、無ければ `gh auth token` のトークン。止めるには Ctrl+C。
 
 ## 見えるもの
 
@@ -19,8 +19,19 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 - **カード**：Issue と、それに紐付く PR（`Closes #`・Stacked PR の層の `Refs #`）は1枚のカードにまとめ、PR はカードの中の行（番号・状態・着手宣言の段階）で出す。PR に着手宣言の段階があればカードはその段階の列に、状態は Issue と PR の強いほう。Issue の無い PR だけ単独のカード。
 - **タスクの層（辺）**：依存（Issue Dependencies）、Epic → 子 Issue、Stacked PR（base が別の開いた PR の head。PR が入ったカードどうしをつなぐ）、タスク → セッション（着手宣言の `session`、または手元のセッションのブランチ）。凡例のチェックで辺の種類ごとに隠せる。
 - **カードのセッション**：「N セッション」の折りたたみ。閉じていても、動いているセッションかサブエージェントがあれば点滅する。開くとセッションごとの行とサブエージェント。
-- **人がすること**：画面の一番上の一覧。Human Merge の PR、計画ゲートで止まった Issue、止まる印（hold・blocked・waiting）の Issue、`priority:*` の無い Issue（label-audit と同じく `agent:*` か `epic` の付いたものだけ）。自動 Merge 待ちは出さない。
+- **進み**：画面の上の帯（「人がすること」の上）。開いている Epic ごとの「閉じた数／全体」（Epic の子課題 sub-issues の数。`harness/gates/epic-close.ts` と同じ数え方）、今日の Merge の数（手元の日付の 0 時以降。Merge した人が App（`harness.config.json` の `appSlug`）なら App、それ以外は人）、動いているセッションとサブエージェントの数（下の「手元のセッション」の点滅と同じ判断）。数は `graph.ts` の純粋関数 `buildProgress` が組む。Epic と Merge の数は、まだ読んでいない間は「読み込み中」。
+- **人がすること**：画面の一番上の一覧。Human Merge の PR、計画ゲートで止まった Issue、止まる印（hold・blocked・waiting）の Issue、`priority:*` の無い Issue（label-audit と同じく `agent:*` か `epic` の付いたものだけ）。自動 Merge 待ちは出さない。計画ゲートで止まった Issue の行には答える欄が出る（進める＋書き添え、質問ごとの選択肢のボタンと文の欄、答えられないときはその理由だけ）。
+- **気づきを送る欄**：「人がすること」の下。textarea に書いて「送る」と、手元の受け箱に1件入る（4000 文字まで。intel が拾う）。欄の横に、受け箱の未読の数（「intel の受け箱：未読 N 件」）が出る。未読の数が読めないときはログに出して続け、POST /notes は書き込めていれば 201 を返す（画面の数は次の見回しで直る）。
 - **手元のセッション**：`~/.claude/projects/` のうち、このリポジトリと worktree の置き場所（既定は `<親>/<名前>.worktrees/`。`harness.config.json` の `worktreeRoot` か環境変数 `AGENT_HARNESS_WORKTREE_ROOT` で変えたときはその場所。サーバーの起動時に1回決める）のセッション記録。最後に動いた時刻と、サブエージェント（plan-critic・reviewer など）の種類と最後に動いた時刻。90 秒以内に動いていれば点滅する。右の列には動いているセッションだけを出し、残りは「ほか N 件」に畳む。会話の中身は読まない・送らない。
+
+## 人がすることの答え方
+
+`POST /decisions`（本文は JSON `{ issue, planCommentId, proceed?: { text? }, answers?: { to, choice?, text? }[] }`。`proceed` と `answers` はどちらか片方）で、止まった計画への人の決定の記録（`agent-decision`。書式は [harness/docs/formats.md](../../docs/formats.md#決定の記録agent-decision)）を、人の名義の Issue のコメント1件として投稿する。画面は、「進める」「答える」を押すと確かめの表示（`confirm`）を出し、了承すると合言葉（`x-dashboard-token`）を付けて `POST /decisions` に送り、送る間はボタンを無効にする。成功なら投稿したコメントへのリンク（`https://github.com/` で始まる url だけ）、失敗なら番号と理由を出す。入力・選んだ選択肢・結果は Issue 番号と `planCommentId` ごとに持ち、描き直しで消えない（計画が出し直されると別の欄になる）。
+
+- 投稿の前に Issue とコメントを読み直し（`post-decision` と同じ条件）、状態が食い違えば 409（Issue が開いていない・`agent:plan-review` が無い・止まった計画ゲートの記録が無い・`planCommentId` の不一致・`acChangeProposed`・PR の番号・`answers` で Planner の申告の停止でない）、答えの形の誤り（答えの無い項目・存在しない項目・選択肢にない `choice`・重複・空の答え）は 400。GitHub の読み・書きの失敗は 502（投稿はやり直さない）。できたら 201 と `{ url }`。400・409・502 の本文は `{ errors: string[] }`。
+- `proceed` の `text` は前後の空白を除いて人の言葉のまま `quote` に残り、空なら `quote` は「進める」。`at` はサーバーの時刻、コメントの目印はセッションの ID の無い `CLAUDE_MARK`。
+- `jev.decisionRelease` が `shadow` の間は、答えの記録を出しても App は印を外さない。答えの記録が出た後は、欄が「進める」に変わり、続けて押して `proceed` の記録を出す。
+- 計画そのものを直してほしいとき（`acChangeProposed`・人が付けた印など欄が出ない場合）は、付き添いのセッションに伝える。
 
 ## 更新の仕組み
 
@@ -28,6 +39,7 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 - GitHub の読み直し：`updated_at` が変わった Issue / PR（と、それを Closes する側・される側）だけ facts を取り直す。その材料は、変わった番号をまとめた GraphQL の問い合わせ1回で読む（`github.ts` の `DashboardData` の `refresh`。すべて読み直す `loadAll` も、開いた Issue と開いた PR を1回の問い合わせで読む）。先読みの仕組み（まとめた問い合わせ・REST の形への変換・`PrefetchTransport`）は `harness/lib/graphql-prefetch.ts` にあり、`agent.ts fleet-status`・`step` も同じものを使う。1回で読めないのは次の2つだけ。
   - 接続のページ送り（`pageInfo` の続き）。その接続だけの問い合わせで読み足し、REST には流さない。
   - 新しく開いた PR（紐付けが変わった PR）が、その回に読んでいない Issue に紐付くときの2回目の問い合わせ。
+- 進みの帯の材料：見張りが変化を見つけた回（full・changed）だけ、GraphQL の問い合わせ1回で読む（`github.ts` の `loadProgress`。304 の回は読まない）。開いている Epic は 50 件まで、今日の Merge は前の日からの更新が新しい順の 100 件まで（超えれば「N 件以上」と出す）。失敗は読み直しの失敗と同じ扱い（backoff し、次の回に読み直す）。失敗しても Issue / PR の組み直しと見張りの確定は行い、帯だけ前の値のまま。次の回は 304 でも帯を読み直す。
 - REST に残るもの：見張りの条件付きリクエスト（上の項）、PR の差分（head ごとに覚え、同じ head では読み直さない）、Stacked PR の層の `/pulls/{n}`（`stack` の欄が GraphQL に無いため。読み直しの回の中だけ、PR ごと（同じ `updated_at`）に1回。`mergeable_state` が main の動きで変わるので、回をまたいでは使わない）。
 - App の名義：GraphQL は、読み手から見えない非公開の App（ハーネスの App もそう）の check run の checkSuite の `app` を null で返す。null はハーネスの App（`harness.config.json` の `appSlug`）の名義として読む（見える App は slug のまま）。
 - API の上限：応答の `X-RateLimit-*`（資源ごと。`/graphql` は `X-RateLimit-Resource: graphql`）と、GraphQL の応答に `data.rateLimit` があればそれを読む。読み直しのまとめた問い合わせ（ページ送り・2回目の問い合わせも）は `rateLimit` を含み、上限の読み取り（#278、`rate-limit.ts`）はその値も読む。どれかの資源の残りが `--min-remaining` の割合を切ったら、リセットの時刻まで GitHub を読まず、止めていることと再開の時刻を画面の上に出す（読み直しの途中で切ったら、その回の変化は取り込まずに次の回で読み直す）。
@@ -35,6 +47,19 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 - ブラウザの接続（`/events`）が0の間は GitHub を読まない。接続が来たらすぐ1回読む（止めている・遅らせている間はその時刻まで待つ）。
 - セッション記録：`fs.watch` で変化を拾う（2秒ごとにも見直す）。
 - ブラウザには Server-Sent Events（`/events`）で、接続時に全体、その後は変わったタスクだけを送る。
+
+## まとめ（digest.ts）
+
+```sh
+node harness/scripts/dashboard/digest.ts show [--no-mark]
+```
+
+前回のまとめからの動きと、今の人がすることを短い Markdown にして標準出力に出す（ブラウザは開かない）。見張りと intel の手順（#854）がこれを呼ぶ。
+
+- **中身**：1行目が結論（前回の時刻、Merge の数と App・人の内訳、閉じた Issue と Epic の数、人がすることの数と群ごとの内訳）。続けて「人がすること」を人の Merge 待ち → 計画ゲートで止まった Issue → 止まる印 → 止まっていそうな宣言 の順に3つまで出し、残りは件数とダッシュボードの案内の1行にする。「進んだこと」には Merge した PR（5件まで。残りは件数）・閉じた Epic・閉じた Issue の件数を出す。動きも人がすることも無ければ結論の1行だけ。`priority:*` の不足は出さない。
+- **前回の時刻**：git の共通ディレクトリの下の `agent-harness/digest/state.json`（`{ "version": 1, "lastDigestAt": "<ISO>" }`）。無い・壊れている・今より後のときは24時間前。`show` は本文を出した後に今の時刻を書き、`--no-mark` では書かない。
+- **材料**：開いた Issue と PR は `DashboardData.loadAll` と `buildGraph`（手元のセッションは渡さない）の `todos` と `tasks`。Merge と閉じた Issue は GraphQL の問い合わせ1回（検索は前回の UTC の日付の前の日から広めに読み、時刻での絞り込みは組み立てで行う。100件を超えれば「N 件以上」）。
+- **止まっていそうな宣言**：ダッシュボードの「停滞」と同じ判断（手動の着手宣言が `humanClaimStaleHours` を超えた）。止まる印・依存・衝突のあるカードの古い宣言は、先にその状態で決まるので、この群には出ない（止まる印の Issue は止まる印の群に出る）。
 
 ## 見えないもの
 
@@ -44,13 +69,27 @@ node harness/scripts/dashboard.ts [--port 4177] [--interval 30] [--min-remaining
 ## 安全
 
 - `127.0.0.1` だけで待ち受け、`Host` が `127.0.0.1:<port>` / `localhost:<port>` でない要求は 403（DNS rebinding で非公開リポジトリの状態を読まれないように）。
-- GitHub への要求は `ReadOnlyTransport` を通し、GET と mutation を含まない GraphQL のほかは送らない。トークンはブラウザに送らない。
+- GitHub からの読み取りは `ReadOnlyTransport` を通し、GET と mutation を含まない GraphQL のほかは送らない。書く経路は `CommentOnlyTransport`（`decision.ts`）で、`POST /repos/{repo}/issues/{n}/comments` だけを送り、ほかは送らない。トークンはブラウザに送らない。
+- `digest.ts` も GitHub からの読み取りを `ReadOnlyTransport` に通し、GitHub には書かない（書くのは前回の時刻の控えのファイルだけ）。
 - タイトルなど外から入る文字は `textContent` で描く。
+- 書く入口は `POST /notes` と `POST /decisions`。どちらも同じ確かめで、`Host`・`Origin`（`http://127.0.0.1:<port>` か `http://localhost:<port>` に完全に一致）・起動ごとの合言葉（`x-dashboard-token`。起動のたびに作り、`GET /` で返すページの meta に埋めて配る。ログには出さない）の順で確かめ、合わなければ 403 で何も書かない。続けて `content-type` が `application/json`（違えば 415）、本文は 16 KiB まで（超えれば 413）、`text` は前後の空白を除いて 1〜4000 文字（違えば 400）。`/notes` の書く先はリポジトリの外の受け箱だけ。`/decisions` は上の「人がすることの答え方」の投稿だけで、ラベル・Issue の本文・Merge には触れない。
+
+## 受け箱（intel が読む）
+
+- 置き場所：git の共通ディレクトリの下の `agent-harness/inbox/`。`notes/<id>.json` に1件1ファイル（`version`・`id`・`at`・`source`・`text`）、`read/<id>` が読んだ印（空のファイル）。未読は `notes/` にあって `read/` に無いもの。書く側（ダッシュボード）と印を付ける側（intel）が別のファイルを書く。`id` は `<UTC の時刻>-<16進8桁>`で、形に合わない id は読まず・印も付けない。
+- `node harness/scripts/dashboard/inbox.ts list`：未読を古い順に JSON の配列（`id`・`at`・`text`）で出す。
+- `node harness/scripts/dashboard/inbox.ts mark-read <id>...`：読んだ印を付ける。形の合わない id・無い id があれば何も書かず終了コード 1（合わない id を標準エラーに出す）。
+- `node harness/scripts/dashboard/inbox.ts wait [--timeout-ms N]`：未読が1件以上になるまで 2 秒ごとに数え（既定 30 分）、`{"result":"unread","unread":N}` か `{"result":"timeout","unread":0}` を1行出して終了する。intel が見張りとして裏で置く（[intel](../../../.claude/skills/intel/SKILL.md)）。
+- ダッシュボードは 5 秒ごとに未読の数を数え直し、変わったときだけ画面に送る（intel が印を付けた分が画面に戻る）。
 
 | 名前 | 内容 |
 | --- | --- |
+| `browser.ts` | 起動したダッシュボードの URL を既定のブラウザで開く（OS ごとのコマンドの選び方は純粋関数） |
 | `graph.ts` | facts とセッションから列・タスク・辺を組む純粋関数と、前後の差分 |
+| `decision.ts` | 答える欄の材料・決定の記録の組み立て・投稿の前の読み直し・コメントの POST だけを送る Transport・`POST /decisions` の受け皿 |
+| `digest.ts` | 前回のまとめからの Merge・閉じた Issue と Epic・人がすること3つまでを組む純粋関数と、まとめを標準出力に出す `show`（前回の時刻の控えつき。GitHub には書かない） |
 | `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し（まとめた GraphQL の問い合わせでの先読み） |
+| `inbox.ts` | 気づきの受け箱（git の共通ディレクトリの下）の読み書きと、intel が使う CLI（list・mark-read・wait） |
 | `rate-limit.ts` | API の上限の残りを応答から読み、下限を切ったらリセットまで送らない Transport と fetch の包み |
 | `scheduler.ts` | 見張りの回し方（間隔・上限で止める・失敗の後の backoff・接続が0の間は読まない） |
 | `sessions.ts` | 手元のセッション記録の読み取りと見張り |

@@ -52,12 +52,16 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | `needsHuman` | 真偽値 | 人間の判断が必要か |
 | `needsHumanReasons` | 文字列の配列 | その理由 |
 | `acChangeProposed` | 真偽値 | 要件・AC の変更提案があるか |
-| `openQuestions` | 文字列の配列 | 人に確認したいこと |
+| `openQuestions` | 配列（各項目は文字列か、選択肢つきのオブジェクト `{ text, choices }`） | 人に確認したいこと。答えの候補を絞れる質問は `choices` に書く（2〜4 個の空でない文字列で重複なし。おすすめを先頭に書く。検査では確かめない）。絞れない質問は文字列のまま |
 | `files` | 文字列の配列 | **触るファイル一覧（必須）**。`*` と `**` が使える（`?` は文字どおり）。最初の階層にワイルドカードがあるものは不可 |
 | `split` | 配列（任意） | Epic として子課題に分けるとき（2件以上）。下記 |
 | `critique` | オブジェクト（任意） | 投稿前の批評の結果。`verdict`（`go` / `revise` / `split` / `drop`）と、批評させた回数 `rounds`（1以上の整数）と、任意で最後の回の必須の指摘の件数 `mustRemaining`（0以上の整数）。無い計画は計画ゲートで止まる（`verdict` の値そのものでは止めない）。危険の判定の欄（`danger`）は無い：auto mode の危険の判定は Jev だけで（#382）、#343 の後に投稿された古い計画に `critique.danger` があっても読まない（無視する） |
 | `authorView` | 文字列（任意） | 計画を書いたセッションの見解（意図や、守りに触れる理由）。空でなく 2000 文字まで。auto mode の危険の問い（Jev）の見解ありの問いにだけ、別の欄 `author_view` で渡す（見解なしの問いには、`agent-plan` から `authorView` を除いた本文を渡す）。保留するかには使わない（shadow。Issue #426）。人が読む本文には書かない |
 | `steps` | 配列（任意、1〜50 件） | 実装の手順書（Issue #470）。各件は `file`（必須。`files` の項目と同じ文字列か、その glob に当たるパス）・`change`（必須。そのファイルの変更点）と、任意の `symbols`（足す・変える関数と型の名前と引数）・`follow`（倣う既存の関数）・`edgeCases`（端の場合）・`dontTouch`（触らないこと）。各文字列は空でなく 2000 文字まで。`split` の計画では書けない（子課題の計画で書く）。無い計画は今までどおり通る。auto mode の危険の問い（Jev）に渡す計画の本文に含まれる |
+
+`acChangeProposed` の計画は、提案を本文の、見出しの文が「AC の変更の提案」で始まる見出し（後ろに添え書きがあってよい）の節に書く（judge-input はこの節だけを使い、見出しが無ければ使わない）。
+
+読んだ値では、質問の文を `openQuestions`（文字列の配列）に、選択肢を `openQuestionChoices`（`openQuestions` と同じ並びで、選択肢の無い質問は空配列。選択肢つきの質問が1つも無ければ欄が無い）に分ける。ゲートの件数・決定の記録の `question:<添字>`・App の記録の写しと Jev に渡す質問の文は今までどおり文字列で、選択肢は文に足さない。
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている、`critique` が無い、計画コメントより前に同じ Issue への段階 `plan-critique` の着手宣言（コラボレーターの、Claude の目印付きの `agent-claim`。解除は数えない。`manual`・`routine` のどちらでもよい）が無い（批評の関所。`split` の計画も同じ。「前」はコメントの ID の大小で決める）。批評の関所だけで止めたときの理由コードは `no-critique`（ほかの理由と重なるときは今までのコード）。`critique` が `revise` で `mustRemaining` が1以上の計画は、人が必須の指摘を残して進めると決めた計画として止めず、ゲートの記録の `critiqueProceeded` に残す。
 
@@ -75,7 +79,7 @@ Issue に `agent:plan-review` が付いているときの出し直しは、App �
 "files": [],
 "split": [
   { "title": "feat(api): 認証の土台", "goal": "…", "requirements": ["…"], "acceptanceCriteria": ["…"], "files": ["src/auth/**"], "dependsOn": [] },
-  { "title": "feat(ui): ログイン画面", "goal": "…", "requirements": ["…"], "acceptanceCriteria": ["…"], "files": ["web/login/**"], "dependsOn": [0] }
+  { "title": "feat(ui): ログイン画面", "goal": "…", "requirements": ["…"], "acceptanceCriteria": ["…"], "files": ["web/login/**"], "dependsOn": [0], "blockedBy": [123] }
 ]
 ```
 
@@ -86,8 +90,9 @@ Issue に `agent:plan-review` が付いているときの出し直しは、App �
 | `requirements` / `acceptanceCriteria` | 文字列の配列 | 子 Issue の Requirements・AC（1件以上） |
 | `files` | 文字列の配列 | 子課題で触るファイル（`files` と同じ規則、1件以上）。兄弟どうしで重ならないこと |
 | `dependsOn` | 整数の配列（省略可） | 先に終わらせる兄弟の添字。自分より前に並ぶものだけ（循環しない） |
+| `blockedBy` | 整数の配列（省略可） | 先に終わらせる、同じリポジトリの兄弟でない Issue の番号。App が子課題の Issue Dependencies（blocked by）に付ける。開いた Issue だけ付け、閉じた・見つからない・PR の番号は付けずにゲートのログに出す。正の整数で、重複せず、親の番号でないこと |
 
-`split` がある計画では、`files` は空でよく、`risk` は子課題の中で最も高いものを書く（表示用。Risk と空の `files` では止めない）。`needsHuman`・`acChangeProposed`・`openQuestions`・`issue` 不一致は通常どおり止める（Planner の申告で付いた印だけは、条件を満たすと App が外して分ける。[計画](#計画)の出し直しの段落）。子課題の `files` がガードレールに触れても止めない（分ける段階では子 Issue を作るだけで、子課題はそれぞれの計画でゲートがもう一度見る）。次のどれかに当たると、理由コード `split-invalid` で `agent:plan-review` にする：2件未満、タイトルの形式違い、Requirements・AC・`files` が空、`files` の規則違反、兄弟の `files` の重なり（同じパス、片方のパターンがもう片方に一致する、または両方がワイルドカードを含み、最初のワイルドカードより前の部分の片方がもう片方の先頭に一致する。例：`src/**/a.ts` と `src/x/**`）、`dependsOn` が自分より前の兄弟でない。
+`split` がある計画では、`files` は空でよく、`risk` は子課題の中で最も高いものを書く（表示用。Risk と空の `files` では止めない）。`needsHuman`・`acChangeProposed`・`openQuestions`・`issue` 不一致は通常どおり止める（Planner の申告で付いた印だけは、条件を満たすと App が外して分ける。[計画](#計画)の出し直しの段落）。子課題の `files` がガードレールに触れても止めない（分ける段階では子 Issue を作るだけで、子課題はそれぞれの計画でゲートがもう一度見る）。次のどれかに当たると、理由コード `split-invalid` で `agent:plan-review` にする：2件未満、タイトルの形式違い、Requirements・AC・`files` が空、`files` の規則違反、兄弟の `files` の重なり（同じパス、片方のパターンがもう片方に一致する、または両方がワイルドカードを含み、最初のワイルドカードより前の部分の片方がもう片方の先頭に一致する。例：`src/**/a.ts` と `src/x/**`）、`dependsOn` が自分より前の兄弟でない、`blockedBy` が正の整数でない・重複している・親の番号である。
 
 ## 判定（agent-verdict）
 
@@ -110,7 +115,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
     "nonBlocking": ["関数名は動詞で始めるとよい"],
     "humanNotes": {
       "concerns": ["リンク先の見出しを変えるとアンカーが切れる"],
-      "checkPoints": ["docs/glossary.md のリンク"]
+      "checkPoints": ["harness/docs/glossary.md のリンク"]
     }
   },
   "risk": {
@@ -296,7 +301,7 @@ fleet の入れ子の方式で、ship が段階の終わりに fleet へ返す�
 
 ## 決定の記録（agent-decision）
 
-Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付き添いのセッションが記録する（`node harness/scripts/agent.ts post-decision <番号> <ファイル>`）。人のいない Routine は書かない（[.claude/routine.md](../.claude/routine.md)）。
+Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付き添いのセッションが記録する（`node harness/scripts/agent.ts post-decision <番号> <ファイル>`）。人のいない Routine は書かない（[.claude/routine.md](../../.claude/routine.md)）。手元のダッシュボード（`POST /decisions`。`harness/scripts/dashboard/decision.ts`）からも同じ形で人の名義で投稿でき、そのときの目印はセッションの ID の無い `CLAUDE_MARK`、`at` はダッシュボードのサーバーの時刻。
 
 ````markdown
 <!-- agent-harness:claude -->
@@ -334,11 +339,19 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 
 - `quote` は人の言葉そのまま（空は不可）、`choice` は選択肢で答えたときに選んだ項目、`at` は ISO 8601 の日時。
 - App は Jev に問わず、`jev.decisionRelease` にも依らずに確かめ（`harness/lib/decision.ts` の `proceedEligibility`）、`plan-proceed` の記録を付ける。ラベルと計画ゲートの結果は変えない。対象になるのは、Issue が開いていて `agent:plan-review` が付き、App の最新の計画ゲートの記録が止まった記録で `planCommentId` が一致し、計画コメントの本文がゲートの後に変わっておらず、決定の記録がその停止の後に書かれ、計画に `acChangeProposed` が無く、今の印がどれかの計画の投稿（`post-plan`）か App の停止の窓（計画コメントの投稿の 60 秒前からその計画ゲートの記録まで）で付いたもの。窓の外で付いた印（人が付けた印）は対象外で、人が外して計画を出し直す。
+- 計画に `acChangeProposed` があるとき、人がその提案を受け入れて進めると決めたなら、`proceed` と同じ記録に `acChangeAccepted` を足す。`quote` は人の言葉そのままで必須（空は不可）、`at` は ISO 8601 の日時、`choice` は任意。`proceed` のある記録にだけ書ける。
+  ```json
+  { "version": 1, "issue": 249, "planCommentId": 1234567890,
+    "proceed": { "choice": "進める", "quote": "この計画で進めて", "at": "2026-09-30T10:00:00+09:00" },
+    "acChangeAccepted": { "choice": "受け入れる", "quote": "AC の変更は提案どおりでよい", "at": "2026-09-30T10:01:00+09:00" } }
+  ```
+- judge-input は、`acChangeAccepted` のある記録と、その記録より後に App 以外のコラボレーターが `agent:plan-review` を外して付け直されていない事実の両方があるときだけ、計画コメントの提案を判定の AC にする節「受け入れた AC の変更」を入れる（`harness/lib/accepted-ac-change.ts`。記録が編集された・計画コメントがゲートの後に編集された・見出しが無いときは入れない）。
+- `post-decision` は、`acChangeProposed` の計画ではこの欄がある記録だけ投稿する。`acChangeProposed` でない計画にこの欄を書くと拒む。App の `plan-proceed` は今どおり `ineligible`（理由「要件・AC の変更提案があります」）で、App はこの記録で `agent:plan-review` を外さない。Issue 本文の書き換えと `agent:plan-review` の付け外しは人がする。
 - 委任承認の Merge と bypass の範囲照合（`harness/lib/state.ts` の `issueDelegateFiles`）は、`status: ok` の `plan-proceed` の記録の `planCommentId` と `planBodySha256` が最新の計画ゲートの記録と一致し、今の計画コメントの本文の sha256 も一致するときだけ、その計画を使う。`agent/scope` は今までどおりゲートを通った計画だけ。
 
 ## セッションの判定（agent-session-judgment）
 
-付き添いのセッションが、人に聞かずに決めたことの記録（Issue #340。規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md) の進め方）。`node harness/scripts/agent.ts render-judgment <番号> <ファイル>`（検査して本文を出す。GitHub を読まない）か `post-judgment <番号> <ファイル>`（同じ検査の後に Issue か PR のコメントに投稿する）で出す。ファイルは JSON のオブジェクトそのもの。
+付き添いのセッションが、人に聞かずに決めたことの記録（Issue #340。規則は [harness/CLAUDE.harness.md](../CLAUDE.harness.md) の進め方）。`node harness/scripts/agent.ts render-judgment <番号> <ファイル>`（検査して本文を出す。GitHub を読まない）か `post-judgment <番号> <ファイル>`（同じ検査の後に Issue か PR のコメントに投稿する）で出す。ファイルは JSON のオブジェクトそのもの。
 
 ```json
 { "version": 1, "target": 340, "stage": "plan-review", "basis": "risk-only",
@@ -352,6 +365,15 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - コメントは先頭に Claude の目印、見出し「## セッションの判定」、決めたこと・当たった基準・理由・覆すなら（基準ごとの決まった文）とブロックの順。
 - `basis` が `risk-only` の判定は、投稿の前に `plan-review-check <番号>`（読むだけ。`riskOnly`・`remaining`・`touches`・`notes` を JSON で出す）と同じ検査をかけ、`riskOnly` が偽なら投稿しない（ガードレールに触れる計画に「進める」の判定を残さない）。
 - ラベルは変えない。App は読まず、ゲートも起こさない（`gate.yml` の `if:` に無い）。ship・fleet が最後の一覧に「決めたこと（覆すなら）」として載せる。
+
+### 期間の集計（session-judgment-digest）
+
+`node harness/scripts/agent.ts session-judgment-digest [--days <n>] [--since <YYYY-MM-DD>] [--until <YYYY-MM-DD>] [--sample <n>] [--weekly [--state <path>]]`（Issue #805。読むだけで、ラベル・コメントは書かない）。期間のセッションの判定を基準ごとに数え、抜き取りの一覧を JSON で出す。qa-retro の skill が週1回、人の抜き取りの点検に使う。抜き取りは見直しのための一覧で、判定の材料にしない。
+
+- 出力：`since`・`until`（ISO 時刻）、`total`、`counts`（4基準すべて。0 も出す）、`samples`（基準ごとの `{ target, stage, decision, url, createdAt }`。`url` はコメントの `html_url`）、`unreadable`（ブロックはあるが書式の誤りで読めなかったコメントの数。基準には振らない）、`lines`（基準ごとの見出し `risk-only: N 件（抜き取り M 件）` と、抜き取りごとの `- #<target> <stage>: <decision>（<url>）`）、`notes`（読み切れなかったときの「打ち切り」）。`--weekly` では `due: true` も付く。
+- 期間：既定は直近 7 日。`--days`・`--since`・`--until` は qa-retro と同じ読み方（`until` はその日を含む）。数えるのは作成時刻が `[since, until)` で、コラボレーターの、Claude の目印のあるコメントだけ。GitHub の `/issues/comments?since=` は更新時刻で絞るので、期間より後に作られたコメントや期間の前に作られて後で更新されたコメントも返り、作成時刻で絞り直す。
+- 抜き取り：基準ごとに新しい順（同じ時刻はコメントの ID の大きい順）で `--sample` 件（既定 3）。
+- `--weekly`：`--days`・`--since`・`--until` とは同時に渡せない。手元の状態のファイル（既定は git の共通ディレクトリの下の `agent-harness/session-judgment-digest.json`、`--state` で変えられる。作業ツリーにも GitHub にも書かない）の `{ "version": 1, "lastUntil": "<ISO 時刻>" }` を読み、`lastUntil` から 7 日たっていなければ GitHub を読まずに `{ "due": false, "nextAt": "<ISO 時刻>" }` を出す。たっていれば（状態が無ければ直近 7 日）`lastUntil` から今までを集計し、`lastUntil` を今に書き戻す（前回の終わりからつなぐので、抜けも重なりも出ない）。
 
 ## 問題の記録（agent-incident）
 
@@ -375,7 +397,7 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 
 ## arch-review の記録
 
-arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）が、見た範囲と要約を残す（`node harness/scripts/agent.ts arch-review-record <ファイル>`。`--dry-run` は本文を出すだけ）。置き場所は App が作ったダッシュボード Issue（`dashboardIssueTitle`）へのコメント。ダッシュボードの本文は App が書き換えるので本文には書かない。
+arch-review の skill（[.claude/skills/arch-review/SKILL.md](../../.claude/skills/arch-review/SKILL.md)）が、見た範囲と要約を残す（`node harness/scripts/agent.ts arch-review-record <ファイル>`。`--dry-run` は本文を出すだけ）。置き場所は App が作ったダッシュボード Issue（`dashboardIssueTitle`）へのコメント。ダッシュボードの本文は App が書き換えるので本文には書かない。
 
 ````markdown
 <!-- agent-harness:claude session=<id> -->
@@ -433,7 +455,7 @@ arch-review の記録です（…）。次の arch-review はここから読み�
 
 ## patrol のまとめの Issue
 
-patrol の Routine（[.claude/skills/patrol/SKILL.md](../.claude/skills/patrol/SKILL.md)）が、patrol・qa-retro-loop・test-prune-loop の3つの状態と下書きを、1件のまとめの Issue（題は `patrolIssueTitle`。既定は `harness/lib/state.ts` の `DEFAULT_PATROL_ISSUE_TITLE`）の本文に置く。本文の読み書きは `harness/lib/patrol-issue.ts`、コマンドは `harness/scripts/agent/commands/patrol-issue.ts`。GitHub は REST だけで読み書きし、GraphQL・ラベル・下書きの Issue の作成は使わない。
+patrol の Routine（[.claude/skills/patrol/SKILL.md](../../.claude/skills/patrol/SKILL.md)）が、patrol・qa-retro-loop・test-prune-loop の3つの状態と下書きを、1件のまとめの Issue（題は `patrolIssueTitle`。既定は `harness/lib/state.ts` の `DEFAULT_PATROL_ISSUE_TITLE`）の本文に置く。本文の読み書きは `harness/lib/patrol-issue.ts`、コマンドは `harness/scripts/agent/commands/patrol-issue.ts`。GitHub は REST だけで読み書きし、GraphQL・ラベル・下書きの Issue の作成は使わない。
 
 ````markdown
 patrol の Routine が、見直し（arch-review・qa-retro・test-prune）の状態と下書きを置くまとめの Issue です。
@@ -478,13 +500,14 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | `plan-decision` | Issue | 決定の記録を App が確かめた結果。`{ version, decisionCommentId, planCommentId, mode, questionSet, threshold, status, model, answers, pass, missing, regate }`。`status` は `ok` / `invalid`（書式・答えの無い項目）/ `ineligible`（対象外）/ `skipped`（鍵が無い・大きすぎる）/ `error`。`mode` が `shadow` なら記録だけでラベルは変えない。`regate` は `enforce` で判定し直したか。同じ `decisionCommentId` には二度問わない |
 | `epic-split` | Issue（Epic の親） | `{ planCommentId, children }`。作った（または使い回した）子 Issue の番号を `split` の順に |
 | `queue` | ダッシュボードの本文 | `{ computedAt, actions, skipped }`。Routine が次にやること |
-| `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, carriedFrom?, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev, delegate, bypass, autoMode?, overbuildJev? }`。`overbuildJev`（`{ version, status, mode, model, questionSet, threshold, detail, findings }`）は判定の⑨のブロッキング指摘を Jev に問うた記録：`findings` は指摘ごとの `kind`・`file`・`detail`・`block`（Merge を止める確率）・`recent`（直近の修正で変わった行への指摘かの確率。前回の受け付けが無いと `null`）・`wouldBlock`・`demoted`（enforce で外したか）。`jev.overbuild` が `off`、または⑨が0件なら無い。`status` は `ok` / `skipped`（鍵なし・件数・文字数）/ `error`。古い記録には無い（docs/operations.md の「判定の⑨の Jev」）。`carriedFrom`（`{ patchId, headSha }`）は main の取り込み（App の update-branch）で PR 自身の変更の行が同じため判定を引き継いだ記録だけにある：前の受け付けの patch-id と取り込み前の head（harness/gates/main-merge-carry.ts。Issue #397）。`autoMode.jev.withView` は、判定に `authorView` があり見解なしの問いが `ok` だったときの見解ありの問いの結果（`plan-gate` と同じ。Issue #426）。見解ありの問いが問えない（diff が大きすぎる）ときは問わずに `status: skipped` にし、見解なしで問い直さない（Issue #449）。`delegate`（`eligible`・`reasons`・`skipped`・`scopeOk`・`outside`・`exclude`）は委任承認（計画＋Merge）なら自動経路に乗せてよいか：`skipped` は委任で飛ばす理由（ガードレール・Risk）、`reasons` は委任でも乗せない理由、`scopeOk`・`outside` はゲートを通った計画かゲートの停止（`planReviewOrigin: gate`）で止まった計画との範囲照合、`exclude` は `delegateMergeExclude` に当たったファイル（harness/lib/delegate.ts）。`delegate` の無い古い記録は委任の対象外。`bypass`（`eligible`・`reasons`・`skipped`）は bypass モードなら自動経路に乗せてよいか：`skipped` は bypass で飛ばす理由（Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev）、`reasons` は bypass でも乗せない理由（Agent の PR でない・base・ブロッキング指摘・`delegate` と同じ計画との範囲照合）（harness/gates/bypass.ts）。`bypass` の無い古い記録は bypass の対象外。`autoMode`（`eligible`・`reasons`・`skipped`・`jev?`）は auto mode なら自動経路に乗せてよいか：`reasons` は auto mode でも乗せない理由（Agent の PR でない・base・ブロッキング指摘・範囲照合と、Jev の危険の判定での保留）、`skipped` は auto mode で飛ばす理由（Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev の自動 Merge の許可）、`jev` は Jev の危険の問いの記録（`plan-gate` の `autoMode.jev` と同じ形。必須の条件を満たさず問わなかったときは無い。同じ patch-id の `ok` の今の版の記録は使い回す）（harness/gates/auto-mode.ts）。`autoMode` の無い古い記録は auto mode の対象外。`jev` の `questionSet` は Jev への問いの版（無い古い記録は版 1）。`jev.size`（`chars`・`jaRatio`・`inputTokens`・`diffChars`、Jev が応答したときだけ）は送った材料の大きさ：state と問いを JSON にした文字数、そのうち日本語の文字の割合、応答の `usage.input_tokens`（報告されなければ `null`）、diff の文字数 |
+| `acceptance` | PR | `{ verdictCommentId, verdictHeadSha, patchId, carriedFrom?, reviewPass, riskLevel, riskOk, scopeOk, outside, autoEligible, reasons, jev, delegate, bypass, autoMode?, overbuildJev? }`。`overbuildJev`（`{ version, status, mode, model, questionSet, threshold, detail, findings }`）は判定の⑨のブロッキング指摘を Jev に問うた記録：`findings` は指摘ごとの `kind`・`file`・`detail`・`block`（Merge を止める確率）・`recent`（直近の修正で変わった行への指摘かの確率。前回の受け付けが無いと `null`）・`wouldBlock`・`demoted`（enforce で外したか）。`jev.overbuild` が `off`、または⑨が0件なら無い。`status` は `ok` / `skipped`（鍵なし・件数・文字数）/ `error`。古い記録には無い（harness/docs/operations.md の「判定の⑨の Jev」）。`carriedFrom`（`{ patchId, headSha }`）は main の取り込み（App の update-branch）で PR 自身の変更の行が同じため判定を引き継いだ記録だけにある：前の受け付けの patch-id と取り込み前の head（harness/gates/main-merge-carry.ts。Issue #397）。`autoMode.jev.withView` は、判定に `authorView` があり見解なしの問いが `ok` だったときの見解ありの問いの結果（`plan-gate` と同じ。Issue #426）。見解ありの問いが問えない（diff が大きすぎる）ときは問わずに `status: skipped` にし、見解なしで問い直さない（Issue #449）。`delegate`（`eligible`・`reasons`・`skipped`・`scopeOk`・`outside`・`exclude`）は委任承認（計画＋Merge）なら自動経路に乗せてよいか：`skipped` は委任で飛ばす理由（ガードレール・Risk）、`reasons` は委任でも乗せない理由、`scopeOk`・`outside` はゲートを通った計画かゲートの停止（`planReviewOrigin: gate`）で止まった計画との範囲照合、`exclude` は `delegateMergeExclude` に当たったファイル（harness/lib/delegate.ts）。`delegate` の無い古い記録は委任の対象外。`bypass`（`eligible`・`reasons`・`skipped`）は bypass モードなら自動経路に乗せてよいか：`skipped` は bypass で飛ばす理由（Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev）、`reasons` は bypass でも乗せない理由（Agent の PR でない・base・ブロッキング指摘・`delegate` と同じ計画との範囲照合）（harness/gates/bypass.ts）。`bypass` の無い古い記録は bypass の対象外。`autoMode`（`eligible`・`reasons`・`skipped`・`jev?`）は auto mode なら自動経路に乗せてよいか：`reasons` は auto mode でも乗せない理由（Agent の PR でない・base・ブロッキング指摘・範囲照合と、Jev の危険の判定での保留）、`skipped` は auto mode で飛ばす理由（Risk・ガードレール・`humanMergePaths`・`delegateMergeExclude`・Jev の自動 Merge の許可）、`jev` は Jev の危険の問いの記録（`plan-gate` の `autoMode.jev` と同じ形。必須の条件を満たさず問わなかったときは無い。同じ patch-id の `ok` の今の版の記録は使い回す）（harness/gates/auto-mode.ts）。`autoMode` の無い古い記録は auto mode の対象外。`jev` の `questionSet` は Jev への問いの版（無い古い記録は版 1）。`jev.size`（`chars`・`jaRatio`・`inputTokens`・`diffChars`、Jev が応答したときだけ）は送った材料の大きさ：state と問いを JSON にした文字数、そのうち日本語の文字の割合、応答の `usage.input_tokens`（報告されなければ `null`）、diff の文字数 |
 | `delegated-merge` | PR | 委任承認（計画＋Merge）で auto-merge を付けたときの記録。`{ headSha, patchId, since, until, by, skipped }`。`since`・`by` は委任（ダッシュボードのラベル）を付けた時刻・人、`until` は新しい記録では `null`（期限のあった古い記録のために残す）、`skipped` は受け付けの `delegate.skipped`（委任で飛ばした理由）。同じ `patchId` の記録が最新なら書き直さない。ダッシュボードの「委任承認で Merge された PR」はこの記録で見る（harness/gates/delegation.ts） |
 | `bypass-merge` | PR | bypass モードで auto-merge を付けたときの記録。`{ headSha, patchId, since, by, skipped }`。`since`・`by` は bypass（ダッシュボードのラベル）を付けた時刻・人、`skipped` は受け付けの `bypass.skipped`。同じ `patchId` と `since` の記録が最新なら書き直さない。ダッシュボードの「bypass で Merge された PR」はこの記録で見る（harness/gates/bypass.ts） |
 | `bypass-merge-end` | PR | bypass で付けた auto-merge を外した記録。`{ headSha, reason }`。`reason` は `removed`（ラベルを外した）/ `stopped`（停止スイッチ）/ `ineligible`（bypass の条件を満たさなくなった。委任に引き継いだときも）。最新が `bypass-merge` の PR にだけ書く |
 | `auto-mode-merge` | PR | auto mode で auto-merge を付けたときの記録。`{ version, headSha, patchId, since, by, skipped }`。`since`・`by` は auto mode（ダッシュボードのラベル）を付けた時刻・人、`skipped` は受け付けの `autoMode.skipped`（auto mode で飛ばした理由）。ダッシュボードの「auto mode で Merge した PR」はこの記録で見る（harness/gates/auto-mode.ts・auto-mode-merge.ts） |
 | `auto-mode-merge-end` | PR | auto mode で付けた auto-merge を外した（Human Merge に戻した・ほかの乗り方に引き継いだ）記録。`{ version, headSha, reason }`。`reason` は `removed`（ラベルを外した）/ `stopped`（停止スイッチ）/ `ineligible`（auto mode の条件を満たさなくなった。委任・bypass に引き継いだときも）。最新が `auto-mode-merge` の PR にだけ書く |
 | `delegated-merge-end` | PR | 委任で付けた auto-merge を外して Human Merge に戻した記録。`{ headSha, reason }`。`reason` は `removed`（`agent:delegate-merge` を外した）/ `stopped`（停止スイッチ）/ `ineligible`（委任の条件を満たさなくなった）。bypass モードに引き継いだとき（auto-merge は外さない）も書く。古い記録には `expired`・`short` もある。最新が `delegated-merge` の PR にだけ書く |
+| `human-wait-digest` | ダッシュボード | 時間を超えた人の判断待ち（`hq.humanWaitMinutes` を超えた `agent:plan-review` の計画と Human Merge 待ちの PR）の知らせ。`{ version, limitMinutes, items: [{ kind, number, minutes }] }`。直近 24 時間に App の記録があれば出さない（1日1回。harness/gates/stale.ts） |
 | `verdict-rejected` | PR | 判定を受け付けなかった理由 |
 | `test-exempt` / `review-exempt` | PR | 例外ラベルの付け外し。`{ label, action, by, patchId, headSha }`。`action` は `labeled` / `unlabeled`、`patchId` と `headSha` は人が付け外しした時点の差分と head。最新が `labeled` で `patchId` が現在の差分と同じときだけ例外が効く |
 | `exempt-stale` | PR | 例外ラベルが付いているが効いていないことの通知。`{ label, headSha, patchId, reason }`。`reason` は `stale`（付けた後に差分が変わった）/ `unrecorded`（付けた記録が無い）。同じ `label` と `headSha` には1回だけ書く |

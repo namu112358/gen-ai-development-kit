@@ -136,12 +136,23 @@ async function createChildren(
     await appComment(ctx, parent, 'plan-gate', `計画ゲートを通過しました（[計画](${comment.html_url})）。Epic として ${split.length} 件の子課題に分けます（この Issue は実装しません）。${note}`, record);
   }
 
+  // 子課題の blockedBy（外の Issue）：同じ番号は1回だけ読み、開いた Issue（PR でない）だけを使う
+  const outside = new Map<number, IssueItem>();
+  for (const n of new Set(split.flatMap((c) => c.blockedBy ?? []))) {
+    const item = await ctx.gh.request<(IssueItem & { pull_request?: unknown }) | null>('GET', `/issues/${n}`, { allow404: true });
+    if (!item) ctx.log(`blockedBy の #${n} は見つかりません。付けません`);
+    else if (item.pull_request) ctx.log(`blockedBy の #${n} は PR です。付けません`);
+    else if (item.state !== 'open') ctx.log(`blockedBy の #${n} は開いていません。付けません`);
+    else outside.set(n, item);
+  }
+  const outsideOf = (i: number): IssueItem[] => (split[i]!.blockedBy ?? []).flatMap((n) => outside.get(n) ?? []);
+
   const registered = new Set(state.subIssues.map((s) => s.number));
   const children: IssueItem[] = [];
   for (let i = 0; i < split.length; i++) {
     let child = state.existing.get(i);
     if (!child) {
-      const body = renderChildBody(parent, i, split, split[i]!.dependsOn.map((d) => children[d]!.number));
+      const body = renderChildBody(parent, i, split, [...split[i]!.dependsOn.map((d) => children[d]!.number), ...outsideOf(i).map((o) => o.number)]);
       child = await ctx.gh.request<IssueItem>('POST', '/issues', { body: { title: split[i]!.title, body } });
       ctx.log(`子課題 #${child.number} を作りました（Epic #${parent} の ${i}）`);
     }
@@ -160,7 +171,7 @@ async function createChildren(
   );
   for (let i = 0; i < split.length; i++) {
     const child = children[i]!;
-    const needed = [...split[i]!.dependsOn.map((d) => children[d]!), ...parentBlockers];
+    const needed = [...split[i]!.dependsOn.map((d) => children[d]!), ...outsideOf(i), ...parentBlockers];
     if (needed.length === 0) continue;
     const blockedBy = new Set((await ctx.gh.paginate<IssueItem>(`/issues/${child.number}/dependencies/blocked_by`)).map((b) => b.number));
     for (const blocker of needed) {
@@ -192,7 +203,10 @@ async function createChildren(
     ctx,
     parent,
     'epic-split',
-    ['子課題を作りました。子課題ごとに計画・実装・判定を進めます。全部閉じるとこの Issue を閉じます。', '', ...children.map((c, i) => `- #${c.number}${split[i]!.dependsOn.length > 0 ? `（${split[i]!.dependsOn.map((d) => `#${children[d]!.number}`).join('、')} の後）` : ''}`)].join('\n'),
+    ['子課題を作りました。子課題ごとに計画・実装・判定を進めます。全部閉じるとこの Issue を閉じます。', '', ...children.map((c, i) => {
+      const after = [...split[i]!.dependsOn.map((d) => children[d]!.number), ...outsideOf(i).map((o) => o.number)];
+      return `- #${c.number}${after.length > 0 ? `（${after.map((n) => `#${n}`).join('、')} の後）` : ''}`;
+    })].join('\n'),
     { version: 1, planCommentId: comment.id, children: children.map((c) => c.number) } satisfies EpicSplitRecord,
   );
 }

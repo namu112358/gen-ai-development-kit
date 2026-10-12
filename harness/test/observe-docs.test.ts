@@ -18,7 +18,7 @@ const FILES = [
   'CLAUDE.md',
   'harness.config.json',
   'docs/setup.md',
-  'docs/risk-policy.md',
+  'harness/docs/risk-policy.md',
   'docs/guide.md',
   'harness/lib/scope.ts',
   'harness/lib/config.ts',
@@ -30,7 +30,7 @@ const FILES = [
 
 const ANCHORS: Record<string, string[]> = {
   'docs/setup.md': ['はじめに', '8-プラグイン全員に同じ版で入れる'],
-  'docs/risk-policy.md': ['委任承認'],
+  'harness/docs/risk-policy.md': ['委任承認'],
   'docs/guide.md': ['使い方', '自分の見出し'],
 };
 
@@ -55,7 +55,7 @@ const ofKind = (findings: DocFinding[], kind: DocFinding['kind']): DocFinding[] 
 // --- isDocTarget ---
 
 test('isDocTarget：docs・skill・agent・routine・CLAUDE・README を対象にし、docs/upstream とコードは対象にしない', () => {
-  for (const f of ['docs/setup.md', 'docs/sub/a.md', '.claude/skills/ship/SKILL.md', '.claude/agents/reviewer.md', '.claude/routine.md', 'CLAUDE.md', 'harness/CLAUDE.harness.md', 'README.md', 'harness/lib/README.md', 'harness/test/README.md']) {
+  for (const f of ['docs/setup.md', 'docs/sub/a.md', '.claude/skills/ship/SKILL.md', '.claude/agents/reviewer.md', '.claude/routine.md', 'CLAUDE.md', 'harness/CLAUDE.harness.md', 'harness/docs/formats.md', 'README.md', 'harness/lib/README.md', 'harness/test/README.md']) {
     assert.equal(isDocTarget(f), true, `${f} を対象にしませんでした`);
   }
   for (const f of ['docs/upstream/x.md', 'harness/lib/scope.ts', 'docs/image.png', 'src/README.txt', 'harness.config.json']) {
@@ -223,7 +223,7 @@ test('checkDoc：# だけのリンクは同じファイルの見出しと照ら�
 });
 
 test('checkDoc：ルートのファイルからのリンクはルートからの相対で解決する', () => {
-  const findings = check(['[risk](docs/risk-policy.md#委任承認) と [x](docs/none.md)'], 'README.md');
+  const findings = check(['[risk](harness/docs/risk-policy.md#委任承認) と [x](docs/none.md)'], 'README.md');
   assert.deepEqual(findings, [{ kind: 'link', name: 'docs/none.md', file: 'README.md', line: 1 }]);
 });
 

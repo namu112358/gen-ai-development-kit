@@ -5,7 +5,7 @@ import type { QueueResult } from '../lib/facts.ts';
 
 const q: QueueResult = {
   computedAt: '2026-09-27T00:00:00.000Z',
-  actions: [{ kind: 'implement', issue: 8, planCommentId: 1, planFiles: ['docs/glossary.md'] }, { kind: 'judge', pr: 9, issue: 8, headSha: 'a'.repeat(40) }],
+  actions: [{ kind: 'implement', issue: 8, planCommentId: 1, planFiles: ['harness/docs/glossary.md'] }, { kind: 'judge', pr: 9, issue: 8, headSha: 'a'.repeat(40) }],
   skipped: [{ kind: 'skip', target: '#3', reason: '`agent:hold`' }],
 };
 

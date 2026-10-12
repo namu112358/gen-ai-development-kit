@@ -54,12 +54,18 @@ const HQ_SPEC: SkillSpec = {
         '担当のいない PR', '止まった宣言', 'どの fleet にも入っていない', 'Epic に入っていない', 'sub-issues',
         'send', 'hq.maxFleets', '手順3のとおり','引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel',
         'hq.maxParallelShips', '人に聞かずに起こす', '空き待ち',
+        // 長く出力の無いタブと期限切れの着手宣言（#826）
+        'panes.ts idle', '--exclude', '長く出力の無いタブ', '8時間', '期限切れの着手宣言', '閉じない', 'intelHandle', '--include-visual-layouts',
       ],
     },
     // 手順12：人がすることの一覧（#402・#407・#425・#396）
     {
       step: 12,
-      words: ['panes.ts hq todo --once', '割り振ったもの', '人が決めなかったもの', '今の状況', 'heartbeat の一言', 'intel に回せなかった気づき'],
+      words: [
+        'panes.ts hq todo --once', '割り振ったもの', '人が決めなかったもの', '今の状況', 'heartbeat の一言', 'intel に回せなかった気づき',
+        // 長く出力の無いタブと期限切れの着手宣言（#826）
+        '長く出力の無いタブ', '期限切れの着手宣言', 'session の短い ID', '引き継がなかった宣言',
+      ],
     },
     // 相談・アイデアを intel に回す（#396）
     {
@@ -188,14 +194,14 @@ test('overview.html の skills/ の一覧に hq がある', () => {
   assert.ok(list.split('・').map((s) => s.trim()).includes('hq'), `skills/ の一覧（${list}）に hq がありません`);
 });
 
-test('docs/operations.md に hq の説明がある', () => {
-  const text = readText('docs/operations.md');
+test('harness/docs/operations.md に hq の説明がある', () => {
+  const text = readText('harness/docs/operations.md');
   const missing = ['hq', 'isMainWorktree', '答え無し', 'exited'].filter((w) => !text.includes(w));
-  assert.deepEqual(missing, [], `docs/operations.md に次の語句がありません：${missing.join('、')}`);
+  assert.deepEqual(missing, [], `harness/docs/operations.md に次の語句がありません：${missing.join('、')}`);
 });
 
-test('docs/operations.md に hq・fleet・panes の設定と既定値がある', () => {
-  const lines = readText('docs/operations.md').split('\n');
+test('harness/docs/operations.md に hq・fleet・panes の設定と既定値がある', () => {
+  const lines = readText('harness/docs/operations.md').split('\n');
   const defaults: [string, string][] = [
     ['hq.staleSnapshotMinutes', '30'],
     ['hq.stuckMinutes', '120'],
@@ -205,18 +211,18 @@ test('docs/operations.md に hq・fleet・panes の設定と既定値がある',
   ];
   for (const [key, def] of defaults) {
     const hits = lines.filter((l) => l.includes(key));
-    assert.ok(hits.length > 0, `docs/operations.md に ${key} がありません`);
-    assert.ok(hits.some((l) => l.includes(def)), `docs/operations.md の ${key} の行に既定値 ${def} がありません`);
+    assert.ok(hits.length > 0, `harness/docs/operations.md に ${key} がありません`);
+    assert.ok(hits.some((l) => l.includes(def)), `harness/docs/operations.md の ${key} の行に既定値 ${def} がありません`);
   }
 });
 
-test('docs/operations.md の hq の節（「fleet と hq の設定」の前まで）に、intel に回すことと intel のタブがある', () => {
-  const lines = section(readText('docs/operations.md'), '### hq（テーマごとの fleet をまとめる）').split('\n');
+test('harness/docs/operations.md の hq の節（「fleet と hq の設定」の前まで）に、intel に回すことと intel のタブがある', () => {
+  const lines = section(readText('harness/docs/operations.md'), '### hq（テーマごとの fleet をまとめる）').split('\n');
   const end = lines.findIndex((l) => l.startsWith('fleet と hq の設定'));
   const text = (end < 0 ? lines : lines.slice(0, end)).join('\n');
-  assert.ok(text !== '', 'docs/operations.md に「### hq（テーマごとの fleet をまとめる）」がありません');
+  assert.ok(text !== '', 'harness/docs/operations.md に「### hq（テーマごとの fleet をまとめる）」がありません');
   const missing = ['intel', '回す', 'intel のタブ'].filter((w) => !text.includes(w));
-  assert.deepEqual(missing, [], `docs/operations.md の hq の節に次の語句がありません：${missing.join('、')}`);
+  assert.deepEqual(missing, [], `harness/docs/operations.md の hq の節に次の語句がありません：${missing.join('、')}`);
 });
 
 test('overview.html の Claude（付き添いのセッション）の section に intel に回すがある', () => {

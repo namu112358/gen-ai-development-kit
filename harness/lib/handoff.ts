@@ -1,4 +1,4 @@
-/** 引き継ぎ（```agent-handoff）：fleet の入れ子の ship が段階の終わりに fleet へ返す書式と検査（Issue #447）。書式は docs/formats.md。 */
+/** 引き継ぎ（```agent-handoff）：fleet の入れ子の ship が段階の終わりに fleet へ返す書式と検査（Issue #447）。書式は harness/docs/formats.md。 */
 import { Checker } from './validate.ts';
 
 export const HANDOFF_STAGES = ['plan', 'implement', 'judge', 'fix', 'sync', 'merged'] as const;

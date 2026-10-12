@@ -420,15 +420,16 @@ test('skill：ループの回では AskUserQuestion を呼ばず、gh issue crea
   assert.ok(lines.some((l) => l.includes('gh issue create') && l.includes('しない')), '「gh issue create」と「しない」を同じ行に含む行がありません');
 });
 
-test('skill：/loop で回すときの節から docs/operations.md の共通の節へリンクしている', () => {
-  assert.match(loopSection(), /\]\([^)]*docs\/operations\.md[^)]*\)/, 'docs/operations.md へのリンクがありません');
+test('skill：/loop で回すときの節から harness/docs/operations.md の共通の節へリンクしている', () => {
+  assert.match(loopSection(), /\]\([^)]*docs\/operations\.md[^)]*\)/, 'harness/docs/operations.md へのリンクがありません');
 });
 
-test('skill：やってはいけないことに、無人の定期 Routine を動かさない規則が残り、/loop を許す文がある', () => {
+test('skill：やってはいけないことに、無人の定期 Routine を動かさない規則が残り、/loop と patrol の --routine の例外を許す文がある', () => {
   const body = section(skill(), '## やってはいけないこと');
   assert.ok(body !== null, '「## やってはいけないこと」がありません');
   assert.ok(body.includes('無人の定期 Routine'), '「無人の定期 Routine」がありません');
   assert.ok(body.includes('/loop'), '/loop を許す文がありません');
+  assert.ok(body.includes('patrol の --routine'), 'patrol の --routine の例外の文がありません');
 });
 
 test('skill：description に「qa-retro の下書きを選ぶ」がある', () => {
@@ -444,8 +445,8 @@ test('skill が使う qa-retro-loop.ts のサブコマンドは、スクリプ�
   for (const sub of used) assert.ok(known.has(sub), `qa-retro-loop.ts ${sub} は使い方のコメントにありません`);
 });
 
-test('docs/risk-policy.md の見直しの手順に、/loop での回し方（--loop・1日・7日前・止め方・SKILL.md へのリンク）がある', () => {
-  const body = section(readRoot('docs', 'risk-policy.md'), '## 見直しの手順');
+test('harness/docs/risk-policy.md の見直しの手順に、/loop での回し方（--loop・1日・7日前・止め方・SKILL.md へのリンク）がある', () => {
+  const body = section(readRoot('harness', 'docs', 'risk-policy.md'), '## 見直しの手順');
   assert.ok(body !== null, '「## 見直しの手順」がありません');
   for (const word of ['--loop', '1日', '7日前', '止め方']) assert.ok(body.includes(word), `「${word}」がありません`);
   assert.match(body, /\]\([^)]*\.claude\/skills\/qa-retro\/SKILL\.md[^)]*\)/, 'qa-retro の SKILL.md へのリンクがありません');

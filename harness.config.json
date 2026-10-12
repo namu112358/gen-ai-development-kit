@@ -20,7 +20,7 @@
     "harness/templates/**",
     ".claude/agents/reviewer.md",
     ".claude/agents/risk-agent.md",
-    "docs/risk-policy.md",
+    "harness/docs/risk-policy.md",
     "harness/gates/**",
     "harness/lib/**",
     "harness/scripts/setup.ts",
@@ -59,7 +59,7 @@
     "harness/lib/concurrency.ts"
   ],
   "areaConcurrency": {
-    "harness": 3
+    "harness": 6
   },
   "fixLoop": {
     "normalLimit": 2,
@@ -72,12 +72,15 @@
   "periodicCatchUpMinutes": 90,
   "dashboardIssueTitle": "Agent ダッシュボード",
   "patrolIssueTitle": "patrol のまとめ",
+  "patrolAutoSupply": {
+    "dailyLimit": 1
+  },
   "project": { "checkCommand": "npm run check", "installCommand": "npm ci" },
   "reviewPanel": { "mode": "enforce" },
   "fleet": {
     "nesting": "orca",
     "maxParallelShips": 3,
-    "sharedFiles": ["docs/plan.md", "docs/formats.md", "docs/operations.md", "docs/security.md", "docs/glossary.md", "**/README.md"],
+    "sharedFiles": ["docs/plan.md", "harness/docs/formats.md", "harness/docs/operations.md", "harness/docs/security.md", "harness/docs/glossary.md", "**/README.md"],
     "shipMode": "subagent",
     "implementModel": "sonnet"
   },
@@ -148,7 +151,7 @@
     ".claude/agents/reviewer.md",
     ".claude/agents/risk-agent.md",
     ".claude/skills/judge/SKILL.md",
-    "docs/risk-policy.md",
+    "harness/docs/risk-policy.md",
     "harness/lib/auto-mode.ts",
     "harness/lib/auto-mode-tests.ts",
     ".claude/agents/plan-critic.md",
@@ -195,6 +198,7 @@
       ],
       "docs": [
         "docs/**",
+        "harness/docs/**",
         "README.md"
       ]
     },

@@ -5,7 +5,7 @@ description: 人が付き添うセッションで、Stacked PR（層を重ねた
 
 # gh-stack（Stacked PR を組む・見る）
 
-GitHub の Stacked PR（下の層のブランチを base にした PR を重ねたもの）を、このハーネスで許す操作だけで組む手順。使えるのは付き添いのセッションだけ（Routine の環境には gh が無い）。いつ積んでよいか・層の本文・Merge・追従の決まりは [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方と [docs/operations.md](../../../docs/operations.md#stacked-pr) にある。
+GitHub の Stacked PR（下の層のブランチを base にした PR を重ねたもの）を、このハーネスで許す操作だけで組む手順。使えるのは付き添いのセッションだけ（クラウドの Routine では `gh api` の REST は通るが、GraphQL は 403 なので `gh stack`・`gh pr` は使えない）。いつ積んでよいか・層の本文・Merge・追従の決まりは [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方と [harness/docs/operations.md](../../../harness/docs/operations.md#stacked-pr) にある。
 
 出典：GitHub の [github/gh-stack](https://github.com/github/gh-stack) の `skills/gh-stack/SKILL.md`（タグ v0.1.1、コミット `2bd699a`、MIT License、Copyright GitHub, Inc.）。上流の skill は `submit`・`push`・`sync`・`rebase`・`modify`・`merge` を使う手順なので写さず、このハーネスで許す操作だけの手順として書き直した。gh-stack の版は v0.1.1 にそろえる。
 

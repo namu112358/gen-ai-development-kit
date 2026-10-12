@@ -26,7 +26,7 @@ function assertIncludesAll(text: string, words: string[], where: string): void {
   for (const w of words) assert.ok(text.includes(w), `${where} に「${w}」が無い`);
 }
 
-/** 使い方と制限として CLAUDE.harness.md と docs/operations.md の両方に書く語 */
+/** 使い方と制限として CLAUDE.harness.md と harness/docs/operations.md の両方に書く語 */
 const STACK_RULES = [
   '付き添いのセッションだけ',
   '下の層と同じファイル',
@@ -61,11 +61,11 @@ test('CLAUDE.harness.md の進め方に Stacked PR の使い方と制限、や�
   assert.ok(donts.includes('gh stack'), '## やってはいけないこと に gh stack が無い');
 });
 
-test('docs/operations.md に Stacked PR の節と orphan-base の理由コードがある', () => {
-  const text = read('docs/operations.md');
+test('harness/docs/operations.md に Stacked PR の節と orphan-base の理由コードがある', () => {
+  const text = read('harness/docs/operations.md');
   const stack = section(text, '## Stacked PR');
   assert.ok(stack !== '', '## Stacked PR の節が無い');
-  assertIncludesAll(stack, [...STACK_RULES, 'orphan-base'], 'docs/operations.md の ## Stacked PR');
+  assertIncludesAll(stack, [...STACK_RULES, 'orphan-base'], 'harness/docs/operations.md の ## Stacked PR');
   assert.ok(
     text.split('\n').some((l) => l.startsWith('| `orphan-base` |')),
     '理由コードの表に orphan-base の行が無い',
@@ -87,8 +87,8 @@ test('risk-agent・judge・sync は PR の base との差分を見る', () => {
   assert.ok(read('.claude/skills/sync/SKILL.md').includes(`git diff ${BASE_DIFF}`), 'sync/SKILL.md');
 });
 
-test('docs/formats.md と docs/plan.md にスタックの記録と計画の書き方がある', () => {
-  assertIncludesAll(read('docs/formats.md'), ['stack-link', 'orphan-base', 'base-resolved', 'stack-closed'], 'docs/formats.md');
+test('harness/docs/formats.md と docs/plan.md にスタックの記録と計画の書き方がある', () => {
+  assertIncludesAll(read('harness/docs/formats.md'), ['stack-link', 'orphan-base', 'base-resolved', 'stack-closed'], 'harness/docs/formats.md');
   assertIncludesAll(read('docs/plan.md'), ['Stacked PR', 'Refs #N', 'App が閉じる'], 'docs/plan.md');
 });
 

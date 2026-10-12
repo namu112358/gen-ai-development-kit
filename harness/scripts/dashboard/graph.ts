@@ -8,6 +8,7 @@ import { LABELS, PRIORITY_LABELS } from '../../lib/config.ts';
 import { parseChildMarker } from '../../lib/epic.ts';
 import { fleetStatus, type FleetIssue, type FleetPr, type FleetRow, type FleetStage } from '../../lib/fleet.ts';
 import type { Claim, IssueFacts } from '../../lib/queue.ts';
+import type { DecisionInfo } from './decision.ts';
 import type { SessionInfo } from './sessions.ts';
 
 export type ColumnId =
@@ -46,6 +47,8 @@ export interface DashIssue {
   url: string;
   /** 計画ゲートの記録の計画の写し（記録が無ければ null） */
   plan: PlanCopy | null;
+  /** 計画ゲートで止まったときの答える欄の材料（止まっていなければキーが無い） */
+  decision?: DecisionInfo;
 }
 
 export interface DashPr {
@@ -93,17 +96,33 @@ export interface SessionNode {
 }
 
 /** 人がすることの1行（Merge・人の判断・止まる印・priority の不足） */
-export interface Todo { id: string; kind: 'issue' | 'pr'; number: number; url: string; title: string; reason: string }
+export interface Todo { id: string; kind: 'issue' | 'pr'; number: number; url: string; title: string; reason: string; decision?: DecisionInfo }
 
-export interface Graph { columns: typeof COLUMNS; tasks: Task[]; edges: Edge[]; sessions: SessionNode[]; todos: Todo[] }
+/** 進みの帯の材料（GitHub から読んだもの。harness/scripts/dashboard/github.ts の progressFacts が組む）。merged は今日より前のものも含みうる */
+export interface ProgressFacts {
+  epics: { number: number; title: string; url: string; total: number; completed: number }[];
+  merged: { number: number; mergedAt: string; byApp: boolean }[];
+  /** Merge の検索が1回で読める件数を超えた（件数は「以上」） */
+  truncated: boolean;
+}
 
-export interface BuildOptions { now: Date; humanClaimStaleHours: number }
+/** 進みの帯。epics・mergedToday は材料をまだ読んでいないとき null。running は手元のセッションの記録なので常に数える */
+export interface Progress {
+  epics: { number: number; title: string; url: string; closed: number; total: number }[] | null;
+  mergedToday: { total: number; app: number; human: number; truncated: boolean } | null;
+  running: { sessions: number; subagents: number };
+}
+
+export interface Graph { columns: typeof COLUMNS; tasks: Task[]; edges: Edge[]; sessions: SessionNode[]; todos: Todo[]; progress: Progress }
+
+export interface BuildOptions { now: Date; humanClaimStaleHours: number; progress?: ProgressFacts | null }
 
 export type GraphEvent =
   | { type: 'task'; task: Task; edges: Edge[] }
   | { type: 'remove'; id: string }
   | { type: 'sessions'; sessions: SessionNode[] }
-  | { type: 'todos'; todos: Todo[] };
+  | { type: 'todos'; todos: Todo[] }
+  | { type: 'progress'; progress: Progress };
 
 const STOP_LABELS: string[] = [LABELS.hold, LABELS.blocked, LABELS.waiting];
 const PR_STOP_LABELS: string[] = [LABELS.hold, LABELS.blocked];
@@ -145,7 +164,10 @@ export function buildTodos(issues: DashIssue[], prs: DashPr[], rows: FleetRow[])
     if (p) merge.push({ id: `merge-pr-${p.number}`, kind: 'pr', number: p.number, url: p.url, title: p.title, reason: 'PR を確かめて Merge する' });
   }
   const review = issues.filter((i) => rows.some((r) => r.issue === i.fleet.facts.number && r.stage === 'plan-review'))
-    .map((i) => issueTodo(i, 'review', '計画ゲートで止まった。進めるか決める'));
+    .map((i) => {
+      const t = issueTodo(i, 'review', '計画ゲートで止まった。進めるか決める');
+      return i.decision ? { ...t, decision: i.decision } : t;
+    });
   const stop = issues.flatMap((i) => {
     const on = STOP_LABELS.filter((l) => i.fleet.facts.labels.includes(l));
     return on.length > 0 ? [issueTodo(i, 'stop', `止まる印（${on.join('・')}）の対応`)] : [];
@@ -270,7 +292,24 @@ export function buildGraph(issues: DashIssue[], prs: DashPr[], sessions: Session
     t.sessions = [...linked];
   }
 
-  return { columns: COLUMNS, tasks, edges, sessions: [...nodes.values()], todos: buildTodos(issues, prs, rows) };
+  return { columns: COLUMNS, tasks, edges, sessions: [...nodes.values()], todos: buildTodos(issues, prs, rows), progress: buildProgress(opts.progress ?? null, sessions, opts.now) };
+}
+
+/**
+ * 進みの帯の数。今日の Merge は手元の日付の 0 時以降だけを数える（読んだ材料は日付をまたいでも残るので、ここで絞る）。
+ * 動いている数は、動いているセッションと、全セッションのサブエージェントのうち動いているもの
+ */
+export function buildProgress(facts: ProgressFacts | null, sessions: SessionInfo[], now: Date): Progress {
+  const running = { sessions: sessions.filter((s) => s.running).length, subagents: sessions.reduce((n, s) => n + s.subagents.filter((a) => a.running).length, 0) };
+  if (facts === null) return { epics: null, mergedToday: null, running };
+  const since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const today = facts.merged.filter((m) => Date.parse(m.mergedAt) >= since);
+  const app = today.filter((m) => m.byApp).length;
+  return {
+    epics: [...facts.epics].sort((a, b) => a.number - b.number).map((e) => ({ number: e.number, title: e.title, url: e.url, closed: e.completed, total: e.total })),
+    mergedToday: { total: today.length, app, human: today.length - app, truncated: facts.truncated },
+    running,
+  };
 }
 
 /** 前後のグラフの差分。変わったタスク（と、そのタスクが持つ辺）だけを送る */
@@ -287,5 +326,6 @@ export function diffGraphs(prev: Graph, next: Graph): GraphEvent[] {
   for (const t of prev.tasks) if (!after.has(t.id)) out.push({ type: 'remove', id: t.id });
   if (JSON.stringify(prev.sessions) !== JSON.stringify(next.sessions)) out.push({ type: 'sessions', sessions: next.sessions });
   if (JSON.stringify(prev.todos) !== JSON.stringify(next.todos)) out.push({ type: 'todos', todos: next.todos });
+  if (JSON.stringify(prev.progress) !== JSON.stringify(next.progress)) out.push({ type: 'progress', progress: next.progress });
   return out;
 }

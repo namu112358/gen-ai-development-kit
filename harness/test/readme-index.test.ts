@@ -8,13 +8,14 @@ import { test } from 'node:test';
 
 const root = join(import.meta.dirname, '..', '..');
 
-// 説明を置く対象のディレクトリ（14）
+// 説明を置く対象のディレクトリ（15）
 const dirs = [
   'harness',
   'harness/lib',
   'harness/gates',
   'harness/scripts',
   'harness/templates',
+  'harness/docs',
   'harness/test',
   'harness/test/support',
   '.claude',

@@ -103,6 +103,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 - ラベルを付けたとき（auto mode が有効になったとき）と定期実行で、App のゲートの停止で止まっている計画を判定し直す。委任の判定し直しと同じく、Planner の申告・人の印・批評の関所に当たるもの・計画コメントの本文が変わったものは止まったまま。保留のままの計画と、auto mode の記録の無い古い停止には、保留のコメントを増やさない。
 - 保留の引き継ぎ：同じ Issue の App の計画ゲートの記録のうち、保留にした・Jev が `ok`・今の問いの版で、記録の計画の `files` が今の計画の `files` と集合として同じものがあれば、最も新しいものの Jev の記録を今の保留の線に通し、保留なら Jev に問い直さずに保留のままにする（中身が同じかは見ない。`skipped`・`error`・計画の写しの無い古い記録は使わない。`files` が違えば今までどおり問う。判定し直しも同じ）。言い回しだけ変えた出し直しで保留をすり抜けないため（Issue #680）。記録の `autoMode.inheritedFrom` に元の計画コメントが残り、その記録の Jev は使い回さず、次は元の保留の記録を今の保留の線に通し直す。
 - ラベルを外しても、auto mode で付けた `agent:plan-ok` は外さない。
+- 期限は置かない：Risk・ガードレールの停止は、時間を待たずに Jev の危険の問いに回す（待たせると今より遅くなる）。auto mode でも回らない人の判断待ち（Planner の申告・人の印・批評の関所・Jev の保留・Stacked PR など）と、auto mode が無効のときの `agent:plan-review`・Human Merge 待ちは、`hq.humanWaitMinutes`（hq・fleet が脇に置く時間と同じ長さ）を超えたら、定期実行がダッシュボードの節「時間を超えた人の判断待ち」に出し、同じ一覧を App の記録（`human-wait-digest`）つきのコメントで1日1回知らせる。回さず、ラベルも auto-merge も変えない。
 
 ### Merge
 
@@ -159,7 +160,7 @@ auto mode（Epic #339）の間の `agent/tests` の扱い（Issue #349）。
 
 ### /loop で続けて回す
 
-付き添いのセッションの `/loop` から qa-retro を続けて回し、つながった期間の報告を見直しの根拠にできる（しきい値・問いは変えない）。詳しい手順は [qa-retro の skill の「/loop で回すとき」](../.claude/skills/qa-retro/SKILL.md#loop-で回すとき)、skill によらない共通の規則は [operations.md の「見直しを /loop で回す」](operations.md#見直しを-loop-で回す) に置く。
+付き添いのセッションの `/loop` から qa-retro を続けて回し、つながった期間の報告を見直しの根拠にできる（しきい値・問いは変えない）。詳しい手順は [qa-retro の skill の「/loop で回すとき」](../../.claude/skills/qa-retro/SKILL.md#loop-で回すとき)、skill によらない共通の規則は [operations.md の「見直しを /loop で回す」](operations.md#見直しを-loop-で回す) に置く。
 
 - 呼び方：`/loop 1d /qa-retro --loop`。間隔の目安は1日〜1週間。
 - 1回分の期間：前回の回の終わりから、今の7日前まで（後追いの修正の窓の7日が閉じた PR だけを見る）。初回は14日幅。前回の回の終わりは手元の状態のファイル（`harness/scripts/qa-retro-loop.ts`）に持つので、回ごとの期間は重ならず抜けない。

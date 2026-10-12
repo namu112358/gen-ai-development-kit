@@ -27,7 +27,7 @@ const plan = (patch: Partial<Plan> = {}): Plan => ({
   needsHumanReasons: [],
   acChangeProposed: false,
   openQuestions: [],
-  files: ['docs/operations.md'],
+  files: ['harness/docs/operations.md'],
   ...patch,
 });
 
@@ -48,7 +48,7 @@ test('claimAfterPlan：ガードレールに触れない low の計画は plan-g
 
 test('claimAfterPlan：agent:plan-review で止まる計画は release', () => {
   for (const [label, p] of [
-    ['ガードレールに触れる', plan({ files: ['CLAUDE.md', 'docs/operations.md'] })],
+    ['ガードレールに触れる', plan({ files: ['CLAUDE.md', 'harness/docs/operations.md'] })],
     ['ガードレールに触れる（harness/scripts/agent.ts）', plan({ files: ['harness/scripts/agent.ts'] })],
     ['risk critical', plan({ risk: 'critical' })],
     ['risk high', plan({ risk: 'high' })],

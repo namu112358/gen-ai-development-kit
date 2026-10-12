@@ -8,12 +8,13 @@ import { appMarkKind } from '../../lib/blocks.ts';
 import { areaLimitLabels } from '../../lib/concurrency.ts';
 import { bodyIssueRefs, isAgentPr, isAppComment, isHarnessIssueTitle, isSameRepoPr, latestPlanGate, linkedIssuesWithSource, withStack, type PullRequest } from '../../lib/state.ts';
 import { classifyBase } from '../../lib/stack.ts';
-import type { HarnessConfig } from '../../lib/config.ts';
+import { appLogin, LABELS, type HarnessConfig } from '../../lib/config.ts';
 import { issueFacts, prFacts } from '../../lib/facts.ts';
 import type { FleetPr } from '../../lib/fleet.ts';
 import { GitHub, type RequestOptions, type Transport } from '../../lib/github.ts';
-import { type BatchSpec, type IssueItem, PrefetchTransport, readBatch, Snapshot } from '../../lib/graphql-prefetch.ts';
-import type { DashIssue, DashPr, PlanCopy } from './graph.ts';
+import { type BatchSpec, type IssueItem, PrefetchTransport, readBatch, restUser, Snapshot } from '../../lib/graphql-prefetch.ts';
+import { decisionInfo } from './decision.ts';
+import type { DashIssue, DashPr, PlanCopy, ProgressFacts } from './graph.ts';
 
 // テストと見本が import している名前（先読みの仕組みは harness/lib/graphql-prefetch.ts に移した）
 export { buildBatchQuery, GRAPHQL_PAGE, PrefetchTransport, Snapshot } from '../../lib/graphql-prefetch.ts';
@@ -39,6 +40,42 @@ export type FetchLike = (url: string, init: { method: 'GET'; headers: Record<str
 export type PollResult = { kind: 'unchanged' } | { kind: 'full' } | { kind: 'changed'; numbers: number[] };
 
 const PAGE = 50;
+
+const PROGRESS_QUERY = `query($owner: String!, $name: String!, $labels: [String!], $search: String!) {
+  rateLimit { cost limit remaining resetAt }
+  repository(owner: $owner, name: $name) {
+    issues(states: OPEN, labels: $labels, first: ${PAGE}) {
+      nodes { number title url subIssuesSummary { total completed } }
+    }
+  }
+  search(type: ISSUE, query: $search, first: 100) {
+    pageInfo { hasNextPage }
+    nodes { ... on PullRequest { number mergedAt mergedBy { __typename login } } }
+  }
+}`;
+
+/**
+ * 進みの帯の材料を読む問い合わせ。開いている Epic（子課題の数つき）と、今日の Merge 済み PR。
+ * Merge の検索は、時刻つきの書き方の受け付けに頼らず、手元の今日の 0 時を UTC にした日付の前の日から広めに読む（今日の分への絞り込みは buildProgress）
+ */
+export function buildProgressQuery(repository: string, epicLabel: string, now: Date): { query: string; variables: Record<string, unknown> } {
+  const [owner, name] = repository.split('/');
+  const utcDay = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString().slice(0, 10);
+  const since = new Date(Date.parse(`${utcDay}T00:00:00Z`) - 86_400_000).toISOString().slice(0, 10);
+  return { query: PROGRESS_QUERY, variables: { owner, name, labels: [epicLabel], search: `repo:${repository} is:pr is:merged merged:>=${since} sort:updated-desc` } };
+}
+
+/** buildProgressQuery の応答を材料にする。Merge した人が App（Bot は login[bot]）なら byApp。PR でない node・mergedAt の無い node は数えない */
+export function progressFacts(data: unknown, app: string): ProgressFacts {
+  type Data = {
+    repository?: { issues?: { nodes?: ({ number: number; title: string; url: string; subIssuesSummary?: { total: number; completed: number } | null } | null)[] } };
+    search?: { pageInfo?: { hasNextPage?: boolean }; nodes?: ({ number?: number; mergedAt?: string | null; mergedBy?: { __typename: string; login: string } | null } | null)[] };
+  };
+  const d = (data ?? {}) as Data;
+  const epics = (d.repository?.issues?.nodes ?? []).flatMap((n) => (n ? [{ number: n.number, title: n.title, url: n.url, total: n.subIssuesSummary?.total ?? 0, completed: n.subIssuesSummary?.completed ?? 0 }] : []));
+  const merged = (d.search?.nodes ?? []).flatMap((n) => (typeof n?.number === 'number' && typeof n.mergedAt === 'string' ? [{ number: n.number, mergedAt: n.mergedAt, byApp: restUser(n.mergedBy)?.login === app }] : []));
+  return { epics, merged, truncated: d.search?.pageInfo?.hasNextPage === true };
+}
 
 /**
  * 条件付きリクエストで Issue / PR の更新を見張る。304 は API の上限に数えられない。
@@ -117,6 +154,19 @@ export class DashboardData {
 
   prs(): DashPr[] {
     return [...this.prMap.values()].sort((a, b) => a.number - b.number);
+  }
+
+  private progressData: ProgressFacts | null = null;
+
+  /** 進みの帯の材料（まだ読んでいなければ null） */
+  progress(): ProgressFacts | null {
+    return this.progressData;
+  }
+
+  /** 進みの帯の材料を GraphQL の問い合わせ1回で読む。loadAll・refresh からは呼ばない（変化のあった回に dashboard.ts が呼ぶ） */
+  async loadProgress(now: Date): Promise<void> {
+    const { query, variables } = buildProgressQuery(this.repository, LABELS.epic, now);
+    this.progressData = progressFacts(await this.gh.graphql(query, variables), appLogin(this.config));
   }
 
   private get repository(): string {
@@ -273,9 +323,11 @@ export class DashboardData {
       fleetPrs.push((await this.loadPr(gh, snap, pr, item.number, new Map([[item.number, facts.readyAt]]), new Map([[item.number, facts.labels]]))).fleet);
     }
     // 計画の写しは issueFacts が返さないので、コメントから読む（App の名義の記録だけを数える）
-    const gate = latestPlanGate(this.config, await gh.listComments(item.number)) as { value: { plan?: PlanCopy } } | null;
+    const comments = await gh.listComments(item.number);
+    const gate = latestPlanGate(this.config, comments) as { value: { plan?: PlanCopy } } | null;
     const plan = gate?.value.plan && typeof gate.value.plan === 'object' ? gate.value.plan : null;
-    this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url, plan });
+    const decision = decisionInfo(this.config, { number: item.number, state: item.state, labels: facts.labels }, comments);
+    this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url, plan, ...(decision ? { decision } : {}) });
   }
 
   private async loadPr(gh: GitHub, snap: Snapshot, pr: PullRequest, issue: number | null, readyAt = new Map<number, string | null>(), issueLabels = new Map<number, string[]>()): Promise<DashPr> {

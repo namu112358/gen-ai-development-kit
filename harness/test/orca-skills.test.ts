@@ -1,6 +1,6 @@
 // Issue #195：Orca のスキルの入口（.claude/skills/orca-cli・orchestration）を配る検査。
 // 取り込んだファイルの sha256（改行を LF にそろえる）とコミットの固定値、MIT の表示（docs/upstream/・NOTICE）、
-// managed.json に当たること、入口に素の orca のコマンドが無いこと、docs/setup.md の Orca の節と docs/security.md の受け入れているリスクの行を確かめる
+// managed.json に当たること、入口に素の orca のコマンドが無いこと、docs/setup.md の Orca の節と harness/docs/security.md の受け入れているリスクの行を確かめる
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -139,14 +139,16 @@ test('入口の本文に、Linux で素の orca を使わない文がある', ()
 
 // ---- docs ----
 
-test(`docs/setup.md の節${ORCA_SECTION_NO}（Orca）に、Orca の必須と、Orca が無いときの退行手段が書かれている`, () => {
+test(`docs/setup.md の節${ORCA_SECTION_NO}（Orca）に、Orca が手元の標準であることと、クラウドの節（節12）への案内と、Orca が無いときの退行手段が書かれている`, () => {
   const section = orcaSection();
-  assert.ok(section.includes('必須'), 'Orca の節に「必須」が無い');
+  const body = section.split(/\r?\n/).slice(1).join('\n');
+  assert.ok(body.includes('標準'), 'Orca の節の本文に「標準」が無い');
+  assert.ok(section.includes('#12-クラウドの付き添いのセッション'), 'Orca の節に節12（クラウドの付き添いのセッション）へのリンク「#12-クラウドの付き添いのセッション」が無い');
   assert.ok(section.includes('Orca が無いとき'), 'Orca の節に「Orca が無いとき」が無い');
 });
 
-test('docs/security.md の受け入れているリスクの表に Orca の skill の行があり、sha256 と「Issue と PR」を含む', () => {
-  const lines = read('docs/security.md').split(/\r?\n/);
+test('harness/docs/security.md の受け入れているリスクの表に Orca の skill の行があり、sha256 と「Issue と PR」を含む', () => {
+  const lines = read('harness/docs/security.md').split(/\r?\n/);
   const start = lines.findIndex((l) => l.startsWith('## 受け入れているリスク'));
   assert.ok(start !== -1, '「## 受け入れているリスク」の節が無い');
   let end = lines.findIndex((l, i) => i > start && l.startsWith('## '));

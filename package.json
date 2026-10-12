@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test \"harness/test/**/*.test.ts\"",
     "check": "npm run typecheck && npm test",
-    "agent": "node --no-warnings harness/scripts/agent.ts"
+    "agent": "node --no-warnings harness/scripts/agent.ts",
+    "dashboard": "node --no-warnings harness/scripts/dashboard.ts"
   },
   "devDependencies": {
     "@types/node": "^24.19.0",
