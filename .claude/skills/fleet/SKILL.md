@@ -114,7 +114,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 
 `fleet.shipMode` が `worker` で、かつ Orca があるときだけ、Issue ごとに ship を Orca の worker（独立した Claude のセッション）で起こす（#197。人の決定 2026-09-30）。既定の `subagent` と、Orca が無いときの手順（「手順」「入れ子の方式（orca）」の節）は変えない。ここに書いていないことは、上の節（入力・選び方・手順）のとおりに進める。hq に起こされた fleet（節「Orca の worker として動くとき」）も、この節で ship を worker で動かしてよい（質問は ship → fleet → hq の順に `ask` で上げる）。
 
-Orca のコマンドは、orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」で決めた実行ファイルを使う（下では `ORCA` と書く。そのまま打たずに置き換える。Linux で Orca の端末の外にいるときは素の `orca` を使わない）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
+Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の `command` を実行ファイルとして使う（下では `ORCA` と書く。そのまま打たずに置き換える。決め方は orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」と同じ順で、`harness/lib/worktree.ts` の `orcaCliCommand`。`env`・`printenv` で環境変数を読まない。この点は orchestration・orca-cli の skill の案内より優先する。Linux で Orca の端末の外にいるときは素の `orca` を使わない）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
 
 1. **Orca の有無を確かめる**：`node harness/scripts/panes.ts config` の `shipMode` が `worker` のとき、`ORCA status --json` と `ORCA skills get orchestration` を走らせる。両方が成功すれば、この節で進める。どちらかが失敗したら、Orca が無い・動かないとして、今の手順（「手順」と「入れ子の方式（orca）」の節。中身は変えない）で進める（戻り先は下の 7）。この分かれ道は、入口の skill（orca-cli・orchestration）の「エラーを報告して止まる」「`ORCA open` で起動する」より優先する。`ORCA open` は試さない。
 2. **Run を作る**：`ORCA orchestration run-create --objective "<テーマか Issue 番号の集合>" --json` で fleet の Run を1つ作り、ship の worker の `worker-start`・`check`・`worker-list` には `--run <fleet の Run ID>` を付ける。hq の Run と分かれるので、hq が数える fleet に ship の worker が混ざらない。
@@ -154,7 +154,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
 
 hq（テーマごとの fleet をまとめる付き添いのセッション）が Orca の orchestration で起こした fleet の手順。人に聞く窓口は hq にまとめる（ship → fleet → hq → 人）。ここに書いていないことは、上の節（入力・選び方・手順・入れ子の方式）のとおりに進める。
 
-Orca のコマンドは、orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」で決めた実行ファイルを使う（下では `ORCA` と書く。そのまま打たずに置き換える）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
+Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の `command` を実行ファイルとして使う（下では `ORCA` と書く。そのまま打たずに置き換える。決め方は orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」と同じ順で、`harness/lib/worktree.ts` の `orcaCliCommand`。`env`・`printenv` で環境変数を読まない。この点は orchestration・orca-cli の skill の案内より優先する）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
 
 1. **当てはまるとき**：プロンプトに orchestration の注入の前置き（Task ID・Dispatch ID・worker の handle・capability）があるとき。前置きが無ければこの節は使わず、今までどおり AskUserQuestion で人に聞く。前置きのコマンド（実行ファイル・handle・capability・ID）は写して使い、組み立て直さない。
 2. **ship の動かし方を読む**：最初に `node harness/scripts/panes.ts config` を読む。
@@ -231,7 +231,7 @@ Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始�
 1. **見る**：手順1・3と節「待つ間の読み直し」で `fleet-status` を読むたびに、表の下の「このセッションの読み込みは古い」の行を見る（無ければ `node harness/scripts/agent.ts harness-drift` の `stale`）。`claim` も古いと標準エラーに一言出す。
 2. **古いとき**：新しい段階・新しい ship を始めない。入れ子の方式では、動いている ship が段階の切れ目で返るのを待つ（ship は「待つ（読み込みが古い）」で返る）。その後、このセッションの着手宣言を `release <番号>` で全部解除し、その後（段階の切れ目）でだけ交代する。段階の途中では交代しない。**judge の段階は、古いセッションでは始めない**（`claim --stage judge` と `step` も止める。止まる理由 `harness-stale`）。
 3. **聞く**：AskUserQuestion で「交代しますか」を聞く（おすすめは「交代する」。Orca の worker のときは節「Orca の worker として動くとき」のとおり hq に `ask`）。拒まれた・答えが無いときは同じ質問を繰り返さず、下の 5 の1行を示して止まる。
-4. **Orca があるとき（承認の後）**：Orca の CLI は orca-cli の skill の「Resolve the CLI for this session」で選ぶ（`ORCA_CLI_COMMAND` があればその値、`ORCA_DEV_REPO_ROOT` のある dev checkout なら `orca-dev`、Linux で Orca の端末の外にいるときは `orca-ide`、それ以外は `orca`。Linux の Orca の端末の外では素の `orca` を使わない。GNOME の読み上げソフトが起動しうる）。
+4. **Orca があるとき（承認の後）**：Orca の CLI は `node harness/scripts/orca-cli.ts` が出す JSON の `command` を使う（`env`・`printenv` で環境変数を読まない。orchestration・orca-cli の skill の案内より優先する。決め方は orca-cli の skill の「Resolve the CLI for this session」と同じ順＝`ORCA_CLI_COMMAND` があればその値、`ORCA_DEV_REPO_ROOT` のある dev checkout なら `orca-dev`、Linux で Orca の端末の外にいるときは `orca-ide`、それ以外は `orca`。Linux の Orca の端末の外では素の `orca` を使わない。GNOME の読み上げソフトが起動しうる）。
    - 本体（`git rev-parse --path-format=absolute --git-common-dir` の親。hq と同じ main の checkout）が既定ブランチで未 commit の変更が無ければ、`git -C <本体> pull --ff-only` で origin に追いつかせる。できなければ起動せず、理由と 5 の1行を示して止まる。
    - orca-cli の skill の端末の起動（`terminal create`。引数は Orca の `skills get` の案内に従う）で、本体で `claude --permission-mode auto "/fleet --epic <Epic番号> <番号…>"` を起動する（番号は `fleet-status` に渡した集合。受け持つ Epic が無ければ `--epic` を付けない）。権限モードは必ず明示する（人の決定 2026-09-29）。Epic の fleet なら端末の表示名を `fleet: #<Epic番号> <日本語の短い言葉>` にする（言葉は hq の指示のテーマの名前、無ければ `.agent-harness-workspace` の中身をそのまま使う。hq が無ければ hq の skill の手順4の作り方で Epic のタイトルから作る。表示のためだけで、着手宣言・usage はセッション ID で見分ける）。
    - 起動後に画面のモード表示が `auto mode` かを確かめる。bypass（`bypass permissions`）だった・確かめられないときは、新しいセッションに段階を進めさせずに人に返す。
