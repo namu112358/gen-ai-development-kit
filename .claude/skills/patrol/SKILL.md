@@ -76,7 +76,7 @@ description: 人が付き添うセッションの /loop から、保守の観測
 | test-prune | 動かす（`run`） | `slowTests`・`flakyTests`・`mutants` | 1 日 | 14 日 |
 
 - 見直しごとに、上から最初に当たったもの：一度も回していない（勧めていない）→ 選ぶ（`never`）／前回から上限以上 → 選ぶ（`overdue`）／下限未満 → 選ばない（`too-soon`）／対応する節に差がある → 選ぶ（`diff`）／それ以外 → 選ばない（`no-diff`）。
-- 経過は、動かす形なら前回回した時刻（`lastRunAt`）、勧めるだけの形なら前回勧めた時刻（`lastSuggestedAt`）から測る。今は3つとも動かす形（前の状態のファイルで test-prune に `lastSuggestedAt` しか無ければ、次の回は `never` として回す）。
+- 経過は、動かす形なら前回回した時刻（`lastRunAt`）、勧めるだけの形なら前回勧めた時刻（`lastSuggestedAt`）から測る。動かす形の見直しに `lastRunAt` が無ければ（`lastSuggestedAt` だけがあっても）、`never` として回す。今は3つとも動かす形。
 - 読めない節（null）と、前回の観測が無いとき（初回・写しが消えた）は差なしとして数える。
 - 運用の健康（`opsHealth`）は見直しの選び方に使わない。`alerts` に知らせるだけ。
 - 動かすものが `--max` を超えたら、`never` → `overdue`（超えた時間の長い順）→ `diff`（差の件数の多い順）で上限までにし、残りは `limit` で次の回に回す。
