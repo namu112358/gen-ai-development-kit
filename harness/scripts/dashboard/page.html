@@ -4,6 +4,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="dashboard-token" content="__DASHBOARD_TOKEN__">
 <title>Agent グラフ</title>
 <style>
   :root {
@@ -71,6 +72,13 @@
   #todos li a:hover { text-decoration: underline; }
   #todos .reason { color: var(--muted); }
   #todos .none { color: var(--muted); margin: 0; }
+  #notes { margin: 12px 16px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 12px; }
+  #notes h2 { font-size: 13px; margin: 0 0 4px; }
+  #notes textarea { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  #notes .row { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; margin-top: 6px; }
+  #notes button { font: inherit; padding: 3px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--col); color: var(--ink); cursor: pointer; }
+  #notes button:disabled { cursor: default; opacity: .5; }
+  #notes .result, #notes .unread { color: var(--muted); }
   details.others { font-size: 12px; color: var(--muted); }
   details.others > summary { cursor: pointer; margin-bottom: 6px; }
   .warn { font-size: 11px; font-weight: 600; color: var(--enf-ai); background: var(--warn-bg); border-radius: 4px; padding: 1px 6px; margin-top: 4px; }
@@ -120,6 +128,15 @@
 <p id="pollStatus" role="status" hidden></p>
 <section id="progress" aria-label="進み"><h2>進み</h2><div id="progressBody"></div></section>
 <section id="todos" aria-label="人がすること"><h2 id="todosTitle">人がすること</h2><div id="todosBody"></div></section>
+<section id="notes" aria-label="気づきを送る">
+  <h2>気づきを送る</h2>
+  <textarea id="noteText" rows="2" aria-label="気づきの文" placeholder="気づき・改善案を書いて送ると、intel が受け箱から拾います"></textarea>
+  <div class="row">
+    <button type="button" id="noteSend">送る</button>
+    <span class="result" id="noteResult" role="status"></span>
+    <span class="unread" id="noteUnread"></span>
+  </div>
+</section>
 <div id="wrap">
   <div id="board"></div>
   <svg id="edges" aria-hidden="true"><defs id="defs"></defs></svg>
@@ -545,6 +562,9 @@ function connect() {
   es.addEventListener('sessions', (m) => { sessions = JSON.parse(m.data).sessions; schedule(); });
   es.addEventListener('todos', (m) => { todos = JSON.parse(m.data).todos; schedule(); });
   es.addEventListener('progress', (m) => { progress = JSON.parse(m.data).progress; schedule(); });
+  es.addEventListener('inbox', (m) => {
+    document.getElementById('noteUnread').textContent = 'intel の受け箱：未読 ' + JSON.parse(m.data).unread + ' 件';
+  });
   es.addEventListener('status', (m) => {
     const bar = document.getElementById('pollStatus');
     const t = statusText(JSON.parse(m.data));
@@ -553,10 +573,39 @@ function connect() {
   });
 }
 
+const NOTE_MAX_CHARS = 4000;
+
+/** 気づきを受け箱に送る（合言葉は meta から。文は textContent で出す） */
+async function sendNote() {
+  const box = document.getElementById('noteText');
+  const btn = document.getElementById('noteSend');
+  const out = document.getElementById('noteResult');
+  const text = box.value.trim();
+  if (text === '') { out.textContent = ''; return; }
+  if (text.length > NOTE_MAX_CHARS) { out.textContent = NOTE_MAX_CHARS + ' 文字までです（いま ' + text.length + ' 文字）'; return; }
+  const meta = document.querySelector('meta[name="dashboard-token"]');
+  btn.disabled = true;
+  out.textContent = '送っています…';
+  try {
+    const r = await fetch('/notes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dashboard-token': meta ? meta.content : '' },
+      body: JSON.stringify({ text }),
+    });
+    if (r.ok) { box.value = ''; out.textContent = '送りました'; }
+    else out.textContent = '送れませんでした（' + r.status + '）';
+  } catch (e) {
+    out.textContent = '送れませんでした（通信の失敗）';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 // テスト（node:vm で buildCards だけを読む）では DOM が無いので起動しない
 if (typeof document !== 'undefined') {
   buildLegends();
   connect();
+  document.getElementById('noteSend').addEventListener('click', sendNote);
   setInterval(() => { for (const s of document.querySelectorAll('.ago')) s.textContent = ago(s.dataset.at); }, 1000);
   window.addEventListener('resize', drawEdges);
   document.getElementById('wrap').addEventListener('scroll', drawEdges);
