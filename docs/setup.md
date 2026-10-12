@@ -18,7 +18,7 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 
 `permissions.allow` の和集合は足すだけで、kit が配る行を後で外しても導入先の allow からは自動では消えない（外すには導入先で手で消す）。この変更より前の `harness/lib/sync.ts` は `permissions.allow` を kit の値で丸ごと置き換えるので、導入先の `harness/lib/sync.ts` がこの変更より前なら、先にこの版の `harness/lib/sync.ts` を写してから sync する（古い sync が新しい `managed.json` を読むと、kit の `npm run` の行を含む allow で導入先の allow を上書きするため）。
 
-導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。
+導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。自動 Merge の後に main の CI が失敗したとき App が revert の PR と停止スイッチを出す仕組み（docs/operations.md の「止める仕組み」）を使うなら、`projectChecks` のチェックを既定ブランチへの push でも動かす（GitHub Actions なら `on: push: branches: [main]`。先頭にチェックが付かないと、App は何もしない）。
 
 検証コマンドと依存の取り込みのコマンドは `harness.config.json` の `project`（`checkCommand`・`installCommand`）に書く（例：`"project": { "checkCommand": "pytest -q", "installCommand": "pip install -e ." }`）。書かなければ `npm run check`・`npm ci`、`null` なら行わない。worktree の作成と合体版のレビューの⑧の detached の worktree の中で、書いた文字列を shell でそのまま実行する（`loadConfig` が検査するのは書式（空でなく前後に空白が無い文字列か `null`）だけで、中身は見ない）。
 

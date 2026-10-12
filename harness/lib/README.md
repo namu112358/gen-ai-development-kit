@@ -61,6 +61,7 @@
 | `patrol-issue.ts` | patrol のまとめの Issue の本文に置く状態（patrol-state）の読み書き・縮め方・題名の照らし・回のコメント（純粋関数）。 | ○ |
 | `patrol.ts` | 見直しのまとめ役（patrol の skill）が、観測の差と前回からの経過で今回まわす見直しを決める（純粋関数）。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
+| `post-merge-revert.ts` | Merge 後の main の CI の失敗（Issue #802）の判断：既定ブランチの先頭の必須チェックの結果の見分け、revert の PR を出すか・停止だけか・何もしないかの分かれ目、revert の commit のメッセージ・PR の題と本文・ダッシュボードの理由の本文。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
 | `qa-retro-loop.ts` | qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と手元の状態（純粋関数）。 | ○ |
 | `qa-retro.ts` | Merge 済みの PR の振り返り（qa-retro の skill）の集計。 | ○ |

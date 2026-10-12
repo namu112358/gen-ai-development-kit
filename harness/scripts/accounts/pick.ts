@@ -184,17 +184,23 @@ const parseJson = (text: string | null): unknown => {
 
 const dflt = (reason: string): PickResult => ({ result: 'default', prefix: '', reason, excluded: [] });
 
-/** 対応表を読む → 無ければ default → 本体のパスと Orca を読む → 選ぶ */
-export function runPick(deps: PickDeps): PickResult {
-  const base = join(deps.home, '.config', 'agent-harness');
-  const table = parseJson(deps.readText(join(base, 'accounts.json')));
-  const rawAccounts = isObj(table) && Array.isArray(table.accounts) ? table.accounts : [];
+/** 対応表（accounts.json を読んだ JSON）から、アカウントの一覧としきい値を取り出す。pick.ts と probe.ts で同じ読み方にする */
+export function parseAccountsTable(json: unknown): { accounts: AccountEntry[]; threshold5h: number } {
+  const rawAccounts = isObj(json) && Array.isArray(json.accounts) ? json.accounts : [];
   const accounts: AccountEntry[] = [];
   for (const a of rawAccounts) {
     if (isObj(a) && str(a.orcaId) && str(a.name) && str(a.configDir)) accounts.push({ orcaId: a.orcaId as string, name: a.name as string, configDir: a.configDir as string });
   }
+  const threshold5h = isObj(json) && num(json.threshold5h) !== null ? (json.threshold5h as number) : DEFAULT_THRESHOLD_5H;
+  return { accounts, threshold5h };
+}
+
+/** 対応表を読む → 無ければ default → 本体のパスと Orca を読む → 選ぶ */
+export function runPick(deps: PickDeps): PickResult {
+  const base = join(deps.home, '.config', 'agent-harness');
+  const table = parseJson(deps.readText(join(base, 'accounts.json')));
+  const { accounts, threshold5h } = parseAccountsTable(table);
   if (accounts.length === 0) return dflt('no-accounts-table');
-  const threshold5h = isObj(table) && num(table.threshold5h) !== null ? (table.threshold5h as number) : DEFAULT_THRESHOLD_5H;
 
   let repoRoot: string;
   try {
@@ -235,7 +241,7 @@ export function runPick(deps: PickDeps): PickResult {
   return r;
 }
 
-function runOrcaCli(): string | null {
+export function runOrcaCli(): string | null {
   const r = spawnSync(orcaCliCommand(process.platform, process.env), ['account', 'list', '--json'], { shell: false, encoding: 'utf8', timeout: ORCA_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] });
   return r.error || r.status !== 0 ? null : String(r.stdout ?? '');
 }

@@ -268,6 +268,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `areaConcurrency` | `{"harness": 3}` | 領域ごとに同時に開いてよい判定前の Agent PR の数（節「同時に開ける PR の数」） | ゲート（queue）・セッション（`claim`） |
 | `fixLoop.normalLimit`・`criticalLimit` | 2・3 | 修正の上限（`criticalLimit` は `normalLimit` 以上） | ゲート・セッション（`agent.ts step`） |
 | `syncLoop.limit` | 3 | sync ⇄ judge のループの上限 | セッション（`agent.ts step`） |
+| `patrolAutoSupply.dailyLimit` | 1 | auto mode の間に patrol が直近 24 時間で自動で Issue にする下書きの数の上限（0 で自動にしない。#827） | セッションだけ（patrol） |
 | `periodicCatchUpMinutes` | 90 | 定期実行（schedule）が来なくても、イベントで動いた gate が定期の仕事（label-apply・停滞検知とダッシュボード・queue の公開）を補うまでの、前回の定期の仕事からの分（#418。rerun-failed は補わない） | ゲート（`run.ts`） |
 | `staleHours` | 24 | 停滞とみなす時間・ダッシュボードで見返す期間 | ゲート（`stale`） |
 | `jev.maxDiffChars` | 80000 | Jev に渡す diff の文字数の上限 | ゲート |
@@ -279,7 +280,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `observe.opsHealth.*`（`scheduleGapMinutes`・`rateLimitFailures`・`failedGateMinutes`・`gateRunsPerDay`・`ciJobMinutes`・`readyHours`・`prOpenHours`・`requeueCount`・`claimIdleMinutes`・`planReviewCount`・`unplannedIssueCount`・`epicDrift`・`linkMismatch`・`staleWorktrees`・`areaFullMinutes`・`reviewPanelFailures`・`maxGets`） | 90・1・60・600・10・2・24・2・60・5・10・1・1・1・60・1・200 | 保守の観測の運用の健康（節「保守の観測」）のしきい値。…Minutes・…Hours は分・時間、ほかは件数・回数で、`maxGets` は1回の観測で GitHub を読む数の上限。書かなければ `ops-health.ts` の既定（`OPS_HEALTH_DEFAULTS`）で動く。誤りは `observe` の実行時に運用の健康の節が読めない旨で出す（ほかの節は出る。`loadConfig` では検査しない） | セッションだけ（`observe`） |
 | `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
 
-- `routine.gateReplyTimeoutMinutes`・`routine.stalledClaimMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`delegateMerge` も省略できる。
+- `routine.gateReplyTimeoutMinutes`・`routine.stalledClaimMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`patrolAutoSupply`・`delegateMerge` も省略できる。
 - 読むときの検査：`loadConfig` が上限の数値のキーを型と範囲で検査する（`harness/lib/config.ts` の `limitErrors`）。回数・件数・文字数は正の整数、時間は正の数、`minRemainingMinutes` は 0 以上。必須のキー（`routine` の3つ、`fixLoop` の2つ、`staleHours`、`jev.maxDiffChars`）が無いのも誤り。誤りがあれば、キーと今の値を示して止まる（上限が効かないまま動かない）。上限のほかに `project`（検証コマンド・取り込みのコマンド）の書式も検査する（#640）。Jev のしきい値・ガードレールの一覧などはここでは検査しない。
 - 誤りのある設定が main に入ると、ゲートと `agent.ts` のコマンドが全部止まる。guard の hook も設定を読めず、`git … push` を送り先に関わらず止めるので、セッションは直す PR を push できない。人が手元で `harness.config.json` を直す PR を出して Merge する。`npm run check` が実物の設定と雛形を検査する（`harness/test/config-limits.test.ts`）ので、PR の段階で落ちる。
 
@@ -486,6 +487,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 | 最終手段 | Settings → General → Allow auto-merge を切る | auto-merge が一斉に効かなくなる |
 | 個別停止 | Issue / PR に `agent:hold` を付ける | PR は merge-route が failure、Issue は Routine が処理しない。外されると App が記録する |
 | revert で自動停止 | 自動 Merge された PR を revert する | App が停止スイッチを入れる。人が確認して外すまで再開しない |
+| main の CI の失敗で自動停止 | Merge の後、既定ブランチの先頭の必須チェック（`projectChecks`）が失敗する | App が定期の実行で見つけ、停止スイッチを入れて理由をダッシュボードに書く（記録 `auto-merge-stopped`、`cause: "main-ci-failed"`。同じ commit は1回だけ）。先頭が App の自動 Merge した Agent PR（Stacked PR でない。Merge の方法は SQUASH か MERGE）の commit で、親の commit の必須チェックが成功していたときは、戻す commit のブランチ `agent-revert/pr-<N>` と Draft の PR も出す（Agent PR ではなく、Merge は人）。出さないとき：人が Merge した PR・Stacked PR・Merge の方法が REBASE・PR を特定できない・親の commit でも失敗している（ci.yml に push(main) を足す前の commit が親でチェックが無い場合を含む）・ブランチが既にある。毎時の実行の前に次の PR が Merge されると先頭が別の commit になり、停止だけになる（取りこぼし）。先頭にチェックがいつまでも付かないときは何もしない。revert の PR を人が Merge すると、revert の検知がもう一度ダッシュボードにコメントを残す。再開は、原因を確かめて停止ラベルを外す |
 | Routine の停止 | Routine を無効化する | Claude が動かなくなる（ゲートは動く） |
 
 暴走したときは、Routine を無効化 → 停止スイッチ → 開いている Agent PR に `agent:hold` か Close → 誤って入った変更を revert、の順に止める。再開は停止ラベルを外すだけ。
