@@ -424,11 +424,12 @@ test('skill：/loop で回すときの節から docs/operations.md の共通の�
   assert.match(loopSection(), /\]\([^)]*docs\/operations\.md[^)]*\)/, 'docs/operations.md へのリンクがありません');
 });
 
-test('skill：やってはいけないことに、無人の定期 Routine を動かさない規則が残り、/loop を許す文がある', () => {
+test('skill：やってはいけないことに、無人の定期 Routine を動かさない規則が残り、/loop と patrol の --routine の例外を許す文がある', () => {
   const body = section(skill(), '## やってはいけないこと');
   assert.ok(body !== null, '「## やってはいけないこと」がありません');
   assert.ok(body.includes('無人の定期 Routine'), '「無人の定期 Routine」がありません');
   assert.ok(body.includes('/loop'), '/loop を許す文がありません');
+  assert.ok(body.includes('patrol の --routine'), 'patrol の --routine の例外の文がありません');
 });
 
 test('skill：description に「qa-retro の下書きを選ぶ」がある', () => {
