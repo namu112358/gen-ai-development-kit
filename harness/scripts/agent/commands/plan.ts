@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import { type Decision, decisionTargets, uncoveredTargets } from '../../../lib/decision.ts';
 import { writeClaim } from '../../../lib/claim.ts';
 import { critiqueClaimedBefore } from '../../../lib/facts.ts';
 import { GitHub } from '../../../lib/github.ts';
+import { classifyHeadMove, gitIsAncestor, parseHeadSnapshot, readHeadSnapshot } from '../../../lib/head-move.ts';
 import { implementationRouting } from '../../../lib/model-routing.ts';
 import { type Plan } from '../../../lib/plan.ts';
 import { claimValueAfterPlan } from '../../../lib/queue.ts';
@@ -34,6 +36,11 @@ import { type AgentCommand, checkFile, config, currentSession, ensureOwnClaim, f
  *                                                           plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画。
  *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力。
  *                                                           先に git fetch し、origin/<既定ブランチ> の最新を含む読み先（Issue の worktree → 今の作業ディレクトリ → 無ければ base の、Issue とセッションごとの detach の worktree（使い終わったら標準エラーに出す worktree-remove <名前> で消す））を「読み先のリポジトリ」に書く。fetch に失敗したら手元の origin/<既定ブランチ> で続けて標準エラーに警告を1行出し、それも無ければ止まる
+ *   node harness/scripts/agent.ts head-check save <file> [--repo <path>]  plan-critic を呼ぶ前の HEAD とブランチ（git rev-parse HEAD・git branch --show-current）を JSON で <file> に控える（読むだけ。GitHub は呼ばない。#784）。
+ *                                                           <path>（既定は今のディレクトリ）の git が失敗したら終了コード 2
+ *   node harness/scripts/agent.ts head-check compare <file> [--repo <path>]  呼んだ後の HEAD・ブランチを控えと比べ、JSON（verdict・use・before・after・originRef・note・fetchNote）を出す。
+ *                                                           HEAD が違うときは先に git fetch origin <既定ブランチ>（失敗しても止めず fetchNote に書く）。同じか、同じブランチのまま origin/<既定ブランチ> に含まれる commit への早送りだけなら use が真。
+ *                                                           終了コード：0＝use が真（批評を使う。note があれば人がすることの一覧に1行）、1＝use が偽（人に返す）、2＝引数・控え・git の誤り（JSON を出さない）
  */
 
 async function postPlan(gh: GitHub, n: number, file: string): Promise<void> {
@@ -150,10 +157,57 @@ async function criticInput(gh: GitHub, args: string[]): Promise<string> {
   return writeTemp(`critic-input-${n}.txt`, renderCriticInput(issue, await gh.listComments(n), readFileSync(planFile, 'utf8'), previous, repo));
 }
 
+/** head-check：plan-critic の前後の HEAD を比べる（save で控え、compare で比べる。GitHub は呼ばない） */
+async function headCheck(args: string[]): Promise<void> {
+  const usage = 'head-check save|compare <file> [--repo <path>]';
+  const a = splitArgs(args, ['--repo']);
+  if (!a.ok) fail([...a.errors, usage]);
+  const [sub, file] = a.value.positional;
+  if (a.value.positional.length !== 2 || !file || (sub !== 'save' && sub !== 'compare')) fail([usage]);
+  const repoOption = a.value.options['--repo'];
+  if (sub === 'save') {
+    const repo = resolve(repoOption ?? process.cwd());
+    if (!existsSync(dirname(resolve(file)))) fail([`${file} の親ディレクトリがありません`]);
+    try {
+      writeFileSync(file, `${JSON.stringify({ ...readHeadSnapshot(repo), repo }, null, 2)}\n`);
+    } catch (e) {
+      fail([(e as Error).message]);
+    }
+    return;
+  }
+  let text;
+  try {
+    text = readFileSync(file, 'utf8');
+  } catch (e) {
+    fail([`${file} を読めません: ${(e as Error).message}`]);
+  }
+  const before = parseHeadSnapshot(text);
+  if (!before.ok) fail(before.errors.map((e) => `${file}: ${e}`));
+  const repo = resolve(repoOption ?? before.value.repo ?? process.cwd());
+  let after;
+  try {
+    after = readHeadSnapshot(repo);
+  } catch (e) {
+    fail([(e as Error).message]);
+  }
+  const originRef = `origin/${config.defaultBranch}`;
+  // HEAD が違うときだけ、origin/<既定ブランチ> を最新にしてから比べる（失敗しても止めず、手元の origin/<既定ブランチ> で比べる）
+  let fetchNote: string | null = null;
+  if (before.value.head !== after.head) {
+    const fetched = spawnSync('git', ['fetch', '--quiet', '--no-tags', 'origin', config.defaultBranch], { cwd: repo, encoding: 'utf8' });
+    if (fetched.status !== 0) fetchNote = `git fetch origin ${config.defaultBranch} に失敗しました（手元の ${originRef} で比べた）: ${(fetched.stderr ?? '').trim()}`;
+  }
+  const move = classifyHeadMove(before.value, after, originRef, gitIsAncestor(repo));
+  const { head: beforeHead, branch: beforeBranch } = before.value;
+  console.log(JSON.stringify({ ...move, before: { head: beforeHead, branch: beforeBranch }, after, originRef, fetchNote }, null, 2));
+  process.exitCode = move.use ? 0 : 1;
+}
+
 export const commands: AgentCommand[] = [
   { name: 'show-plan', run: (args, ctx) => showPlan(ctx.gh(), Number(args[0])) },
   { name: 'scope-check', run: (args, ctx) => scopeCheckCommand(ctx.gh(), Number(args[0]), args) },
   { name: 'post-plan', run: (args, ctx) => postPlan(ctx.gh(), Number(args[0]), args[1]!) },
   { name: 'post-decision', run: (args, ctx) => postDecision(ctx.gh(), Number(args[0]), args[1]!) },
   { name: 'critic-input', run: async (args, ctx) => void console.log(await criticInput(ctx.gh(), args)) },
+  { name: 'head-check', run: (args) => headCheck(args) },
 ];
