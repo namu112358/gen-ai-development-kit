@@ -169,7 +169,7 @@ test('GhTransport：やり直しでも body は同じ標準入力で渡す', asy
 
 test('GhTransport：やり直しも失敗なら HttpError を投げ、3回目は無い', async () => {
   const { run, calls } = fakeRunner([fail(UNKNOWN_FLAG_STDERR), fail('gh: Server Error (HTTP 502)')]);
-  const t = new GhTransport({}, run);
+  const t = new GhTransport({ retry: { retries: 0 } }, run);
   await assert.rejects(
     () => t.request('GET', '/repos/o/r/actions/jobs/7/logs', { raw: true }),
     (e: unknown) => e instanceof HttpError && e.status === 502,

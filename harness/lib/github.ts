@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { isMutation } from './api-count.ts';
+import { backoffDelayMs, retryAfterMs } from './backoff.ts';
 
 /**
  * GitHub REST / GraphQL の最小クライアント。
@@ -28,9 +30,26 @@ export interface ResponseInfo {
 
 export type ResponseObserver = (info: ResponseInfo) => void;
 
+/** やり直しの設定。どれも省略でき、省略した値は既定（retries 3・baseMs 1000・capMs 30000・maxWaitMs 120000） */
+export interface RetryOptions {
+  /** 最初の送信に足してやり直す回数 */
+  retries?: number;
+  baseMs?: number;
+  capMs?: number;
+  /** 1回の待ちがこれを超えるなら待たずに失敗にする */
+  maxWaitMs?: number;
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
+  now?: () => number;
+}
+
 export interface TransportOptions {
   /** 応答ごとに呼ぶ（FetchTransport はやり直しの各回も）。GhTransport は、あるときだけ gh api に --include を付ける */
   onResponse?: ResponseObserver;
+  /** 上限・502・503・504 のやり直しの設定 */
+  retry?: RetryOptions;
+  /** FetchTransport が使う fetch。無ければ送るときの globalThis.fetch */
+  fetch?: typeof fetch;
 }
 
 export class HttpError extends Error {
@@ -41,14 +60,111 @@ export class HttpError extends Error {
   }
 }
 
+export type RateLimitKind = 'primary' | 'secondary';
+
+/** 上限（primary: core などの時間あたりの上限、secondary: 短時間の上限）で止まった失敗。HttpError として読める */
+export class RateLimitError extends HttpError {
+  readonly kind: RateLimitKind;
+  readonly resource: string | null;
+  readonly resetAt: string | null;
+  constructor(status: number, message: string, init: { kind: RateLimitKind; resource: string | null; resetAt: string | null }) {
+    const label = init.kind === 'primary' ? 'リセット' : '次に送れる時刻';
+    super(status, `${message} (${label} ${init.resetAt ?? '不明'})`);
+    this.kind = init.kind;
+    this.resource = init.resource;
+    this.resetAt = init.resetAt;
+  }
+}
+
+/** 403・429 の失敗が上限によるものか。ヘッダー名は小文字。上限でなければ null */
+export function classifyRateLimit(status: number, headers: Record<string, string>, text: string): RateLimitKind | null {
+  if (status !== 403 && status !== 429) return null;
+  const remaining = headers['x-ratelimit-remaining'];
+  if (remaining !== undefined ? remaining.trim() === '0' : /API rate limit exceeded/i.test(text)) return 'primary';
+  if (status === 429 || headers['retry-after'] !== undefined || /secondary rate limit/i.test(text)) return 'secondary';
+  return null;
+}
+
+interface SentResponse {
+  status: number;
+  headers: Record<string, string>;
+  text: string;
+  /** 失敗のときの HttpError のメッセージ（無ければ `<method> <path> -> <status>: <text>`） */
+  message?: string;
+}
+
+const RETRY_DEFAULTS = { retries: 3, baseMs: 1000, capMs: 30000, maxWaitMs: 120000, secondaryFloorMs: 60000 };
+
+/** 読み取りか（GET と、mutation でない /graphql の POST）。書き込みは 5xx でやり直さない */
+function isReadRequest(method: string, path: string, opts: RequestOptions): boolean {
+  const m = method.toUpperCase();
+  if (m === 'GET') return true;
+  if (m !== 'POST') return false;
+  if (path.replace(/^https?:\/\/[^/]+/, '').replace(/\?.*$/, '') !== '/graphql') return false;
+  const query = (opts.body as { query?: unknown } | undefined)?.query;
+  return typeof query === 'string' && !isMutation(query);
+}
+
+function epochToIso(value: string | undefined): string | null {
+  if (value === undefined || !/^\d+$/.test(value.trim())) return null;
+  return new Date(Number(value) * 1000).toISOString();
+}
+
+/**
+ * 1回送る関数 send を、上限と 502・503・504 のやり直しで包む。成功（2xx）は応答を返し、404 + allow404 は null を返す。
+ * primary はやり直さず RateLimitError。secondary は読み書きとも待ってやり直す。502・503・504 は読み取りだけ。ほかの失敗は HttpError
+ */
+async function sendWithRetry(
+  method: string,
+  path: string,
+  opts: RequestOptions,
+  retry: RetryOptions | undefined,
+  send: () => Promise<SentResponse>,
+  primaryResetAt?: () => Promise<string | null>,
+): Promise<SentResponse | null> {
+  const retries = retry?.retries ?? RETRY_DEFAULTS.retries;
+  const baseMs = retry?.baseMs ?? RETRY_DEFAULTS.baseMs;
+  const capMs = retry?.capMs ?? RETRY_DEFAULTS.capMs;
+  const maxWaitMs = retry?.maxWaitMs ?? RETRY_DEFAULTS.maxWaitMs;
+  const sleep = retry?.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms)));
+  const random = retry?.random ?? Math.random;
+  const now = retry?.now ?? Date.now;
+  const read = isReadRequest(method, path, opts);
+  for (let attempt = 0; ; attempt++) {
+    const res = await send();
+    if (res.status >= 200 && res.status < 300) return res;
+    if (res.status === 404 && opts.allow404) return null;
+    const message = res.message ?? `${method} ${path} -> ${res.status}: ${res.text.slice(0, 500)}`;
+    const kind = classifyRateLimit(res.status, res.headers, res.text);
+    const resource = res.headers['x-ratelimit-resource'] ?? null;
+    if (kind === 'primary') {
+      const resetAt = epochToIso(res.headers['x-ratelimit-reset']) ?? (primaryResetAt ? await primaryResetAt() : null);
+      throw new RateLimitError(res.status, message, { kind, resource, resetAt });
+    }
+    const secondary = kind === 'secondary';
+    if (!secondary && !(read && (res.status === 502 || res.status === 503 || res.status === 504))) throw new HttpError(res.status, message);
+    const floorMs = retryAfterMs(res.headers['retry-after'], now()) ?? (secondary ? RETRY_DEFAULTS.secondaryFloorMs : 0);
+    const fail = (): HttpError =>
+      secondary
+        ? new RateLimitError(res.status, message, { kind: 'secondary', resource, resetAt: new Date(now() + floorMs).toISOString() })
+        : new HttpError(res.status, message);
+    if (attempt >= retries) throw fail();
+    const wait = backoffDelayMs(attempt, { baseMs, capMs, floorMs, random });
+    if (wait > maxWaitMs) throw fail();
+    await sleep(wait);
+  }
+}
+
 export class FetchTransport implements Transport {
   private readonly token: string;
   private readonly baseUrl: string;
   private readonly onResponse: ResponseObserver | undefined;
+  private readonly opts: TransportOptions;
   constructor(token: string, baseUrl = 'https://api.github.com', opts: TransportOptions = {}) {
     this.token = token;
     this.baseUrl = baseUrl;
     this.onResponse = opts.onResponse;
+    this.opts = opts;
   }
 
   async request(method: string, path: string, opts: RequestOptions = {}): Promise<unknown> {
@@ -64,23 +180,17 @@ export class FetchTransport implements Transport {
       headers['content-type'] = 'application/json';
       body = JSON.stringify(opts.body);
     }
-    for (let attempt = 0; ; attempt++) {
-      const res = await fetch(url, { method, headers, body });
-      if (this.onResponse) {
-        const seen: Record<string, string> = {};
-        res.headers.forEach((value, name) => { seen[name.toLowerCase()] = value; });
-        this.onResponse({ status: res.status, headers: seen });
-      }
-      if (res.status === 404 && opts.allow404) return null;
-      if ((res.status >= 500 || res.status === 429) && attempt < 2) {
-        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
-        continue;
-      }
-      const text = await res.text();
-      if (!res.ok) throw new HttpError(res.status, `${method} ${path} -> ${res.status}: ${text.slice(0, 500)}`);
-      if (opts.raw) return text;
-      return text === '' ? null : JSON.parse(text);
-    }
+    const res = await sendWithRetry(method, path, opts, this.opts.retry, async () => {
+      const doFetch = this.opts.fetch ?? globalThis.fetch;
+      const r = await doFetch(url, { method, headers, body });
+      const seen: Record<string, string> = {};
+      r.headers.forEach((value, name) => { seen[name.toLowerCase()] = value; });
+      this.onResponse?.({ status: r.status, headers: seen });
+      return { status: r.status, headers: seen, text: await r.text() };
+    });
+    if (res === null) return null;
+    if (opts.raw) return res.text;
+    return res.text === '' ? null : JSON.parse(res.text);
   }
 }
 
@@ -147,31 +257,48 @@ const spawnGh: GhRunner = (args, input) => {
 export class GhTransport implements Transport {
   private readonly onResponse: ResponseObserver | undefined;
   private readonly run: GhRunner;
+  private readonly retry: RetryOptions | undefined;
   constructor(opts: TransportOptions = {}, run: GhRunner = spawnGh) {
     this.onResponse = opts.onResponse;
+    this.retry = opts.retry;
     this.run = run;
   }
 
   async request(method: string, path: string, opts: RequestOptions = {}): Promise<unknown> {
-    const args = ghApiArgs(method, path, opts, this.onResponse !== undefined);
+    let args = ghApiArgs(method, path, opts, this.onResponse !== undefined);
     const input = opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
-    let res = this.run(args, input);
-    // 古い gh はこのフラグを知らずに止まる（制御文字でも止めない版なので、除いて1回だけやり直せば今までどおり読める）
-    if (res.status !== 0 && opts.raw && isUnknownEscapeFlagError(res.stderr)) res = this.run(withoutEscapeFlag(args), input);
-    let stdout = res.stdout;
-    if (this.onResponse) {
-      const parsed = parseGhInclude(stdout);
-      if (parsed.info) this.onResponse(parsed.info);
-      stdout = parsed.body;
-    }
-    if (res.status !== 0) {
-      const stderr = res.stderr;
-      const status = Number(stderr.match(/HTTP (\d{3})/)?.[1] ?? 0);
-      if (status === 404 && opts.allow404) return null;
-      throw new HttpError(status, `gh api ${method} ${path} failed: ${stderr.slice(0, 500)}`);
-    }
-    if (opts.raw) return stdout;
-    return stdout.trim() === '' ? null : JSON.parse(stdout);
+    const res = await sendWithRetry(method, path, opts, this.retry, async () => {
+      let r = this.run(args, input);
+      // 古い gh はこのフラグを知らずに止まる（制御文字でも止めない版なので、除いてやり直せば今までどおり読める）。一度除いたら以降の回も除く
+      if (r.status !== 0 && opts.raw && isUnknownEscapeFlagError(r.stderr)) {
+        args = withoutEscapeFlag(args);
+        r = this.run(args, input);
+      }
+      let stdout = r.stdout;
+      let info: ResponseInfo | null = null;
+      if (this.onResponse) {
+        const parsed = parseGhInclude(stdout);
+        info = parsed.info;
+        if (info) this.onResponse(info);
+        stdout = parsed.body;
+      }
+      if (r.status === 0) return { status: 200, headers: info?.headers ?? {}, text: stdout };
+      const stderr = r.stderr;
+      const status = info?.status || Number(stderr.match(/HTTP (\d{3})/)?.[1] ?? 0);
+      return { status, headers: info?.headers ?? {}, text: `${stdout}${stderr}`, message: `gh api ${method} ${path} failed: ${stderr.slice(0, 500)}` };
+    }, async () => {
+      const r = this.run(['api', 'rate_limit'], undefined);
+      if (r.status !== 0) return null;
+      try {
+        const reset = (JSON.parse(r.stdout) as { resources?: { core?: { reset?: unknown } } }).resources?.core?.reset;
+        return typeof reset === 'number' ? new Date(reset * 1000).toISOString() : null;
+      } catch {
+        return null;
+      }
+    });
+    if (res === null) return null;
+    if (opts.raw) return res.text;
+    return res.text.trim() === '' ? null : JSON.parse(res.text);
   }
 }
 
@@ -215,8 +342,12 @@ export class GitHub {
   }
 
   async graphql<T = any>(query: string, variables: Record<string, unknown> = {}): Promise<T> {
-    const res = await this.transport.request('POST', '/graphql', { body: { query, variables } }) as { data?: T; errors?: { message: string }[] };
-    if (res.errors?.length) throw new Error(`GraphQL: ${res.errors.map((e) => e.message).join('; ')}`);
+    const res = await this.transport.request('POST', '/graphql', { body: { query, variables } }) as { data?: T; errors?: { message: string; type?: string }[] };
+    if (res.errors?.length) {
+      const message = `GraphQL: ${res.errors.map((e) => e.message).join('; ')}`;
+      if (res.errors.some((e) => e.type === 'RATE_LIMITED')) throw new RateLimitError(200, message, { kind: 'primary', resource: 'graphql', resetAt: null });
+      throw new Error(message);
+    }
     return res.data as T;
   }
 
