@@ -6,7 +6,7 @@
 
 ### 付き添いのセッション
 
-Claude が人と一緒に作業するセッション。着手は `node harness/scripts/agent.ts claim <番号> --manual --stage <段階>`、ブランチは `claude/`、出す PR は Agent PR として判定・修正・自動 Merge の経路に乗る（critical は人が Merge する）。詳細：[operations.md](operations.md#付き添いのセッションで進める)
+Claude が人と一緒に作業するセッション。着手は `node harness/scripts/agent.ts claim <番号> --manual --stage <段階>`、ブランチは `claude/`、出す PR は Agent PR として判定・修正・自動 Merge の経路に乗る（critical・ガードレールはふだん Human Merge だが、bypass・委任承認（計画＋Merge）・auto mode の間は合格すれば App が自動 Merge することがある。Merge の経路は App が決める）。詳細：[operations.md](operations.md#付き添いのセッションで進める)
 
 ### ship
 
