@@ -6,7 +6,7 @@ reviewer / risk-agent の判定を Claude API + Cloudflare に委ねる試作（
 
 ## 結論
 
-- **推奨構成**：GitHub Webhook → Cloudflare Workers（受付）→ Cloudflare Workflows（収集 → Claude API → 検証 → 投稿）。コードは [review-api/](../review-api/README.md)。GitHub Actions は増やさない。
+- **推奨構成**：GitHub Webhook → Cloudflare Workers（受付）→ Cloudflare Workflows（収集 → Claude API → 検証 → 投稿）。コードは [review-api/](../review-api/)。GitHub Actions は増やさない。
 - **既存の GitHub App は変えない**。レビュー専用の GitHub App を新しく作り（権限は読み取り＋PR のコメント書き込みだけ）、その Webhook を Workers に向ける。既存 App（`appSlug`）の秘密鍵は Cloudflare に置かない（置くと信頼の根が Actions の外に広がる。[security.md](../harness/docs/security.md) の「信頼の根」）。
 - **Shadow Mode は仕組みで担保される**：新 App のコメントはコラボレーターではないのでゲートが読まず（`author_association` が OWNER / MEMBER / COLLABORATOR 以外は無視。`harness/gates/on-comment.ts`）、記録のブロック名は `api-review-shadow`（`gate.yml` の起動条件にも `agent-verdict` の読み取りにも当たらない）。Merge・Approve・ラベル・Check Run は書かない。
 - **既存の形式をそのまま使う**：Claude API の出力は reviewer の JSON（`pass`・`blocking`・`nonBlocking`・`humanNotes`）と risk-agent の JSON（`level`・8問の `answers`・`rationale`・`facts`）と同じ形。検証は `harness/lib/verdict.ts` の `parseVerdict` と同じ規則（`pass` と `blocking` の整合、kind・noul の語彙）。将来の置き換えでは、この JSON を `compose-verdict` の入力に渡せる。
