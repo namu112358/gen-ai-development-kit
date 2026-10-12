@@ -18,7 +18,7 @@ GitHub Issues × Claude Code の自律開発ハーネス。概要は [README.md]
 | `harness/CLAUDE.harness.md` | ハーネスの規則（進め方・立場・やってはいけないこと）。この CLAUDE.md が読み込む。導入先にも配る |
 | `harness/managed.json` | 導入先に配るファイルの一覧（kit が持つもの・初回だけ雛形から作るもの・`.claude/settings.json` のうちハーネスが持つキー） |
 | `harness/templates/` | 導入先の設定の雛形（`harness.config.json`・`CLAUDE.template.md`・deny の一覧） |
-| `.claude/skills/` | 付き添いのセッションの手順（ship / fleet / hq / plan / implement / judge / fix / sync / arch-review / qa-retro / test-prune / gh-stack / patrol / intel / backlog / review-panel。Orca の操作：orca-cli / orchestration） |
+| `.claude/skills/` | 付き添いのセッションの手順（ship / fleet / hq / plan / implement / judge / fix / sync / arch-review / qa-retro / test-prune / gh-stack / patrol / intel / issue-creator / backlog / review-panel。Orca の操作：orca-cli / orchestration） |
 | `.claude/agents/` | reviewer / risk-agent / plan-critic / test-designer / arch-reviewer / 合体版のレビューの担当（review-intake / review-lens / review-ac-scope / review-safety / review-overbuild / review-scorer） |
 | `overview.html` | 全体の図解（流れ・役割・ディレクトリの地図・ラベル）。外部を読み込まない1ファイル |
 
