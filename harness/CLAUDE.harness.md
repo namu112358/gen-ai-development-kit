@@ -17,10 +17,10 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 | [sync](../.claude/skills/sync/SKILL.md) | main を取り込んで衝突を解消し、判定が引き継がれたかを確かめる | ○ |
 | [arch-review](../.claude/skills/arch-review/SKILL.md) | Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す | このリポジトリだけ |
 | [hq](../.claude/skills/hq/SKILL.md) | Orca のプライマリ（main の checkout）で、テーマ（Epic）ごとの fleet を起こし、fleet の質問をまとめて人に聞き、Epic の Close で片付ける。リポジトリのファイルは書き換えない | ○ |
-| [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） | このリポジトリだけ |
-| [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop から。Issue の段階ではない） | このリポジトリだけ |
+| [qa-retro](../.claude/skills/qa-retro/SKILL.md) | Merge 済みの PR を振り返り、判定と結果のずれ・テストの穴・不安定なテストを報告し、直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop か、patrol の --routine から呼ばれるループの回。Issue の段階ではない） | このリポジトリだけ |
+| [test-prune](../.claude/skills/test-prune/SKILL.md) | 減らせるテスト（ほかのテストと重なる・文言を固定するだけ）を根拠つきで探し、削除・統合・書き直しの案と直す Issue の下書きを示す（人が呼んだときか、付き添いのセッションの /loop か、patrol の --routine から呼ばれるループの回。Issue の段階ではない） | このリポジトリだけ |
 | [gh-stack](../.claude/skills/gh-stack/SKILL.md) | Stacked PR を組む・見る（付き添いのセッションだけ。`gh stack` は link（PR 番号・URL だけ）・view・移動に絞る） | ○ |
-| [patrol](../.claude/skills/patrol/SKILL.md) | /loop から観測を回し、今回まわす見直し（arch-review・qa-retro・test-prune）を選んで動かし、下書きを集める（人が /loop で呼んだときだけ。Issue の段階ではない） | このリポジトリだけ |
+| [patrol](../.claude/skills/patrol/SKILL.md) | /loop から観測を回し、今回まわす見直し（arch-review・qa-retro・test-prune）を選んで動かし、下書きを集める（人が /loop で呼んだときか、クラウドの Routine の --routine。Issue の段階ではない） | このリポジトリだけ |
 | [intel](../.claude/skills/intel/SKILL.md) | hq・fleet・人から届く気づきを控えて既存の Issue と照らし、直す Issue の下書きを人に示し、人の質問に根拠つきで答える（何も動かさない。Orca の本体のタブで待つ。Issue の段階ではない） | ○ |
 | [issue-creator](../.claude/skills/issue-creator/SKILL.md) | 気づき・観測を Issue Form の下書きにして既存の Issue との重複を二段で確かめ、呼び出し元が名指しした下書きだけを作る（intel などがサブエージェントで呼ぶ。人には聞かない。Issue の段階ではない） | ○ |
 | [backlog](../.claude/skills/backlog/SKILL.md) | 開いた Issue をまとめて見て、重複・重なり・AC の曖昧さ・大きすぎる Issue と着手順の案を人に示し、人が選んだ提案だけをコメントする（人が呼んだときだけ。Issue の段階ではない。本文・ラベルは変えない） | ○ |
@@ -45,7 +45,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - ブランチは付き添いのセッションでも `claude/issue-<番号>-<短い名前>` にする。書いているのは AI なので Agent PR として扱い、判定・修正と、low なら自動 Merge の経路に乗る。critical・ガードレールに触れる PR はふだん Human Merge の経路になるが、bypass（`agent:bypass-merge`）・委任承認（計画＋Merge）・auto mode が有効なら、合格すれば App が自動 Merge することがある。Merge の経路は App が決め、セッションは決めない。
 - セッションが人に `agent:hold` を付けるよう頼むのは、持ち主がその Issue で「Merge は自分でする」と明示したときだけ。今の Merge の経路は `fleet-status` の表の末尾の bypass・委任承認の行と、PR の App の記録（auto-merge、`kind=bypass-merge`・`delegated-merge`・`auto-mode-merge`・`human-review`）で確かめ、推測で書かない。
 - PR は Draft で出す（判定に合格すると App が Ready にする。Ready で出しても App が Draft に戻す）。
-- Stacked PR（層を重ねた PR）を使えるのは付き添いのセッションだけ（Routine の環境には gh が無い）。手順は [gh-stack](../.claude/skills/gh-stack/SKILL.md) の skill。
+- Stacked PR（層を重ねた PR）を使えるのは付き添いのセッションだけ（クラウドの Routine では `gh api` の REST は通るが、GraphQL は 403 なので `gh stack`・`gh pr` は使えない）。手順は [gh-stack](../.claude/skills/gh-stack/SKILL.md) の skill。
   - 積んでよいのは、上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に `main` 宛てで出す。
   - 1層＝1 Issue。下の層の本文は `Refs #N`、一番上の層は `Closes #N`（どちらも1つだけ）。Merge の後、層の Issue は App が閉じる。
   - Stacked PR は Human Merge。GitHub の auto-merge も従来の Merge API も使えないので、スタックの Merge は人が GitHub の画面で行う。
@@ -59,6 +59,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 
 - あなたはユーザー本人の GitHub 名義で動く。信頼できる印は専用 GitHub App（`harness.config.json` の `appSlug`）が付けたものだけ。
 - 定期 Routine（[.claude/routine.md](../.claude/routine.md)）は将来の構想。定期 Routine として起動されたら [.claude/routine.md](../.claude/routine.md) に従う。
+- patrol の Routine（Prompt が `/patrol --routine`）は [patrol の skill](../.claude/skills/patrol/SKILL.md) と [docs/patrol-routine.md](../docs/patrol-routine.md) に従い、[.claude/routine.md](../.claude/routine.md) の queue の手順は使わない。
 
 ## やってはいけないこと
 
