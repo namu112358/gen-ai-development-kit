@@ -4,11 +4,10 @@ import { test } from 'node:test';
 import {
   baselineTests,
   planMutants,
-  relatedTestFiles,
   renderReport,
   runMutants,
-  testArgsFor,
 } from '../scripts/mutate.ts';
+import { relatedTestFiles, testArgsFor } from '../lib/related-tests.ts';
 
 const ALL = ['--test', 'harness/test/**/*.test.ts'];
 const noDeadline = { deadline: Infinity, now: () => 0 };

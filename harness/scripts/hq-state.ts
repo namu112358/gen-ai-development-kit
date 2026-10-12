@@ -4,7 +4,8 @@
  *   node harness/scripts/hq-state.ts path [--common-dir <dir>]
  *   node harness/scripts/hq-state.ts ledger [--common-dir <dir>]
  *   node harness/scripts/hq-state.ts ledger-save <file> [--release-handover <テーマ>...] [--common-dir <dir>]（前の控えの印 "handover": true の fleet は、
- *     新しい控えに同じテーマ（無ければ dispatch）が無ければ残す。外すときは --release-handover。#618）
+ *     新しい控えに同じテーマ（無ければ dispatch）が無ければ残す。外すときは --release-handover。#618。前の fleet の session は
+ *     最上位のキー priorSessions（{"<テーマ>": [session…]}）に残す。hq は書かない。#770）
  *   node harness/scripts/hq-state.ts pending (--session <ID> | --all) [--common-dir <dir>]
  *   node harness/scripts/hq-state.ts pending-add --session <ID> --issue <n> --stage <段階> --question <質問> --option <おすすめ> [--option <ほか>...] [--message-id <id>]
  *   node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <n> --answer <人の答え>
@@ -103,6 +104,50 @@ export function carryHandoverFleets(prev: HqLedger | null, next: HqLedger, relea
     carried.push(key);
   }
   return { ledger: { ...next, fleets: [...next.fleets, ...added] }, carried };
+}
+
+/** priorSessions の鍵ごとに残す session の数（新しいものを残す） */
+export const PRIOR_SESSIONS_LIMIT = 20;
+
+/** priorSessions を読む。形の違う鍵・値は捨てる */
+function readPriorSessions(l: HqLedger | null): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  const p = l?.priorSessions;
+  if (!isObj(p)) return out;
+  for (const [k, v] of Object.entries(p)) {
+    if (!Array.isArray(v)) continue;
+    const list = v.filter((x): x is string => typeof x === 'string' && x !== '');
+    if (list.length > 0) out.set(k, list);
+  }
+  return out;
+}
+
+/**
+ * 前の fleet の session を、新しい控えの priorSessions に残す（hq が自分で起こした fleet の宣言を聞かずに引き継ぐための材料。#770）。
+ * 前の控えの fleet の session のうち、新しい控えに同じ鍵で同じ session の fleet が無いものを足し、前と新しい priorSessions との和をとる。
+ * 新しい控えで動いている fleet の session は除き、鍵ごとに新しい PRIOR_SESSIONS_LIMIT 件まで。引数は変えない
+ */
+export function carryPriorSessions(prev: HqLedger | null, next: HqLedger): HqLedger {
+  const current = new Map<string, Set<string>>();
+  for (const f of next.fleets) {
+    const key = fleetKey(f);
+    if (key === null || typeof f.session !== 'string' || f.session === '') continue;
+    current.set(key, (current.get(key) ?? new Set()).add(f.session));
+  }
+  const merged = readPriorSessions(prev);
+  for (const [k, v] of readPriorSessions(next)) merged.set(k, [...(merged.get(k) ?? []), ...v]);
+  for (const f of prev?.fleets ?? []) {
+    const key = fleetKey(f);
+    if (key === null || typeof f.session !== 'string' || f.session === '' || current.get(key)?.has(f.session)) continue;
+    merged.set(key, [...(merged.get(key) ?? []), f.session]);
+  }
+  const out: Record<string, string[]> = {};
+  for (const [k, v] of merged) {
+    const kept = [...new Set(v)].filter((x) => !current.get(k)?.has(x)).slice(-PRIOR_SESSIONS_LIMIT);
+    if (kept.length > 0) out[k] = kept;
+  }
+  const { priorSessions: _drop, ...rest } = next;
+  return Object.keys(out).length > 0 ? { ...rest, priorSessions: out } as HqLedger : rest as HqLedger;
 }
 
 /** hq がいない間に fleet が控えた質問1つ */
@@ -375,7 +420,7 @@ function main(argv: string[]): void {
     const ledger = parseLedger(readJson(file));
     if (!ledger) throw new UsageError(`控えの形が違います（version 1・runId・hqHandle・hqSession・paneHandles・fleets）：${file}`);
     const { ledger: kept, carried } = carryHandoverFleets(readLedgerFile(commonDir), ledger, args.releaseHandover);
-    const saved: HqLedger = { ...kept, updatedAt: new Date().toISOString() };
+    const saved: HqLedger = { ...carryPriorSessions(readLedgerFile(commonDir), kept), updatedAt: new Date().toISOString() };
     writeJson(ledgerPath(commonDir), saved);
     if (carried.length > 0) console.error(`印 handover の fleet を控えに残しました：${carried.join(', ')}`);
     return print(saved);

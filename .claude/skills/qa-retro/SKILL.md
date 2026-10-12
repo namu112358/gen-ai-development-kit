@@ -41,7 +41,7 @@ Merge 済みの PR を、人が呼んだときか、付き添いのセッショ�
 2. 直す Issue の下書きを作る（risk ポリシーの問いの見直し、テストの追加、不安定なテストの修正）。見出しは Issue Form（[.github/ISSUE_TEMPLATE/agent-task.yml](../../../.github/ISSUE_TEMPLATE/agent-task.yml)）に、タイトルは `harness/lib/title.ts` の書式（Conventional Commits）に合わせる。
    また起きそうなもの（同じ型の見落とし・同じ止まり方）は「また起きそうなので patrol の観測に足す」下書きにしてよい。下書きには足す項目・見分け方・しきい値の案を書く。観測に足す PR では [harness/docs/operations.md の「patrol が知らせる観測の項目」](../../../harness/docs/operations.md)の表に1行足す。
 3. どの下書きを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作る。ラベルは付けない。
-4. 作った Issue を plan に進めるかを AskUserQuestion で聞く（おすすめは「作るだけ」）。進めると選ばれたら ship の skill（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）の手順に従う。
+4. 作った Issue は、harness/CLAUDE.harness.md の進め方のとおり、人が「作るだけ」と言わない限り、聞かずに同じセッションで1件ずつ `node harness/scripts/agent.ts claim <番号> --manual --stage plan` をして plan の skill（批評と投稿まで）を続ける。implement 以降は ship の skill（[.claude/skills/ship/SKILL.md](../ship/SKILL.md)）に従う。
 
 ## /loop で回すとき
 
@@ -56,7 +56,7 @@ skill によらない共通の規則（`/loop` の始め方・止め方、回の
   4. 下書きを JSON の配列（`title`・`body`、同じものがある開いた Issue があれば `duplicateOf`。`labels` は持たせない）で scratchpad に書き、`node harness/scripts/qa-retro-loop.ts advance <集計の JSON> [--drafts <下書きの JSON>]` で期間を進める。進めるのは報告を出した後だけ。
 - `advance` が一致の確かめ（集計の JSON の期間の始まりが、前回の回の終わりと違う）で止まったら、人に聞かずにその回を止め、理由を出す（ほかのセッションが同じ状態で回している・古い JSON を渡した恐れ）。状態は変わらない。
 - 止め方：`/loop` を止める（止めるよう頼む・セッションを閉じる）。`advance` の前に止めた回は期間が進まないので、次の回が同じ始まりから見直す（抜けない）。
-- 人が選ぶ場面（ループの回の外）：人が「qa-retro の下書きを選ぶ」と頼んだら、`node harness/scripts/qa-retro-loop.ts pending` で未採用の下書きを読み、どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作り（ラベルは付けない）、作るたびに `node harness/scripts/qa-retro-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号>` で書き戻す（期間は変わらない）。作った Issue を plan に進めるかは「## 出力」の手順4どおり聞く。
+- 人が選ぶ場面（ループの回の外）：人が「qa-retro の下書きを選ぶ」と頼んだら、`node harness/scripts/qa-retro-loop.ts pending` で未採用の下書きを読み、どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作り（ラベルは付けない）、作るたびに `node harness/scripts/qa-retro-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号>` で書き戻す（期間は変わらない）。作った Issue は「## 出力」の手順4どおり plan に進める。
 - 動作を確かめるときは、`--state <一時のパス>` を `data`・`advance` に渡して、手元の状態のファイルと分ける。
 
 ## やってはいけないこと
