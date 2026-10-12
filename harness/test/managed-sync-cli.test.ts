@@ -113,6 +113,7 @@ test('--dry-run は上書き・新規・除外・kit に無い managed・setting
     '--prune',
     'permissions.deny', // settings の changedKeys
     'permissions.disableBypassPermissionsMode',
+    'permissions.allow',
     'v1',
     s.v1Commit,
   ]) {
@@ -141,7 +142,10 @@ test('本番は v1 の中身を写し、kit-version.json に commit の SHA を�
   assert.equal(read(s.target, '.claude/skills/local-only/SKILL.md'), 'local only skill\n');
 
   const settings = JSON.parse(read(s.target, '.claude/settings.json'));
-  assert.deepEqual(settings.permissions.allow, ['Bash(local-allow)']);
+  // allow は導入先の行を残し、managed.json の settingsAllow の行を足す（kit の settings の allow は入らない）
+  const settingsAllow = (JSON.parse(read(root, 'harness/managed.json')) as { settingsAllow: string[] }).settingsAllow;
+  assert.deepEqual(settings.permissions.allow, ['Bash(local-allow)', ...settingsAllow]);
+  assert.ok(!settings.permissions.allow.includes('Bash(kit-allow)'));
   assert.deepEqual(settings.permissions.deny, KIT_SETTINGS.permissions.deny);
   assert.equal(settings.permissions.disableBypassPermissionsMode, 'disable');
 

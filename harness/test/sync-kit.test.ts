@@ -14,7 +14,8 @@ const managed: ManagedJson = {
     { path: 'harness.config.json', template: 'harness/templates/harness.config.json' },
     { path: 'CLAUDE.md', template: 'harness/templates/CLAUDE.template.md' },
   ],
-  settingsKeys: ['permissions.deny', 'permissions.disableBypassPermissionsMode', 'hooks'],
+  settingsKeys: ['permissions.deny', 'permissions.disableBypassPermissionsMode', 'hooks', 'permissions.allow'],
+  settingsAllow: ['Bash(kit-allow-row)'],
 };
 
 const kitSettings = {
@@ -54,11 +55,11 @@ const targetFiles = new Map<string, string>([
   ['.claude/settings.json', '{}'],
 ]);
 
-/** 導入先の settings（managed のキーは kit と同じ、導入先の allow と独自のキーを持つ） */
+/** 導入先の settings（managed のキーは kit と同じで settingsAllow の行も持つ、導入先の allow と独自のキーを持つ） */
 const sameTargetSettings = () => ({
   permissions: {
     deny: ['Bash(git push --force:*)', 'Read(.env)'],
-    allow: ['Bash(npm test)'],
+    allow: ['Bash(npm test)', 'Bash(kit-allow-row)'],
     disableBypassPermissionsMode: 'disable',
   },
   hooks: { SessionStart: [{ hooks: [{ type: 'command', command: 'node harness/hooks/start.ts' }] }] },
@@ -103,7 +104,7 @@ test('(2) prune のときだけ remove が missingInKit と同じになる', () 
   assert.deepEqual(planSync(baseInput({ prune: true })), { ...basePlan(), remove: ['harness/lib/old.ts'] });
 });
 
-test('(3) settings：deny は kit の値で置き換え、導入先の allow と独自のキーは残り、changedKeys は settingsKeys の順', () => {
+test('(3) settings：deny は kit の値で置き換え、導入先の allow と独自のキーは残り、allow には settingsAllow の行だけ足し（kit の settings の allow は入らない）、changedKeys は settingsKeys の順', () => {
   const target = {
     permissions: { deny: ['Bash(rm:*)'], allow: ['Bash(npm test)'], disableBypassPermissionsMode: 'disable' },
     hooks: { Stop: [] },
@@ -115,26 +116,26 @@ test('(3) settings：deny は kit の値で置き換え、導入先の allow と
       merged: {
         permissions: {
           deny: ['Bash(git push --force:*)', 'Read(.env)'],
-          allow: ['Bash(npm test)'],
+          allow: ['Bash(npm test)', 'Bash(kit-allow-row)'],
           disableBypassPermissionsMode: 'disable',
         },
         hooks: kitSettings.hooks,
         model: 'opus',
       },
-      changedKeys: ['permissions.deny', 'hooks'],
+      changedKeys: ['permissions.deny', 'hooks', 'permissions.allow'],
     },
   });
 });
 
-test('(4) 導入先に settings が無い：kit の settingsKeys のキーだけで作り、changedKeys は取り出したキーの全部', () => {
+test('(4) 導入先に settings が無い：kit の settingsKeys のキーと settingsAllow の行だけで作り、changedKeys は取り出したキーの全部', () => {
   assert.deepEqual(planSync(baseInput({ targetSettings: null })), {
     ...basePlan(),
     settings: {
       merged: {
-        permissions: { deny: kitSettings.permissions.deny, disableBypassPermissionsMode: 'disable' },
+        permissions: { deny: kitSettings.permissions.deny, disableBypassPermissionsMode: 'disable', allow: ['Bash(kit-allow-row)'] },
         hooks: kitSettings.hooks,
       },
-      changedKeys: ['permissions.deny', 'permissions.disableBypassPermissionsMode', 'hooks'],
+      changedKeys: ['permissions.deny', 'permissions.disableBypassPermissionsMode', 'hooks', 'permissions.allow'],
     },
   });
 });

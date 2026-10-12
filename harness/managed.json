@@ -1,5 +1,5 @@
 {
-  "$comment": "導入先に配るファイルの一覧（Issue #155）。managed は sync が上書きする kit のもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー（混ぜ方は sync の Issue で決める）。harness/test・package.json・tsconfig.json は配らない（ゲートは依存なしで Node 24 だけで動く）。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。sync は写さない",
+  "$comment": "導入先に配るファイルの一覧（Issue #155）。managed は sync が上書きする kit のもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー（混ぜ方は sync の Issue で決める）。harness/test・package.json・tsconfig.json は配らない（ゲートは依存なしで Node 24 だけで動く）。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。sync は写さない。settingsAllow は permissions.allow に足す行（和集合。導入先の行は残し、kit の settings の allow は配らない）",
   "managed": [
     "harness/lib/**",
     "harness/gates/**",
@@ -11,7 +11,8 @@
     ".claude/hooks/**",
     ".claude/routine.md",
     ".github/workflows/gate.yml",
-    ".github/ISSUE_TEMPLATE/agent-task.yml"
+    ".github/ISSUE_TEMPLATE/agent-task.yml",
+    ".github/pull_request_template.md"
   ],
   "exclude": [
     "harness/scripts/observe.ts",
@@ -50,6 +51,13 @@
   "settingsKeys": [
     "permissions.deny",
     "permissions.disableBypassPermissionsMode",
-    "hooks"
+    "hooks",
+    "permissions.allow"
+  ],
+  "settingsAllow": [
+    "Bash(node harness/scripts/agent.ts *)",
+    "Bash(gh issue view *)",
+    "Bash(gh pr view *)",
+    "Bash(gh pr diff *)"
   ]
 }

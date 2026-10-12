@@ -9,12 +9,14 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 
 | 区分 | パス | 扱い |
 | --- | --- | --- |
-| kit が持つ（`managed`） | `harness/lib/**`・`harness/gates/**`・`harness/scripts/**`・`harness/templates/**`・`harness/CLAUDE.harness.md`・`.claude/skills/**`・`.claude/agents/**`・`.claude/hooks/**`・`.claude/routine.md`・`.github/workflows/gate.yml`・`.github/ISSUE_TEMPLATE/agent-task.yml` | そのまま写す。導入先では書き換えない。`.claude/skills/**` は Orca のスキルの入口（`orca-cli`・`orchestration`、[11. Orca](#11-orca標準の実行環境)）も含む |
+| kit が持つ（`managed`） | `harness/lib/**`・`harness/gates/**`・`harness/scripts/**`・`harness/templates/**`・`harness/CLAUDE.harness.md`・`.claude/skills/**`・`.claude/agents/**`・`.claude/hooks/**`・`.claude/routine.md`・`.github/workflows/gate.yml`・`.github/ISSUE_TEMPLATE/agent-task.yml`・`.github/pull_request_template.md` | そのまま写す。導入先では書き換えない。`.claude/skills/**` は Orca のスキルの入口（`orca-cli`・`orchestration`、[11. Orca](#11-orca標準の実行環境)）も含む |
 | kit が持つが配らない（`exclude`） | 観測系（observe・test-prune・mutate・patrol・qa-retro・arch-review）の scripts・lib・commands・skill・agent（一覧は `harness/managed.json` の `exclude`） | `managed` に当たっても写さない。このリポジトリの `harness/test/`・README の表・CI を前提にするため。配られる README の表には除外したファイルの行が残り、hq の skill の patrol の下書きの手順はこのリポジトリだけ |
 | 初回だけ雛形から作る（`projectOwned`） | `harness.config.json`（← `harness/templates/harness.config.json`）、`CLAUDE.md`（← `harness/templates/CLAUDE.template.md`） | 写した後は導入先が持つ。CLAUDE.md の `@harness/CLAUDE.harness.md` の行は消さない（ハーネスの規則を読み込む） |
-| 両方が混ざる | `.claude/settings.json` | ハーネスのキー（`settingsKeys`：`permissions.deny`・`permissions.disableBypassPermissionsMode`・`hooks`）だけを導入先の設定に入れる |
+| 両方が混ざる | `.claude/settings.json` | ハーネスのキー（`settingsKeys`）だけを導入先の設定に入れる。`permissions.deny`・`permissions.disableBypassPermissionsMode`・`hooks` は kit の値で置き換え、`permissions.allow` は `settingsAllow` の4行（`node harness/scripts/agent.ts *`・`gh issue view *`・`gh pr view *`・`gh pr diff *`）を導入先の行に足す（和集合） |
 | 持ち込まない | `harness/test/`・`package.json`・`tsconfig.json`・`.node-version`・`overview.html`・このリポジトリの docs | ゲートは依存なしで Node 24 だけで動く（`gate.yml` は `node-version: 24` を直接指定する）。ハーネスの検査（`npm run check`）はこのリポジトリの CI で行う |
 | 持ち込まない（導入先が持つ） | `.gitattributes` | 導入先が自分のバイナリや CRLF の要るファイルの例外を書くため、配らない（sync で上書きすると例外を書けない）。同じ `* text=auto eol=lf` の行を導入先にも置くとよい（[10. 改行コード](#10-改行コードgitattributes)） |
+
+`permissions.allow` の和集合は足すだけで、kit が配る行を後で外しても導入先の allow からは自動では消えない（外すには導入先で手で消す）。この変更より前の `harness/lib/sync.ts` は `permissions.allow` を kit の値で丸ごと置き換えるので、導入先の `harness/lib/sync.ts` がこの変更より前なら、先にこの版の `harness/lib/sync.ts` を写してから sync する（古い sync が新しい `managed.json` を読むと、kit の `npm run` の行を含む allow で導入先の allow を上書きするため）。
 
 導入先の CI が出すチェックの名前（GitHub Actions ならジョブ名）を、`harness.config.json` の `projectChecks` に並べる（例：`[{ "context": "lint" }, { "context": "test" }]`。このリポジトリでは `ci.yml` の `ci`）。手順 4 の Ruleset で必須チェックになる。GitHub Actions 以外の CI なら、そのチェックを出す App の ID を `integrationId` に書く（省くと GitHub Actions の 15368）。書かなければ `ci` だけ、空の配列ならプロジェクトの CI を必須にしない（`setup.ts` が警告を出す）。ハーネスのチェック（`agent/review` など）は書かない（コードに固定。同じ名前を書くとエラー）。
 
@@ -123,7 +125,7 @@ claude plugin install pr-review-toolkit@claude-plugins-official --scope user
 
 確かめ方：`claude plugin list` に出る、`claude plugin details typesafe@typesafe-ai` が見つかる、新しいセッションの skill の一覧に `typesafe:typesafe-ai` が出る。個人で外すときは `.claude/settings.local.json` に `false` を書く。クラウドのセッション・Routine では入らない（Non-goal のまま）。
 
-**導入先への引き継ぎ**：節1で `.claude/` をコピーすると、3つの登録と `WebFetch(domain:docs.typesafe.ai)` の許可も導入先に入る。要らなければ導入先の `.claude/settings.json` から `extraKnownMarketplaces`・`enabledPlugins`・`WebFetch(domain:docs.typesafe.ai)` の行を消す（その場合は `harness/test/settings-plugins.test.ts` も消す）。
+**導入先への引き継ぎ**：節1で `.claude/` を手でコピーすると、3つの登録と `WebFetch(domain:docs.typesafe.ai)` の許可も導入先に入る（sync では入らない。sync が settings に入れるのは `settingsKeys` だけで、allow は `settingsAllow` の4行だけ）。要らなければ導入先の `.claude/settings.json` から `extraKnownMarketplaces`・`enabledPlugins`・`WebFetch(domain:docs.typesafe.ai)` の行を消す（その場合は `harness/test/settings-plugins.test.ts` も消す）。
 
 **注意**：`claude-plugins-official` は Claude Code が最初から登録している名前で、マーケットプレイスの登録（`~/.claude/plugins/known_marketplaces.json`）は利用者ごとに1つなので、このリポジトリでの固定はほかのプロジェクトでの公式マーケットプレイスの版と自動更新にも及びうる。
 
