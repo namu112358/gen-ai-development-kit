@@ -27,6 +27,7 @@
 | `fleet-watch.ts` | fleet の待つ間の読み直しの判断（Issue #199、人の決定 2026-09-30）。 | ○ |
 | `fleet.ts` | fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。 | ○ |
 | `flow.ts` | 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。 | ○ |
+| `gh-rest.ts` | Issue・PR を GraphQL を使わず REST（GitHub.get・GitHub.paginate）だけで読み、gh の `--json` の欄の名前にそろえて返す（Issue #712）。 | ○ |
 | `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |
 | `graphql-prefetch.ts` | まとめた GraphQL の問い合わせで Issue・PR の材料を先に読み、REST の形に直す先読みの仕組み（ダッシュボードと fleet-status・step が使う）。 | ○ |
 | `guardrail.ts` | ガードレール：Agent が自分を縛る仕組み（App が機械的に強制している部分）。 | ○ |
@@ -48,6 +49,7 @@
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `model-routing.ts` | 実装のモデル（Opus / Sonnet）を Jev に問い、計画ゲートの記録と show-plan・集計で使う形にする（Issue #139）。 | ○ |
 | `observe-docs.ts` | 保守の観測（harness/scripts/observe.ts）の docs の照合。 | ○ |
+| `observe-ops.ts` | 運用の健康 14 項目の材料を GitHub の GET と git から読み、judgeOpsHealth に渡して判定を返す（Epic #691、Issue #701）。 | ○ |
 | `observe.ts` | 保守の観測（harness/scripts/observe.ts）のまとめ。 | ○ |
 | `ops-health.ts` | 保守の観測（harness/scripts/observe.ts）の運用の健康：定期実行の抜け・API の上限・CI の過剰な実行・PR の滞留など 14 項目の判定と、GitHub を読む数の上限。 | ○ |
 | `overbuild-jev.ts` | 判定の⑨（over-implementation・over-testing・over-engineering）のブロッキング指摘を Jev に問う材料・要求・答えのまとめ・enforce での判定の組み替え・受け付けの表の行。 | ○ |
