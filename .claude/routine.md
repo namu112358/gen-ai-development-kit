@@ -17,14 +17,14 @@
 
 ### 0. queue を読む
 
-1. `node --version` が v22.18 以上か確認する（古ければ報告して終了）。
+1. `node --version` が `package.json` の `engines.node`（今は `>=24`）を満たすか、つまり v24 以上か確認する（古ければ報告して終了）。
 2. MCP ツールで、タイトルが `harness.config.json` の `dashboardIssueTitle` の open Issue を探す。**作成者が `<appSlug>[bot]`（`appSlug` も同じファイル）であること**を確かめる。違えば何もせず終了する。
 3. 本文の `<!-- agent-harness:queue:start -->` と `<!-- agent-harness:queue:end -->` の間にある ```` ```agent-app ```` の JSON（`kind: "queue"`）を読む。`actions` を上から順に処理する。空なら要約を出力して終了する。
 
 各アクションの前に、MCP で対象の現在の状態を読み直す。queue は App の定期実行（1時間ごと）と手動の起動のとき（定期実行が来なければ periodicCatchUpMinutes 分おきにイベントの gate が補うとき）だけ公開し直すので古いことがあり、次の場合は queue より現在の状態に従う。
 
 - ラベルが変わった、PR の head が `headSha` と違う、既に計画や判定が投稿済み → そのアクションは飛ばす
-- 別の実行の着手宣言（`agent-claim`、解除されておらず 90 分以内）がある → 飛ばす
+- 別の実行の着手宣言（`agent-claim`、解除されておらず、`harness.config.json` の `routine.routineClaimTakeoverMinutes` 分以内）がある → 飛ばす
 - judge の対象 PR に、現在の head に対するコラボレーターのレビュー（Claude・App 以外、`commit_id` が head と同じ、Comment または Request changes）がある → judge ではなく fix（人の指摘）を行う
 
 着手宣言：`node harness/scripts/agent.ts render-claim` の出力を対象の Issue / PR にコメントする（ラベルは付けない）。計画・判定を投稿すれば着手は終わる。それ以外で終えるとき（実装・修正の完了、失敗、飛ばすとき）は `render-claim --release` の出力をコメントしてから次に進む。人の対応が必要なら、`render-block <理由コード> <説明>` の出力をコメントしてから `agent:blocked` を付ける（理由コードは [docs/operations.md](../docs/operations.md)）。
@@ -106,7 +106,7 @@ node harness/scripts/agent.ts incident add --session "$CLAUDE_CODE_REMOTE_SESSIO
 
 見張りの hook（`.claude/hooks/guard.ts`）が止めた操作は、hook が stdin の `session_id`（SessionStart の hook が `AGENT_HARNESS_SESSION` に書くのと同じ ID）の記録に自動で足す。これが `CLAUDE_CODE_REMOTE_SESSION_ID` と同じだとは限らないので、読むときは `AGENT_HARNESS_SESSION` があれば `--session "$AGENT_HARNESS_SESSION"` も重ねる（同じなら重複は除かれる）。
 
-実行の終わりに `incident list --session "$CLAUDE_CODE_REMOTE_SESSION_ID" [--session "$AGENT_HARNESS_SESSION"]` で記録があれば、`node harness/scripts/agent.ts incident render-comment --session "$CLAUDE_CODE_REMOTE_SESSION_ID" [--session "$AGENT_HARNESS_SESSION"]` の出力を、MCP でダッシュボードの Issue に**1回だけ**コメントする（記録が無ければコメントしない）。起票はしない。App がダッシュボードの「改善の候補」の節に並べ、起票するかは人が決める。GitHub に記録を書くのは、人の決定（2026-09-29）による例外で、Routine（無人）の実行ごとにこの1回だけ。付き添いのセッションは GitHub に記録を書かない。
+実行の終わりに `incident list --session "$CLAUDE_CODE_REMOTE_SESSION_ID" [--session "$AGENT_HARNESS_SESSION"]` で記録があれば、`node harness/scripts/agent.ts incident render-comment --session "$CLAUDE_CODE_REMOTE_SESSION_ID" [--session "$AGENT_HARNESS_SESSION"]` の出力を、MCP でダッシュボードの Issue に**1回だけ**コメントする（記録が無ければコメントしない）。起票はしない。App がダッシュボードの「改善の候補」の節に並べ、起票するかは人が決める。GitHub に記録を書くのは、人の決定による例外で、Routine（無人）の実行ごとにこの1回だけ。付き添いのセッションは GitHub に記録を書かない。
 
 ## 終わりに
 
