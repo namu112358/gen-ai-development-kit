@@ -1,7 +1,9 @@
 import { OBSERVE_SECTIONS, type ObserveReport, type ObserveSection } from './observe.ts';
+import { OPS_ITEM_IDS, type OpsItemId } from './ops-health.ts';
 
 /**
  * 見直しのまとめ役（patrol の skill）が、観測の差と前回からの経過で今回まわす見直しを決める（純粋関数）。スクリプトは harness/scripts/patrol.ts。
+ * 運用の健康（観測の opsHealth）の超えた項目・前回から値が増えた項目は alerts として知らせるだけで、見直しの選び方には使わない。
  * 見直しごとに、見る観測の節と間隔の下限・上限を PATROL_REVIEWS に持つ。形が suggest の見直しは動かさず、人に勧めるだけにする（今は3つとも run。suggest の形は、人に勧めるだけの見直しを足すときと、今までの状態のファイルを読むために残す）。
  *
  * 状態のファイル（既定は git の共通ディレクトリの下の agent-harness/patrol.json。作業ツリーにも GitHub にも書かない）の書式：
@@ -53,7 +55,13 @@ export interface PatrolSelection {
   skipped: { name: PatrolReviewName; reason: PatrolReason }[];
   /** 見直しごとの理由（表の順） */
   reasons: PatrolDecision[];
+  /** 運用の健康のうち、しきい値を超えた項目と前回から値が増えた項目（OPS_ITEM_IDS の順。超えた項目が先）。知らせるだけ */
+  alerts: PatrolAlert[];
+  /** alerts が空・一部の理由（無ければ null） */
+  alertsNote: string | null;
 }
+/** exceeded は今回しきい値を超えた、newlyExceeded は前回は超えていなかった、previous は前回から値が増えたときの前回の値（増えていなければ null） */
+export interface PatrolAlert { id: OpsItemId; title: string; value: number; threshold: number; exceeded: boolean; newlyExceeded: boolean; previous: number | null }
 
 type Result<T> = ({ ok: true } & T) | { ok: false; errors: string[] };
 
@@ -91,6 +99,51 @@ function decide(def: PatrolReviewDef, state: PatrolState | null, observe: Observ
   return { ...base, reason: 'no-diff', detail: `観測の差が無い（${def.sections.join('・')}）${tail}` };
 }
 
+const isNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+const isOpsId = (v: unknown): v is OpsItemId => typeof v === 'string' && (OPS_ITEM_IDS as readonly string[]).includes(v);
+
+/**
+ * 観測の opsHealth から知らせを組む。形は信じず読む。opsHealth が無い・読めない・形が違うときは空（note に理由）。
+ * diff.opsHealth が使えないときは超えた項目だけを出す（初回に今回超えた項目を見落とさない）。
+ */
+export function opsAlerts(report: ObserveReport): { alerts: PatrolAlert[]; note: string | null } {
+  const ops: unknown = (report as { opsHealth?: unknown }).opsHealth;
+  if (ops === undefined || ops === null) return { alerts: [], note: '観測の JSON に運用の健康（opsHealth）が無いので、知らせは空' };
+  const malformed = { alerts: [], note: '観測の JSON の opsHealth の形が違うので、知らせは空' };
+  if (!isObject(ops)) return malformed;
+  if (ops.available === false) return { alerts: [], note: `運用の健康が読めないので、知らせは空：${typeof ops.reason === 'string' ? ops.reason : '理由なし'}` };
+  if (ops.available !== true || !Array.isArray(ops.items)) return malformed;
+  const judged = new Map<OpsItemId, { title: string; value: number; threshold: number; exceeded: boolean }>();
+  for (const it of ops.items as unknown[]) {
+    if (!isObject(it) || !isOpsId(it.id) || typeof it.title !== 'string') return malformed;
+    if (it.available === true) {
+      if (!isNum(it.value) || !isNum(it.threshold) || typeof it.exceeded !== 'boolean') return malformed;
+      judged.set(it.id, { title: it.title, value: it.value, threshold: it.threshold, exceeded: it.exceeded });
+    } else if (it.available !== false || typeof it.reason !== 'string') return malformed;
+  }
+  const d: unknown = (report as { diff?: unknown }).diff;
+  const od: unknown = isObject(d) ? d.opsHealth : undefined;
+  const added = new Set<string>();
+  const previous = new Map<string, number>();
+  let note: string | null = null;
+  if (isObject(od) && isObject(od.exceeded) && Array.isArray(od.exceeded.added) && Array.isArray(od.increased)) {
+    for (const id of od.exceeded.added) if (typeof id === 'string') added.add(id);
+    for (const x of od.increased) if (isObject(x) && typeof x.id === 'string' && isNum(x.previous)) previous.set(x.id, x.previous);
+  } else note = '前回との差が無い（読めない）ので、増えた項目は出していない';
+  const alerts: PatrolAlert[] = [];
+  const make = (id: OpsItemId, j: { title: string; value: number; threshold: number; exceeded: boolean }): PatrolAlert =>
+    ({ id, title: j.title, value: j.value, threshold: j.threshold, exceeded: j.exceeded, newlyExceeded: j.exceeded && added.has(id), previous: previous.get(id) ?? null });
+  for (const id of OPS_ITEM_IDS) {
+    const j = judged.get(id);
+    if (j?.exceeded) alerts.push(make(id, j));
+  }
+  for (const id of OPS_ITEM_IDS) {
+    const j = judged.get(id);
+    if (j && !j.exceeded && previous.has(id)) alerts.push(make(id, j));
+  }
+  return { alerts, note };
+}
+
 const RANK: Partial<Record<PatrolReason, number>> = { never: 0, overdue: 1, diff: 2 };
 
 /** 今回まわす見直しを決める。max は run の形で回す数の上限（suggest の形は枠を使わない）。defs は見直しの定義の一覧（既定は PATROL_REVIEWS）。状態は変えない */
@@ -116,6 +169,7 @@ export function selectReviews(state: PatrolState | null, observe: ObserveReport,
     // limit も RANK に無いので、ここに入る
     skipped: reasons.filter((d) => RANK[d.reason] === undefined).map((d) => ({ name: d.name, reason: d.reason })),
     reasons,
+    ...(({ alerts, note }) => ({ alerts, alertsNote: note }))(opsAlerts(observe)),
   };
 }
 
@@ -179,7 +233,7 @@ export function recordRound(state: PatrolState | null, ran: string[], suggested:
   return { ok: true, state: { version: 1, reviews, observe, rounds } };
 }
 
-/** 観測の JSON（ObserveReport）として使えるか。selectReviews が読むのは diff だけなので、そこを確かめる */
+/** 観測の JSON（ObserveReport）として使えるか。selectReviews が読むのは diff.sections と opsHealth で、確かめるのは diff.sections だけ（opsHealth の形は opsAlerts が読み、違えば知らせを空にする。誤りにしない） */
 export function checkObserveReport(v: unknown): Result<{ report: ObserveReport }> {
   if (!isObject(v) || v.version !== 1 || !isIso(v.generatedAt)) return { ok: false, errors: ['観測の JSON（observe.ts の出力。version 1・generatedAt）ではありません'] };
   if (v.diff !== undefined) {
