@@ -6,7 +6,7 @@ import { bypassState } from '../../../gates/bypass.ts';
 import { bypassMergeConfig, delegateConfig, fleetConfig, projectCommands, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
 import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../../../lib/fleet-reads.ts';
 import { delegateState } from '../../../lib/delegate.ts';
-import { type FleetIssue, type FleetMergeState, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
+import { type FleetIssue, type FleetMergeState, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, humanWaitMinutes, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
 import { fleetWatchConfig, pendingFollowUps, readWatchRecord, updateWatch, watchRecordPath, writeWatchRecord } from '../../../lib/fleet-watch.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { gitCommonDir } from '../../../lib/local-state.ts';
@@ -29,6 +29,8 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           Issue・PR の材料は GraphQL でまとめて読む（harness/lib/fleet-reads.ts。#249）
  *                                                           requireAssignee が true なら、Assignee が自分1人でない Issue を理由付きで待つにする。
  *                                                           --json なら、表と同じ中身（行・段階・選択と理由・重なり・メモ・着手宣言（時刻と期限切れか：at・stale。#639）・選んだ数・進め方）を JSON で出す（harness/lib/fleet.ts の fleetStatusData）
+ *                                                           人の判断待ち（plan-review・Issue の止まる印）が hq.humanWaitMinutes（既定 120 分）を超えた Issue は「待つ（脇に置く）」にし、PR の止まる印の行も含めて、
+ *                                                           このセッションの宣言の番号を表の下と --json の setAsideReleases に出す（harness/lib/fleet.ts の humanWaitOf・setAsideReleases。#667）
  *                                                           表の末尾（進め方の行の後）に bypass・委任承認の今の状態の2行（有効・無効・計画のみ・読めない）を出し、--json は merge に入れる
  *                                                           （ダッシュボードを1回探し、bypass か委任のラベルがあるときだけ timeline を読む。読めなければ readable: false。harness/lib/fleet.ts の mergeStateLines）
  *                                                           表の下に、このセッションの読み込みが古ければその1行を出す（harness/lib/harness-drift.ts の driftLine。記録が無い・古くなければ出さない。#199）。--json では比べない（git fetch もしない）。
@@ -106,8 +108,10 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const max = maxArg === undefined ? null : Number(maxArg);
   // 進め方が決まらないまま表を出さない（設定の誤りは GitHub を読む前に止める）
   let mode: ReturnType<typeof fleetConfig>;
+  let humanLimit: number;
   try {
     mode = fleetConfig(config);
+    humanLimit = humanWaitMinutes(config);
   } catch (e) {
     fail([`harness.config.json: ${(e as Error).message}`]);
   }
@@ -134,7 +138,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   // Assignee を確かめる設定のときだけ、今の GitHub のユーザーを読む（Issue #172）
   const me = requireAssignee(config) ? (await gh.get<{ login: string }>('/user')).login : null;
   const session = currentSession();
-  const sel = selectFleet(config, facts, rows, max, session, me);
+  const sel = selectFleet(config, facts, rows, max, session, me, { limitMinutes: humanLimit, now: new Date() });
   const merge = await fleetMergeState(gh);
   const watched = watchCfg ? watchNotes(rows, items, session, watchCfg) : null;
   if (json) {
@@ -142,7 +146,9 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
     return JSON.stringify(watched ? { ...data, watch: watched } : data, null, 2);
   }
   const drift = driftLine(harnessDrift());
-  const extra = [drift, ...(watched ? watched.lines : [])].filter((x) => x !== '');
+  const released = fleetStatusData(facts, rows, sel, max, session).setAsideReleases ?? [];
+  const setAside = released.length > 0 ? `脇に置いた人の判断待ちの、このセッションの着手宣言：${released.map((n) => `#${n}`).join(' ')}（release する）` : '';
+  const extra = [setAside, drift, ...(watched ? watched.lines : [])].filter((x) => x !== '');
   const table = renderFleetStatus(rows, sel, max, mode, merge);
   return extra.length > 0 ? `${table}\n${extra.join('\n')}` : table;
 }
