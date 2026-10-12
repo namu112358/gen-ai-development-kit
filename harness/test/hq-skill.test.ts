@@ -10,6 +10,7 @@ import { frontmatter, readText, section, skillProblems, type SkillSpec } from '.
 const HQ_SKILL = '.claude/skills/hq/SKILL.md';
 const FLEET_SKILL = '.claude/skills/fleet/SKILL.md';
 const AS_WORKER = '## Orca の worker として動くとき';
+const DIRECT = '## ship を直接起こす進め方（`--direct`）';
 const skill = (): string => readText(HQ_SKILL);
 
 /** hq の skill の構造の表 */
@@ -23,6 +24,9 @@ const HQ_SPEC: SkillSpec = {
     'exited', 'unverifiable', '1時間に2回', '人に知らせる', 'agent-harness:hq-restart', '--takeover',
     // プライマリで動く・書き換えない・進んでいない fleet・Orca が無い環境（#287）
     'isMainWorktree', '書き換えない', 'panes.ts fleets --session', 'Orca が無い',
+    // fleet を挟まずに ship を直接起こす進め方（#756）
+    // '--direct <' は入力の書き方（'--direct' だけでは '--direction' に当たる）
+    DIRECT, '--direct <', 'directEpics',
   ],
   parts: [
     { section: '## 手順', order: ['テーマを決めて知らせる', 'worker-start', 'reply', 'Epic が Close'] },
@@ -50,6 +54,10 @@ const HQ_SPEC: SkillSpec = {
     { step: 7, words: ['hq-decide.ts route', 'hq-decide.ts handover'] },
     // 手順8：動いている ship の数と空いた枠の割り当ては hq-decide.ts assign の結果に従う（#780）
     { step: 8, words: ['hq-decide.ts assign'] },
+    // 手順9・10：hq が自分で起こした fleet の宣言は hq-decide.ts takeover の判定に従い、聞かずに引き継いだものは手順12の一覧に出す（#770）
+    { step: 9, words: ['手順10の引き継ぎの判定'] },
+    { step: 10, words: ['hq-decide.ts takeover'] },
+    { step: 12, words: ['決めたこと（覆すなら）'] },
     // 手順8：止まったタスクの見回し（#407）
     {
       step: 8,
@@ -71,6 +79,8 @@ const HQ_SPEC: SkillSpec = {
         '長く出力の無いタブ', '期限切れの着手宣言', 'session の短い ID', '引き継がなかった宣言',
       ],
     },
+    // 直接の進め方：ship の worker に、質問（ask）と終わりの知らせ（worker_done）を hq に送らせ、実装のモデルの節に従わせる（#756）
+    { section: DIRECT, words: ['ask', 'worker_done', 'hq', '実装のモデル'] },
     // 相談・アイデアを intel に回す（#396）
     {
       section: '## 相談・アイデアを intel に回す',
