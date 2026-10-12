@@ -13,6 +13,7 @@ import { issueFacts, prFacts } from '../../lib/facts.ts';
 import type { FleetPr } from '../../lib/fleet.ts';
 import { GitHub, type RequestOptions, type Transport } from '../../lib/github.ts';
 import { type BatchSpec, type IssueItem, PrefetchTransport, readBatch, restUser, Snapshot } from '../../lib/graphql-prefetch.ts';
+import { decisionInfo } from './decision.ts';
 import type { DashIssue, DashPr, PlanCopy, ProgressFacts } from './graph.ts';
 
 // テストと見本が import している名前（先読みの仕組みは harness/lib/graphql-prefetch.ts に移した）
@@ -322,9 +323,11 @@ export class DashboardData {
       fleetPrs.push((await this.loadPr(gh, snap, pr, item.number, new Map([[item.number, facts.readyAt]]), new Map([[item.number, facts.labels]]))).fleet);
     }
     // 計画の写しは issueFacts が返さないので、コメントから読む（App の名義の記録だけを数える）
-    const gate = latestPlanGate(this.config, await gh.listComments(item.number)) as { value: { plan?: PlanCopy } } | null;
+    const comments = await gh.listComments(item.number);
+    const gate = latestPlanGate(this.config, comments) as { value: { plan?: PlanCopy } } | null;
     const plan = gate?.value.plan && typeof gate.value.plan === 'object' ? gate.value.plan : null;
-    this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url, plan });
+    const decision = decisionInfo(this.config, { number: item.number, state: item.state, labels: facts.labels }, comments);
+    this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url, plan, ...(decision ? { decision } : {}) });
   }
 
   private async loadPr(gh: GitHub, snap: Snapshot, pr: PullRequest, issue: number | null, readyAt = new Map<number, string | null>(), issueLabels = new Map<number, string[]>()): Promise<DashPr> {
