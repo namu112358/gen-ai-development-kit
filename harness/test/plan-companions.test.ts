@@ -20,7 +20,7 @@ const EXISTING = [
   'harness/scripts/agent', 'harness/scripts/agent/commands', 'harness/scripts/agent/commands/claim.ts',
   'harness/test', 'harness/test/README.md', 'harness/test/agent-commands.test.ts', 'harness/test/support',
 ];
-const fakeRepo: CompanionRepo = { exists: (p) => EXISTING.includes(p), testPatterns: () => ['gates-*.test.ts', 'support/'] };
+const fakeRepo: CompanionRepo = { exists: (p) => EXISTING.includes(p), testPatterns: () => ['gates-*.test.ts', 'support/'], hasGeneratedTable: () => true };
 
 const CMD = 'harness/scripts/agent/commands/new-cmd.ts';
 const CMD_TEST = 'harness/test/agent-commands.test.ts';
