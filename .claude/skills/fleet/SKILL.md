@@ -56,11 +56,11 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 7. `node harness/scripts/agent.ts usage` で、このセッションのトークン数と推定料金を読む（入れ子の方式の ship とその中の担当の記録も、このセッションの `subagents/` に置かれるので集計に入る）。費用の行には、呼び出しの回数 `calls` と1回あたりのキャッシュの読み込み量 `cacheReadPerCall` も書く（段階ごとに新しく呼ぶ前後の比べに使う）。
 8. 振り分け：ship の手順9と同じ振り分けを、Issue をまたいで1回行う（`node harness/scripts/agent.ts incident list` で記録を読み、入れ子の方式の ship は fleet と同じセッション ID なので同じ記録に入る。Issue の候補は `gh issue list --state open --search "<要点の語>"` で開いた Issue と照らし、無ければ `node harness/scripts/agent.ts incident render-issue <id>... --title <題>` で下書きを作る）。複数の Issue で同じ問題が出たら1つの候補にまとめる。起票・コメントは人が選んだものだけで、自動で起票しない。人が選んで起票した Issue のラベルは手順6と同じく Jev に任せる。
 9. 人に**人がすること**の一覧を1つにまとめて出す（Issue・PR ごとに ship の手順10と同じ項目）。ship が返した「決めたこと（覆すなら）」（聞かずに決めて `post-judgment` で残した「セッションの判定」）も、Issue・PR ごとに一覧の項目にする（コメントへのリンク・決めたこと・当たった基準・覆し方）。
-   - Merge：Human Merge の PR（Merge の順番に意味があれば順番も）。自動 Merge なら何もしない（止めたければ `agent:hold`）
+   - Merge：ship の手順6の分け方（App の記録）に従う。人の Merge 待ち（`kind=human-review` のコメントの PR。Merge の順番に意味があれば順番も）。自動 Merge 待ち（auto-merge が付いた、または `kind=bypass-merge`・`delegated-merge`・`auto-mode-merge` の記録で最新が `-end` でない）は何もしない（`agent:hold` を頼むのは、持ち主がその Issue で「Merge は自分でする」と明示したときだけ）
    - 例外ラベル：`test:exempt` は自動 Merge の対象の PR で `agent/tests` が failure のときだけ（Human Merge の PR では付けず、依頼のコメントに載ったテストの変更を Merge の前に確かめる、を「Merge」の項に書く）。`review:exempt` は付けるかの判断。どちらも、その理由を書いた場所
    - `node harness/scripts/setup.ts` の実行が要る変更か
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
-   - 人の判断待ち：どの Issue の、どの段階の、何を決めてほしいか。一覧を出した後に AskUserQuestion でまとめて聞く（1回に4問まで。聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。入れ子の方式の投稿の前の質問で答えが無いまま終える Issue は、`release <番号>` で解除してから「計画は投稿していない」と書く
+   - 人の判断待ち：どの Issue の、どの段階の、何を決めてほしいか。一覧を出した後に AskUserQuestion でまとめて聞く（1回に4問まで。聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。入れ子の方式の投稿の前の質問で答えが無いまま終える Issue は、`release <番号>` で解除してから「計画は投稿していない」と書く。聞いた答えを ship に渡して記録させるときも、決定のコメントにセッションの言葉で Merge の経路を書かない（経路は App が決める）
    - 待たせた Issue と理由（重なり・PR 同士の衝突・`--max` の本数）
    - 宣言で負けて飛ばした Issue：「#番号 は session … が着手中」
    - 費用：進めた本数と、手順7のトークン数・推定料金
