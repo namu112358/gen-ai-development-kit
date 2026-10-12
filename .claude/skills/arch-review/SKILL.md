@@ -39,7 +39,7 @@ arch-reviewer（[.claude/agents/arch-reviewer.md](../../agents/arch-reviewer.md)
 6. 下書きを JSON（`[{ "title": "type(scope): 説明", "body": "…", "duplicateOf": 番号 }]`）にして `<dir>/drafts.json` に書き、`node harness/scripts/agent.ts arch-review-drafts <dir>/drafts.json` で検査する。本文は Issue Form（`.github/ISSUE_TEMPLATE/agent-task.yml`）の見出し（`### Goal`・`### Background`・`### Requirements`・`### Non-goals`・`### Acceptance Criteria`・`### Dependencies`・`### Validation Requirements`）に沿わせ、Background に根拠（パスと行、どの PR で入ったか）を書く。誤りがあれば直して検査し直す。
 7. 検査の出力の一覧と、下書きごとの要点（根拠・なぜずれか・直し方の案）を人に示し、どれを作るか（コメントの案はどれを投稿するか）を AskUserQuestion で聞く（1回に4問まで。harness/CLAUDE.harness.md の進め方）。おすすめを先頭の選択肢に置く。
 8. 人が選んだものだけを `gh issue create --title "<タイトル>" --body-file <本文のファイル>` で作る。ラベルは指定しない。`agent:ready` は付けない（着手の許可は人が出す）。`priority:*`・`area:*` は Jev に任せる。コメントの案は、人が選んだものだけを `gh issue comment <番号> --body-file <ファイル>` で投稿する（先頭に `<!-- agent-harness:claude -->`）。
-9. Issue を作ったら、harness/CLAUDE.harness.md の進め方のとおり、人が「作るだけ」と言わない限り、ship（複数なら fleet）で plan に進めるかを手順7と同じ問いの中で聞いておき、その答えに従う。
+9. Issue を作ったら、harness/CLAUDE.harness.md の進め方のとおり、人が「作るだけ」と言わない限り、聞かずに同じセッションで1件ずつ `node harness/scripts/agent.ts claim <番号> --manual --stage plan` をして plan の skill（批評と投稿まで）を続ける。implement 以降は ship の skill に従う。
 10. 見た範囲と要約を記録にする。`{ "version": 1, "trigger": "manual", "baseSha": <手順1の baseSha>, "headSha": <手順1の headSha>, "prs": [PR 番号], "summary": ["見つけたずれ（1件1行）"], "drafts": [{ "title": "…", "created": <作った Issue の番号か null>, "body": "…", "duplicateOf": <番号（コメントの案のときだけ）>, "commented": <コメントした Issue の番号か null（コメントの案のときだけ）> }] }` を `<dir>/record.json` に書き（`body` は作らなかった下書きを後で「arch-review の下書きを選ぶ」で選べるように残す）、`node harness/scripts/agent.ts arch-review-record <dir>/record.json` でダッシュボード Issue にコメントする。`--since`・`--until` で過去の範囲を見たとき（前回の位置を巻き戻すことになるとき）は、`node harness/scripts/agent.ts arch-review-record <dir>/record.json --dry-run` にとどめる。
 11. `node harness/scripts/agent.ts worktree-remove <headSha>` で worktree を消す。
 
@@ -69,8 +69,8 @@ arch-reviewer（[.claude/agents/arch-reviewer.md](../../agents/arch-reviewer.md)
 人が「arch-review の下書きを選ぶ」と頼んだとき（`--loop` の回の中ではない）。
 
 1. `node harness/scripts/agent.ts arch-review-pending` で、ダッシュボード Issue の記録から未採用の下書き（`pending`。記録のコメント ID・下書きの番号・タイトル・本文・`duplicateOf`）と、下書きの数（`drafts`）・採用された数（`adopted`）を読む。`pending` が空なら、そう伝えて終える。
-2. 下書きの一覧と要点を示し、どれを作るか（コメントの案はどれを投稿するか）を AskUserQuestion で聞く（1回に4問まで、おすすめを先頭）。Issue を作るなら、作った Issue を ship（複数なら fleet）で plan に進めるかも同じ問いの中で聞いておき、その答えに従う（手順9と同じ）。
-3. 人が選んだものだけを `gh issue create --title "<タイトル>" --body-file <本文のファイル>` で作る（ラベルは指定しない。`agent:ready` は付けない）。作ったら `node harness/scripts/agent.ts arch-review-adopt <記録のコメントID> <下書きの番号> <Issue 番号>` で、その記録の下書きの `created` を書き戻す。
+2. 下書きの一覧と要点を示し、どれを作るか（コメントの案はどれを投稿するか）を AskUserQuestion で聞く（1回に4問まで、おすすめを先頭）。
+3. 人が選んだものだけを `gh issue create --title "<タイトル>" --body-file <本文のファイル>` で作る（ラベルは指定しない。`agent:ready` は付けない）。作った Issue は手順9どおり plan に進める。作ったら `node harness/scripts/agent.ts arch-review-adopt <記録のコメントID> <下書きの番号> <Issue 番号>` で、その記録の下書きの `created` を書き戻す。
 4. コメントの案（`duplicateOf` 付き）は、人が選んだものだけを `gh issue comment <duplicateOf> --body-file <ファイル>` で投稿し（先頭に `<!-- agent-harness:claude -->`）、`node harness/scripts/agent.ts arch-review-adopt <記録のコメントID> <下書きの番号> <duplicateOf> --comment` で `commented` を書き戻す。
 5. 書き戻しは記録のコメントの編集なので、作成日時は変わらず、次の回の前回の位置は動かない。
 
