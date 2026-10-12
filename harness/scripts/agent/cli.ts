@@ -10,7 +10,7 @@ import { ensureOwnClaim as ownClaimError } from '../../lib/claim.ts';
 import { LABELS, loadConfig, REASON_CODES, type ReasonCode, reasonMark, riskLabel } from '../../lib/config.ts';
 import { parseDecision } from '../../lib/decision.ts';
 import { parseHandoff } from '../../lib/handoff.ts';
-import { GitHub, RateLimitError, type Transport, transportFromEnv } from '../../lib/github.ts';
+import { GitHub, graphqlUnavailable, RateLimitError, type Transport, transportFromEnv } from '../../lib/github.ts';
 import { judgedHeadError, samePrPatch } from '../../lib/patch-id.ts';
 import { gitCommonDir } from '../../lib/local-state.ts';
 import { compareHarness, type DriftResult, harnessVersionsAt, loadedRecordPath, readLoadedRecord } from '../../lib/harness-drift.ts';
@@ -343,8 +343,11 @@ export class FallbackGitHub extends GitHub {
 
 /** GitHub を作る。counter があれば呼び出しを数え、応答の上限のヘッダーを覚える */
 export function newGitHub(counter: ApiCounter | null): GitHub {
-  if (!counter) return new FallbackGitHub(transportFromEnv(), repository());
-  return new FallbackGitHub(new CountingTransport(transportFromEnv({ onResponse: counter.observe }), counter), repository());
+  const gh = counter
+    ? new FallbackGitHub(new CountingTransport(transportFromEnv({ onResponse: counter.observe }), counter), repository())
+    : new FallbackGitHub(transportFromEnv(), repository());
+  gh.restOnly = graphqlUnavailable();
+  return gh;
 }
 
 /** コマンドに渡す文脈。gh は初めて呼んだときに作る（GitHub を使わないコマンドは作らず、gh・origin が無くても動く） */
