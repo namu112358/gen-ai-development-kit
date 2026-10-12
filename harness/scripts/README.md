@@ -10,6 +10,7 @@
 | `agent/` | `harness/scripts/agent.ts` のサブコマンドの実装（`commands/`）と、コマンドが共有する補助（`cli.ts`）。 | ○ |
 | `dashboard.ts` | エージェントの状態をグラフで見る、手元の読み取り専用のダッシュボード（GitHub には書かない）。 |  |
 | `dashboard/` | エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。 |  |
+| `hq-compact.ts` | hq が fleet と hq 自身の端末へ `/compact` を送る判定と送り方（Issue #737）。 |  |
 | `hq-state.ts` | hq の控え（hq-fleets.json）と、hq がいない間の fleet の質問の控えを、git の共通ディレクトリの下に置く（Issue #409）。 |  |
 | `hq-watch.ts` | hq の見張り（Issue #559）。 |  |
 | `jev-context.ts` | auto mode の危険の問い（autoModePrJevRequest）を、4通りの材料（今の材料・＋Issue・＋ファイル全体・＋両方）で Jev に問い直し、PR ごとの危険の確率を Markdown の表で標準出力に出す、手で実行する実験用スクリプト（Issue #596）。 |  |
