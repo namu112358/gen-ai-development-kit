@@ -336,6 +336,13 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 
 - `quote` は人の言葉そのまま（空は不可）、`choice` は選択肢で答えたときに選んだ項目、`at` は ISO 8601 の日時。
 - App は Jev に問わず、`jev.decisionRelease` にも依らずに確かめ（`harness/lib/decision.ts` の `proceedEligibility`）、`plan-proceed` の記録を付ける。ラベルと計画ゲートの結果は変えない。対象になるのは、Issue が開いていて `agent:plan-review` が付き、App の最新の計画ゲートの記録が止まった記録で `planCommentId` が一致し、計画コメントの本文がゲートの後に変わっておらず、決定の記録がその停止の後に書かれ、計画に `acChangeProposed` が無く、今の印がどれかの計画の投稿（`post-plan`）か App の停止の窓（計画コメントの投稿の 60 秒前からその計画ゲートの記録まで）で付いたもの。窓の外で付いた印（人が付けた印）は対象外で、人が外して計画を出し直す。
+- 計画に `acChangeProposed` があるとき、人がその提案を受け入れて進めると決めたなら、`proceed` と同じ記録に `acChangeAccepted` を足す。`quote` は人の言葉そのままで必須（空は不可）、`at` は ISO 8601 の日時、`choice` は任意。`proceed` のある記録にだけ書ける。
+  ```json
+  { "version": 1, "issue": 249, "planCommentId": 1234567890,
+    "proceed": { "choice": "進める", "quote": "この計画で進めて", "at": "2026-09-30T10:00:00+09:00" },
+    "acChangeAccepted": { "choice": "受け入れる", "quote": "AC の変更は提案どおりでよい", "at": "2026-09-30T10:01:00+09:00" } }
+  ```
+- `post-decision` は、`acChangeProposed` の計画ではこの欄がある記録だけ投稿する。`acChangeProposed` でない計画にこの欄を書くと拒む。App の `plan-proceed` は今どおり `ineligible`（理由「要件・AC の変更提案があります」）で、App はこの記録で `agent:plan-review` を外さない。Issue 本文の書き換えと `agent:plan-review` の付け外しは人がする。
 - 委任承認の Merge と bypass の範囲照合（`harness/lib/state.ts` の `issueDelegateFiles`）は、`status: ok` の `plan-proceed` の記録の `planCommentId` と `planBodySha256` が最新の計画ゲートの記録と一致し、今の計画コメントの本文の sha256 も一致するときだけ、その計画を使う。`agent/scope` は今までどおりゲートを通った計画だけ。
 
 ## セッションの判定（agent-session-judgment）
