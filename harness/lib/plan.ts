@@ -16,6 +16,8 @@ export interface Plan {
   needsHumanReasons: string[];
   acChangeProposed: boolean;
   openQuestions: string[];
+  /** openQuestions と同じ並びの選択肢（選択肢の無い質問は []）。選択肢つきの質問が1つも無い計画には欄を作らない（#818） */
+  openQuestionChoices?: string[][];
   files: string[];
   /** Epic として子課題に分けるとき（2件以上）。あれば files は空でよく、Risk では止めない */
   split?: SplitChild[];
@@ -82,6 +84,47 @@ function parseSteps(c: Checker, raw: unknown, files: string[], hasSplit: boolean
   });
 }
 
+/** 質問の選択肢（openQuestions の { text, choices } の choices）の件数の下限・上限 */
+export const QUESTION_CHOICES_MIN = 2;
+export const QUESTION_CHOICES_MAX = 4;
+
+/**
+ * openQuestions を読む。各項目は文字列（質問の文）か、{ text, choices } のオブジェクト（choices は 2〜4 個の空でない文字列で重複なし）。
+ * questions は質問の文だけ、choices は同じ並び（選択肢の無い質問は []）。選択肢つきの質問が1つも無ければ choices は null。未知のキーは読まない
+ */
+function parseOpenQuestions(c: Checker, raw: unknown): { questions: string[]; choices: string[][] | null } {
+  const items = c.array(raw, 'plan.openQuestions');
+  const questions: string[] = [];
+  const choices: string[][] = [];
+  let hasChoices = false;
+  items.forEach((item, i) => {
+    const p = `plan.openQuestions[${i}]`;
+    if (typeof item === 'string') {
+      questions.push(item);
+      choices.push([]);
+      return;
+    }
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) {
+      c.errors.push(`${p}: 文字列か、text と choices のオブジェクトではありません`);
+      questions.push('');
+      choices.push([]);
+      return;
+    }
+    const o = item as Record<string, unknown>;
+    questions.push(c.string(o.text, `${p}.text`, { nonEmpty: true }));
+    const list = c.array(o.choices, `${p}.choices`).map((choice, j) => c.string(choice, `${p}.choices[${j}]`, { nonEmpty: true }));
+    if (Array.isArray(o.choices)) {
+      if (list.length < QUESTION_CHOICES_MIN || list.length > QUESTION_CHOICES_MAX) {
+        c.errors.push(`${p}.choices: ${QUESTION_CHOICES_MIN}〜${QUESTION_CHOICES_MAX} 個ではありません（${list.length} 個）`);
+      }
+      if (new Set(list).size !== list.length) c.errors.push(`${p}.choices: 重複があります`);
+    }
+    choices.push(list);
+    hasChoices = true;
+  });
+  return { questions, choices: hasChoices ? choices : null };
+}
+
 export const CRITIQUE_VERDICTS = ['go', 'revise', 'split', 'drop'] as const;
 export type CritiqueVerdict = (typeof CRITIQUE_VERDICTS)[number];
 
@@ -92,6 +135,7 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
   const o = c.object(raw, 'plan');
   if (!o) return { ok: false, errors: c.errors };
   if (o.version !== 1) c.errors.push('plan.version: 1 ではありません');
+  const openQuestions = parseOpenQuestions(c, o.openQuestions);
   const plan: Plan = {
     version: 1,
     issue: c.integer(o.issue, 'plan.issue'),
@@ -99,10 +143,11 @@ export function parsePlan(raw: unknown): Parsed<Plan> {
     needsHuman: c.boolean(o.needsHuman, 'plan.needsHuman'),
     needsHumanReasons: c.stringArray(o.needsHumanReasons, 'plan.needsHumanReasons'),
     acChangeProposed: c.boolean(o.acChangeProposed, 'plan.acChangeProposed'),
-    openQuestions: c.stringArray(o.openQuestions, 'plan.openQuestions'),
+    openQuestions: openQuestions.questions,
     // 触るファイル一覧が欠けていてもゲートで止められるよう、ここでは空配列を許す
     files: o.files === undefined ? [] : c.stringArray(o.files, 'plan.files'),
   };
+  if (openQuestions.choices) plan.openQuestionChoices = openQuestions.choices;
   if (o.split !== undefined) plan.split = parseSplit(c, o.split);
   if (o.critique !== undefined) {
     const k = c.object(o.critique, 'plan.critique');

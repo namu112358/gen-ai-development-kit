@@ -52,12 +52,14 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | `needsHuman` | 真偽値 | 人間の判断が必要か |
 | `needsHumanReasons` | 文字列の配列 | その理由 |
 | `acChangeProposed` | 真偽値 | 要件・AC の変更提案があるか |
-| `openQuestions` | 文字列の配列 | 人に確認したいこと |
+| `openQuestions` | 配列（各項目は文字列か、選択肢つきのオブジェクト `{ text, choices }`） | 人に確認したいこと。答えの候補を絞れる質問は `choices` に書く（2〜4 個の空でない文字列で重複なし。おすすめを先頭に書く。検査では確かめない）。絞れない質問は文字列のまま |
 | `files` | 文字列の配列 | **触るファイル一覧（必須）**。`*` と `**` が使える（`?` は文字どおり）。最初の階層にワイルドカードがあるものは不可 |
 | `split` | 配列（任意） | Epic として子課題に分けるとき（2件以上）。下記 |
 | `critique` | オブジェクト（任意） | 投稿前の批評の結果。`verdict`（`go` / `revise` / `split` / `drop`）と、批評させた回数 `rounds`（1以上の整数）と、任意で最後の回の必須の指摘の件数 `mustRemaining`（0以上の整数）。無い計画は計画ゲートで止まる（`verdict` の値そのものでは止めない）。危険の判定の欄（`danger`）は無い：auto mode の危険の判定は Jev だけで（#382）、#343 の後に投稿された古い計画に `critique.danger` があっても読まない（無視する） |
 | `authorView` | 文字列（任意） | 計画を書いたセッションの見解（意図や、守りに触れる理由）。空でなく 2000 文字まで。auto mode の危険の問い（Jev）の見解ありの問いにだけ、別の欄 `author_view` で渡す（見解なしの問いには、`agent-plan` から `authorView` を除いた本文を渡す）。保留するかには使わない（shadow。Issue #426）。人が読む本文には書かない |
 | `steps` | 配列（任意、1〜50 件） | 実装の手順書（Issue #470）。各件は `file`（必須。`files` の項目と同じ文字列か、その glob に当たるパス）・`change`（必須。そのファイルの変更点）と、任意の `symbols`（足す・変える関数と型の名前と引数）・`follow`（倣う既存の関数）・`edgeCases`（端の場合）・`dontTouch`（触らないこと）。各文字列は空でなく 2000 文字まで。`split` の計画では書けない（子課題の計画で書く）。無い計画は今までどおり通る。auto mode の危険の問い（Jev）に渡す計画の本文に含まれる |
+
+読んだ値では、質問の文を `openQuestions`（文字列の配列）に、選択肢を `openQuestionChoices`（`openQuestions` と同じ並びで、選択肢の無い質問は空配列。選択肢つきの質問が1つも無ければ欄が無い）に分ける。ゲートの件数・決定の記録の `question:<添字>`・App の記録の写しと Jev に渡す質問の文は今までどおり文字列で、選択肢は文に足さない。
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている、`critique` が無い、計画コメントより前に同じ Issue への段階 `plan-critique` の着手宣言（コラボレーターの、Claude の目印付きの `agent-claim`。解除は数えない。`manual`・`routine` のどちらでもよい）が無い（批評の関所。`split` の計画も同じ。「前」はコメントの ID の大小で決める）。批評の関所だけで止めたときの理由コードは `no-critique`（ほかの理由と重なるときは今までのコード）。`critique` が `revise` で `mustRemaining` が1以上の計画は、人が必須の指摘を残して進めると決めた計画として止めず、ゲートの記録の `critiqueProceeded` に残す。
 
@@ -352,6 +354,15 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - コメントは先頭に Claude の目印、見出し「## セッションの判定」、決めたこと・当たった基準・理由・覆すなら（基準ごとの決まった文）とブロックの順。
 - `basis` が `risk-only` の判定は、投稿の前に `plan-review-check <番号>`（読むだけ。`riskOnly`・`remaining`・`touches`・`notes` を JSON で出す）と同じ検査をかけ、`riskOnly` が偽なら投稿しない（ガードレールに触れる計画に「進める」の判定を残さない）。
 - ラベルは変えない。App は読まず、ゲートも起こさない（`gate.yml` の `if:` に無い）。ship・fleet が最後の一覧に「決めたこと（覆すなら）」として載せる。
+
+### 期間の集計（session-judgment-digest）
+
+`node harness/scripts/agent.ts session-judgment-digest [--days <n>] [--since <YYYY-MM-DD>] [--until <YYYY-MM-DD>] [--sample <n>] [--weekly [--state <path>]]`（Issue #805。読むだけで、ラベル・コメントは書かない）。期間のセッションの判定を基準ごとに数え、抜き取りの一覧を JSON で出す。qa-retro の skill が週1回、人の抜き取りの点検に使う。抜き取りは見直しのための一覧で、判定の材料にしない。
+
+- 出力：`since`・`until`（ISO 時刻）、`total`、`counts`（4基準すべて。0 も出す）、`samples`（基準ごとの `{ target, stage, decision, url, createdAt }`。`url` はコメントの `html_url`）、`unreadable`（ブロックはあるが書式の誤りで読めなかったコメントの数。基準には振らない）、`lines`（基準ごとの見出し `risk-only: N 件（抜き取り M 件）` と、抜き取りごとの `- #<target> <stage>: <decision>（<url>）`）、`notes`（読み切れなかったときの「打ち切り」）。`--weekly` では `due: true` も付く。
+- 期間：既定は直近 7 日。`--days`・`--since`・`--until` は qa-retro と同じ読み方（`until` はその日を含む）。数えるのは作成時刻が `[since, until)` で、コラボレーターの、Claude の目印のあるコメントだけ。GitHub の `/issues/comments?since=` は更新時刻で絞るので、期間より後に作られたコメントや期間の前に作られて後で更新されたコメントも返り、作成時刻で絞り直す。
+- 抜き取り：基準ごとに新しい順（同じ時刻はコメントの ID の大きい順）で `--sample` 件（既定 3）。
+- `--weekly`：`--days`・`--since`・`--until` とは同時に渡せない。手元の状態のファイル（既定は git の共通ディレクトリの下の `agent-harness/session-judgment-digest.json`、`--state` で変えられる。作業ツリーにも GitHub にも書かない）の `{ "version": 1, "lastUntil": "<ISO 時刻>" }` を読み、`lastUntil` から 7 日たっていなければ GitHub を読まずに `{ "due": false, "nextAt": "<ISO 時刻>" }` を出す。たっていれば（状態が無ければ直近 7 日）`lastUntil` から今までを集計し、`lastUntil` を今に書き戻す（前回の終わりからつなぐので、抜けも重なりも出ない）。
 
 ## 問題の記録（agent-incident）
 
