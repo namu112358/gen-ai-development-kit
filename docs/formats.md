@@ -52,12 +52,14 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | `needsHuman` | 真偽値 | 人間の判断が必要か |
 | `needsHumanReasons` | 文字列の配列 | その理由 |
 | `acChangeProposed` | 真偽値 | 要件・AC の変更提案があるか |
-| `openQuestions` | 文字列の配列 | 人に確認したいこと |
+| `openQuestions` | 配列（各項目は文字列か、選択肢つきのオブジェクト `{ text, choices }`） | 人に確認したいこと。答えの候補を絞れる質問は `choices` に書く（2〜4 個の空でない文字列で重複なし。おすすめを先頭に書く。検査では確かめない）。絞れない質問は文字列のまま |
 | `files` | 文字列の配列 | **触るファイル一覧（必須）**。`*` と `**` が使える（`?` は文字どおり）。最初の階層にワイルドカードがあるものは不可 |
 | `split` | 配列（任意） | Epic として子課題に分けるとき（2件以上）。下記 |
 | `critique` | オブジェクト（任意） | 投稿前の批評の結果。`verdict`（`go` / `revise` / `split` / `drop`）と、批評させた回数 `rounds`（1以上の整数）と、任意で最後の回の必須の指摘の件数 `mustRemaining`（0以上の整数）。無い計画は計画ゲートで止まる（`verdict` の値そのものでは止めない）。危険の判定の欄（`danger`）は無い：auto mode の危険の判定は Jev だけで（#382）、#343 の後に投稿された古い計画に `critique.danger` があっても読まない（無視する） |
 | `authorView` | 文字列（任意） | 計画を書いたセッションの見解（意図や、守りに触れる理由）。空でなく 2000 文字まで。auto mode の危険の問い（Jev）の見解ありの問いにだけ、別の欄 `author_view` で渡す（見解なしの問いには、`agent-plan` から `authorView` を除いた本文を渡す）。保留するかには使わない（shadow。Issue #426）。人が読む本文には書かない |
 | `steps` | 配列（任意、1〜50 件） | 実装の手順書（Issue #470）。各件は `file`（必須。`files` の項目と同じ文字列か、その glob に当たるパス）・`change`（必須。そのファイルの変更点）と、任意の `symbols`（足す・変える関数と型の名前と引数）・`follow`（倣う既存の関数）・`edgeCases`（端の場合）・`dontTouch`（触らないこと）。各文字列は空でなく 2000 文字まで。`split` の計画では書けない（子課題の計画で書く）。無い計画は今までどおり通る。auto mode の危険の問い（Jev）に渡す計画の本文に含まれる |
+
+読んだ値では、質問の文を `openQuestions`（文字列の配列）に、選択肢を `openQuestionChoices`（`openQuestions` と同じ並びで、選択肢の無い質問は空配列。選択肢つきの質問が1つも無ければ欄が無い）に分ける。ゲートの件数・決定の記録の `question:<添字>`・App の記録の写しと Jev に渡す質問の文は今までどおり文字列で、選択肢は文に足さない。
 
 ゲート（App）は次のどれかに該当すると `agent:plan-review` で停止する：`needsHuman`、`acChangeProposed`、`openQuestions` が1件以上、`risk` が high 以上、`files` がガードレール（`harness.config.json` の `guardrailPaths`）に触れる（パターンどうしが重なりうれば触れるとし、除外に完全に含まれるパターンだけ外す）（`split` の子課題の `files` は見ない）、`files` が空・不正、`issue` 不一致、Issue に `agent:plan-review` が付いている、`critique` が無い、計画コメントより前に同じ Issue への段階 `plan-critique` の着手宣言（コラボレーターの、Claude の目印付きの `agent-claim`。解除は数えない。`manual`・`routine` のどちらでもよい）が無い（批評の関所。`split` の計画も同じ。「前」はコメントの ID の大小で決める）。批評の関所だけで止めたときの理由コードは `no-critique`（ほかの理由と重なるときは今までのコード）。`critique` が `revise` で `mustRemaining` が1以上の計画は、人が必須の指摘を残して進めると決めた計画として止めず、ゲートの記録の `critiqueProceeded` に残す。
 
