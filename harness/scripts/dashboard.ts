@@ -145,7 +145,7 @@ async function main(args: string[]): Promise<void> {
   const data = new DashboardData(gh, config);
   const watcher = new UpdateWatcher({ fetch: limitFetch((url, init) => fetch(url, init), limits), token: tok, repository: repo });
 
-  const build = (): Graph => buildGraph(data.issues(), data.prs(), readSessions({ projectsDir, repoRoot, worktreesDir, now: new Date() }), { now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours });
+  const build = (): Graph => buildGraph(data.issues(), data.prs(), readSessions({ projectsDir, repoRoot, worktreesDir, now: new Date() }), { now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours, progress: data.progress() });
   let graph = build();
   let scheduler: PollScheduler | null = null;
   const server = await startServer({
@@ -171,7 +171,10 @@ async function main(args: string[]): Promise<void> {
       const r = await watcher.poll();
       if (r.kind === 'full') await data.loadAll();
       else if (r.kind === 'changed') await data.refresh(r.numbers);
-      if (r.kind !== 'unchanged') rebuild();
+      if (r.kind !== 'unchanged') {
+        await data.loadProgress(new Date());
+        rebuild();
+      }
       watcher.commit();
     } finally {
       busy = false;
