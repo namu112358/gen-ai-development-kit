@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import { closeAsDone, closeDoneEpics, closeIfSubIssuesDone } from '../gates/epic-close.ts';
 import { onScheduleWithLabels } from '../gates/label-apply.ts';
 import { onIssue } from '../gates/on-issue.ts';
-import { acceptanceFake, APP, config, ctxFor, FakeGitHub, pr } from './support/gate-fixtures.ts';
+import { acceptanceFake, APP, config, ctxFor, FakeGitHub, mainChecksOk, pr } from './support/gate-fixtures.ts';
 
 /** GraphQL で読む Issue の、子課題の形 */
 interface Node {
@@ -111,7 +111,7 @@ test('定期実行の入口（onScheduleWithLabels）が、付け替えの後に
     .on('GET', /\/issues\?state=open&creator=/, () => [{ number: 1, title: config.dashboardIssueTitle, user: { login: APP }, labels: [] }])
     .on('GET', /\/issues\/1$/, () => ({ body: '' }))
     .on('PATCH', /\/issues\/1$/, () => ({}));
-  await onScheduleWithLabels(ctxFor(fake, 'schedule', {}), new Date('2026-09-27T01:00:00Z'));
+  await onScheduleWithLabels(ctxFor(mainChecksOk(fake), 'schedule', {}), new Date('2026-09-27T01:00:00Z'));
   const w = fake.writes();
   assert.ok(w.includes('comment:parent-closed'), w.join(' '));
   assert.ok(w.includes('PATCH /repos/o/r/issues/191'), w.join(' '));

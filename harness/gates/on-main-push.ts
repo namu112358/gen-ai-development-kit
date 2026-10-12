@@ -40,7 +40,8 @@ export function revertedShas(message: string): string[] {
   return [...message.matchAll(/This reverts commit ([0-9a-f]{7,40})/g)].map((m) => m[1]!);
 }
 
-async function stopAutoMerge(ctx: GateContext, prs: number[]): Promise<void> {
+/** 停止スイッチを入れる：ダッシュボードにラベルを付け、全 PR の auto-merge を外して、理由をダッシュボードに書く。message が無ければ revert の検知の本文 */
+export async function stopAutoMerge(ctx: GateContext, prs: number[], message?: { text: string; record?: unknown }): Promise<void> {
   const dashboard = await ensureDashboard(ctx);
   await ctx.gh.addLabels(dashboard, [ctx.config.autoMergeStopLabel]);
   const open = await ctx.gh.paginate<PullRequest>('/pulls?state=open');
@@ -49,16 +50,12 @@ async function stopAutoMerge(ctx: GateContext, prs: number[]): Promise<void> {
     await disableAutoMerge(ctx, pr);
     await refreshMergeRoute(ctx, await getPr(ctx, pr.number));
   }
-  await appComment(
-    ctx,
-    dashboard,
-    'auto-merge-stopped',
-    [
-      `自動 Merge された PR（${prs.map((n) => `#${n}`).join(', ')}）が revert されたため、自動 Merge モードを切りました。`,
-      '',
-      `原因を確認したら、このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外して再開してください（docs/operations.md）。`,
-    ].join('\n'),
-  );
+  const text = message?.text ?? [
+    `自動 Merge された PR（${prs.map((n) => `#${n}`).join(', ')}）が revert されたため、自動 Merge モードを切りました。`,
+    '',
+    `原因を確認したら、このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外して再開してください（docs/operations.md）。`,
+  ].join('\n');
+  await appComment(ctx, dashboard, 'auto-merge-stopped', text, message?.record);
 }
 
 async function updateWaitingBranches(ctx: GateContext): Promise<void> {
