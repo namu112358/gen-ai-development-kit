@@ -18,6 +18,7 @@
  *   mismatches は問い合わせた 5h と Orca の 5h が 20 ポイント以上ずれたもの。
  * - skipped：{ result, reason }（no-accounts-table・no-repo-root・orca-unreadable・error: <message>）
  * メールアドレス・トークン・組織名・claude の出力の本文は出さない。
+ * claude の子プロセスには ANTHROPIC_API_KEY・ANTHROPIC_AUTH_TOKEN・CLAUDE_CODE_OAUTH_TOKEN を渡さない（設定ディレクトリのアカウントで認証させる。probeChildEnv）。
  *
  * 判定は純粋関数で、ファイル・Orca・claude の呼び出しは deps で差し替える。CLI は import.meta.main の中だけで動く。
  */
@@ -154,6 +155,13 @@ export function runProbe(deps: ProbeDeps): ProbeResult {
   return out;
 }
 
+/** claude の子プロセスの環境：資格情報の環境変数を除き、CLAUDE_CONFIG_DIR をそのアカウントの設定ディレクトリにする（渡した env は書き換えない） */
+export function probeChildEnv(env: NodeJS.ProcessEnv, configDir: string): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env, CLAUDE_CONFIG_DIR: configDir };
+  for (const key of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN']) delete out[key];
+  return out;
+}
+
 /** 本物の claude を、一時ディレクトリを cwd に、そのアカウントの設定ディレクトリで1回呼ぶ */
 function runClaudeCli(configDir: string): { stdout: string; error: 'timeout' | 'spawn-failed' | null } {
   const cwd = mkdtempSync(join(tmpdir(), 'agent-harness-probe-'));
@@ -163,7 +171,7 @@ function runClaudeCli(configDir: string): { stdout: string; error: 'timeout' | '
       encoding: 'utf8',
       timeout: PROBE_TIMEOUT_MS,
       cwd,
-      env: { ...process.env, CLAUDE_CONFIG_DIR: configDir },
+      env: probeChildEnv(process.env, configDir),
       stdio: ['ignore', 'pipe', 'ignore'],
       maxBuffer: 16 * 1024 * 1024,
     });
