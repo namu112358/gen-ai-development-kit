@@ -255,7 +255,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
         <p class="aside">当たるもの：ガードレールに触れる、計画の範囲の外を変えた、<code>humanMergePaths</code>（人が Merge するパス）に触れる、Stacked PR の層（base が main 以外）、停止スイッチが入っている など</p>
       </section>
     </div>
-    <figcaption>自動 Merge の条件：CI の成功、<code>agent/review</code> の合格、Risk が low で8問すべて安全側、範囲照合 OK、<code>agent:hold</code> が無い、停止スイッチが入っていない。まとめて必須チェック merge-route が確かめます。ダッシュボードの <code>agent:delegate-merge</code>（委任承認（計画＋Merge））と <code>agent:bypass-merge</code>（bypass モード）が付いている間は、Human Merge の理由の一部を飛ばして自動 Merge に回します（詳しくは <a href="docs/risk-policy.md">docs/risk-policy.md</a>）。</figcaption>
+    <figcaption>自動 Merge の条件：CI の成功、<code>agent/review</code> の合格、Risk が low で8問すべて安全側、範囲照合 OK、<code>agent:hold</code> が無い、停止スイッチが入っていない。まとめて必須チェック merge-route が確かめます。ダッシュボードの <code>agent:delegate-merge</code>（委任承認（計画＋Merge））と <code>agent:bypass-merge</code>（bypass モード）が付いている間は、Human Merge の理由の一部を飛ばして自動 Merge に回します（詳しくは <a href="harness/docs/risk-policy.md">harness/docs/risk-policy.md</a>）。</figcaption>
   </figure>
 
   <h2 id="roles">誰が何をするか</h2>
@@ -349,6 +349,12 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
       </ul>
     </section>
     <section class="dir">
+      <h3><code>review-api/</code> PR レビューの試作</h3>
+      <ul>
+        <li>Claude API + Cloudflare で PR レビューを既存の判定と並走させる試作（Shadow Mode。Merge の経路には影響しない）。説明は <code>docs/review-api.md</code></li>
+      </ul>
+    </section>
+    <section class="dir">
       <h3>root の主なファイル</h3>
       <ul>
         <li><code>README.md</code> 入口の説明</li>
@@ -360,7 +366,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
   </div>
 
   <h2 id="labels">ラベルの意味</h2>
-  <p>主なものです。すべての一覧と細かい決まりは <a href="docs/operations.md">docs/operations.md</a> の「ラベル」にあります。</p>
+  <p>主なものです。すべての一覧と細かい決まりは <a href="harness/docs/operations.md">harness/docs/operations.md</a> の「ラベル」にあります。</p>
   <table>
     <thead><tr><th>ラベル</th><th>付ける者</th><th>意味</th></tr></thead>
     <tbody>
@@ -385,7 +391,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     </tbody>
   </table>
 
-  <p class="note">このページは要約です。ラベルと役割は <a href="docs/operations.md">docs/operations.md</a>、言葉の意味は <a href="docs/glossary.md">docs/glossary.md</a> が正しい内容で、食い違ったらそちらに従います。仕組みを変えたらこのページも直します。</p>
+  <p class="note">このページは要約です。ラベルと役割は <a href="harness/docs/operations.md">harness/docs/operations.md</a>、言葉の意味は <a href="harness/docs/glossary.md">harness/docs/glossary.md</a> が正しい内容で、食い違ったらそちらに従います。仕組みを変えたらこのページも直します。</p>
 
   <footer>外部のファイルを何も読み込まない1枚のページです。手元に clone してブラウザで開いてください。</footer>
 </main>

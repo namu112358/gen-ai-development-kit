@@ -53,7 +53,7 @@ export async function stopAutoMerge(ctx: GateContext, prs: number[], message?: {
   const text = message?.text ?? [
     `自動 Merge された PR（${prs.map((n) => `#${n}`).join(', ')}）が revert されたため、自動 Merge モードを切りました。`,
     '',
-    `原因を確認したら、このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外して再開してください（docs/operations.md）。`,
+    `原因を確認したら、このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外して再開してください（harness/docs/operations.md）。`,
   ].join('\n');
   await appComment(ctx, dashboard, 'auto-merge-stopped', text, message?.record);
 }

@@ -3,7 +3,7 @@ import { isAgentPr, isHarnessIssueTitle, type PullRequest } from './state.ts';
 import { parseTitle, TITLE_TYPES } from './title.ts';
 
 /**
- * 必須ラベルの検査（docs/operations.md の「必須ラベルの規則」）。
+ * 必須ラベルの検査（harness/docs/operations.md の「必須ラベルの規則」）。
  *   Issue：type:*・area:*・priority:*
  *   子を持つ Issue（Epic）：epic・area:*・priority:*（type:* は付けない）
  *   PR：type:*・area:*・size:*

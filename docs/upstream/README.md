@@ -12,7 +12,7 @@
 | ライセンス | Apache License 2.0。`claude-plugins-official/LICENSE` は同じコミットの `plugins/code-review/LICENSE`（プラグインのディレクトリにあったのでそれを写した。root の LICENSE ではない） |
 | NOTICE | 同じコミットの `plugins/code-review/` と root に NOTICE は無い。このリポジトリの root の [NOTICE](../../NOTICE) に出どころを書いた |
 
-写しを元にしたファイル（合体版のレビュー、[docs/review-panel.md](../review-panel.md)）：
+写しを元にしたファイル（合体版のレビュー、[harness/docs/review-panel.md](../../harness/docs/review-panel.md)）：
 
 | ファイル | 元にした部分 |
 | --- | --- |
@@ -46,5 +46,5 @@
 プラグインの固定の更新（[setup.md](../setup.md) の節8、#141）と同じ流れにする。
 
 1. 新しいコミットを選び、写しとの差分（`plugins/code-review/commands/code-review.md` と `plugins/code-review/LICENSE`、NOTICE の有無）を人が読む
-2. Issue を立て、PR で写し・LICENSE・この README・root の NOTICE・`docs/review-panel.md` のコミットと、元にしたファイル（上の表）を直す。`harness/test/review-panel-definitions.test.ts` が、採点基準と引用の文が写しと一字一句同じか、コミットがそろうかを確かめる。元にしたファイルはガードレールなので人が Merge する
+2. Issue を立て、PR で写し・LICENSE・この README・root の NOTICE・`harness/docs/review-panel.md` のコミットと、元にしたファイル（上の表）を直す。`harness/test/review-panel-definitions.test.ts` が、採点基準と引用の文が写しと一字一句同じか、コミットがそろうかを確かめる。元にしたファイルはガードレールなので人が Merge する
 3. `.claude/settings.json` のマーケットプレイスの固定（今は同じ `fa59bc9`）とそろえるかは、その都度 PR に書く

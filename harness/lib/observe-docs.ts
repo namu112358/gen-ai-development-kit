@@ -39,6 +39,7 @@ export interface DocsInventory {
 export function isDocTarget(file: string): boolean {
   if (file.startsWith('docs/upstream/')) return false;
   if (file.startsWith('docs/') && file.endsWith('.md')) return true;
+  if (file.startsWith('harness/docs/') && file.endsWith('.md')) return true;
   if (file.startsWith('.claude/skills/') && file.endsWith('.md')) return true;
   if (/^\.claude\/agents\/[^/]+\.md$/.test(file)) return true;
   if (file === '.claude/routine.md' || file === 'CLAUDE.md' || file === 'harness/CLAUDE.harness.md' || file === 'README.md') return true;

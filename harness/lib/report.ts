@@ -18,7 +18,7 @@ import { BLOCKING_KINDS, parseVerdict, RISK_QUESTIONS, type BlockingFinding, typ
  * 「外れ」＝ Merge 後 7 日以内に revert された、または元の PR を直す fix の PR が Merge された。
  * fix の PR は、変更ファイルが重なることに加えて、行（元の PR が足した行を消した・消した行を足し戻した）か
  * 参照（題名・本文に元の PR か元の PR が Closes した Issue の番号がある、または元の PR と同じ Issue を Closes する）で結び付ける（`fixLinksFor`）。
- * 比べる相手は Claude ではなく結果。基準の意味は docs/security.md の「Jev」。
+ * 比べる相手は Claude ではなく結果。基準の意味は harness/docs/security.md の「Jev」。
  * Jev の数と切り替えの基準は、今の問いの版（`JEV_QUESTION_SET`）の記録だけで数える（Q88）。
  */
 
@@ -429,7 +429,7 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
   return [
     `# 判定の集計（直近 ${days} 日、Agent PR ${s.total} 件）`,
     '',
-    `Jev の数は問いの版 ${JEV_QUESTION_SET} の記録だけで数える（docs/security.md の「Jev」）。`,
+    `Jev の数は問いの版 ${JEV_QUESTION_SET} の記録だけで数える（harness/docs/security.md の「Jev」）。`,
     '',
     '| 指標 | 値 |',
     '| --- | --- |',
@@ -455,7 +455,7 @@ export function renderReport(summary: ReportSummary, rows: ReportRow[], days: nu
     `| テストの改ざん：auto mode で通した | ${s.autoModeTests.allowed} |`,
     `| テストの改ざん：auto mode で通した・人が後から直させた | ${s.autoModeTests.fixed} |`,
     '',
-    `切り替えの基準（docs/security.md）：否定側 ${c.minNegatives} 件以上、Jev の low の外れ ${c.maxJevLowMisses} 件、Jev だけが「可」${c.maxJevOnly} 件 → ${criteria}`,
+    `切り替えの基準（harness/docs/security.md）：否定側 ${c.minNegatives} 件以上、Jev の low の外れ ${c.maxJevLowMisses} 件、Jev だけが「可」${c.maxJevOnly} 件 → ${criteria}`,
     '',
     'fix PR の根拠：行＝元の PR が足した行を消した・消した行を足し戻した、参照＝題名・本文に元の PR（かその Issue）の番号がある、または同じ Issue を Closes する。',
     '',

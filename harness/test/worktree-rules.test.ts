@@ -1,5 +1,5 @@
 // Issue #196：ハーネスの規則（harness/CLAUDE.harness.md）の worktree の優先順位の行（agent.ts worktree で作り、Orca は起動と監視。
-// Orca が無い・動かないときは入口の skill より優先して今の手順）と、docs/operations.md の置き場所の段落を語句で確かめる（全文の固定一致にはしない）。
+// Orca が無い・動かないときは入口の skill より優先して今の手順）と、harness/docs/operations.md の置き場所の段落を語句で確かめる（全文の固定一致にはしない）。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,8 +33,8 @@ test('規則：既存の「作業は常に worktree で行う」の行はその�
   assert.equal(lines.filter((l) => l.includes('起動と監視') && l.includes('orca-cli')).length, 1, '優先順位の行は1行だけ');
 });
 
-test('docs/operations.md：worktree の置き場所と Orca の表示名の段落がある', () => {
-  const blocks = read('docs/operations.md').split(/\n\s*\n/);
+test('harness/docs/operations.md：worktree の置き場所と Orca の表示名の段落がある', () => {
+  const blocks = read('harness/docs/operations.md').split(/\n\s*\n/);
   const block = blocks.find((b) => b.includes('AGENT_HARNESS_WORKTREE_ROOT'));
   assert.ok(block, 'AGENT_HARNESS_WORKTREE_ROOT を書いた段落がある');
   for (const phrase of ['worktreeRoot', 'AGENT_HARNESS_WORKTREE_ROOT', '{repo}', '~/', 'agent.ts worktree', '#番号 短い名前', 'worktree-remove']) {

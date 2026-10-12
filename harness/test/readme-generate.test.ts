@@ -235,8 +235,8 @@ test('実リポジトリ：先頭のコメントが無いファイルは手書�
   );
 });
 
-test('対象ディレクトリの一覧は14件、生成の対象外（Non-goal）は harness/test と harness/test/support', () => {
-  assert.equal(TARGET_DIRS.length, 14);
+test('対象ディレクトリの一覧は15件、生成の対象外（Non-goal）は harness/test と harness/test/support', () => {
+  assert.equal(TARGET_DIRS.length, 15);
   assert.deepEqual([...NO_GENERATE_DIRS].sort(), ['harness/test', 'harness/test/support'].sort());
 });
 

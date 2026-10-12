@@ -257,10 +257,10 @@ test('summarize：停滞時間の中央値（Merge が無ければ close まで�
   assert.equal(summarize(config, [row({ mergedAt: null, closedAt: null })]).stallMedianHours, null);
 });
 
-test('renderReport：基準を満たすときは docs/security.md の参照と「**満たす**」、PR ごとの表を出す', () => {
+test('renderReport：基準を満たすときは harness/docs/security.md の参照と「**満たす**」、PR ごとの表を出す', () => {
   const rows = passingRows();
   const md = renderReport(summarize(config, rows), rows, 30);
-  assert.ok(md.includes('docs/security.md'));
+  assert.ok(md.includes('harness/docs/security.md'));
   assert.ok(md.includes('**満たす**'));
   assert.ok(!md.includes('満たさない'));
   for (const r of rows) assert.ok(md.includes(`#${r.pr}`), `#${r.pr} が無い`);
@@ -273,7 +273,7 @@ test('renderReport：基準を満たさないときは「満たさない」と u
   ];
   const s = summarize(config, rows);
   const md = renderReport(s, rows, 7);
-  assert.ok(md.includes('docs/security.md'));
+  assert.ok(md.includes('harness/docs/security.md'));
   assert.ok(md.includes('満たさない'));
   assert.ok(!md.includes('**満たす**'));
   assert.ok(s.criteria.unmet.length > 0);

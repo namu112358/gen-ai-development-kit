@@ -6,7 +6,7 @@ import { allLabelDefs, loadConfig, reasonMark, reasonOf } from '../lib/config.ts
 import { renderBlock } from '../lib/blocks.ts';
 
 const config = loadConfig();
-const operations = readFileSync(new URL('../../docs/operations.md', import.meta.url), 'utf8');
+const operations = readFileSync(new URL('../docs/operations.md', import.meta.url), 'utf8');
 
 /** operations.md のラベル表に書かれたラベル（`a` / `b` と `x:*` の形） */
 function documentedLabels(): string[] {

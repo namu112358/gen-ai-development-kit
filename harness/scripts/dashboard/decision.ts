@@ -2,7 +2,7 @@
  * ダッシュボードから人の決定の記録（```agent-decision）を投稿する部品（POST /decisions。Issue #855）。
  * decisionInfo は答える欄の材料、buildDecisionComment は記録の組み立て、checkBeforePost は投稿の前の読み直し（`post-decision` と同じ条件）、
  * CommentOnlyTransport は書く経路を Issue のコメントの POST 1種類だけに絞る Transport、createDecisionSink は読み直しから投稿までを1回で行う受け皿。
- * 記録の書式は docs/formats.md の「決定の記録」。ダッシュボードにはセッションが無いので、目印は ID の無い CLAUDE_MARK。
+ * 記録の書式は harness/docs/formats.md の「決定の記録」。ダッシュボードにはセッションが無いので、目印は ID の無い CLAUDE_MARK。
  */
 import { CLAUDE_MARK, extractBlock, renderBlock } from '../../lib/blocks.ts';
 import { TRUSTED_ASSOCIATIONS, type HarnessConfig } from '../../lib/config.ts';

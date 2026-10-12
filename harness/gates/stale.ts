@@ -175,7 +175,7 @@ async function readDelegation(ctx: GateContext, dashboard: DashboardIssue | null
 /** ダッシュボードの委任承認の状態の行（計画＋Merge・計画のみ・無効） */
 function delegateLine(ctx: GateContext, dashboard: DashboardIssue | null, state: DelegateState | null): string {
   const { planLabel, mergeLabel } = delegateConfig(ctx.config);
-  const how = `このダッシュボードに \`${planLabel}\` を付けると計画ゲートの承認だけを、\`${mergeLabel}\` を付けると計画ゲートの承認と Merge を App に委ねます。docs/risk-policy.md`;
+  const how = `このダッシュボードに \`${planLabel}\` を付けると計画ゲートの承認だけを、\`${mergeLabel}\` を付けると計画ゲートの承認と Merge を App に委ねます。harness/docs/risk-policy.md`;
   if (!dashboard || (!hasLabel(dashboard, planLabel) && !hasLabel(dashboard, mergeLabel))) return `**委任承認: 無効**（${how}）`;
   if (!state) return '**委任承認: 状態を読めませんでした**（委任のラベルは付いています）';
   if (state.mode === 'plan+merge') return `**委任承認: 計画＋Merge**（@${state.by}、${state.since} から。このダッシュボードの \`${mergeLabel}\` を外すと終わります）`;
@@ -187,7 +187,7 @@ function delegateLine(ctx: GateContext, dashboard: DashboardIssue | null, state:
 async function bypassLine(ctx: GateContext, dashboard: DashboardIssue | null): Promise<string> {
   const { label } = bypassMergeConfig(ctx.config);
   if (!dashboard || !hasLabel(dashboard, label)) {
-    return `**bypass モード: 無効**（このダッシュボードに \`${label}\` を付けると、外すまで、ブロッキング指摘が無く範囲照合と agent/tests を通る Agent PR を Human Merge の理由を飛ばして自動 Merge します。docs/risk-policy.md）`;
+    return `**bypass モード: 無効**（このダッシュボードに \`${label}\` を付けると、外すまで、ブロッキング指摘が無く範囲照合と agent/tests を通る Agent PR を Human Merge の理由を飛ばして自動 Merge します。harness/docs/risk-policy.md）`;
   }
   let state: BypassState;
   try {
@@ -301,7 +301,7 @@ async function readAutoMode(ctx: GateContext, dashboard: DashboardIssue | null):
 function autoModeLine(ctx: GateContext, dashboard: DashboardIssue | null, state: AutoModeState | null): string {
   const { label } = autoModeConfig(ctx.config);
   if (!dashboard || !hasLabel(dashboard, label)) {
-    return `**auto mode: 無効**（このダッシュボードに \`${label}\` を付けると、外すまで計画ゲートと Merge を App に任せ、Jev が危険と答えた計画・Agent PR だけを人の判断に保留します。docs/risk-policy.md）`;
+    return `**auto mode: 無効**（このダッシュボードに \`${label}\` を付けると、外すまで計画ゲートと Merge を App に任せ、Jev が危険と答えた計画・Agent PR だけを人の判断に保留します。harness/docs/risk-policy.md）`;
   }
   if (!state) return `**auto mode: 状態を読めませんでした**（\`${label}\` は付いています）`;
   return state.active
@@ -646,7 +646,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
   const current = await findDashboard(ctx.gh, ctx.config);
   const stopped = !current || hasLabel(current, ctx.config.autoMergeStopLabel);
   const mode = stopped
-    ? `**自動 Merge モード: 停止中**（このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外すと有効になります。docs/operations.md）`
+    ? `**自動 Merge モード: 停止中**（このダッシュボードの \`${ctx.config.autoMergeStopLabel}\` ラベルを外すと有効になります。harness/docs/operations.md）`
     : `**自動 Merge モード: 有効**（このダッシュボードに \`${ctx.config.autoMergeStopLabel}\` ラベルを付けると一斉に止まります）`;
   const withMode = body.replace(appMark('dashboard'), `${appMark('dashboard')}\n${renderSwitchReads(keep)}\n${mode}\n${delegateLine(ctx, current, delegation)}\n${await bypassLine(ctx, current)}\n${autoModeLine(ctx, current, autoMode)}\n`);
   const existing = (await ctx.gh.get<{ body: string | null }>(`/issues/${dashboard}`)).body ?? '';

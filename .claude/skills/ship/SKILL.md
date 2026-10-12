@@ -10,7 +10,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 ## 入力
 
 - Issue 番号
-- Issue がまだ無い依頼（「〜を Issue にして進めて」）なら、Issue Form（`.github/ISSUE_TEMPLATE/agent-task.yml`）の見出しと、タイトルの書式（`harness/lib/title.ts` の `parseTitle`、Conventional Commits）に合わせ、[docs/operations.md](../../../docs/operations.md) の「Issue の書き方」どおり1つの変更に絞って（AC に skill や docs の文のテストを入れない）`node harness/scripts/agent.ts rest-create issue --title <題> --body-file <ファイル>` で作り、その番号で手順1から進める。人が「作るだけ」と言わない限り、作った Issue は同じセッションで plan まで進める
+- Issue がまだ無い依頼（「〜を Issue にして進めて」）なら、Issue Form（`.github/ISSUE_TEMPLATE/agent-task.yml`）の見出しと、タイトルの書式（`harness/lib/title.ts` の `parseTitle`、Conventional Commits）に合わせ、[harness/docs/operations.md](../../../harness/docs/operations.md) の「Issue の書き方」どおり1つの変更に絞って（AC に skill や docs の文のテストを入れない）`node harness/scripts/agent.ts rest-create issue --title <題> --body-file <ファイル>` で作り、その番号で手順1から進める。人が「作るだけ」と言わない限り、作った Issue は同じセッションで plan まで進める
 - Issue の状態：ラベル（`agent:plan-ok`・`agent:plan-review`・`epic`・`agent:waiting`・`agent:blocked`・`agent:hold`）と、`node harness/scripts/agent.ts rest issue-view <番号>` の `body`・`comments`（コラボレーターのコメントは `authorAssociation` が `OWNER`・`MEMBER`・`COLLABORATOR`）
 - 計画ゲートの記録：`node harness/scripts/agent.ts show-plan <番号>`
 - Issue を Closes する開いた PR：`node harness/scripts/agent.ts rest closing-prs <番号>`（`keyword` が `closes` の PR）。Stacked PR の下の層は本文が `Refs #N` で Closes にならないので、同じ出力の `keyword` が `refs` のものを探す（`baseRefName` つき）。クラウドのセッション（`CLAUDE_CODE_REMOTE` が `true`）では Stacked PR は使えない（`gh stack` と `gh pr create` が GraphQL を使う）。層に分けず、別々に `main` 宛てで出す
@@ -23,7 +23,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - 着手宣言：Issue に手を付ける最初に、その段階の skill の手順どおり `claim <番号> --manual --stage <段階>` で宣言する（計画・批評の前も）。宣言にはこのセッションの ID が入り、ほかのセッションとダッシュボードに段階が見える。ほかのセッションの宣言があれば `claim` は止まるので、引き継ぐかを AskUserQuestion で人に聞く（引き継ぐのは人が決めたときだけ `--takeover`）。
    - 最初の宣言が持ち主。`claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue は進めず、作業を始めずに、手順10の一覧に「#番号 は session …（エラーに出た短い ID）が着手中」と書いて終える。引き継ぐかは人が決める（この場では聞かない）。
    - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`post-plan` はゲートを通らない見込みなら自分で解除する。`/clear` などでセッション ID が変わったら、前のセッションの宣言を1件ずつ聞かずに、「前のセッション（session <短い ID>）の宣言 #…（N 件）をこのセッションに引き継ぐか」を AskUserQuestion の1問でまとめて聞き、引き継ぐなら全部を `claim --takeover` で出し直す（拒まれたら出し直さない）。
-   - `claim` が Assignee で止まった（`harness.config.json` の `requireAssignee` が有効で、誰もアサインされていない・ほかの人・2人以上）：自分をアサインせずに進めず、人に返す（質問にはせず、止まった理由を手順10の一覧に書いて終える。アサインするかは人が決める。[docs/operations.md](../../../docs/operations.md) の担当）。途中の段階の確かめ（`critic-input`・`post-plan`・`worktree`・`ensure-claim`）で止まったときも同じ。
+   - `claim` が Assignee で止まった（`harness.config.json` の `requireAssignee` が有効で、誰もアサインされていない・ほかの人・2人以上）：自分をアサインせずに進めず、人に返す（質問にはせず、止まった理由を手順10の一覧に書いて終える。アサインするかは人が決める。[harness/docs/operations.md](../../../harness/docs/operations.md) の担当）。途中の段階の確かめ（`critic-input`・`post-plan`・`worktree`・`ensure-claim`）で止まったときも同じ。
    - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。ただし Stacked PR の上の層が `gh stack link` の前に付いた orphan-base（App の `kind=orphan-base`）は例外で、[gh-stack](../gh-stack/SKILL.md) の skill で組めば App が戻す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
    - 人の決定のコメント（`post-decision` の `agent-decision`・`post-judgment` のセッションの判定）に、セッションの言葉で Merge の経路（「Merge は人がする」など）を書かない（経路は App が決める。人の答えを人の言葉のまま引用するのは今のまま）。
@@ -32,18 +32,18 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：宣言が残っていれば（`post-plan` の出力の `claim` が `plan-gate`）先に `release <番号>` で解除する。先に `node harness/scripts/agent.ts rest issue-view <番号>` の comments で App の `plan-proceed` の記録（作成者が App、`kind=plan-proceed`）を見る。最新のものが `status: ok` で、`planCommentId`・`planBodySha256` が最新の計画ゲートの記録と同じなら、人の「進める」（intel などが聞いて残した決定の記録）として聞かず、進める記録を出し直さずに implement の `claim --stage implement` に進み、手順10の一覧に「人の進める（決定の記録のリンク）」を載せる。当たらなければ（記録が無い・`ineligible`・`planCommentId` か `planBodySha256` が違う）、次に `node harness/scripts/agent.ts plan-review-check <番号>` を読み、`riskOnly` が真（止めた理由が想定 Risk だけで、`touches` が空）で人に上げる場面に当たらなければ、聞かずに進めると決め、`post-judgment` で「セッションの判定」を残して次へ（implement の `claim --stage implement` で宣言し直す。手順10の一覧の「決めたこと（覆すなら）」に載せる）。止めた理由が計画で直せるもの（ゲートの停止）なら、聞かずに計画を直して出し直し（plan の skill の出し直しの扱い）、`post-judgment` で残す。ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる計画（`touches` が空でない）とそれ以外は人に上げる場面なので、理由（なぜ人が要るかの1行）を示し、進めてよいかを AskUserQuestion で聞く（選択肢は、進める・止める、計画で直せるなら計画を直して出し直す（plan の skill の出し直しの扱い）も）。人が進めてよいと答えれば、plan の skill の手順10どおり人の「進める」を進める記録（`agent-decision` の `proceed`、`post-decision`）で残し、App の `plan-proceed` の記録を確かめてから次へ（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の規則どおり。implement の `claim --stage implement` で宣言し直す。記録が `ineligible` なら理由を手順10の一覧に書き、実装は続ける）。答えなければ人に返す。
      - Planner の申告（理由コード `needs-decision`）なら、plan の skill の手順9どおり人の答えを `agent-decision` で記録し（`post-decision`）、App の `plan-decision` の結果を待つ。`enforce` で通れば次へ、`shadow` なら人が「進める」と言えば、plan の skill の手順10の進める記録を出してから次へ（ラベルを外すよう人に頼まない）。答えで計画が変わるなら、App が判定し直した後（`agent:plan-ok` か `gate` の停止）に計画を出し直す。
    - `epic`：手順1の `epic` に戻る。
-3. implement の skill で実装し、Draft PR を出す。worktree は消さずに続ける。
+3. implement の skill で実装し、Draft PR を出す。worktree は消さずに続ける。クラウドの付き添いのセッション（`CLAUDE_CODE_REMOTE` が `true`）では、Draft PR を出した後は節「クラウドで PR を出した後（PR のイベントで進める）」のとおり PR を購読して待つ。
 4. judge の skill で判定する。現在の head にコラボレーターのレビューがあれば、先に fix の skill をする。
 5. 判定にブロッキング指摘があれば（App の `kind=fix-request`）、fix の skill で直し、判定をやり直す。PR が main と衝突している、または main への追従が要るときは sync の skill をする。修正の上限（`agent:blocked`、理由コード `fix-limit`）に達したら人に返す。
 6. 合格して Ready になったら、Merge の経路を確かめる。
    - 自動 Merge 待ち：App が auto-merge を付けたこと（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `autoMergeRequest` が null でない）、または PR に App の記録（本文に `kind=bypass-merge`・`delegated-merge`・`auto-mode-merge`、作成者が App）があり、最新の記録が `-end`（`bypass-merge-end` など）でないこと。
-   - 人の Merge 待ち：App のコメント（本文に `kind=human-review`、作成者が App）が PR に付いたこと（[docs/operations.md](../../../docs/operations.md) の「Human Merge の依頼」）。critical・ガードレールだからと人の Merge と推測しない（経路は App が決める）。
+   - 人の Merge 待ち：App のコメント（本文に `kind=human-review`、作成者が App）が PR に付いたこと（[harness/docs/operations.md](../../../harness/docs/operations.md) の「Human Merge の依頼」）。critical・ガードレールだからと人の Merge と推測しない（経路は App が決める）。
    - 両方の印がある PR（human-review の後に bypass などが始まり auto-merge が付いた、`-end` の後に human-review が付いた）は、今 auto-merge が付いていれば（`autoMergeRequest` が null でない）自動 Merge 待ち、付いていなければ最新の記録が `human-review` か `-end` なら人の Merge 待ち、の順で決める。
    - 数分待ってもどちらも無ければ、App の記録（`kind=acceptance` の `autoEligible` と `reasons`）を読んで人に返す。
    - Stacked PR の層はいつも Human Merge（auto-merge も従来の Merge API も使えない）。
 7. 続けて使わなければ `node harness/scripts/agent.ts worktree-remove claude/issue-<番号>-<短い名前>` で worktree を消す。
 8. ラベル（`priority:*`・`area:*`）は、まず Jev に任せる（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。扱った Issue（Epic なら親と子課題）に、App の名義（`appSlug` の App が書いたコメント）の `kind=label-triage` の記録があり、その `notApplied`（下限未満で付けなかったもの）がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す（`node harness/scripts/agent.ts label-fill` で付ける。`gh issue edit` は使わない）。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順10の一覧に書かず、人にも聞かない。
-9. 振り分け：途中の段階で、拒否された操作・人に返す条件・App の拒否（ゲートの停止・受け付けの拒否）・人の訂正・手順に無い回避策が起きたら、その場で `node harness/scripts/agent.ts incident add --kind <種類> --what <起きたこと> --target <#番号|PR #番号> --workaround <回避策>` で記録しておく（種類は deny・return-to-human・app-reject・human-correction・workaround。記録はリポジトリの外のファイルで、GitHub には書かない。[docs/operations.md](../../../docs/operations.md) の「問題の記録と振り分け」）。人がすることの一覧の前に `node harness/scripts/agent.ts incident list` を読み（`/clear` でセッションが分かれたら `--session` を重ねて前の記録も読む）、1件ずつ次に振り分ける。振り分けたら、1件ずつ `node harness/scripts/agent.ts incident triage <id> --as <harness|environment|once>` を流して Jev の答えを記録に並べる（shadow。振り分けは変えない。鍵が無ければ `skipped` と残るだけで、止まらない）。
+9. 振り分け：途中の段階で、拒否された操作・人に返す条件・App の拒否（ゲートの停止・受け付けの拒否）・人の訂正・手順に無い回避策が起きたら、その場で `node harness/scripts/agent.ts incident add --kind <種類> --what <起きたこと> --target <#番号|PR #番号> --workaround <回避策>` で記録しておく（種類は deny・return-to-human・app-reject・human-correction・workaround。記録はリポジトリの外のファイルで、GitHub には書かない。[harness/docs/operations.md](../../../harness/docs/operations.md) の「問題の記録と振り分け」）。人がすることの一覧の前に `node harness/scripts/agent.ts incident list` を読み（`/clear` でセッションが分かれたら `--session` を重ねて前の記録も読む）、1件ずつ次に振り分ける。振り分けたら、1件ずつ `node harness/scripts/agent.ts incident triage <id> --as <harness|environment|once>` を流して Jev の答えを記録に並べる（shadow。振り分けは変えない。鍵が無ければ `skipped` と残るだけで、止まらない）。
    - ハーネスの不具合・手順の抜け → Issue の候補。次の順で進める。(1) `node harness/scripts/agent.ts incident render-issue <id>... --title <題>` で Issue Form の形の下書きを作り、本文を scratchpad のファイルに書く。(2) `node harness/scripts/agent.ts rest issue-search <要点の語>...` で開いた Issue を探し、自分の判断（同じ件の Issue の番号か none）を決める。(3) `node harness/scripts/agent.ts issue-overlap check --title <題> --body-file <そのファイル> --session-duplicate <番号|none>` を流す（Jev の答えは記録に残るだけ。鍵が無ければ skipped で止まらない。セッション ID が無いなどで fail したら、この問いは飛ばして(2)の判断のまま進める）。(4) 出力の提案が「#N へのコメントの案」なら、新しく立てずその Issue へのコメントの案にし、「新しい Issue の下書き」なら下書きのまま候補にする（Jev が見ていない Issue を同じ件と答えたら、その Issue を読んで確かめる）。
    - このパソコンの環境（ツールの版・認証・パスなど）→ docs の候補か、何もしない。
    - 一度きりのミス → 記録だけ（候補にしない）。
@@ -57,13 +57,35 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - Assignee で止まった Issue：「#番号 は Assignee が自分1人ではない（理由）」（アサインは人が決める）
    - 改善の候補：手順9の Issue の候補（題と下書きの本文のファイルのパス）と、開いた Issue へのコメントの案。docs の候補もここに並べる。起票・コメントは人が選んだものだけ（自動で起票しない）。候補が無ければ「改善の候補はありません」と書く
 
+## クラウドで PR を出した後（PR のイベントで進める）
+
+クラウドの付き添いのセッションで PR を出した後は、数分おきに読み直さずに、PR のイベント（CI・レビュー・衝突・Merge・Close）で起きて次の段階に進む（Issue #892。人の決定 2026-10-12）。
+
+- **当てはまるとき**：`CLAUDE_CODE_REMOTE` が `true` の付き添いのセッション（人が直接動かす ship と、交互の方式の fleet）。手元のセッション・Orca の worker・定期 Routine の待ち方は変えない。
+- **購読**：Draft PR を出したら（手順3の後。起きたときにまだ購読していなければその時も）、`subscribe_pr_activity` でその PR を購読する。ほかの Claude のセッションが見ていると返った・道具が無いときは、購読しなかったとして今の待ち方（fleet の節「待つ間の読み直し」）のままにし、手順10の一覧にその旨を書く。
+- **待つ**：段階が待ちで終わったら（`step` が `wait`）、until ループ・Monitor で数分おきに読み直さずにターンを終える。
+- **起きたとき**（PR のイベント・下の見回り）：
+  1. このセッション自身が書いたコメント（着手宣言・判定コメントなど）が返ってきただけのイベントと、前に扱ったのと同じイベントは何もしない。App のレビュー・コメント（変更要求 `kind=fix-request`・判定の受け付けなど）は捨てずに次へ進む（App の記録で次の段階が出るため）。
+  2. それ以外は、手順1の「ハーネスが更新されたとき」を確かめてから `node harness/scripts/agent.ts step <Issue番号>` を読む。
+  3. `node`：`step` が出した宣言（`claim`）がその段階の着手宣言の出し直しになる。その Issue の worktree が無ければ（VM が回収された後など）`node harness/scripts/agent.ts worktree <step の branch>` で作り直し、その段階の skill（fix・sync・judge）を行う。
+  4. `wait` の `app`・`human`・`area-limit`：何もしない（宣言する段階が無いので宣言は出さない。`area-limit` は fleet の扱いのとおり待ち、次のイベントか見回りで読み直す）。
+  5. `wait` の `done`（Merge 済み）：手順1の「Merge 済みで呼び直されたとき」をしてから、下の「やめる」。
+  6. `stop`：「人に返す条件」のとおり人に返す。購読は続ける。
+- **見回り**：取りこぼしに備え、`send_later` で30分後の見回りを1つだけ予約する。
+  - 予約の本文に、Issue・PR 番号、前回読んだ `step` の結果（`kind`・`node`・`waitingFor`）、PR の head の SHA（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `headRefOid`）、続けて変わらなかった回数を書く。
+  - 見回りで起きたら「起きたとき」と同じに進める。`step` の結果と head の SHA が本文と同じなら回数を1つ増やし、違えば0に戻して、30分後に予約し直す。
+  - PR のイベント・人のメッセージ・自分の push があったら、待っている予約を `delete_trigger` で消し、回数を0にして30分後に予約し直す（予約は常に1つ）。予約の ID（`send_later` が返す `trigger_id`）はセッションの中で持つ。VM の回収などで分からなくなった古い予約が届いたら、本文の回数が今の回数と食い違うものは何もせずに捨てる。
+  - 変わらない見回りが3回続いたら予約し直さず、人に1行だけ伝える（「#番号 の見回りを止めました。次の PR のイベントか、人のメッセージで再開します」）。購読は続ける。
+  - この30分・3回は、セッションの既定の見回りの間隔と回数より優先する。
+- **やめる**：PR が Merge か Close されたら、`unsubscribe_pr_activity` で購読をやめ、待っている予約を `delete_trigger` で消す。Merge されずに Close されたら、このセッションの宣言が残っていれば `release <Issue番号>` で解除する。
+
 ## サブエージェントの ship として動くとき
 
 fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md) の「入れ子の方式」）で、fleet からサブエージェントとして呼ばれたときは、手順1〜10を次のとおり変えて進める。人とは話さず、fleet に返す。
 
 - 1回の呼び出しでは、fleet から渡された段階だけ（1段階）を行う。段階は `plan`（計画ゲートの結果まで）・`implement`（Draft PR まで）・`judge`・`fix`（判定の受け付けと、合格なら手順6まで）・`sync`・`merged`（手順1の「Merge 済みで呼び直されたとき」。Close の見届けまで）。次の段階は fleet が `fleet-status` の表で決めて、新しいサブエージェントの ship を呼ぶので、続きの段階に進まない。
 - 始めるときは、会話ではなく、渡された引き継ぎのファイル・Issue と計画コメント（`show-plan`）・PR とその記録を読む。足りないもの・食い違い（例：`implement` を渡されたのに計画ゲートを通っていない）は推測で埋めず、材料を読み直すか、`status` を `return-to-human` にして返す。
-- 段階の終わりに、scratchpad の `handoff-<番号>-<段階>.md` に `agent-handoff` ブロック（[docs/formats.md](../../../docs/formats.md) の「引き継ぎ（agent-handoff）」）を書き、`node harness/scripts/agent.ts check <ファイル>` で確かめてから、ファイルのパスとブロックを返す本文に入れる。人に聞くこと・人がすることの項目・待つ理由はブロックに入れず、本文に書く。
+- 段階の終わりに、scratchpad の `handoff-<番号>-<段階>.md` に `agent-handoff` ブロック（[harness/docs/formats.md](../../../harness/docs/formats.md) の「引き継ぎ（agent-handoff）」）を書き、`node harness/scripts/agent.ts check <ファイル>` で確かめてから、ファイルのパスとブロックを返す本文に入れる。人に聞くこと・人がすることの項目・待つ理由はブロックに入れず、本文に書く。
 - 最初に、自分が Agent ツールを使えるかを確かめる。使えなければ何もせず（着手宣言もしない）「入れ子不可」と返す。
 - 入れ子のサブエージェントの ship として動くときは、各 skill が呼ぶ担当（reviewer・risk-agent・合体版のレビューの担当（review-intake・review-lens・review-ac-scope・review-safety・review-overbuild）・review-scorer、plan-critic・test-designer など ship が Agent ツールで呼ぶサブエージェントすべて）を `run_in_background` にせず、前で呼んで返りを待つ。裏で起こすと担当の報告（SubagentHandback）が ship ではなく fleet に届き、ship は報告を受け取れずに段階の途中で返る（#844・#857）。並行に動かすときは、1つのメッセージに複数の Agent 呼び出しを並べ、全部が返ってから次に進む。入れ子でない（人が直接動かす fleet・ship）ときの呼び方は変えない。
 - 各 skill が AskUserQuestion で人に聞くところ（人に上げる場面。plan-critic の止める条件で必須の指摘が残るときの「進める／直す／やめる」、ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる計画の `agent:plan-review`、引き継ぎ（`--takeover`）など）では聞かずに止まり、Issue 番号・段階・聞きたいこと・選択肢（おすすめを先頭）を返す。宣言の扱いは、人の判断待ちで止めるときと同じ（必要なら `release <番号>`）。fleet から答えを渡されて呼び直されたら、その答えを人の答えとして続きから進める。

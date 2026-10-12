@@ -19,7 +19,7 @@
 | `concurrency.ts` | 領域（area）ごとの、同時に開いてよい PR の上限。 | 対象外 |
 | `config.ts` | `harness.config.json` の読み込みと、ラベル・理由コード・必須チェックの名前などの定義。 | ○ |
 | `decision.ts` | 決定の記録（````agent-decision````）：Planner の申告（needsHuman・openQuestions）への人の答えを、付き添いのセッションが記録する。 | ○ |
-| `delegate.ts` | 委任承認：人がダッシュボードのラベルで、計画ゲートの承認（agent:delegate-plan）か、計画ゲートの承認と Merge の判断（agent:delegate-merge）をApp に委ねる（docs/risk-policy.md）。 | ○ |
+| `delegate.ts` | 委任承認：人がダッシュボードのラベルで、計画ゲートの承認（agent:delegate-plan）か、計画ゲートの承認と Merge の判断（agent:delegate-merge）をApp に委ねる（harness/docs/risk-policy.md）。 | ○ |
 | `epic-triage.ts` | Epic に入っていない Issue の Epic を Jev に問う材料・問い・判定・記録の読み書きの本文（Epic #436）。 | ○ |
 | `epic.ts` | Epic：計画の `split` で大きな課題を子課題に分ける。 | ○ |
 | `exempt.ts` | 人が付ける例外ラベル（review:exempt・test:exempt）は、付けた時点の PR の差分にだけ効く。 | ○ |
@@ -45,7 +45,7 @@
 | `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。 | 対象外 |
 | `jev.ts` | TypeSafe AI の Jev（https://docs.typesafe.ai/api）で、Risk ポリシーの8問に1回の呼び出しで答えさせる。 | ○ |
 | `label-fill.ts` | 付き添いのセッションが、Jev の提案のラベルを付ける（agent.ts label-fill、Issue #538）。 | ○ |
-| `label-rules.ts` | 必須ラベルの検査（docs/operations.md の「必須ラベルの規則」）。 | ○ |
+| `label-rules.ts` | 必須ラベルの検査（harness/docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `local-state-loop.ts` | 見直しの loop（test-prune・qa-retro・patrol）の状態のファイルの読み書きの補助（Issue #414）。 | ○ |
 | `local-state.ts` | 手元の状態のファイル（git の共通ディレクトリの下の agent-harness/ と panes のスナップショット）の場所の決め方と一時ファイル経由の書き込み（Issue #653）。 | ○ |
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |

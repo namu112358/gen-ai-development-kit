@@ -40,7 +40,7 @@ Prompt：
 ## まとめの Issue の形
 
 - 題：`patrolIssueTitle`（既定 `patrol のまとめ`）。初回に `patrol-pull` が1件だけ作る。
-- 本文：`patrol-state` のブロック（書式は [formats.md の「patrol のまとめの Issue」](formats.md#patrol-のまとめの-issue)）。patrol・qa-retro・test-prune の状態と下書きを持つ。
+- 本文：`patrol-state` のブロック（書式は [formats.md の「patrol のまとめの Issue」](../harness/docs/formats.md#patrol-のまとめの-issue)）。patrol・qa-retro・test-prune の状態と下書きを持つ。
 - 回のコメント：`ran`・`suggested`・増えた下書き・要約・arch-review の記録の URL（`patrol-push` が書く）。
 - 採用の印：qa-retro・test-prune の下書きの `created`。arch-review の採用の印はダッシュボード Issue の記録の `created`。
 

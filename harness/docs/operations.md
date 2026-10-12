@@ -22,11 +22,11 @@ Issue を開いた人が Goal と最初の数行で「何をしたいか・な�
 
 `agent:ready` を付けたときに App が Jev に種類・領域・優先度・AC の書き方を問うかは、`harness.config.json` の `classification.issueTriage` で決める。`off` は問わない。`shadow` は提案をコメントするだけでラベルは付けない。`label` は提案のコメントを続け、そのうえで足りない `priority:*` と（計画が無ければ）`area:*` を Jev の答えから付ける（下記「足りないラベルを付ける」）。`label` では Issue を作ったとき（`opened`）にも、`agent:ready` を待たずに足りないものを Jev に問うて付ける。同じ Issue には一度だけ問うので、作成で問い済みなら `agent:ready` を付けても提案のコメントは出ない。Risk と Priority は本文に書かない。優先度は `priority:*` の5段階（highest・high・medium・low・lowest）で、急ぐものには `priority:high` か `priority:highest` を付ける（queue は優先度 → `agent:ready` が付いた順に並ぶ。付いていなければ medium、複数付いていれば最も高いものとして扱う。PR の段階は元の Issue の優先度を引き継ぐ）。大きな機能は親 Issue と Sub-issues に分ける（全部閉じると App が親を閉じる）。計画の段階で Claude が分けることもある（下記「Epic」）。
 
-気づき・観測から Issue を作るときの下書き・重複の確かめ・作成は、[issue-creator](../.claude/skills/issue-creator/SKILL.md) の skill にまとめてある（intel から使う予定。#783）。
+気づき・観測から Issue を作るときの下書き・重複の確かめ・作成は、[issue-creator](../../.claude/skills/issue-creator/SKILL.md) の skill にまとめてある（intel から使う予定。#783）。
 
 ## 付き添いのセッションで進める
 
-Issue を進めるのは、人が付き添う Claude のセッション。「#番号 を ship して」と頼むと、ship の skill（[.claude/skills/ship/SKILL.md](../.claude/skills/ship/SKILL.md)）が Issue の状態を読み、段階ごとの skill を次の順につなぐ。
+Issue を進めるのは、人が付き添う Claude のセッション。「#番号 を ship して」と頼むと、ship の skill（[.claude/skills/ship/SKILL.md](../../.claude/skills/ship/SKILL.md)）が Issue の状態を読み、段階ごとの skill を次の順につなぐ。
 
 | skill | 段階 |
 | --- | --- |
@@ -42,11 +42,11 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 
 担当（Issue の Assignee）：複数人で開発するときは、`harness.config.json` の `requireAssignee` を `true` にする（無い・`false` なら確かめない。既定は `false`）。有効な間は、人が Issue に担当を常に1人だけアサインし、それを正とする。アサインは人か、人に頼まれた付き添いのセッションが決め、エージェントは自分の判断ではアサインしない（アサインは追加する操作で、「空なら自分を入れる」を1回でできないため）。`claim <番号> --manual` は、Issue の Assignee がちょうど1人で今の GitHub のユーザー（`GET /user` の login）のときだけ宣言し、誰もいない・ほかの人・2人以上（自分を含んでも）なら宣言を投稿せずに理由を示して止まる（`--force`・`--takeover` でも確かめる）。PR の段階（`claim <PR番号> --stage judge|fix|sync`）は、その PR が Close する Issue の Assignee で確かめる。`critic-input`・`post-plan`・`worktree`・`ensure-claim` も同じことを確かめるので、作業の途中でアサインが変われば次の段階で止まる。止まったら ship はその Issue を進めず人に返し、人がアサインを直してから続ける。fleet は Assignee が自分1人でない Issue を選ばず、`fleet-status` の表の「選択」に理由を出す。Routine の宣言（`--manual` でない）は確かめない。
 
-付き添いのセッションが人に聞くのは「人に上げる場面」だけ（ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる計画の `agent:plan-review`、守りを弱める・データを壊しうる変更、要件・AC の変更、決まらない Planner の質問、引き継ぎ、Issue の目的と計画の食い違い、批評の止める条件で必須の指摘が残るとき）で、AskUserQuestion で選択肢つきで聞く（おすすめが先頭、1回に4問まで、質問ごとに「なぜ人が要るか」を1行）。止めた理由が想定 Risk だけで `files` がガードレール・`delegateMergeExclude`・`harness.config.json` に触れない `agent:plan-review`（`plan-review-check` の `riskOnly` が真）、計画で直せる理由、`files` の外の変更の計画の出し直し、領域の上限で待つこと、記録済みの決定で決まることは、聞かずにセッションが決め、`post-judgment` で「セッションの判定」（決めたこと・当たった基準・理由・覆すなら）を Issue か PR のコメントに残す。ship・fleet の最後の一覧に「決めたこと（覆すなら）」として載り、人は `agent:hold` かコメントで覆せる（書式は [formats.md](formats.md#セッションの判定agent-session-judgment)）。拒んだり答えなかったりすると、セッションは同じ質問を繰り返さず、要点を文章で示して止まる。規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md) の進め方。
+付き添いのセッションが人に聞くのは「人に上げる場面」だけ（ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる計画の `agent:plan-review`、守りを弱める・データを壊しうる変更、要件・AC の変更、決まらない Planner の質問、引き継ぎ、Issue の目的と計画の食い違い、批評の止める条件で必須の指摘が残るとき）で、AskUserQuestion で選択肢つきで聞く（おすすめが先頭、1回に4問まで、質問ごとに「なぜ人が要るか」を1行）。止めた理由が想定 Risk だけで `files` がガードレール・`delegateMergeExclude`・`harness.config.json` に触れない `agent:plan-review`（`plan-review-check` の `riskOnly` が真）、計画で直せる理由、`files` の外の変更の計画の出し直し、領域の上限で待つこと、記録済みの決定で決まることは、聞かずにセッションが決め、`post-judgment` で「セッションの判定」（決めたこと・当たった基準・理由・覆すなら）を Issue か PR のコメントに残す。ship・fleet の最後の一覧に「決めたこと（覆すなら）」として載り、人は `agent:hold` かコメントで覆せる（書式は [formats.md](formats.md#セッションの判定agent-session-judgment)）。拒んだり答えなかったりすると、セッションは同じ質問を繰り返さず、要点を文章で示して止まる。規則は [harness/CLAUDE.harness.md](../CLAUDE.harness.md) の進め方。
 
-開いた Issue をまとめて見るときは backlog の skill（[.claude/skills/backlog/SKILL.md](../.claude/skills/backlog/SKILL.md)）を使う。`node harness/scripts/agent.ts backlog-scan` が事実（対象・触りそうなファイルの重なり・似た組）を出し（読むだけ）、重複か・どちらを先にするか・AC の書き直しの案・着手順の案は skill が決めて人に一覧で示す。Issue にコメントするのは人が AskUserQuestion で選んだ提案だけで、Issue の本文・ラベルは触らない。着手順の案は理由（依存・重なり・今の `priority:*`）だけを書き、ラベルの不足としては書かない。
+開いた Issue をまとめて見るときは backlog の skill（[.claude/skills/backlog/SKILL.md](../../.claude/skills/backlog/SKILL.md)）を使う。`node harness/scripts/agent.ts backlog-scan` が事実（対象・触りそうなファイルの重なり・似た組）を出し（読むだけ）、重複か・どちらを先にするか・AC の書き直しの案・着手順の案は skill が決めて人に一覧で示す。Issue にコメントするのは人が AskUserQuestion で選んだ提案だけで、Issue の本文・ラベルは触らない。着手順の案は理由（依存・重なり・今の `priority:*`）だけを書き、ラベルの不足としては書かない。
 
-複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（番号を渡さなければ、`agent:ready`・`agent:plan-ok`・`agent:plan-review` の Issue と、`agent:*` の無い、コラボレーターか App（Epic の子課題など）が立てた Issue（作ったまま計画に進んでいないもの。次にやることは plan）が対象。衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで（`harness.config.json` の `fleet.sharedFiles` だけが重なる組は待たない。人の判断待ちの `plan-review` の Issue は、ほかの Issue を待たせる相手にしない）、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship を Issue ごとに進めて、人がすることを1つの一覧にする。
+複数の Issue をまとめて進めるときは fleet の skill（[.claude/skills/fleet/SKILL.md](../../.claude/skills/fleet/SKILL.md)）を使う。`node harness/scripts/agent.ts fleet-status` で選び（番号を渡さなければ、`agent:ready`・`agent:plan-ok`・`agent:plan-review` の Issue と、`agent:*` の無い、コラボレーターか App（Epic の子課題など）が立てた Issue（作ったまま計画に進んでいないもの。次にやることは plan）が対象。衝突しない範囲で本数を制限しない。PR が無い段階は触るファイルの重なりで（`harness.config.json` の `fleet.sharedFiles` だけが重なる組は待たない。人の判断待ちの `plan-review` の Issue は、ほかの Issue を待たせる相手にしない）、両方に PR がある組は `git merge-tree` で試して衝突すれば後の側が待つ。本数を絞るときだけ `--max`）、ship を Issue ごとに進めて、人がすることを1つの一覧にする。
 
 進め方は `harness.config.json` の `fleet` で決まり、`fleet-status` の表の末尾の「進め方」の行に出る。
 
@@ -55,7 +55,7 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `orca`（既定） | サブエージェントの中でさらにサブエージェントを呼べる環境（Orca）向け。Issue ごとに ship をサブエージェントとして並行に動かす（fleet > ship > plan-critic・test-designer・reviewer・risk-agent）。ship は段階ごとに新しいサブエージェントで呼び、段階の間は引き継ぎ（[formats.md](formats.md) の agent-handoff）と GitHub の事実で渡す。同時に動かす ship の数は `--max`、無ければ `fleet.maxParallelShips`（既定 3）。ship は人に聞かずに止まって fleet に返し、fleet がまとめて聞く。ship が入れ子にできない（Agent ツールが無い）と返したら、そのセッションは `flat` の進め方に切り替える |
 | `flat` | 1つのセッションで、ship の段階を Issue ごとに交互に進める |
 
-クラウドの付き添いのセッション（`CLAUDE_CODE_REMOTE` が `true`）ではサブエージェントの入れ子が1段までなので、`orca` のままでも ship が入れ子にできないと返し、fleet は交互の方式（`flat`）になる。hq とペインは無い。作り方は [setup.md](setup.md#12-クラウドの付き添いのセッション)。
+クラウドの付き添いのセッション（`CLAUDE_CODE_REMOTE` が `true`）ではサブエージェントの入れ子が1段までなので、`orca` のままでも ship が入れ子にできないと返し、fleet は交互の方式（`flat`）になる。hq とペインは無い。作り方は [setup.md](../../docs/setup.md#12-クラウドの付き添いのセッション)。
 
 bypass と委任承認の状態（#718）：`fleet-status` の表の末尾の「進め方」の行の後に、bypass と委任承認の今の状態を2行で出す（`bypass：有効（@人）`・`bypass：無効（理由）`、`委任承認：計画＋Merge`・`計画のみ`・`無効（理由）`、読めないときは `読めない（理由）`）。`--json` は `merge` に入れる（`{ readable: true, bypass: { active, by, since, reason }, delegate: { mode, active, planActive, by, since, reason } }`。読めないときは `{ readable: false, error }`）。状態は gates の `bypassState` と `delegateState` で決める表示だけで、Merge の判定は変えない。1回の `fleet-status` で GitHub の API が増えるのは、ダッシュボードを探す `GET /issues?state=open&creator=<App>`（ふだん1回）と、ダッシュボードに bypass か委任のラベルが付いているときだけの `GET /issues/<ダッシュボード>/timeline`（ページの数だけ）。
 
@@ -63,13 +63,13 @@ bypass と委任承認の状態（#718）：`fleet-status` の表の末尾の「
 
 ハーネスが更新されたときの交代（#199）：Claude Code は担当の定義・CLAUDE.md・skill をセッションの開始時に読むので、始めた後に main でハーネスが変わっても、そのセッションは古いまま動く。SessionStart の hook が始めたときに読み込んだハーネスのファイルの版を記録し（書式は [formats.md](formats.md) の「読み込みの記録」）、`node harness/scripts/agent.ts harness-drift`・`claim`・`fleet-status` がそれを `origin/<既定ブランチ>` と比べる（比べる元は本体の HEAD ではなく読み込んだ中身なので、本体の checkout が古いまま始めた場合も最初の `fleet-status`・`claim` で分かる。ブランチが自分で変えたファイルは数えない）。origin で変わったファイルは、一番古い変更から猶予（`harnessDrift.graceHours`、既定 6 時間）を過ぎるまで古いとせず、変わったことを1行で知らせるだけにする。規則（`harness/CLAUDE.harness.md`）・`.claude/settings.json`・判定の担当（reviewer・risk-agent・review-* の agent、judge・review-panel の skill）は猶予を置かずに古いとする（判定の担当を入れるのは、judge だけが止まって交代が起きない場面を作らないため。#812）。古いと `fleet-status` の表の下に「このセッションの読み込みは古い」が出て、`claim --stage judge` と `step` は judge を始めない（止まる理由 `harness-stale`）。fleet（と人が付き添う単独の ship）は段階の切れ目で着手宣言を全部解除してから、交代するかを人に聞き、承認されたら Orca で本体（main の checkout。hq と同じ）を `git pull --ff-only` で追いつかせてから `claude --permission-mode auto "/fleet --epic <Epic番号> <番号…>"` を起動し、画面の `auto mode` を確かめて元のセッションを終える。Orca が無いときは、人が新しいセッションに渡す1行を示して止まる（手順は fleet・ship の SKILL.md の「ハーネスが更新されたときの交代」）。docs/plan.md の Q92（ノードごとに `claude -p` を呼ぶ実行役は作らない）とは違い、`claude -p` は使わず、人が画面で見られる対話のセッションを人の承認の後に1つ起動するだけで、段階の判断は新しいセッションが今の skill のまま行う。
 
-待つ間の読み直し（#199）：fleet は、選んだ Issue が App・CI や人の Merge を待つだけになっても終わらず、`fleet.watch.intervalMinutes` 分おきに `fleet-status --watch` を読み直す（schedule・Actions・Routine は使わず、付き添いのセッションの中で待つ）。Merge・plan-ok などで次にやることが出たら ship を呼び直し、自分の PR の次にやることが `sync` になったら Merge 待ちでも ship を呼び直して sync させる。App が `fleet.watch.appStallMinutes` 分以上動かない行は1回だけ人に知らせる。fleet が終わるのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき。人の判断待ち（plan-review・Issue の止まる印）が `hq.humanWaitMinutes` を超えた Issue と PR の止まる印の Issue は `fleet-status` が脇に置き、fleet は表の下に出たこのセッションの着手宣言を解除して、聞き直さず一覧に1行で出す。受け持ちが全部そうなった fleet は「今は進められない」として終える（#667）（手順は fleet の SKILL.md の「待つ間の読み直し」。記録の書式は [formats.md](formats.md) の「見張りの記録」）。
+待つ間の読み直し（#199）：fleet は、選んだ Issue が App・CI や人の Merge を待つだけになっても終わらず、`fleet.watch.intervalMinutes` 分おきに `fleet-status --watch` を読み直す（schedule・Actions・Routine は使わず、付き添いのセッションの中で待つ）。Merge・plan-ok などで次にやることが出たら ship を呼び直し、自分の PR の次にやることが `sync` になったら Merge 待ちでも ship を呼び直して sync させる。App が `fleet.watch.appStallMinutes` 分以上動かない行は1回だけ人に知らせる。fleet が終わるのは、受け持つ Epic が Close したときか、人の判断待ちだけが残ったとき。人の判断待ち（plan-review・Issue の止まる印）が `hq.humanWaitMinutes` を超えた Issue と PR の止まる印の Issue は `fleet-status` が脇に置き、fleet は表の下に出たこのセッションの着手宣言を解除して、聞き直さず一覧に1行で出す。受け持ちが全部そうなった fleet は「今は進められない」として終える（#667）（手順は fleet の SKILL.md の「待つ間の読み直し」。記録の書式は [formats.md](formats.md) の「見張りの記録」）。クラウドの付き添いのセッションでは、ship が購読した PR を数分おきの読み直しから外し、PR のイベントと30分おきの見回り（変わらない見回りが3回続いたら止める）で進める（ship の SKILL.md の「クラウドで PR を出した後」。#892）。
 
-worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <ブランチ>` が作る worktree の置き場所は、既定では本体の隣の `../<リポジトリ名>.worktrees/<ブランチ名を安全にした名前>`。全員で変えるなら `harness.config.json` の `worktreeRoot`、そのパソコンだけ変えるなら環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（例：WSL の中の FS。環境変数が設定より優先）。書き方は、`~/` はホーム、相対パスは本体のルートから、`{repo}` はリポジトリ名に置き換える（複数のリポジトリで同じ場所を使うなら `{repo}` を入れる。入れないと、ダッシュボードがほかのリポジトリの worktree のセッションも拾いうる）。リポジトリの中になる値と、本体を含む祖先（`..` など）は拒む（`worktree`・`worktree-remove`・合体版のレビューの⑧・ダッシュボードが同じ関数（`harness/lib/worktree.ts` の `worktreeRoot`）で決め、同じく止まる）。本体の `.git` は元の場所に残るので、速くなるのは作業ツリーの分だけ。置き場所を変える前に作った worktree は `worktree-remove` が見つけられないので、先に消しておくか `git worktree remove <パス>` で消す。Orca があっても worktree は `agent.ts worktree` で作り、Orca はその worktree での起動と監視に使う（規則は [harness/CLAUDE.harness.md](../harness/CLAUDE.harness.md)）。Orca があれば `worktree` が Issue のブランチ（`claude/issue-<番号>-<短い名前>`）の worktree に表示名「#番号 短い名前」（短い名前は Issue のタイトルから `type(scope): ` を除いて24字までに詰めたもの。タイトルが取れなければブランチの後ろ）と Issue を付ける（親子は付けない。表示のためだけ）。Orca が無ければ何もせず、失敗したときは警告だけで続ける（Orca のアプリは起動しない）。
+worktree（作業の置き場所）：`node harness/scripts/agent.ts worktree <ブランチ>` が作る worktree の置き場所は、既定では本体の隣の `../<リポジトリ名>.worktrees/<ブランチ名を安全にした名前>`。全員で変えるなら `harness.config.json` の `worktreeRoot`、そのパソコンだけ変えるなら環境変数 `AGENT_HARNESS_WORKTREE_ROOT`（例：WSL の中の FS。環境変数が設定より優先）。書き方は、`~/` はホーム、相対パスは本体のルートから、`{repo}` はリポジトリ名に置き換える（複数のリポジトリで同じ場所を使うなら `{repo}` を入れる。入れないと、ダッシュボードがほかのリポジトリの worktree のセッションも拾いうる）。リポジトリの中になる値と、本体を含む祖先（`..` など）は拒む（`worktree`・`worktree-remove`・合体版のレビューの⑧・ダッシュボードが同じ関数（`harness/lib/worktree.ts` の `worktreeRoot`）で決め、同じく止まる）。本体の `.git` は元の場所に残るので、速くなるのは作業ツリーの分だけ。置き場所を変える前に作った worktree は `worktree-remove` が見つけられないので、先に消しておくか `git worktree remove <パス>` で消す。Orca があっても worktree は `agent.ts worktree` で作り、Orca はその worktree での起動と監視に使う（規則は [harness/CLAUDE.harness.md](../CLAUDE.harness.md)）。Orca があれば `worktree` が Issue のブランチ（`claude/issue-<番号>-<短い名前>`）の worktree に表示名「#番号 短い名前」（短い名前は Issue のタイトルから `type(scope): ` を除いて24字までに詰めたもの。タイトルが取れなければブランチの後ろ）と Issue を付ける（親子は付けない。表示のためだけ）。Orca が無ければ何もせず、失敗したときは警告だけで続ける（Orca のアプリは起動しない）。
 
 ### hq（テーマごとの fleet をまとめる）
 
-Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
+Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../../.claude/skills/hq/SKILL.md)）で、テーマ（Epic）ごとに fleet を Orca の worker として起こし、人に聞く窓口を hq にまとめられる（ship → fleet → hq → 人）。役割は、hq が Epic と fleet の管理、fleet が Epic の終了、ship が Issue と PR の Close（Epic #281 の人の決定）。
 
 - hq は Orca のプライマリ（main の checkout。`orca worktree current` の `isMainWorktree` が true）で動き、表示名は `hq`。リポジトリのファイル（本体・fleet のワークスペース・Issue の worktree）は書き換えない。リポジトリの中で書くのは印のファイルだけ（fleet のワークスペースの直下の `.agent-harness-workspace`。`.gitignore` に入っている。書き換えの場所の見張りの hook がこの印を見て、ワークスペースの中の書き換えを止める）。リポジトリの外の控え（scratchpad と、スクリプトが git の共通ディレクトリの下に置く状態（段階のファイル・`harness/scripts/hq-state.ts` の控え））は書く（作業ツリーの外で、書き換えに数えない）。
 - テーマ（どの Epic を進めるか・順番）は hq が依存・重なり・優先度から決めて、fleet を `orca orchestration worker-start --worktree new-top-level` で起こし、決めたことを人がすることの一覧で知らせる（人には聞かない。人が指示した・止めるよう言ったテーマは人に従う。Epic に入っていない Issue のまとめ方は App の「Epic の振り分け」に任せる）。表示名は `fleet: #<Epic番号> <日本語の短い言葉>`（例：`fleet: #520 claude の mod`。言葉は hq が Epic のタイトルと Goal から作り、ペインの `--label` と、fleet の交代で起こし直す端末の表示名も同じ名前にする）。同時に動く fleet は `hq.maxFleets` まで、同時に動く ship は全体で `hq.maxParallelShips` まで。
@@ -99,7 +99,7 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 | --- | --- | --- |
 | `fleet.shipMode` | `subagent` | ship の動かし方。`subagent` は fleet の中のサブエージェント。`worker` は Orca があれば ship を Orca の worker で動かす（無ければ今の手順） |
 | `fleet.implementModel` | `sonnet` | fleet から起こされた ship が、実装（implement・fix・sync のコードを書く部分）を任せるサブエージェントのモデル（`sonnet` か `opus`）。計画・判定・test-designer のモデルは変えない。人が付き添う単独の ship は切り替えない（ship の skill の節「実装のモデル（fleet から起こされた ship）」） |
-| `jev.modelRouting` | `shadow` | 計画ゲートで、実装に勧めるモデル（`opus` / `sonnet`）を Jev に問って記録（`plan-gate` の `modelRouting`）に残す。`off` は問わない。`shadow` は記録だけで、実装は `fleet.implementModel`。`enforce` はゲートを通った計画だけ勧めのモデルで実装し（`show-plan` の `modelRouting.use`）、ほかは `fleet.implementModel`。切り替えの基準は [plan.md](plan.md) の決定ログ（Q106）。`jev.mode` とは独立 |
+| `jev.modelRouting` | `shadow` | 計画ゲートで、実装に勧めるモデル（`opus` / `sonnet`）を Jev に問って記録（`plan-gate` の `modelRouting`）に残す。`off` は問わない。`shadow` は記録だけで、実装は `fleet.implementModel`。`enforce` はゲートを通った計画だけ勧めのモデルで実装し（`show-plan` の `modelRouting.use`）、ほかは `fleet.implementModel`。切り替えの基準は [plan.md](../../docs/plan.md) の決定ログ（Q106）。`jev.mode` とは独立 |
 | `hq.maxFleets` | 2 | 同時に動かす fleet の数の上限（正の整数）。hq の人待ちのペインは超えると警告する |
 | `hq.maxParallelShips` | 6 | 全体で同時に動かす ship の数の上限（正の整数）。hq が空いた枠に Issue を割り当てる上限。全体の枠に届くのは `hq.maxFleets` × `fleet.maxParallelShips` が `hq.maxParallelShips` 以上のとき |
 | `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
@@ -112,13 +112,13 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 
 `fleet.implementModel` を戻す目安：数日分の PR で、実装のモデルごとの判定に1回で合格した割合（`report.ts` の「実装のモデルごとの品質」の節）を比べ、`sonnet` が `opus` のときより大きく落ちたら、`opus` に戻すかを人が決める。戻すときは `"implementModel": "opus"` と書く。
 
-Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときか、人が付き添うセッションで始めた `/loop` の各回（`/loop 6h /arch-review --loop`。下の「見直しを /loop で回す」）か、patrol の `--routine` から呼ばれるループの回に動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。ループの回は下書きを記録に残すまでで、Issue にするのは人が「arch-review の下書きを選ぶ」と頼んだときに選んだものだけ。
+Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときか、人が付き添うセッションで始めた `/loop` の各回（`/loop 6h /arch-review --loop`。下の「見直しを /loop で回す」）か、patrol の `--routine` から呼ばれるループの回に動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。ループの回は下書きを記録に残すまでで、Issue にするのは人が「arch-review の下書きを選ぶ」と頼んだときに選んだものだけ。
 
-いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../harness/scripts/dashboard/README.md)）で見られる。`npm run dashboard` で起動すると既定のブラウザで開き（`--no-open` で開かない）、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。GitHub に書くのは、人がすることへの答え（`POST /decisions` の決定の記録のコメント。[formats.md](formats.md#決定の記録agent-decision)）だけ（画面の「気づきを送る」欄から送った文は、手元の受け箱に書き、intel が拾う）。
+いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../scripts/dashboard/README.md)）で見られる。`npm run dashboard` で起動すると既定のブラウザで開き（`--no-open` で開かない）、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。GitHub に書くのは、人がすることへの答え（`POST /decisions` の決定の記録のコメント。[formats.md](formats.md#決定の記録agent-decision)）だけ（画面の「気づきを送る」欄から送った文は、手元の受け箱に書き、intel が拾う）。
 
-intel は、人に頼まれたときと決まった時刻（既定 08:30・17:30、手元の時刻）に、`node harness/scripts/dashboard/digest.ts show` のまとめ（前回からの Merge（App と人）・閉じた Issue と Epic・人の判断待ち・人の Merge 待ち・止まっていそうな着手宣言・人がすること3つまで）を出す。時刻は intel が `run_in_background` で置く見張り（`harness/scripts/intel-watch.ts`）が知らせ、intel が止まっていた間に過ぎた時刻は、置いた時にすぐ出す。すぐ知らせるのは、人の Merge 待ち（Human Merge）の PR と計画ゲートで止まった Issue が新しく出たときだけで、intel のタブに書く（OS の通知は出さない。hq が動いているときは hq が伝え、mods/agent-harness の通知が出るので intel は書かない）。GitHub には書かず、Routine も使わない。控えは git の共通ディレクトリの下の `agent-harness/digest/`（見張りは置き直すたびに最初に開いた Issue・PR を全部読み直す）。手順は intel の skill の手順9（[intel](../.claude/skills/intel/SKILL.md)）。
+intel は、人に頼まれたときと決まった時刻（既定 08:30・17:30、手元の時刻）に、`node harness/scripts/dashboard/digest.ts show` のまとめ（前回からの Merge（App と人）・閉じた Issue と Epic・人の判断待ち・人の Merge 待ち・止まっていそうな着手宣言・人がすること3つまで）を出す。時刻は intel が `run_in_background` で置く見張り（`harness/scripts/intel-watch.ts`）が知らせ、intel が止まっていた間に過ぎた時刻は、置いた時にすぐ出す。すぐ知らせるのは、人の Merge 待ち（Human Merge）の PR と計画ゲートで止まった Issue が新しく出たときだけで、intel のタブに書く（OS の通知は出さない。hq が動いているときは hq が伝え、mods/agent-harness の通知が出るので intel は書かない）。GitHub には書かず、Routine も使わない。控えは git の共通ディレクトリの下の `agent-harness/digest/`（見張りは置き直すたびに最初に開いた Issue・PR を全部読み直す）。手順は intel の skill の手順9（[intel](../../.claude/skills/intel/SKILL.md)）。
 
-毎時の Routine（[.claude/routine.md](../.claude/routine.md)）が queue に従って同じ段階を進めるのは将来の構想。この文書の「Routine」は、付き添いのセッションで同じ段階を行うときはそのセッションに読み替える。
+毎時の Routine（[.claude/routine.md](../../.claude/routine.md)）が queue に従って同じ段階を進めるのは将来の構想。この文書の「Routine」は、付き添いのセッションで同じ段階を行うときはそのセッションに読み替える。
 
 ## ラベル
 
@@ -190,7 +190,7 @@ intel は、人に頼まれたときと決まった時刻（既定 08:30・17:30
 - Jev（決まらないもの）：`classification.issueTriage` が `label` のとき、優先度の無い Issue に `priority:*`、計画が無く `area:*` の無い Issue に `area:*` を、Jev の答えの確率がそのラベルの下限以上のときだけ付ける。下限未満のもの、下限が未設定のとき（提案のみ）は付けずに `label-triage` のコメントで知らせる。本文が Issue Form として読めない Issue には問わない。同じ Issue には一度だけ問う（`issue-triage` か `label-triage` の記録があれば問い済み）。問うのは、Issue の作成（`opened`。タイトルの編集では問わない）、`agent:ready` が付いたとき、定期実行。作成では、問う直前に Issue を読み直し、開いていてタイトルの形式が正しく、足りないものがあるときだけ問う。App が作った Issue（Epic の子課題。親の `priority:*` を App が後で引き継がせる）には作成時に問わない。`agent:ready` が付いたときは提案のコメントを出したうえで足りないものを付ける。例外として、作成の直後に定期実行か `agent:ready` の問いが重なると、互いの `label-triage` をまだ見られず二重に問うことがある（付くのは同じ答えのラベルで、足すだけなので仕組みは足していない）。1回の定期実行で問う Issue は 5 件まで（残りは次の実行）。
   - Jev に渡す材料：タイトルと本文の節（Goal・Background・Requirements・Non-goals・AC・Dependencies）、Issue に付いている `type:*`・`risk:*`・`area:*`・`epic`（名前順。`priority:*`・`agent:*` は渡さない）、子（Sub-issues）の数（1以上のとき）。どれも App が API から集めたもので、計画などセッションが書いたものは渡さない。priority の段階ごとの基準は `classification.priorityCriteria`（段階名 → 英文）で導入先に合わせて上書きでき、空でない文字列の段階だけ既定（`harness/lib/issue-triage.ts` の `DEFAULT_PRIORITY_CRITERIA`）に代わる。このリポジトリでは、判定・Merge・ゲートの流れを止めている／誤らせているものを high、手戻り・費用・待ちを減らすものを medium、表示・説明の改善を low にしている（Q97）。
   - 下限はラベルごとに `jev.thresholds.labelProbabilityByLabel`（ラベル → 0〜1）で決め、当たらないラベルは `jev.thresholds.labelProbability` を使う。既定では `priority:medium` が 0.5、ほかの `priority:*`・`area:*` は 0.8。`labelProbability` が未設定なら、`labelProbabilityByLabel` があっても付けない（提案のみ）。
-  - 値の理由（[plan.md](plan.md) の Q94）：ラベルの無い Issue は queue で medium として並ぶので、`priority:medium` を誤って付けても並び順は変わらず、害は付けないときと同じ程度で小さい。0.5 以上なら medium がほかの選択肢を全部足したより確からしい（過半）。`priority:high`・`low` などは並び順を変え、`area:*` は同時 PR の上限（`areaConcurrency`）の数え方に効くので、0.8 のまま。
+  - 値の理由（[plan.md](../../docs/plan.md) の Q94）：ラベルの無い Issue は queue で medium として並ぶので、`priority:medium` を誤って付けても並び順は変わらず、害は付けないときと同じ程度で小さい。0.5 以上なら medium がほかの選択肢を全部足したより確からしい（過半）。`priority:high`・`low` などは並び順を変え、`area:*` は同時 PR の上限（`areaConcurrency`）の数え方に効くので、0.8 のまま。
   - 付け直し：下限を見直した後の定期実行で、最新の `label-triage` の記録（App の名義）の `notApplied` のうち、今も足りず、記録の確率が今の下限以上のラベルを付け、`label-reapply` の記録を残す。Jev には問い直さない（費用がかからず、1回に問う 5 件の上限にも数えない）。`jevApiKey` が無くても動く。`label-reapply` の記録がある Issue には二度としない（付けた後に人が外しても付け直さない）。付けるものが無ければコメント（記録）を書かないので、下限をまた見直せば、その Issue もまた付け直しの対象になる。
 - PR の `risk:*`：App が判定を受け付けたとき、受け付けた判定の Risk を付け、ほかの `risk:*` を外す（判定し直せば付け替える）。判定を受け付けなかったときは変えない。
 
@@ -237,7 +237,7 @@ Epic に入っていない Issue を、App の定期実行（label-apply の後�
 
 Stacked PR は、下の層のブランチを base にした PR を重ねたもの（GitHub のスタック）。層ごとの diff が小さくなり、判定も層ごとに行える。
 
-- 使える場所：付き添いのセッションだけ（クラウドの Routine では `gh api` の REST は通るが、GraphQL は 403 なので `gh stack`・`gh pr` は使えない）。組み方は [gh-stack の skill](../.claude/skills/gh-stack/SKILL.md)、実装の手順は implement の skill の「Stacked PR で出すとき」。
+- 使える場所：付き添いのセッションだけ（クラウドの Routine では `gh api` の REST は通るが、GraphQL は 403 なので `gh stack`・`gh pr` は使えない）。組み方は [gh-stack の skill](../../.claude/skills/gh-stack/SKILL.md)、実装の手順は implement の skill の「Stacked PR で出すとき」。
 - 積んでよい条件：上の層が (1) 下の層と同じファイルを触る、(2) 下の層が足したもの（関数・型・設定・ファイル）を使う、(3) PR 本文に `Stack: 理由` がある、のどれかに当たるときだけ。当たらなければ別々に `main` 宛てで出す。Reviewer は、どれにも当たらない層をブロッキング指摘（`out-of-scope`）にする。
 - 紐付け：1層＝1 Issue。下の層の本文は `Refs #N`、一番上の層は `Closes #N`（どちらも1つだけ）。App は層を計画に紐付け（`agent/plan-link`）、紐付けの記録（`kind=stack-link`）を PR に残す（[formats.md](formats.md#app-の記録agent-app)）。
 - 組み方：層ごとに `gh pr create --draft --base <下の層のブランチ>` で Draft PR を出し、全部そろったら `gh stack link <下の PR 番号> <上の PR 番号>` で組む。上の層は組むまで base が既定ブランチでもスタックでもないので、App が一時的に orphan-base（Draft に留めて `agent:blocked`、理由コード `orphan-base`）にする。組めば（`stacked` のイベント）App が `kind=base-resolved` を残して戻す。
@@ -249,7 +249,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 
 ## 同時に開ける PR の数
 
-同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは、同じリポジトリの Agent PR（`agentBranchPrefix` のブランチ）のうち Draft のもの（判定の前で、まだ push が続く PR）だけ。Ready になった PR（人の Merge 待ちも自動 Merge 待ちも）、人の PR、fork の PR は数えない。App が「Draft＝判定前、Ready＝判定に合格して Merge 待ち」を保つので、PR の一覧の `draft` だけで判定の前かが分かる。ガードレールに触れる PR は人の Merge を待つ間 Ready のままたまるので、それを数えると上限を超えたままになり、止める役に立たない。
+同じ領域（`area:*`）の PR が長く開いたまま重なると、1本 Merge されるたびに残りが衝突する。`harness.config.json` の `areaConcurrency`（既定は `{"harness": 3}`）で、領域ごとに同時に開いてよい PR の数を決める。数えるのは、同じリポジトリの Agent PR（`agentBranchPrefix` のブランチ）のうち Draft のもの（判定の前で、まだ push が続く PR）だけ。Ready になった PR（人の Merge 待ちも自動 Merge 待ちも）、人の PR、fork の PR は数えない。 このリポジトリ（gen-ai-development-kit）では 6 にしている（2026-10-13 の計測で、直近 30 件の Merge 済み PR のうち取り込みが要ったのは 1 件だけで、上限 3 では Draft PR 3 件で枠が埋まり新しい PR を出せなかった。取り込みの衝突が増えたら 3 に戻す）。App が「Draft＝判定前、Ready＝判定に合格して Merge 待ち」を保つので、PR の一覧の `draft` だけで判定の前かが分かる。ガードレールに触れる PR は人の Merge を待つ間 Ready のままたまるので、それを数えると上限を超えたままになり、止める役に立たない。
 
 - 上限に達した領域に計画の触るファイルが入る Issue は、queue が implement を出さずに skip にする（理由はダッシュボードに出る）。
 - 付き添いのセッションの `agent.ts claim <番号> --manual` も同じ条件で止まる。ただし claim の段階 `plan`・`plan-critique` の宣言は、PR を作らないので上限を見ない。急ぐときは `--force` を付ける。fleet が領域の上限を越えて宣言し直すときは `--fleet` を付ける（飛ばすのは領域の上限だけで、`--force` と同じ）。ほかのセッションの着手宣言があるときも止まり、こちらは `--force`・`--fleet` では越えない。引き継ぐのは人が決めたときだけで、`--takeover` を付ける。
@@ -258,11 +258,11 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 
 ## 上限の設定
 
-運用の上限の数値は、すべて `harness.config.json` にある（Issue #272。省略できるキーは、書かなければ既定値で動く）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](plan.md) の Q101）。
+運用の上限の数値は、すべて `harness.config.json` にある（Issue #272。省略できるキーは、書かなければ既定値で動く）。変えるときは `harness.config.json` を PR で変える（ガードレールなので人が Merge する）。リポジトリの変数・環境変数では上書きしない（[plan.md](../../docs/plan.md) の Q101）。
 
 | キー | 今の値 | 意味 | 読む側 |
 | --- | --- | --- | --- |
-| `routine.maxItemsPerRun` | 5 | 1回の Routine で扱う項目の数 | Routine（[.claude/routine.md](../.claude/routine.md)） |
+| `routine.maxItemsPerRun` | 5 | 1回の Routine で扱う項目の数 | Routine（[.claude/routine.md](../../.claude/routine.md)） |
 | `routine.humanClaimStaleHours` | 6 | 人の着手宣言を期限切れとみなす時間 | ゲート・セッション（queue・`claim`・`fleet-status`） |
 | `routine.routineClaimTakeoverMinutes` | 90 | Routine の着手宣言を引き継げるまでの時間 | ゲート・セッション（queue） |
 | `routine.gateReplyTimeoutMinutes` | 30 | 判定コメントへの App の返答を待つ時間（過ぎたら判定し直す） | `prFacts` を通してゲートとセッション（queue・fleet）の両方 |
@@ -372,7 +372,7 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 
 ## auto mode の保留の検討会
 
-auto mode で Jev の危険の判定が計画か PR を保留にしたとき、fleet が3つの担当（安全・分け方・反対役）に調べさせ、結論を出して人に上げる（Issue #681）。手順は [fleet の skill](../.claude/skills/fleet/SKILL.md#auto-mode-の保留の検討会) に書き、ここには写さない。保留は人の判断なしに解かない。検討会がするのは、人に上げるか、`files` が変わる計画に出し直して Jev に問い直させるかだけ。
+auto mode で Jev の危険の判定が計画か PR を保留にしたとき、fleet が3つの担当（安全・分け方・反対役）に調べさせ、結論を出して人に上げる（Issue #681）。手順は [fleet の skill](../../.claude/skills/fleet/SKILL.md#auto-mode-の保留の検討会) に書き、ここには写さない。保留は人の判断なしに解かない。検討会がするのは、人に上げるか、`files` が変わる計画に出し直して Jev に問い直させるかだけ。
 
 ### 結論の記録の書式
 
@@ -414,7 +414,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 | `at` | ISO 8601 の時刻 |
 
 - 本文に ```` ```agent-plan ````・```` ```agent-verdict ````・```` ```agent-decision ```` のブロックを含めない（ゲートが起きないようにするため。App はこの記録を読まない）。
-- 書式は `docs/formats.md` に載せておらず、`node harness/scripts/agent.ts check` も検査しない。
+- 書式は `harness/docs/formats.md` に載せておらず、`node harness/scripts/agent.ts check` も検査しない。
 
 ### その後の数え方
 
@@ -457,7 +457,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 - プロジェクトの CI が出すもの：`harness.config.json` の `projectChecks` に並べる（既定は GitHub Actions の `ci`）。プロジェクトが正しいか（lint・テスト・ビルドなど）は CI が判断し、ゲートは CI を動かさない。
 - ハーネスが出すもの：`agent/review`・`merge-route`・`agent/plan-link`・`agent/title`・`agent/tests`（App）。Merge してよいかの判断で、コードに固定していて設定から外せない。
 
-`projectChecks` の書式の誤りはゲートでは検出されず、`setup.ts ruleset` の実行時にエラーになる。変えたら `ruleset` を実行し直す（手順は [setup.md](setup.md)）。
+`projectChecks` の書式の誤りはゲートでは検出されず、`setup.ts ruleset` の実行時にエラーになる。変えたら `ruleset` を実行し直す（手順は [setup.md](../../docs/setup.md)）。
 
 ## 人が関わる場面
 
@@ -506,7 +506,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 | GitHub API の上限 | `RateLimitError`（HTTP 403・429。メッセージにリセットか次に送れる時刻） | 短時間の上限（secondary）と 502・503・504 の読み取りは自動で待ってやり直す。core の上限の間は、付き添いのセッションのコメントの投稿とラベルの付け外しだけ GraphQL で続く（標準エラーに1行出る）。書き込みの前に REST で読むコマンド（着手宣言の読み直し・判定の入力など）は、メッセージのリセットの時刻まで待ってからやり直す |
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる。計画・判定・決定の記録のコメントで起動して失敗した実行は、次の定期実行（1時間ごと）か手動の起動でジョブ `rerun-failed` が1回だけやり直す（直近6時間・1回目の実行・まだ処理されていないものだけ。やり直した実行と飛ばした理由はそのジョブのログにある）。2回目も失敗した実行と、「acceptance の後で失敗」で飛ばした実行（受け付けは書かれたが Ready・auto-merge などの続きが済んでいない。定期照合は auto-merge の付いた PR しか見ないので直らない）は、人が `gh run rerun` するか判定し直す。定期実行が来ないときにイベントの gate が定期の仕事を補う仕組み（`periodicCatchUpMinutes`）は、`rerun-failed` を行わない（`actions: write` を定期実行・手動の起動のジョブだけに持たせるため） |
 
-判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。集計のしかたと切り替えの基準は [security.md](security.md#jev) を見る。同じ集計の最後に、合体版のレビューの記録と今の判定を比べる節（「合体版のレビュー（記録だけの期間の比較）」）が出る。その切り替えの基準は [plan.md](plan.md) の決定ログの Q91。さらに「auto mode で保留した計画・PR のその後」の節が、保留した計画・PR を危険の確率の帯ごとに、そのまま Merge・直させた・閉じたで数える（PR の「直させた」は保留の後の関係の無い push でも patch-id が変わると数えるので、多めに出る）。
+判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。集計のしかたと切り替えの基準は [security.md](security.md#jev) を見る。同じ集計の最後に、合体版のレビューの記録と今の判定を比べる節（「合体版のレビュー（記録だけの期間の比較）」）が出る。その切り替えの基準は [plan.md](../../docs/plan.md) の決定ログの Q91。さらに「auto mode で保留した計画・PR のその後」の節が、保留した計画・PR を危険の確率の帯ごとに、そのまま Merge・直させた・閉じたで数える（PR の「直させた」は保留の後の関係の無い push でも patch-id が変わると数えるので、多めに出る）。
 
 PR に残る実行メトリクスのトークン数と推定料金（`harness.config.json` の `pricing` で計算）はセッションの累計による目安で、実際の請求額ではない。手元では `node harness/scripts/agent.ts usage` で確認できる。
 
@@ -555,7 +555,7 @@ node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run
 
 見直し（Merge 済みの変更の arch-review・qa-retro と、テストの test-prune）は、人が付き添うセッションの `/loop` から続けて回せる。skill によらない規則をここに書き、1回分の処理（間隔の目安・見る範囲や期間・記録や状態の書式）は各 skill の「/loop で回すとき」の節に書く。
 
-- 回すのは、付き添いのセッションの `/loop`（`/loop 6h /arch-review --loop` のように）か、クラウドの Routine の patrol（`--routine`。[patrol-routine.md](patrol-routine.md)）。Actions は使わない。Routine で動かすのは patrol だけ。付き添いのセッションでは `gh` をそのまま使える。
+- 回すのは、付き添いのセッションの `/loop`（`/loop 6h /arch-review --loop` のように）か、クラウドの Routine の patrol（`--routine`。[patrol-routine.md](../../docs/patrol-routine.md)）。Actions は使わない。Routine で動かすのは patrol だけ。付き添いのセッションでは `gh` をそのまま使える。
 - `/loop` から呼ぶときは skill に `--loop` を付け、skill は `--loop` のあるときだけループの回として動く。人が `--loop` なしで呼んだときは、今までどおりの手順。
 - 1回分はその回の中で完結させ、人の答えを待たない（AskUserQuestion を呼ばない）。人の判断が要る状態に当たったら、その回を止めて理由を出す。
 - 前回の位置は、その skill の記録・状態から読む（arch-review はダッシュボード Issue の記録の `headSha`）。見るものが無い回は記録を残さず、次の回を待つ。

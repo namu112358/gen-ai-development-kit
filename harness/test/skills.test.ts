@@ -231,8 +231,8 @@ test('plan-critic の定義：「リポジトリのファイルを変更しな�
 
 // ---- docs（#209） ----
 
-test('docs/operations.md「足りないラベルを付ける」：セッションは聞かず Jev に任せ、人がすることの一覧に書く古い文が無い', () => {
-  const sub = section(readText('docs/operations.md'), '#### 足りないラベルを付ける');
+test('harness/docs/operations.md「足りないラベルを付ける」：セッションは聞かず Jev に任せ、人がすることの一覧に書く古い文が無い', () => {
+  const sub = section(readText('harness/docs/operations.md'), '#### 足りないラベルを付ける');
   assert.ok(sub !== '', '見出し「#### 足りないラベルを付ける」がありません');
   const line = sub.split('\n').find((l) => l.includes('セッション') && /聞か(ない|ず)/.test(l));
   assert.ok(line, 'セッションがラベルの不足を人に聞かないことを書いた行がありません');

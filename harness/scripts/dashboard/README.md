@@ -26,7 +26,7 @@ npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-o
 
 ## 人がすることの答え方
 
-`POST /decisions`（本文は JSON `{ issue, planCommentId, proceed?: { text? }, answers?: { to, choice?, text? }[] }`。`proceed` と `answers` はどちらか片方）で、止まった計画への人の決定の記録（`agent-decision`。書式は [docs/formats.md](../../docs/formats.md#決定の記録agent-decision)）を、人の名義の Issue のコメント1件として投稿する。画面は、「進める」「答える」を押すと確かめの表示（`confirm`）を出し、了承すると合言葉（`x-dashboard-token`）を付けて `POST /decisions` に送り、送る間はボタンを無効にする。成功なら投稿したコメントへのリンク（`https://github.com/` で始まる url だけ）、失敗なら番号と理由を出す。入力・選んだ選択肢・結果は Issue 番号と `planCommentId` ごとに持ち、描き直しで消えない（計画が出し直されると別の欄になる）。
+`POST /decisions`（本文は JSON `{ issue, planCommentId, proceed?: { text? }, answers?: { to, choice?, text? }[] }`。`proceed` と `answers` はどちらか片方）で、止まった計画への人の決定の記録（`agent-decision`。書式は [harness/docs/formats.md](../../docs/formats.md#決定の記録agent-decision)）を、人の名義の Issue のコメント1件として投稿する。画面は、「進める」「答える」を押すと確かめの表示（`confirm`）を出し、了承すると合言葉（`x-dashboard-token`）を付けて `POST /decisions` に送り、送る間はボタンを無効にする。成功なら投稿したコメントへのリンク（`https://github.com/` で始まる url だけ）、失敗なら番号と理由を出す。入力・選んだ選択肢・結果は Issue 番号と `planCommentId` ごとに持ち、描き直しで消えない（計画が出し直されると別の欄になる）。
 
 - 投稿の前に Issue とコメントを読み直し（`post-decision` と同じ条件）、状態が食い違えば 409（Issue が開いていない・`agent:plan-review` が無い・止まった計画ゲートの記録が無い・`planCommentId` の不一致・`acChangeProposed`・PR の番号・`answers` で Planner の申告の停止でない）、答えの形の誤り（答えの無い項目・存在しない項目・選択肢にない `choice`・重複・空の答え）は 400。GitHub の読み・書きの失敗は 502（投稿はやり直さない）。できたら 201 と `{ url }`。400・409・502 の本文は `{ errors: string[] }`。
 - `proceed` の `text` は前後の空白を除いて人の言葉のまま `quote` に残り、空なら `quote` は「進める」。`at` はサーバーの時刻、コメントの目印はセッションの ID の無い `CLAUDE_MARK`。

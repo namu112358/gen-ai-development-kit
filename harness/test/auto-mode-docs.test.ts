@@ -44,7 +44,7 @@ function inOrder(line: string, words: string[]): boolean {
 }
 
 test('risk-policy.md の ## auto mode の節に、ラベル・Jev の設定・乗り方の順番・agent/tests の扱いがある', () => {
-  const text = read('docs/risk-policy.md');
+  const text = read('harness/docs/risk-policy.md');
   const headings = text.split('\n').filter((l) => l.trim() === '## auto mode');
   assert.equal(headings.length, 1, '## auto mode の見出しがちょうど1つでない');
   const body = section(text, '## auto mode');
@@ -62,7 +62,7 @@ test('risk-policy.md の ## auto mode の節に、ラベル・Jev の設定・�
 });
 
 test('security.md の受け入れているリスクに、auto mode のラベルの行と Jev だけで判定する行がある', () => {
-  const body = section(read('docs/security.md'), '## 受け入れているリスク');
+  const body = section(read('harness/docs/security.md'), '## 受け入れているリスク');
   assert.ok(body !== '', '## 受け入れているリスク の節が無い');
   const rows = tableRows(body).filter((r) => (r.cells[0] ?? '').includes('auto mode'));
   assert.ok(
@@ -78,7 +78,7 @@ test('security.md の受け入れているリスクに、auto mode のラベル�
 });
 
 test('glossary.md に ### auto mode の見出しがある', () => {
-  const text = read('docs/glossary.md');
+  const text = read('harness/docs/glossary.md');
   assert.ok(
     text.split('\n').some((l) => l.startsWith('### auto mode')),
     'glossary.md に ### auto mode の見出しが無い',
@@ -86,7 +86,7 @@ test('glossary.md に ### auto mode の見出しがある', () => {
 });
 
 test('formats.md の App の記録の表に auto mode の kind があり、plan-gate と acceptance に autoMode がある', () => {
-  const body = section(read('docs/formats.md'), '## App の記録（agent-app）');
+  const body = section(read('harness/docs/formats.md'), '## App の記録（agent-app）');
   assert.ok(body !== '', '## App の記録（agent-app） の節が無い');
   const rows = tableRows(body);
   for (const kind of [AUTO_MODE_MERGE_KIND, AUTO_MODE_MERGE_END_KIND, AUTO_MODE_SWITCH_KIND]) {
@@ -103,7 +103,7 @@ test('formats.md の App の記録の表に auto mode の kind があり、plan-
 });
 
 test('operations.md の auto mode の行に、未実装（子課題で足す・まだ見ない）の書き方が残っていない', () => {
-  const rows = tableRows(read('docs/operations.md')).filter(
+  const rows = tableRows(read('harness/docs/operations.md')).filter(
     (r) => (r.cells[0] ?? '').includes(AUTO_MODE_LABEL_DEFAULT) || /^auto mode を(始める|見返す|終える)/.test(r.cells[0] ?? ''),
   );
   const firsts = rows.map((r) => r.cells[0]);

@@ -23,14 +23,14 @@ test('guardrailPaths が無い設定では、すべてのファイルとパタ�
 });
 
 test('初期の一覧：Issue の表どおり', () => {
-  const hit = ['.github/workflows/gate.yml', '.github/ISSUE_TEMPLATE/agent-task.yml', '.claude/settings.json', 'harness/templates/x.json', '.claude/agents/reviewer.md', '.claude/agents/risk-agent.md', 'docs/risk-policy.md', 'harness/gates/run.ts', 'harness/lib/plan.ts', 'harness/lib/epic.ts', 'harness/lib/test-tamper.ts', 'harness/lib/guardrail.ts', 'harness/scripts/setup.ts', 'harness/scripts/agent.ts', '.claude/skills/judge/SKILL.md', '.claude/skills/plan/SKILL.md', '.claude/routine.md', '.claude/agents/plan-critic.md', '.claude/agents/test-designer.md', 'harness/lib/facts.ts', 'harness.config.json', 'package.json', 'package-lock.json', '.node-version', 'tsconfig.json', '.claude/hooks/pre.sh', '.mcp.json', 'CODEOWNERS', 'docs/CODEOWNERS', '.github/CODEOWNERS', '.claude/skills/sync/SKILL.md', '.claude/skills/fix/SKILL.md', '.claude/skills/ship/SKILL.md', 'CLAUDE.md', 'harness/scripts/report.ts'];
+  const hit = ['.github/workflows/gate.yml', '.github/ISSUE_TEMPLATE/agent-task.yml', '.claude/settings.json', 'harness/templates/x.json', '.claude/agents/reviewer.md', '.claude/agents/risk-agent.md', 'harness/docs/risk-policy.md', 'harness/gates/run.ts', 'harness/lib/plan.ts', 'harness/lib/epic.ts', 'harness/lib/test-tamper.ts', 'harness/lib/guardrail.ts', 'harness/scripts/setup.ts', 'harness/scripts/agent.ts', '.claude/skills/judge/SKILL.md', '.claude/skills/plan/SKILL.md', '.claude/routine.md', '.claude/agents/plan-critic.md', '.claude/agents/test-designer.md', 'harness/lib/facts.ts', 'harness.config.json', 'package.json', 'package-lock.json', '.node-version', 'tsconfig.json', '.claude/hooks/pre.sh', '.mcp.json', 'CODEOWNERS', 'docs/CODEOWNERS', '.github/CODEOWNERS', '.claude/skills/sync/SKILL.md', '.claude/skills/fix/SKILL.md', '.claude/skills/ship/SKILL.md', 'CLAUDE.md', 'harness/scripts/report.ts'];
   const miss = ['harness/lib/usage.ts', 'harness/lib/classify.ts', 'harness/lib/worktree.ts', 'harness/lib/issue-triage.ts', 'harness/lib/queue.ts', 'harness/lib/concurrency.ts', 'harness/test/plan.test.ts', '.claude/skills/x/SKILL.md', '.claude/skills/implement/SKILL.md', 'docs/plan.md'];
   assert.deepEqual(guardrailFiles(config, [...hit, ...miss]), [...hit].sort());
 });
 
 test('計画のパターン：重なりうれば当たり、除外に完全に含まれるときだけ外す', () => {
   const r = (p: string) => guardrailPatterns(config, [p]).length > 0;
-  for (const p of ['harness/lib/**', 'harness/**', 'harness/lib/*.ts', 'harness/scripts/*.ts', 'docs/**', 'docs/*.md', '.github/workflows/x.yml', 'harness.config.json', 'harness/gates/**/a.ts']) assert.equal(r(p), true, p);
+  for (const p of ['harness/lib/**', 'harness/**', 'harness/lib/*.ts', 'harness/scripts/*.ts', 'harness/docs/**', 'harness/docs/*.md', '.github/workflows/x.yml', 'harness.config.json', 'harness/gates/**/a.ts']) assert.equal(r(p), true, p);
   for (const p of ['harness/lib/usage.ts', 'harness/test/**', 'docs/plan.md', 'src/**', '.claude/skills/x/SKILL.md', '.claude/skills/implement/SKILL.md']) assert.equal(r(p), false, p);
   assert.equal(guardrailPatterns({ guardrailPaths: ['a/**'], guardrailExclude: ['a/b/**'] }, ['a/b/**']).length, 0, '除外と同じパターン');
   assert.equal(guardrailPatterns({ guardrailPaths: ['a/**'], guardrailExclude: ['a/b/**'] }, ['a/b/*.ts']).length, 1, '除外に含まれうるワイルドカードでも同じパターンでなければ当たる');
@@ -62,7 +62,7 @@ test('質問8の文言が risk-policy.md・verdict.ts・risk-agent.md・Jev で�
   const read = (p: string) => readFileSync(new URL(`../../${p}`, import.meta.url), 'utf8');
   const jev = buildJevRequest(config, '', [], { references: '', tests: '', fileKinds: '' }).questions as Record<string, { instructions?: string; criteria?: Record<string, string> }>;
   const texts = {
-    'risk-policy.md': read('docs/risk-policy.md').split('\n').find((l) => l.includes('`q8_harnessConfig`') && l.startsWith('| 8'))!,
+    'risk-policy.md': read('harness/docs/risk-policy.md').split('\n').find((l) => l.includes('`q8_harnessConfig`') && l.startsWith('| 8'))!,
     'verdict.ts': RISK_QUESTIONS.find((q) => q.key === 'q8_harnessConfig')!.text,
     'risk-agent.md': read('.claude/agents/risk-agent.md').split('\n').find((l) => l.includes('質問8'))!,
     'jev q8': jev.q8_harnessConfig!.instructions!,
@@ -73,5 +73,5 @@ test('質問8の文言が risk-policy.md・verdict.ts・risk-agent.md・Jev で�
     assert.ok(!text.includes('harness/**') && !/\.claude\/\*\*.*harness\.config\.json/.test(text), `${where} に旧来のパスの列挙が残っています`);
   }
   assert.match(jev.q1_risk!.criteria!.critical!, /guardrailPaths/);
-  assert.match(read('docs/risk-policy.md'), /\*\*critical\*\*：ガードレール、権限、秘密情報、依存関係/);
+  assert.match(read('harness/docs/risk-policy.md'), /\*\*critical\*\*：ガードレール、権限、秘密情報、依存関係/);
 });
