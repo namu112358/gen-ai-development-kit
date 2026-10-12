@@ -10,7 +10,7 @@ import { ensureOwnClaim as ownClaimError } from '../../lib/claim.ts';
 import { LABELS, loadConfig, REASON_CODES, type ReasonCode, reasonMark, riskLabel } from '../../lib/config.ts';
 import { parseDecision } from '../../lib/decision.ts';
 import { parseHandoff } from '../../lib/handoff.ts';
-import { GitHub, transportFromEnv } from '../../lib/github.ts';
+import { GitHub, RateLimitError, type Transport, transportFromEnv } from '../../lib/github.ts';
 import { judgedHeadError, samePrPatch } from '../../lib/patch-id.ts';
 import { gitCommonDir } from '../../lib/local-state.ts';
 import { compareHarness, type DriftResult, harnessVersionsAt, loadedRecordPath, readLoadedRecord } from '../../lib/harness-drift.ts';
@@ -257,10 +257,95 @@ export function fail(errors: string[]): never {
   process.exit(2);
 }
 
+/** REST が core の上限で止まった失敗か（resource が分からない primary も core とみなす） */
+function isCoreLimit(e: unknown): e is RateLimitError {
+  return e instanceof RateLimitError && e.kind === 'primary' && (e.resource === 'core' || e.resource === null);
+}
+
+/**
+ * 付き添いのセッションの GitHub。コメントの投稿とラベルの付け外しは、REST が core の上限で止まったときだけ GraphQL の mutation でやり直す（Issue #716）。
+ * ほかの失敗はそのまま投げる。ゲートは素の GitHub を使うので切り替えない。
+ */
+export class FallbackGitHub extends GitHub {
+  private readonly log: (line: string) => void;
+
+  constructor(transport: Transport, repository: string, log: (line: string) => void = (line) => console.error(line)) {
+    super(transport, repository);
+    this.log = log;
+  }
+
+  private notify(e: RateLimitError, issue: number, what: string): void {
+    this.log(`GitHub: REST の core の上限のため、#${issue} の${what}を GraphQL で行います（REST のリセット ${e.resetAt ?? '不明'}）`);
+  }
+
+  /** Issue・PR の node ID と、ラベルの node ID（引けなければ null。引数の順）を1回で引く */
+  private async lookup(issue: number, labels: string[]): Promise<{ subjectId: string; labels: ({ id: string; name: string } | null)[] }> {
+    const decls = labels.map((_, i) => `, $l${i}: String!`).join('');
+    const aliases = labels.map((_, i) => ` l${i}: label(name: $l${i}) { id name }`).join('');
+    const query = `query($owner: String!, $repo: String!, $number: Int!${decls}) { repository(owner: $owner, name: $repo) { issueOrPullRequest(number: $number) { __typename ... on Issue { id } ... on PullRequest { id } }${aliases} } }`;
+    const variables: Record<string, unknown> = { owner: this.owner, repo: this.repo, number: issue };
+    labels.forEach((name, i) => { variables[`l${i}`] = name; });
+    const data = await this.graphql<{ repository: Record<string, any> }>(query, variables);
+    const subject = data.repository.issueOrPullRequest;
+    if (!subject) throw new Error(`#${issue} が見つかりません`);
+    return { subjectId: subject.id, labels: labels.map((_, i) => data.repository[`l${i}`] ?? null) };
+  }
+
+  override async comment(issue: number, body: string): Promise<{ id: number; html_url: string }> {
+    try {
+      return await super.comment(issue, body);
+    } catch (e) {
+      if (!isCoreLimit(e)) throw e;
+      this.notify(e, issue, 'コメントの投稿');
+      const { subjectId } = await this.lookup(issue, []);
+      const data = await this.graphql<{ addComment: { commentEdge: { node: { databaseId: number; url: string } } } }>(
+        'mutation($subjectId: ID!, $body: String!) { addComment(input: {subjectId: $subjectId, body: $body}) { commentEdge { node { databaseId url } } } }',
+        { subjectId, body },
+      );
+      const node = data.addComment.commentEdge.node;
+      return { id: node.databaseId, html_url: node.url };
+    }
+  }
+
+  override async addLabels(issue: number, labels: string[]): Promise<unknown> {
+    try {
+      return await super.addLabels(issue, labels);
+    } catch (e) {
+      if (!isCoreLimit(e)) throw e;
+      if (labels.length === 0) return [];
+      this.notify(e, issue, `ラベルの追加（${labels.join(', ')}）`);
+      const found = await this.lookup(issue, labels);
+      const missing = labels.filter((_, i) => !found.labels[i]);
+      if (missing.length > 0) throw new Error(`ラベルが見つかりません: ${missing.join(', ')}`);
+      const data = await this.graphql<{ addLabelsToLabelable: { labelable: { labels: { nodes: { name: string }[] } } } }>(
+        'mutation($id: ID!, $ids: [ID!]!) { addLabelsToLabelable(input: {labelableId: $id, labelIds: $ids}) { labelable { labels(first: 100) { nodes { name } } } } }',
+        { id: found.subjectId, ids: found.labels.map((l) => l!.id) },
+      );
+      return data.addLabelsToLabelable.labelable.labels.nodes.map((n) => ({ name: n.name }));
+    }
+  }
+
+  override async removeLabel(issue: number, label: string): Promise<void> {
+    try {
+      await super.removeLabel(issue, label);
+    } catch (e) {
+      if (!isCoreLimit(e)) throw e;
+      this.notify(e, issue, `ラベルの削除（${label}）`);
+      const found = await this.lookup(issue, [label]);
+      const target = found.labels[0];
+      if (!target) return;
+      await this.graphql(
+        'mutation($id: ID!, $labelId: ID!) { removeLabelsFromLabelable(input: {labelableId: $id, labelIds: [$labelId]}) { clientMutationId } }',
+        { id: found.subjectId, labelId: target.id },
+      );
+    }
+  }
+}
+
 /** GitHub を作る。counter があれば呼び出しを数え、応答の上限のヘッダーを覚える */
 export function newGitHub(counter: ApiCounter | null): GitHub {
-  if (!counter) return new GitHub(transportFromEnv(), repository());
-  return new GitHub(new CountingTransport(transportFromEnv({ onResponse: counter.observe }), counter), repository());
+  if (!counter) return new FallbackGitHub(transportFromEnv(), repository());
+  return new FallbackGitHub(new CountingTransport(transportFromEnv({ onResponse: counter.observe }), counter), repository());
 }
 
 /** コマンドに渡す文脈。gh は初めて呼んだときに作る（GitHub を使わないコマンドは作らず、gh・origin が無くても動く） */
