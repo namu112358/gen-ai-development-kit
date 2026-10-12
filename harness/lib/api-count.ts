@@ -12,7 +12,7 @@ export const API_COUNT_ENV = 'AGENT_HARNESS_API_COUNT';
 const COLLAPSE_AFTER = ['compare', 'labels', 'branches', 'contents', 'git/ref', 'git/refs'];
 
 /** GraphQL の本文の query が mutation か（先頭の空白と # のコメントを飛ばして見る） */
-function isMutation(query: string): boolean {
+export function isMutation(query: string): boolean {
   const rest = query.replace(/^(?:\s|#[^\n]*)*/, '');
   return /^mutation\b/.test(rest);
 }
