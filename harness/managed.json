@@ -28,6 +28,7 @@
     "harness/lib/test-prune.ts",
     "harness/lib/test-prune-loop.ts",
     "harness/lib/patrol.ts",
+    "harness/lib/patrol-issue.ts",
     "harness/lib/arch-review.ts",
     "harness/lib/qa-retro-loop.ts",
     "harness/scripts/agent/commands/arch-review.ts",
