@@ -17,6 +17,8 @@ export interface SplitChild {
   files: string[];
   /** 先に終わらせる兄弟の添字（自分より前に並ぶものだけ） */
   dependsOn: number[];
+  /** 先に終わらせる、同じリポジトリの兄弟でない Issue の番号。省略は [] */
+  blockedBy?: number[];
 }
 
 /** 型の検査だけを行う（意味の検査は validateSplit） */
@@ -31,6 +33,7 @@ export function parseSplit(c: Checker, raw: unknown, path = 'plan.split'): Split
       acceptanceCriteria: c.stringArray(o.acceptanceCriteria, `${p}.acceptanceCriteria`),
       files: c.stringArray(o.files, `${p}.files`),
       dependsOn: o.dependsOn === undefined ? [] : c.array(o.dependsOn, `${p}.dependsOn`).map((d, j) => c.integer(d, `${p}.dependsOn[${j}]`)),
+      blockedBy: o.blockedBy === undefined ? [] : c.array(o.blockedBy, `${p}.blockedBy`).map((d, j) => c.integer(d, `${p}.blockedBy[${j}]`)),
     };
   });
 }
@@ -53,7 +56,7 @@ export function patternsOverlap(a: string, b: string): boolean {
 }
 
 /** 分け方の検査。問題があれば理由を返す（空なら通過） */
-export function validateSplit(split: SplitChild[]): string[] {
+export function validateSplit(split: SplitChild[], parent?: number): string[] {
   const reasons: string[] = [];
   if (split.length < 2) reasons.push(`split は2件以上にしてください（${split.length} 件）`);
   split.forEach((child, i) => {
@@ -71,6 +74,12 @@ export function validateSplit(split: SplitChild[]): string[] {
       if (d < 0 || d >= i) reasons.push(`${p}.dependsOn の ${d} は自分より前の兄弟の添字ではありません`);
     }
     if (new Set(child.dependsOn).size !== child.dependsOn.length) reasons.push(`${p}.dependsOn が重複しています`);
+    const blockedBy = child.blockedBy ?? [];
+    for (const b of blockedBy) {
+      if (!Number.isInteger(b) || b <= 0) reasons.push(`${p}.blockedBy の ${b} は正の Issue 番号ではありません`);
+      else if (b === parent) reasons.push(`${p}.blockedBy に親の #${b} は書けません（親の Epic は子課題が全部閉じると閉じるので、親に依存すると進みません）`);
+    }
+    if (new Set(blockedBy).size !== blockedBy.length) reasons.push(`${p}.blockedBy が重複しています`);
   });
   for (let i = 0; i < split.length; i++) {
     for (let j = i + 1; j < split.length; j++) {

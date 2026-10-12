@@ -148,7 +148,7 @@ export interface HumanWait {
 }
 
 /** plan-review の後の着手宣言の段階。ここにあれば、人かセッションが進めると決めた後で、人の判断待ちではない（Issue #667） */
-const PAST_PLAN_REVIEW: ClaimStage[] = ['implement', 'judge', 'fix', 'sync'];
+export const PAST_PLAN_REVIEW: ClaimStage[] = ['implement', 'judge', 'fix', 'sync'];
 
 /**
  * 行の人の判断待ち。plan-review・Issue の止まる印は facts.humanWaitSince から分を数え、PR の止まる印は時間を問わず overdue。待ちでなければ null。

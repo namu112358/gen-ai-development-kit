@@ -1,11 +1,12 @@
-import { autoModeConfig, autoModeDanger, type AutoModeState } from '../lib/auto-mode.ts';
+import { autoModeConfig, autoModeDanger, humanWaitDigest, renderHumanWaitDigest, type AutoModeState, type HumanWaitItem } from '../lib/auto-mode.ts';
 import { appMark, hasClaudeMark } from '../lib/blocks.ts';
 import { bypassMergeConfig, delegateConfig, LABELS, reasonOf, REASON_CODES } from '../lib/config.ts';
 import type { DelegateState } from '../lib/delegate.ts';
 import { labelAuditRows, renderAuditLines } from '../lib/label-rules.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { patchId } from '../lib/patch-id.ts';
-import { claimActivityAt, claimOf } from '../lib/facts.ts';
+import { claimActivityAt, claimOf, issueFacts } from '../lib/facts.ts';
+import { humanWaitMinutes, PAST_PLAN_REVIEW } from '../lib/fleet.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
 import { acceptanceForPatch, appRecords, autoMergeMode, findDashboard, hasLabel, isAgentPr, isTrustedComment, latestPlanGate, linkedIssues, prDiff, type DashboardIssue, type PullRequest } from '../lib/state.ts';
 import { classifyBase } from '../lib/stack.ts';
@@ -481,6 +482,58 @@ async function claimMovedRecently(ctx: GateContext, n: number, now: Date, staleM
   }
 }
 
+export const HUMAN_WAIT_DIGEST_KIND = 'human-wait-digest';
+
+/**
+ * auto mode でも回らない人の判断待ちの行（計画：agent:plan-review の Issue、PR：判定に合格し自動 Merge の対象でない Human Merge 待ち）。
+ * 着手宣言が解除されずに implement・judge・fix・sync の計画は除く。読めない Issue・PR はログに残して飛ばす
+ */
+async function humanWaitItems(ctx: GateContext, planReview: IssueItem[], reasons: Map<number, string>, agentPrs: PullRequest[], autoModeActive: boolean): Promise<HumanWaitItem[]> {
+  const items: HumanWaitItem[] = [];
+  for (const i of planReview) {
+    try {
+      const facts = await issueFacts(ctx.gh, ctx.config, i, new Map());
+      if (facts.claim && !facts.claim.released && facts.claim.stage !== undefined && PAST_PLAN_REVIEW.includes(facts.claim.stage)) continue;
+      const reason = reasons.get(i.number) ?? '理由なし（要確認）';
+      items.push({ kind: 'plan', number: i.number, title: i.title, url: i.html_url, since: facts.humanWaitSince ?? null, reason: autoModeActive ? reason : `auto mode が無効・${reason}` });
+    } catch (e) {
+      ctx.log(`#${i.number} の人の判断待ちの時間を読めませんでした（時間を超えた人の判断待ちに出しません）: ${(e as Error).message}`);
+    }
+  }
+  for (const pr of agentPrs) {
+    try {
+      if (pr.draft || pr.auto_merge) continue;
+      const last = appRecords<Acceptance>(ctx.config, await ctx.gh.listComments(pr.number), 'acceptance').at(-1);
+      if (!last || !last.value.reviewPass || last.value.autoEligible) continue;
+      let reason: string;
+      if (autoModeActive) {
+        const a = last.value.autoMode;
+        reason = !a ? 'auto mode の判定の記録なし' : a.reasons.length > 0 ? a.reasons.join('／') : '受け付けた判定が自動 Merge の対象外です';
+      } else {
+        const own = last.value.reasons ?? [];
+        reason = `auto mode が無効${own.length > 0 ? `・${own.join('／')}` : ''}`;
+      }
+      items.push({ kind: 'pr', number: pr.number, title: pr.title, url: pr.html_url, since: last.comment.created_at, reason });
+    } catch (e) {
+      ctx.log(`#${pr.number} の人の判断待ちの時間を読めませんでした（時間を超えた人の判断待ちに出しません）: ${(e as Error).message}`);
+    }
+  }
+  return items;
+}
+
+/** 時間を超えた人の判断待ちの知らせをダッシュボードにコメントする。直近 24 時間に App の記録があれば出さない（本文の書き換えでは通知が届かないため） */
+async function postHumanWaitDigest(ctx: GateContext, dashboard: number, rows: (HumanWaitItem & { minutes: number })[], now: Date, limitMinutes: number): Promise<void> {
+  if (rows.length === 0) return;
+  const recent = appRecords<unknown>(ctx.config, await ctx.gh.listComments(dashboard), HUMAN_WAIT_DIGEST_KIND)
+    .some((r) => now.getTime() - new Date(r.comment.created_at).getTime() < 24 * 3600_000);
+  if (recent) return;
+  await appComment(ctx, dashboard, HUMAN_WAIT_DIGEST_KIND, ['時間を超えた人の判断待ちがあります。', '', ...renderHumanWaitDigest(rows, limitMinutes)].join('\n'), {
+    version: 1,
+    limitMinutes,
+    items: rows.map((r) => ({ kind: r.kind, number: r.number, minutes: r.minutes })),
+  });
+}
+
 export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts: { epicUnassigned?: EpicUnassignedRow[] } = {}): Promise<void> {
   // 計画の委任が有効なら、ゲートの停止で止まっている計画を判定し直す。失敗してもダッシュボードの更新は止めない
   const found = await findDashboard(ctx.gh, ctx.config);
@@ -544,6 +597,14 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
   const bypassRows = reads.bypass ? await bypassMerged(ctx, now, staleMs) : undefined;
   const autoPlans = reads['auto-mode'] ? await autoModePlans(ctx, now, staleMs) : undefined;
   const autoMergedRows = reads['auto-mode'] ? await autoModeMerged(ctx, now, staleMs) : undefined;
+  const waitLimit = humanWaitMinutes(ctx.config);
+  let waitRows: (HumanWaitItem & { minutes: number })[] | null = null;
+  try {
+    const planReview = needsHuman.filter((i) => i.labels.some((l) => l.name === LABELS.planReview));
+    waitRows = humanWaitDigest(await humanWaitItems(ctx, planReview, reasons, agentPrs, autoMode?.active === true), now, waitLimit);
+  } catch (e) {
+    ctx.log(`時間を超えた人の判断待ちを読めませんでした: ${(e as Error).message}`);
+  }
   const autoHeldPrs = autoMode?.active ? await autoModeHeldPrs(ctx, now, staleMs, agentPrs) : null;
 
   const line = (i: { number: number; title: string; html_url: string }, extra = '') => `- [#${i.number}](${i.html_url}) ${i.title}${extra}`;
@@ -577,6 +638,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
     ...reviewSection(`auto mode で保留にした計画${recent}`, autoPlans === undefined ? undefined : autoPlans?.held ?? null, 'auto mode が無効です'),
     ...reviewSection(`auto mode で Merge した PR${recent}`, autoMergedRows, 'auto mode が無効です'),
     ...(autoMode?.active ? readable(`auto mode で保留にした PR${recent}`, autoHeldPrs) : [`### auto mode で保留にした PR${recent}`, '', 'auto mode が無効です', '']),
+    ...readable(`時間を超えた人の判断待ち（${waitLimit} 分超）`, waitRows === null ? null : renderHumanWaitDigest(waitRows, waitLimit)),
     '失敗した Actions の実行は [Actions](../../actions?query=is%3Afailure) を確認してください。',
   ].join('\n');
 
@@ -592,5 +654,12 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
   // queue 節は publishQueue が書く。停滞検知の書き換えで消さないよう残す
   const kept = queueStart >= 0 ? `${withMode}\n\n${existing.slice(queueStart)}` : withMode;
   await ctx.gh.request('PATCH', `/issues/${dashboard}`, { body: { body: kept } });
+  if (waitRows !== null) {
+    try {
+      await postHumanWaitDigest(ctx, dashboard, waitRows, now, waitLimit);
+    } catch (e) {
+      ctx.log(`時間を超えた人の判断待ちの知らせを出せませんでした: ${(e as Error).message}`);
+    }
+  }
   ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} unowned=${unowned.length} stalePRs=${stalePrs.length} stalledClaims=${stalled.length} unclaimedJudge=${unclaimed.length} staleIssues=${stale.length} labelProblems=${labelProblems.length} autoModeHeld=${(autoPlans?.held.length ?? 0) + (autoHeldPrs?.length ?? 0)}`);
 }

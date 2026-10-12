@@ -79,7 +79,7 @@ Issue に `agent:plan-review` が付いているときの出し直しは、App �
 "files": [],
 "split": [
   { "title": "feat(api): 認証の土台", "goal": "…", "requirements": ["…"], "acceptanceCriteria": ["…"], "files": ["src/auth/**"], "dependsOn": [] },
-  { "title": "feat(ui): ログイン画面", "goal": "…", "requirements": ["…"], "acceptanceCriteria": ["…"], "files": ["web/login/**"], "dependsOn": [0] }
+  { "title": "feat(ui): ログイン画面", "goal": "…", "requirements": ["…"], "acceptanceCriteria": ["…"], "files": ["web/login/**"], "dependsOn": [0], "blockedBy": [123] }
 ]
 ```
 
@@ -90,8 +90,9 @@ Issue に `agent:plan-review` が付いているときの出し直しは、App �
 | `requirements` / `acceptanceCriteria` | 文字列の配列 | 子 Issue の Requirements・AC（1件以上） |
 | `files` | 文字列の配列 | 子課題で触るファイル（`files` と同じ規則、1件以上）。兄弟どうしで重ならないこと |
 | `dependsOn` | 整数の配列（省略可） | 先に終わらせる兄弟の添字。自分より前に並ぶものだけ（循環しない） |
+| `blockedBy` | 整数の配列（省略可） | 先に終わらせる、同じリポジトリの兄弟でない Issue の番号。App が子課題の Issue Dependencies（blocked by）に付ける。開いた Issue だけ付け、閉じた・見つからない・PR の番号は付けずにゲートのログに出す。正の整数で、重複せず、親の番号でないこと |
 
-`split` がある計画では、`files` は空でよく、`risk` は子課題の中で最も高いものを書く（表示用。Risk と空の `files` では止めない）。`needsHuman`・`acChangeProposed`・`openQuestions`・`issue` 不一致は通常どおり止める（Planner の申告で付いた印だけは、条件を満たすと App が外して分ける。[計画](#計画)の出し直しの段落）。子課題の `files` がガードレールに触れても止めない（分ける段階では子 Issue を作るだけで、子課題はそれぞれの計画でゲートがもう一度見る）。次のどれかに当たると、理由コード `split-invalid` で `agent:plan-review` にする：2件未満、タイトルの形式違い、Requirements・AC・`files` が空、`files` の規則違反、兄弟の `files` の重なり（同じパス、片方のパターンがもう片方に一致する、または両方がワイルドカードを含み、最初のワイルドカードより前の部分の片方がもう片方の先頭に一致する。例：`src/**/a.ts` と `src/x/**`）、`dependsOn` が自分より前の兄弟でない。
+`split` がある計画では、`files` は空でよく、`risk` は子課題の中で最も高いものを書く（表示用。Risk と空の `files` では止めない）。`needsHuman`・`acChangeProposed`・`openQuestions`・`issue` 不一致は通常どおり止める（Planner の申告で付いた印だけは、条件を満たすと App が外して分ける。[計画](#計画)の出し直しの段落）。子課題の `files` がガードレールに触れても止めない（分ける段階では子 Issue を作るだけで、子課題はそれぞれの計画でゲートがもう一度見る）。次のどれかに当たると、理由コード `split-invalid` で `agent:plan-review` にする：2件未満、タイトルの形式違い、Requirements・AC・`files` が空、`files` の規則違反、兄弟の `files` の重なり（同じパス、片方のパターンがもう片方に一致する、または両方がワイルドカードを含み、最初のワイルドカードより前の部分の片方がもう片方の先頭に一致する。例：`src/**/a.ts` と `src/x/**`）、`dependsOn` が自分より前の兄弟でない、`blockedBy` が正の整数でない・重複している・親の番号である。
 
 ## 判定（agent-verdict）
 
@@ -506,6 +507,7 @@ App はコメント先頭に `<!-- agent-harness:app kind=<種類> -->` を付�
 | `auto-mode-merge` | PR | auto mode で auto-merge を付けたときの記録。`{ version, headSha, patchId, since, by, skipped }`。`since`・`by` は auto mode（ダッシュボードのラベル）を付けた時刻・人、`skipped` は受け付けの `autoMode.skipped`（auto mode で飛ばした理由）。ダッシュボードの「auto mode で Merge した PR」はこの記録で見る（harness/gates/auto-mode.ts・auto-mode-merge.ts） |
 | `auto-mode-merge-end` | PR | auto mode で付けた auto-merge を外した（Human Merge に戻した・ほかの乗り方に引き継いだ）記録。`{ version, headSha, reason }`。`reason` は `removed`（ラベルを外した）/ `stopped`（停止スイッチ）/ `ineligible`（auto mode の条件を満たさなくなった。委任・bypass に引き継いだときも）。最新が `auto-mode-merge` の PR にだけ書く |
 | `delegated-merge-end` | PR | 委任で付けた auto-merge を外して Human Merge に戻した記録。`{ headSha, reason }`。`reason` は `removed`（`agent:delegate-merge` を外した）/ `stopped`（停止スイッチ）/ `ineligible`（委任の条件を満たさなくなった）。bypass モードに引き継いだとき（auto-merge は外さない）も書く。古い記録には `expired`・`short` もある。最新が `delegated-merge` の PR にだけ書く |
+| `human-wait-digest` | ダッシュボード | 時間を超えた人の判断待ち（`hq.humanWaitMinutes` を超えた `agent:plan-review` の計画と Human Merge 待ちの PR）の知らせ。`{ version, limitMinutes, items: [{ kind, number, minutes }] }`。直近 24 時間に App の記録があれば出さない（1日1回。harness/gates/stale.ts） |
 | `verdict-rejected` | PR | 判定を受け付けなかった理由 |
 | `test-exempt` / `review-exempt` | PR | 例外ラベルの付け外し。`{ label, action, by, patchId, headSha }`。`action` は `labeled` / `unlabeled`、`patchId` と `headSha` は人が付け外しした時点の差分と head。最新が `labeled` で `patchId` が現在の差分と同じときだけ例外が効く |
 | `exempt-stale` | PR | 例外ラベルが付いているが効いていないことの通知。`{ label, headSha, patchId, reason }`。`reason` は `stale`（付けた後に差分が変わった）/ `unrecorded`（付けた記録が無い）。同じ `label` と `headSha` には1回だけ書く |

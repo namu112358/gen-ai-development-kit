@@ -231,7 +231,7 @@ export function evaluatePlanGate(plan: Plan, issueNumber: number, guardrail: Gua
   if (guarded.length > 0) skip(`ガードレールに触れます（人が実装して Merge する）: ${guarded.join(', ')}`);
   const extra = { ...(guarded.length > 0 ? { guardrail: guarded } : {}), ...(skippable.length > 0 ? { skippable } : {}) };
   if (plan.split) {
-    const problems = validateSplit(plan.split);
+    const problems = validateSplit(plan.split, plan.issue);
     reasons.push(...problems);
     if (problems.length > 0) return { pass: false, reasons, splitInvalid: true, ...extra };
   }
