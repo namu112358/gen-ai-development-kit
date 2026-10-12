@@ -3,7 +3,7 @@ import { checkAssignee, requireAssignee } from '../../../lib/assignee.ts';
 import { appMarkKind, hasClaudeMark } from '../../../lib/blocks.ts';
 import { describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
 import { bypassState } from '../../../gates/bypass.ts';
-import { bypassMergeConfig, delegateConfig, fleetConfig, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
+import { bypassMergeConfig, delegateConfig, fleetConfig, projectCommands, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
 import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../../../lib/fleet-reads.ts';
 import { delegateState } from '../../../lib/delegate.ts';
 import { type FleetIssue, type FleetMergeState, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
@@ -263,6 +263,7 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
     now: new Date(),
     humanClaimStaleHours: config.routine.humanClaimStaleHours,
     harnessStale,
+    checkCommand: projectCommands(config).checkCommand,
   });
 
   // no-session の stop は宣言も解除もしない（decideStep が claim・release を空にする）

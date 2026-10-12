@@ -49,10 +49,10 @@
 ### implement（実装）
 
 1. 入力は queue の `planFiles`（App が写した計画の触るファイル一覧）と、`planCommentId` の計画コメント。Issue 本文が後で変わっても計画に従う。計画コメントがゲート後に編集されていたら（App の plan-gate コメントの記録と食い違うなら）`planFiles` だけに従う。
-2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前> --routine` で worktree を作り、そこで作業する（ブランチがリモートにあれば続きから）。`node_modules` が無ければ worktree が `npm ci` まで行う。
+2. `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前> --routine` で worktree を作り、そこで作業する（ブランチがリモートにあれば続きから）。`node_modules` が無ければ worktree が設定の取り込みのコマンド（`project.installCommand`。既定 `npm ci`）まで行う。
 3. **test-designer** サブエージェントにテストを書かせる。サブエージェントは GitHub を読めないので、Issue 番号、AC、Validation Requirements、`planFiles` を指示に含めて渡す。
 4. `planFiles` の範囲で実装する。範囲外の変更が必要になったら、PR 本文に理由を書く（範囲照合で自動 Merge の対象外になる）。
-5. `npm run check` を通す（`npm ci` は worktree が行っている）。
+5. 検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`。`null` なら省く）を通す（取り込みのコマンドは worktree が行っている）。
 6. commit して `git push -u origin <ブランチ>`。
 7. MCP で **Draft** PR を作る（base は main）。タイトルは Issue のタイトルをそのまま使う（Conventional Commits。コミットメッセージの1行目も同じ形式にする）。本文は `.github/pull_request_template.md` に沿って書く（`Closes #<番号>`、ひとことで、あなたに確かめてほしいこと、動きの変化、リスクと戻し方。`<details>` の中に計画コメントへのリンク、`node harness/scripts/agent.ts session-url` の URL、変えたファイル、AC ごとの対応、範囲外の変更、テスト）。
 8. Issue に `render-claim --release` の出力をコメントする。
@@ -81,7 +81,7 @@ Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同�
 ### fix（修正）
 
 1. `reason` が `review` なら、App の最新の変更要求レビュー（本文に `kind=fix-request`、作成者が App）の指摘を直す。`human` なら、最後の push 以降のコラボレーターのレビューの指摘を直す。
-2. `node harness/scripts/agent.ts worktree <PR のブランチ> --routine` で worktree を作って修正し、`npm run check` を通して push する（force push しない。main への追従が必要なら merge する）。
+2. `node harness/scripts/agent.ts worktree <PR のブランチ> --routine` で worktree を作って修正し、検証コマンド（既定 `npm run check`）を通して push する（force push しない。main への追従が必要なら merge する）。
 3. 何を直したかを PR にコメントし（先頭に `<!-- agent-harness:claude -->`）、`render-claim --release` と `render-metrics fix ...` の出力もコメントする。
 4. 判定は次の実行で行う。
 
@@ -89,7 +89,7 @@ Agent PR だけでなく、人の PR（`claude/` 以外のブランチ）も同�
 
 1. `node harness/scripts/agent.ts worktree <PR のブランチ> --routine` で worktree を作る。
 2. `git merge origin/main` で main を取り込み、衝突を解消する。両方の変更の意図を残す（main 側の変更を消さない）。判断がつかない衝突は解消せず、`render-block needs-decision <説明>` で人に返す。
-3. `npm run check` を通して push する（force push しない）。差分が変わるので、判定は次の実行でやり直しになる。
+3. 検証コマンド（既定 `npm run check`）を通して push する（force push しない）。差分が変わるので、判定は次の実行でやり直しになる。
 4. 何をどう解消したかを PR にコメントし、`render-claim --release` をコメントする。
 
 ### wait-dependency（依存待ち）
