@@ -32,7 +32,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - `agent:plan-review`（critical、ガードレールに触れる、人の判断が要る など）：宣言が残っていれば（`post-plan` の出力の `claim` が `plan-gate`）先に `release <番号>` で解除する。先に `node harness/scripts/agent.ts rest issue-view <番号>` の comments で App の `plan-proceed` の記録（作成者が App、`kind=plan-proceed`）を見る。最新のものが `status: ok` で、`planCommentId`・`planBodySha256` が最新の計画ゲートの記録と同じなら、人の「進める」（intel などが聞いて残した決定の記録）として聞かず、進める記録を出し直さずに implement の `claim --stage implement` に進み、手順10の一覧に「人の進める（決定の記録のリンク）」を載せる。当たらなければ（記録が無い・`ineligible`・`planCommentId` か `planBodySha256` が違う）、次に `node harness/scripts/agent.ts plan-review-check <番号>` を読み、`riskOnly` が真（止めた理由が想定 Risk だけで、`touches` が空）で人に上げる場面に当たらなければ、聞かずに進めると決め、`post-judgment` で「セッションの判定」を残して次へ（implement の `claim --stage implement` で宣言し直す。手順10の一覧の「決めたこと（覆すなら）」に載せる）。止めた理由が計画で直せるもの（ゲートの停止）なら、聞かずに計画を直して出し直し（plan の skill の出し直しの扱い）、`post-judgment` で残す。ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる計画（`touches` が空でない）とそれ以外は人に上げる場面なので、理由（なぜ人が要るかの1行）を示し、進めてよいかを AskUserQuestion で聞く（選択肢は、進める・止める、計画で直せるなら計画を直して出し直す（plan の skill の出し直しの扱い）も）。人が進めてよいと答えれば、plan の skill の手順10どおり人の「進める」を進める記録（`agent-decision` の `proceed`、`post-decision`）で残し、App の `plan-proceed` の記録を確かめてから次へ（[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の規則どおり。implement の `claim --stage implement` で宣言し直す。記録が `ineligible` なら理由を手順10の一覧に書き、実装は続ける）。答えなければ人に返す。
      - Planner の申告（理由コード `needs-decision`）なら、plan の skill の手順9どおり人の答えを `agent-decision` で記録し（`post-decision`）、App の `plan-decision` の結果を待つ。`enforce` で通れば次へ、`shadow` なら人が「進める」と言えば、plan の skill の手順10の進める記録を出してから次へ（ラベルを外すよう人に頼まない）。答えで計画が変わるなら、App が判定し直した後（`agent:plan-ok` か `gate` の停止）に計画を出し直す。
    - `epic`：手順1の `epic` に戻る。
-3. implement の skill で実装し、Draft PR を出す。worktree は消さずに続ける。
+3. implement の skill で実装し、Draft PR を出す。worktree は消さずに続ける。クラウドの付き添いのセッション（`CLAUDE_CODE_REMOTE` が `true`）では、Draft PR を出した後は節「クラウドで PR を出した後（PR のイベントで進める）」のとおり PR を購読して待つ。
 4. judge の skill で判定する。現在の head にコラボレーターのレビューがあれば、先に fix の skill をする。
 5. 判定にブロッキング指摘があれば（App の `kind=fix-request`）、fix の skill で直し、判定をやり直す。PR が main と衝突している、または main への追従が要るときは sync の skill をする。修正の上限（`agent:blocked`、理由コード `fix-limit`）に達したら人に返す。
 6. 合格して Ready になったら、Merge の経路を確かめる。
@@ -56,6 +56,29 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - 宣言で負けて進めなかった Issue：「#番号 は session … が着手中」（引き継ぐなら人が決めて `--takeover`）
    - Assignee で止まった Issue：「#番号 は Assignee が自分1人ではない（理由）」（アサインは人が決める）
    - 改善の候補：手順9の Issue の候補（題と下書きの本文のファイルのパス）と、開いた Issue へのコメントの案。docs の候補もここに並べる。起票・コメントは人が選んだものだけ（自動で起票しない）。候補が無ければ「改善の候補はありません」と書く
+
+## クラウドで PR を出した後（PR のイベントで進める）
+
+クラウドの付き添いのセッションで PR を出した後は、数分おきに読み直さずに、PR のイベント（CI・レビュー・衝突・Merge・Close）で起きて次の段階に進む（Issue #892。人の決定 2026-10-12）。
+
+- **当てはまるとき**：`CLAUDE_CODE_REMOTE` が `true` の付き添いのセッション（人が直接動かす ship と、交互の方式の fleet）。手元のセッション・Orca の worker・定期 Routine の待ち方は変えない。
+- **購読**：Draft PR を出したら（手順3の後。起きたときにまだ購読していなければその時も）、`subscribe_pr_activity` でその PR を購読する。ほかの Claude のセッションが見ていると返った・道具が無いときは、購読しなかったとして今の待ち方（fleet の節「待つ間の読み直し」）のままにし、手順10の一覧にその旨を書く。
+- **待つ**：段階が待ちで終わったら（`step` が `wait`）、until ループ・Monitor で数分おきに読み直さずにターンを終える。
+- **起きたとき**（PR のイベント・下の見回り）：
+  1. 自分のコメント・App の記録のコメント（本文に `agent-harness:` の目印）が返ってきただけのイベントと、前に扱ったのと同じイベントは何もしない。
+  2. それ以外は、手順1の「ハーネスが更新されたとき」を確かめてから `node harness/scripts/agent.ts step <Issue番号>` を読む。
+  3. `node`：`step` が出した宣言（`claim`）がその段階の着手宣言の出し直しになる。その Issue の worktree が無ければ（VM が回収された後など）`node harness/scripts/agent.ts worktree <step の branch>` で作り直し、その段階の skill（fix・sync・judge）を行う。
+  4. `wait` の `app`・`human`：何もしない（宣言する段階が無いので宣言は出さない）。
+  5. `wait` の `done`（Merge 済み）：手順1の「Merge 済みで呼び直されたとき」をしてから、下の「やめる」。
+  6. `stop`：「人に返す条件」のとおり人に返す。購読は続ける。
+- **見回り**：取りこぼしに備え、`send_later` で30分後の見回りを1つだけ予約する。
+  - 予約の本文に、Issue・PR 番号、前回読んだ `step` の結果（`kind`・`node`・`waitingFor`）、PR の head の SHA（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `headRefOid`）、続けて変わらなかった回数を書く。
+  - 見回りで起きたら「起きたとき」と同じに進める。`step` の結果と head の SHA が本文と同じなら回数を1つ増やし、違えば0に戻して、30分後に予約し直す。
+  - PR のイベント・人のメッセージ・自分の push があったら、待っている予約を `delete_trigger` で消し、回数を0にして30分後に予約し直す（予約は常に1つ）。予約の ID（`send_later` が返す `trigger_id`）はセッションの中で持つ。VM の回収などで分からなくなった古い予約が届いたら、本文の回数が今の回数と食い違うものは何もせずに捨てる。
+  - 変わらない見回りが3回続いたら予約し直さず、人に1行だけ伝える（「#番号 の見回りを止めました。次の PR のイベントか、人のメッセージで再開します」）。購読は続ける。
+  - この30分・3回は、セッションの既定の見回りの間隔と回数より優先する。
+- **やめる**：PR が Merge か Close されたら、`unsubscribe_pr_activity` で購読をやめ、待っている予約を `delete_trigger` で消す。Merge されずに Close されたら、このセッションの宣言が残っていれば `release <Issue番号>` で解除する。
+- **確かめの記録**：Issue の Validation Requirements でこの待ち方を確かめるときは、届いたイベント・起きた時刻・進んだ段階・見回りの回数を scratchpad に控えて手順10の「Merge 後の確かめ」で人に示す（Issue へのコメントは人が確かめてから残す）。
 
 ## サブエージェントの ship として動くとき
 
