@@ -161,10 +161,10 @@ test('手順：harness/CLAUDE.harness.md の進め方と ship・fleet の skill 
   assert.ok(createThenPlan(read('.claude/skills/fleet/SKILL.md')), 'fleet の skill にありません');
 });
 
-test('手順：fleet の skill の入力の対象の既定と docs/operations.md が、agent:* の無い Issue も含むことを書いている', () => {
+test('手順：fleet の skill の入力の対象の既定と harness/docs/operations.md が、agent:* の無い Issue も含むことを書いている', () => {
   const fleet = read('.claude/skills/fleet/SKILL.md');
   const target = fleet.split('\n').find((l) => l.startsWith('- 対象：')) ?? '';
   assert.match(target, /agent:\*`?\s*の無い/, 'fleet の skill の対象の既定に「agent:* の無い」Issue がありません');
-  const ops = read('docs/operations.md').split('\n').filter((l) => l.includes('fleet'));
-  assert.ok(ops.some((l) => /agent:\*`?\s*の無い/.test(l)), 'docs/operations.md の fleet の説明に「agent:* の無い」Issue がありません');
+  const ops = read('harness/docs/operations.md').split('\n').filter((l) => l.includes('fleet'));
+  assert.ok(ops.some((l) => /agent:\*`?\s*の無い/.test(l)), 'harness/docs/operations.md の fleet の説明に「agent:* の無い」Issue がありません');
 });

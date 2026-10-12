@@ -9,7 +9,7 @@ import { documentedAgentCommands } from './support/agent-source.ts';
 import { frontmatter, readText, ROOT, skillProblems, type SkillSpec } from './support/skill-text.ts';
 
 const SKILL = '.claude/skills/patrol/SKILL.md';
-const OPERATIONS_LINK = '../../../docs/operations.md#見直しを-loop-で回す';
+const OPERATIONS_LINK = '../../../harness/docs/operations.md#見直しを-loop-で回す';
 const OPERATIONS_HEADING = '## 見直しを /loop で回す';
 const skill = (): string => readText(SKILL);
 
@@ -74,10 +74,10 @@ test('patrol の SKILL.md があり、frontmatter の name が patrol で descri
   assert.ok(fm.description, 'description がありません');
 });
 
-test('docs/operations.md の「見直しを /loop で回す」へリンクし、リンク先の見出しがある', () => {
+test('harness/docs/operations.md の「見直しを /loop で回す」へリンクし、リンク先の見出しがある', () => {
   assert.ok(skill().includes(`](${OPERATIONS_LINK})`), `${OPERATIONS_LINK} へのリンクがありません`);
-  const lines = readText('docs/operations.md').split('\n');
-  assert.ok(lines.includes(OPERATIONS_HEADING), `docs/operations.md に「${OPERATIONS_HEADING}」がありません`);
+  const lines = readText('harness/docs/operations.md').split('\n');
+  assert.ok(lines.includes(OPERATIONS_HEADING), `harness/docs/operations.md に「${OPERATIONS_HEADING}」がありません`);
 });
 
 test('skill が使う patrol.ts のサブコマンド（previous・select・record）は、スクリプトの使い方のコメントに実在する', () => {

@@ -1,6 +1,6 @@
 // hq の空きの補充（Issue #663）の文を確かめる。動いている fleet が hq.maxFleets より少なければ、
 // 15分ごとの見回し（手順8）と Epic の Close の片付けの直後（手順11）に、人の承認を待たずに fleet のいない開いた Epic から次の fleet を起こす。
-// hq の skill と docs/operations.md を support/skill-text.ts の構造の表で見る。語句は要点だけに絞り、文言を丸ごと固定しない。
+// hq の skill と harness/docs/operations.md を support/skill-text.ts の構造の表で見る。語句は要点だけに絞り、文言を丸ごと固定しない。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { skillProblems } from './support/skill-text.ts';
@@ -26,10 +26,10 @@ test('hq の skill：手順8・11で空きの補充を行い、手順12の一覧
   );
 });
 
-test('docs/operations.md：hq の見回しの行が空きの補充で次の fleet を起こす', () => {
+test('harness/docs/operations.md：hq の見回しの行が空きの補充で次の fleet を起こす', () => {
   assert.deepEqual(
     skillProblems({
-      path: 'docs/operations.md',
+      path: 'harness/docs/operations.md',
       parts: [{ words: ['空きの補充', '人の承認を待たずに'], absent: ['空きがあれば新しい fleet の案にする'] }],
     }),
     [],

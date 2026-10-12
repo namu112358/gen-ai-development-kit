@@ -63,6 +63,7 @@ test('managed.json：主なハーネスのファイルが managed に入って�
     '.claude/skills/**',
     '.github/workflows/gate.yml',
     'harness/CLAUDE.harness.md',
+    'harness/docs/**',
     '.github/pull_request_template.md',
   ]) {
     assert.ok(managed.includes(p), `${p} が managed に無い`);

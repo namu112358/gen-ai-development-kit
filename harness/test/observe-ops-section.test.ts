@@ -1,6 +1,6 @@
 // Issue #702：保守の観測（observe）の運用の健康の節。偽の GitHub で JSON の opsHealth が 14 項目を出し要約で超えた項目が先に出ること、
 // observe.opsHealth の誤り（opsHealthConfigErrors）で loadConfig は止まらず運用の健康の節だけ読めないこと、前回との差（diff.opsHealth）、
-// 実物と雛形のしきい値が OPS_HEALTH_DEFAULTS と同じで docs/operations.md に書かれていること、maxGets が GitHub を読む上限に使われること、GET しか呼ばないことを確かめる。
+// 実物と雛形のしきい値が OPS_HEALTH_DEFAULTS と同じで harness/docs/operations.md に書かれていること、maxGets が GitHub を読む上限に使われること、GET しか呼ばないことを確かめる。
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,7 +17,7 @@ const NOW = new Date('2026-10-11T12:00:00Z');
 const OPTS: ObserveOptions = { days: 30, top: 20, junit: null, runTests: false, previous: null, offline: false };
 const REAL_PATH = fileURLToPath(new URL('../../harness.config.json', import.meta.url));
 const TEMPLATE_PATH = fileURLToPath(new URL('../templates/harness.config.json', import.meta.url));
-const DOCS_PATH = fileURLToPath(new URL('../../docs/operations.md', import.meta.url));
+const DOCS_PATH = fileURLToPath(new URL('../docs/operations.md', import.meta.url));
 /** 運用の健康の読み（collectOpsHealth）が呼ぶ一覧のパス。不安定なテスト・ミュータントの読み（/actions/workflows）とは分ける */
 const OPS_PATH = /\/actions\/runs\?|\/pulls\?|\/issues\?/;
 
@@ -174,7 +174,7 @@ test('diff.opsHealth：前回か今回に opsHealth が無い・読めないな�
 
 // --- AC4 ---
 
-test('実物と雛形の observe.opsHealth は OPS_HEALTH_DEFAULTS と同じで、17 キーが docs/operations.md の「上限の設定」と「見直しを /loop で回す」に書かれている', () => {
+test('実物と雛形の observe.opsHealth は OPS_HEALTH_DEFAULTS と同じで、17 キーが harness/docs/operations.md の「上限の設定」と「見直しを /loop で回す」に書かれている', () => {
   for (const path of [REAL_PATH, TEMPLATE_PATH]) {
     const json = JSON.parse(readFileSync(path, 'utf8')) as { observe?: { opsHealth?: unknown } };
     assert.deepEqual(json.observe?.opsHealth, OPS_HEALTH_DEFAULTS, path);
@@ -183,7 +183,7 @@ test('実物と雛形の observe.opsHealth は OPS_HEALTH_DEFAULTS と同じで�
   const docSection = (heading: string): string => {
     const lines = docs.split('\n');
     const start = lines.indexOf(`## ${heading}`);
-    assert.ok(start >= 0, `docs/operations.md に「## ${heading}」が無い`);
+    assert.ok(start >= 0, `harness/docs/operations.md に「## ${heading}」が無い`);
     const end = lines.findIndex((l, i) => i > start && l.startsWith('## '));
     return lines.slice(start, end === -1 ? undefined : end).join('\n');
   };

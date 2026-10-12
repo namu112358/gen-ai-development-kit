@@ -113,8 +113,8 @@ test('写し：step 4 の Agent #1〜#5 の行と誤検知の例の8行が revie
 
 // ---- 出どころ ----
 
-test('出どころ：コミットが NOTICE・docs/upstream/README.md・docs/review-panel.md にそろい、写しを使う定義と skill が写しとコミットを示す', () => {
-  for (const path of ['NOTICE', 'docs/upstream/README.md', 'docs/review-panel.md']) {
+test('出どころ：コミットが NOTICE・docs/upstream/README.md・harness/docs/review-panel.md にそろい、写しを使う定義と skill が写しとコミットを示す', () => {
+  for (const path of ['NOTICE', 'docs/upstream/README.md', 'harness/docs/review-panel.md']) {
     assert.ok(read(path).includes(COMMIT), `${path} に出どころのコミットがありません`);
   }
   for (const path of [agentPath('review-intake'), agentPath('review-lens'), agentPath('review-scorer'), PANEL_SKILL]) {
@@ -182,8 +182,8 @@ test('review-panel の skill：⑨の担当 review-overbuild を呼ぶ（Issue #
 
 // ---- docs ----
 
-test('docs/review-panel.md：公式との違いの表・出どころ・切り替えの手順・④の材料の見出しがある', () => {
-  const lines = read('docs/review-panel.md').split('\n');
+test('harness/docs/review-panel.md：公式との違いの表・出どころ・切り替えの手順・④の材料の見出しがある', () => {
+  const lines = read('harness/docs/review-panel.md').split('\n');
   for (const h of ['## 公式との違い', '## 出どころ', '## 切り替えの手順', '## ④の材料']) assert.ok(lines.includes(h), `「${h}」がありません`);
   const start = lines.indexOf('## 公式との違い');
   const rest = lines.slice(start + 1);
@@ -192,9 +192,9 @@ test('docs/review-panel.md：公式との違いの表・出どころ・切り替
   assert.ok(section.filter((l) => l.startsWith('|')).length >= 3, '「公式との違い」の下に表（見出し・区切り・1行以上）がありません');
 });
 
-test('docs/review-panel.md と review-overbuild.md：⑨の指摘は確信度 75 以上でブロッキングにすると書いてある（Issue #325・#386）', () => {
-  assert.ok(read('docs/review-panel.md').includes('review-overbuild'), 'docs/review-panel.md に review-overbuild がありません');
-  for (const path of ['docs/review-panel.md', agentPath('review-overbuild')]) {
+test('harness/docs/review-panel.md と review-overbuild.md：⑨の指摘は確信度 75 以上でブロッキングにすると書いてある（Issue #325・#386）', () => {
+  assert.ok(read('harness/docs/review-panel.md').includes('review-overbuild'), 'harness/docs/review-panel.md に review-overbuild がありません');
+  for (const path of ['harness/docs/review-panel.md', agentPath('review-overbuild')]) {
     const lines = read(path).split('\n').filter((l) => l.includes('確信度 75 以上') && l.includes('ブロッキング'));
     assert.ok(lines.length > 0, `${path} に、確信度 75 以上の⑨の指摘をブロッキングにする記述がありません`);
   }

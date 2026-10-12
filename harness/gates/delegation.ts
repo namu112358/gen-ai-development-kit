@@ -6,7 +6,7 @@ import { appRecords, findDashboard, hasLabel, timeline, type DashboardIssue } fr
 import type { GateContext } from './context.ts';
 
 /**
- * 委任承認の今の状態と、PR を委任（計画＋Merge）で自動経路に乗せるかの判断（読むだけ・判断だけ）。docs/risk-policy.md の「委任承認」。
+ * 委任承認の今の状態と、PR を委任（計画＋Merge）で自動経路に乗せるかの判断（読むだけ・判断だけ）。harness/docs/risk-policy.md の「委任承認」。
  * apply.ts・tests-check.ts・delegate-merge.ts・on-comment.ts から使う。apply.ts を import しない（循環させない）。
  * 委任で auto-merge を付けたこと・外したことは、App の記録（kind=delegated-merge・delegated-merge-end）で PR に残す。
  */

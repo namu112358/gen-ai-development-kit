@@ -60,16 +60,16 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
 | auto mode のテストの判定の材料 | auto mode の経路の PR でテストを弱める変更を Jev に問う材料（Issue の本文と計画の本文）は、人とセッションが書いたもの。計画に理由を書けば、Jev が妥当と答えうる | 計画は計画ゲートを通ったもの・ゲートの停止で止まったもの・人が進めると決めたものだけで、その後に編集されていないもの。auto mode の計画には危険の判定（Jev）がかかる。通した記録は通した差分にだけ効き、人は `agent:hold` で止められる。`report.ts` で通した件数と人が後から直させた件数を見る |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |
-| 合体版の記録の偽り | 合体版のレビューの記録（`agent-review-panel`）はセッションが書くので偽れる。判定コメントより前の記録だけを数えることで防げるのは、App の受け付け・変更要求を見てから記録を合わせることだけで、shadow ではセッションが今の reviewer の出力を見てから記録を合わせることは防げない | 判定コメントより前・未編集・head の一致・コラボレーターの記録だけ数える、集計の表で事実の列と申告の列を分ける、本物・誤検知は事実の裏付けで数える、切り替えの前に人が全件を確かめる（裏付けのうち人のレビューコメントは、セッションも本人の名義で書くので Claude の目印の有無でしか人のものと分けられず、目印の無いセッションのコメントは人のものとして数えてしまう）、担当の定義と組み立て（`.claude/agents/review-*.md`・review-panel の skill・`harness/scripts/review-panel.ts`・`harness/lib/**`）はガードレール（[plan.md](plan.md) の Q91） |
+| 合体版の記録の偽り | 合体版のレビューの記録（`agent-review-panel`）はセッションが書くので偽れる。判定コメントより前の記録だけを数えることで防げるのは、App の受け付け・変更要求を見てから記録を合わせることだけで、shadow ではセッションが今の reviewer の出力を見てから記録を合わせることは防げない | 判定コメントより前・未編集・head の一致・コラボレーターの記録だけ数える、集計の表で事実の列と申告の列を分ける、本物・誤検知は事実の裏付けで数える、切り替えの前に人が全件を確かめる（裏付けのうち人のレビューコメントは、セッションも本人の名義で書くので Claude の目印の有無でしか人のものと分けられず、目印の無いセッションのコメントは人のものとして数えてしまう）、担当の定義と組み立て（`.claude/agents/review-*.md`・review-panel の skill・`harness/scripts/review-panel.ts`・`harness/lib/**`）はガードレール（[plan.md](../../docs/plan.md) の Q91） |
 | 決定の記録の名義 | 決定の記録（```` ```agent-decision ````）は人の名義で書かれ、App は人が書いたかセッションが書いたかを区別できない。Routine が書くことも、`.claude/routine.md` の禁止だけで止めている（hook の入力・環境変数では Routine と付き添いのセッションを見分けられない。Routine を再開するときに専用の環境と環境変数を用意すれば hook で止められる見込み） | 外すのは Planner の申告の停止だけ（App のゲートの停止・人が付けた印・AC の変更提案は外さない）、答え済みの計画をゲートがもう一度判定する、既定は `shadow`、ガードレール・critical の停止と Human Merge・判定の受け付けは変えない |
 | split の計画の申告の名義 | `split` の計画の Planner の申告（`needsHuman`・`openQuestions`）はセッション（人の名義）が書くので、申告を落として出し直すと、人の答え無しで子 Issue に分けられる（Issue #659） | 外すのは `post-plan` か App の停止の窓で付いた Planner の申告の印だけ、ガードレール・AC の変更提案・人が付けた印は外さない、委任・auto mode をかける前のゲートで見る、子課題の `files` がガードレール・`delegateMergeExclude`・`harness.config.json` に触れれば外さない（Issue #779）、子課題はそれぞれの計画でゲートがもう一度見る |
-| 外部のプラグイン | 登録したマーケットプレイスの skill・agent の中身がセッションの文脈に入る | 版（コミットかタグ）に固定・`autoUpdate: false`、更新は人が差分を読んで PR（[setup.md](setup.md#8-プラグイン全員に同じ版で入れる)）、コードを動かす部品（hook・MCP）が無いことを更新のたびに確かめる、判定の担当（reviewer・risk-agent）は WebFetch を持たず判定は reviewer・risk-agent と App だけで決まる |
-| Orca の skill | 固定した入口（`.claude/skills/orca-cli`・`orchestration`）が、手元の Orca の `skills get` の案内をセッションの文脈に読み込ませる。案内の中身は手元の Orca の版次第で、リポジトリでは固定されない | 入口はコミットに固定し、改行を LF にそろえた sha256 をテストで確かめる（`harness/test/orca-skills.test.ts`）、更新は Issue と PR（[docs/upstream/README.md](upstream/README.md#stablyaiorca)）、入口にコードを動かす部品（スクリプト・hook）が無い、判定は reviewer・risk-agent と App だけで決まる、Orca の worker も CLAUDE.md とハーネスの規則に従う |
-| 権限モード | Orca の既定の起動引数（`--dangerously-skip-permissions`）や各自の `~/.claude/settings.json` はリポジトリから直せない（ハーネスは書き換えない） | プロジェクトの `permissions.disableBypassPermissionsMode: "disable"`（bypass を拒む）、`permissions.deny` と PreToolUse の hook はどのモードでも効く、ゲートと App の判定はモードに関係しない、手で直す手順は [setup.md](setup.md#11-orca標準の実行環境) |
+| 外部のプラグイン | 登録したマーケットプレイスの skill・agent の中身がセッションの文脈に入る | 版（コミットかタグ）に固定・`autoUpdate: false`、更新は人が差分を読んで PR（[setup.md](../../docs/setup.md#8-プラグイン全員に同じ版で入れる)）、コードを動かす部品（hook・MCP）が無いことを更新のたびに確かめる、判定の担当（reviewer・risk-agent）は WebFetch を持たず判定は reviewer・risk-agent と App だけで決まる |
+| Orca の skill | 固定した入口（`.claude/skills/orca-cli`・`orchestration`）が、手元の Orca の `skills get` の案内をセッションの文脈に読み込ませる。案内の中身は手元の Orca の版次第で、リポジトリでは固定されない | 入口はコミットに固定し、改行を LF にそろえた sha256 をテストで確かめる（`harness/test/orca-skills.test.ts`）、更新は Issue と PR（[docs/upstream/README.md](../../docs/upstream/README.md#stablyaiorca)）、入口にコードを動かす部品（スクリプト・hook）が無い、判定は reviewer・risk-agent と App だけで決まる、Orca の worker も CLAUDE.md とハーネスの規則に従う |
+| 権限モード | Orca の既定の起動引数（`--dangerously-skip-permissions`）や各自の `~/.claude/settings.json` はリポジトリから直せない（ハーネスは書き換えない） | プロジェクトの `permissions.disableBypassPermissionsMode: "disable"`（bypass を拒む）、`permissions.deny` と PreToolUse の hook はどのモードでも効く、ゲートと App の判定はモードに関係しない、手で直す手順は [setup.md](../../docs/setup.md#11-orca標準の実行環境) |
 
 ## Jev
 
-Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材料と切り替えの基準。段階移行の全体は [plan.md](plan.md#jev-への段階移行)。
+Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材料と切り替えの基準。段階移行の全体は [plan.md](../../docs/plan.md#jev-への段階移行)。
 
 **材料**：Jev に渡すのは App が API と設定から集めたものだけにする。
 
@@ -147,4 +147,4 @@ Jev は英語が主言語のため、日本語の材料（PR の diff・Issue �
 
 **結果**：決定ログ（別 Issue、Epic #130 の AC2）に書く。
 
-**実装のモデルの振り分け（#139）**：計画ゲートで、App が集めた材料（Issue のタイトルと本文、計画の `files` とその件数・種類、ガードレールに触れるか）だけを Jev に問い、実装に勧めるモデルを `plan-gate` の記録に残す。計画の本文・批評・ゲートの理由は渡さない（計画を書いたセッションが Jev を誘導できないように）。鍵（`JEV_API_KEY`）は Environment `gate` にあり、セッションは Jev を呼べない。使ったモデルは PR 本文の `実装のモデル:` の行の申告で、ゲート・Merge の経路は読まない（集計で人が見るだけ）。`enforce` に切り替える基準は [plan.md](plan.md) の決定ログ（Q106）。
+**実装のモデルの振り分け（#139）**：計画ゲートで、App が集めた材料（Issue のタイトルと本文、計画の `files` とその件数・種類、ガードレールに触れるか）だけを Jev に問い、実装に勧めるモデルを `plan-gate` の記録に残す。計画の本文・批評・ゲートの理由は渡さない（計画を書いたセッションが Jev を誘導できないように）。鍵（`JEV_API_KEY`）は Environment `gate` にあり、セッションは Jev を呼べない。使ったモデルは PR 本文の `実装のモデル:` の行の申告で、ゲート・Merge の経路は読まない（集計で人が見るだけ）。`enforce` に切り替える基準は [plan.md](../../docs/plan.md) の決定ログ（Q106）。

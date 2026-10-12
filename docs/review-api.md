@@ -6,8 +6,8 @@ reviewer / risk-agent の判定を Claude API + Cloudflare に委ねる試作（
 
 ## 結論
 
-- **推奨構成**：GitHub Webhook → Cloudflare Workers（受付）→ Cloudflare Workflows（収集 → Claude API → 検証 → 投稿）。コードは [review-api/](../review-api/README.md)。GitHub Actions は増やさない。
-- **既存の GitHub App は変えない**。レビュー専用の GitHub App を新しく作り（権限は読み取り＋PR のコメント書き込みだけ）、その Webhook を Workers に向ける。既存 App（`appSlug`）の秘密鍵は Cloudflare に置かない（置くと信頼の根が Actions の外に広がる。[security.md](security.md) の「信頼の根」）。
+- **推奨構成**：GitHub Webhook → Cloudflare Workers（受付）→ Cloudflare Workflows（収集 → Claude API → 検証 → 投稿）。コードは [review-api/](../review-api/)。GitHub Actions は増やさない。
+- **既存の GitHub App は変えない**。レビュー専用の GitHub App を新しく作り（権限は読み取り＋PR のコメント書き込みだけ）、その Webhook を Workers に向ける。既存 App（`appSlug`）の秘密鍵は Cloudflare に置かない（置くと信頼の根が Actions の外に広がる。[security.md](../harness/docs/security.md) の「信頼の根」）。
 - **Shadow Mode は仕組みで担保される**：新 App のコメントはコラボレーターではないのでゲートが読まず（`author_association` が OWNER / MEMBER / COLLABORATOR 以外は無視。`harness/gates/on-comment.ts`）、記録のブロック名は `api-review-shadow`（`gate.yml` の起動条件にも `agent-verdict` の読み取りにも当たらない）。Merge・Approve・ラベル・Check Run は書かない。
 - **既存の形式をそのまま使う**：Claude API の出力は reviewer の JSON（`pass`・`blocking`・`nonBlocking`・`humanNotes`）と risk-agent の JSON（`level`・8問の `answers`・`rationale`・`facts`）と同じ形。検証は `harness/lib/verdict.ts` の `parseVerdict` と同じ規則（`pass` と `blocking` の整合、kind・noul の語彙）。将来の置き換えでは、この JSON を `compose-verdict` の入力に渡せる。
 - **費用の仮説（$1〜2 / レビュー）は高めの見込み**。Opus 5.5 で 1 レビュー（2 回の問い）あたり $0.3〜0.8、Sonnet 5.5 でその半分程度と見積もる（下の「費用」）。実測はレビューごとの記録（トークン・USD）で確かめる。
@@ -26,7 +26,7 @@ reviewer / risk-agent の判定を Claude API + Cloudflare に委ねる試作（
 | App の受け付け | `issue_comment` のうち本文に ```` ```agent-plan ````・```` ```agent-verdict ````・```` ```agent-decision ```` を含むものだけ `gate.yml` が動く。作者が OWNER / MEMBER / COLLABORATOR のコメントだけ読む。patch-id が現在の差分と同じときだけ受け付け、`agent/review`・`agent/risk`・merge-route・Draft 解除・変更要求レビュー（`fix-request`）を書く | `.github/workflows/gate.yml:39-43`、`harness/gates/on-comment.ts:53-80, 389-456` |
 | 修正と再レビュー | `fix-request` の数で修正回数を数える。再レビューでは reviewer に前回の head とブロッキング指摘を渡し、前回からの差分と直っていない指摘だけをブロッキングにする | reviewer.md「再レビュー」、`harness/lib/session-inputs.ts:168-182` |
 | head と着手宣言 | 判定は head SHA に対して行い、現在の head が違っても PR 自身の差分（patch-id）が同じなら受け付ける。judge・fix は PR 番号で `claim` する | `harness/lib/patch-id.ts`、`harness/CLAUDE.harness.md` |
-| 信頼の根 | App の名義（`<appSlug>[bot]`）の記録だけ。Claude（本人名義）の記録は信頼しない。合体版の `agent-review-panel` の記録は shadow の先例（`gate.yml` に無いので App は動かず、`report.ts` が集計だけに使う） | `docs/security.md`、`docs/review-panel.md` |
+| 信頼の根 | App の名義（`<appSlug>[bot]`）の記録だけ。Claude（本人名義）の記録は信頼しない。合体版の `agent-review-panel` の記録は shadow の先例（`gate.yml` に無いので App は動かず、`report.ts` が集計だけに使う） | `harness/docs/security.md`、`harness/docs/review-panel.md` |
 | 外部モデルの先例 | Jev（TypeSafe）を Actions の中から `fetch` で呼ぶ。鍵は Environment `gate` の Secret、ログとコメントは `redact` で伏せる、`shadow` / `enforce` を設定で切り替える | `harness/lib/jev.ts`、`harness/gates/context.ts` |
 | インフラ | App は Actions の中でトークンを作るためだけに使う。**Webhook は無効**（manifest の `active: false`、`default_events: []`）。権限は Checks / Contents / Issues / Pull requests が write、Metadata が read。Secrets は `AGENT_APP_PRIVATE_KEY`・`JEV_API_KEY`（Environment `gate`、既定ブランチ限定） | `harness/scripts/setup.ts:99-126`、`docs/setup.md` 節2〜3 |
 | GitHub の呼び方 | Octokit を使わず `fetch` の薄いクライアント。diff は `GET /compare/base...head`（`application/vnd.github.diff`）。Check Run は Checks API | `harness/lib/github.ts` |
@@ -67,7 +67,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 
 | 案 | 内容 | 採らない理由 |
 | --- | --- | --- |
-| A. 既存 App に Webhook を足す | `appSlug` の App の Webhook URL を Workers に向け、秘密鍵を Cloudflare に置く | 既存 App は Merge・ラベル・Check Run を書ける信頼の根。鍵を Actions の外（Cloudflare）に置くと、Cloudflare が侵害されたときに偽の判定・Merge ができる。Webhook は App に1つなので将来の他用途とも競合する。Secrets の鍵の持ち出しは [security.md](security.md) の「秘密」の方針にも反する |
+| A. 既存 App に Webhook を足す | `appSlug` の App の Webhook URL を Workers に向け、秘密鍵を Cloudflare に置く | 既存 App は Merge・ラベル・Check Run を書ける信頼の根。鍵を Actions の外（Cloudflare）に置くと、Cloudflare が侵害されたときに偽の判定・Merge ができる。Webhook は App に1つなので将来の他用途とも競合する。Secrets の鍵の持ち出しは [security.md](../harness/docs/security.md) の「秘密」の方針にも反する |
 | B. GitHub Actions から Workers を呼ぶ | `gate.yml` か新しい workflow の中で Workers に POST | Actions の実行時間が増える（`gate.yml` は `pull_request_target` のたびに動くので、そこに足せば数秒だが、既存 App のゲートの変更になりガードレール）。Webhook なら Actions を使わない |
 | C. Workers だけで完結 | Worker の中で Claude を待つ | Claude の応答は数十秒〜数分。Worker は受付に絞り、再試行と永続化は Workflows に任せる（CPU 時間の制限にも触れにくい） |
 | D. Message Batches API | 50% 引き | 結果が最長 24 時間後。Shadow Mode の比較用には使えるので、費用の比較の段階で試す（設定 `claude.batch` を将来足す）。判定の流れに入れるなら不向き |

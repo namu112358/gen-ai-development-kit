@@ -2,7 +2,7 @@
  * fleet の待つ間の読み直しの判断（Issue #199、人の決定 2026-09-30）。選んだ Issue が App・CI や人の Merge を待つ間に、fleet が間隔ごとに
  * `fleet-status --watch` を読み直すときの判断。App 待ちの行が一定の時間を過ぎても動かなければ1回だけ知らせ、Merge 済みで見届けの
  * 済んでいない行（Issue が開いている・worktree が残る）を返す。GitHub も git も呼ばない（事実は呼び出し元が渡す）。
- * 見張りの記録は git の共通ディレクトリの下の `agent-harness/watch/<セッションの ID>.json`（書式は docs/formats.md の「見張りの記録」）。
+ * 見張りの記録は git の共通ディレクトリの下の `agent-harness/watch/<セッションの ID>.json`（書式は harness/docs/formats.md の「見張りの記録」）。
  */
 import { readFileSync } from 'node:fs';
 import { sessionFilePath, writeLocalJson } from './local-state.ts';

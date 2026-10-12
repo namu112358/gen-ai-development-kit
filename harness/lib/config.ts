@@ -62,7 +62,7 @@ export interface HarnessConfig {
    */
   humanMergePaths?: string[];
   /**
-   * 委任承認（人が計画ゲートの承認と Merge の判断を App に委ねる。docs/risk-policy.md）。ダッシュボードの planLabel は計画ゲートの承認だけを、
+   * 委任承認（人が計画ゲートの承認と Merge の判断を App に委ねる。harness/docs/risk-policy.md）。ダッシュボードの planLabel は計画ゲートの承認だけを、
    * mergeLabel は計画ゲートの承認と Merge の判断を委ねる。期限は無く、ラベルが付いている間ずっと有効。無ければ既定値（delegateConfig）
    */
   delegate?: { planLabel?: string; mergeLabel?: string };
@@ -102,7 +102,7 @@ export interface HarnessConfig {
   patrolIssueTitle?: string;
   /** 導入先の検証コマンドと依存の取り込みのコマンド。無ければ npm run check・npm ci、null は「行わない」（projectCommands。Issue #640） */
   project?: { checkCommand?: string | null; installCommand?: string | null };
-  reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（docs/review-panel.md）。無ければ off
+  reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（harness/docs/review-panel.md）。無ければ off
   /**
    * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、
    * flat なら1つのセッションで段階を交互に進める。maxParallelShips は --max が無いときに同時に動かす ship の数。無ければ既定値（fleetConfig）

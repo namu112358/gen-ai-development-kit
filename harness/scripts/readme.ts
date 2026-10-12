@@ -32,6 +32,7 @@ export const TARGET_DIRS: string[] = [
   'harness/gates',
   'harness/scripts',
   'harness/templates',
+  'harness/docs',
   'harness/test',
   'harness/test/support',
   '.claude',

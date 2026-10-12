@@ -123,7 +123,7 @@ test('(c) 解除済み（released: true）の宣言だけの Issue とは、重�
 test('(d) 集合の表では重なる後の側の行が「待つ」になり、その Issue だけを渡すと「選ぶ」になる', () => {
   const issues = [
     fi(planGate(1, { claim: manual(SESSION, 'plan-gate') }), ['harness/lib/fleet.ts']),
-    fi(planGate(2, { claim: manual(SESSION, 'plan-gate') }), ['docs/operations.md']),
+    fi(planGate(2, { claim: manual(SESSION, 'plan-gate') }), ['harness/docs/operations.md']),
     fi(planGate(3, { claim: manual(SESSION, 'plan-gate') }), ['harness/lib/fleet.ts', 'harness/test/x.test.ts']),
   ];
   const all = facts(issues);

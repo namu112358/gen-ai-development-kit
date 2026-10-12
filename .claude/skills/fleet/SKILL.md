@@ -29,7 +29,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 - 人の判断待ち（`plan-review`・Issue の止まる印）が `hq.humanWaitMinutes`（既定 120 分）を超えた Issue と、PR の止まる印（`agent:hold`・`agent:blocked`）の Issue は、脇に置く（`plan-review` は表の選択が「待つ：人の判断待ちが N 分…脇に置く」になる。`--json` の行の `humanWait` に始まり・分・`overdue`・決めてほしいこと。PR の止まる印は時刻を読まないので分は無い）。人の判断が付く（印が外れる・計画の出し直し）と、また「選ぶ」に戻る（#667）。脇に置いた `plan-review` の行も、読み直しのたびにship の手順2の `plan-proceed` の確かめをし、当たれば表が「脇に置く」のままでも選び直して implement に進める（`fleet-status` は `plan-proceed` を読まない）。
 - PR が無い段階の Issue は、既に選んだ Issue・PR 段階・実装中の Issue と計画の files が重なれば待つ。重なりの相手にする着手宣言は、ほかのセッションの解除されていない宣言と、このセッションの実装中（段階 `implement`）の宣言だけ。このセッションのほかの段階（plan・plan-gate など）の宣言どうしで重なれば、並べた順の先の側を選び、後の側が待つ（入れ子の方式では ship が全部このセッションの ID で宣言するため）。
 - 既に選んだ Issue のうち段階が `plan-review`（人の判断待ち）のものは、ほかの Issue の重なりの相手にしない（今は進まないので、進められる Issue を待たせない）。`plan-review` の Issue 自身は、PR 段階・実装中の Issue と重なれば待つ。人が進めると決めた後は、手順3で読み直した表で改めて重なりを判定し、相手が既に実装中（`implement` の宣言）ならその Issue が待つ。
-- `harness.config.json` の `fleet.sharedFiles`（書かなければ空。このリポジトリの `harness.config.json` では `docs/plan.md`・`docs/formats.md`・`docs/operations.md`・`docs/security.md`・`docs/glossary.md` と `**/README.md`）だけで重なる組は待たせない（表の「重なり」列に「共有ファイルのみ（並行可）」と出る）。
+- `harness.config.json` の `fleet.sharedFiles`（書かなければ空。このリポジトリの `harness.config.json` では `docs/plan.md`・`harness/docs/formats.md`・`harness/docs/operations.md`・`harness/docs/security.md`・`harness/docs/glossary.md` と `**/README.md`）だけで重なる組は待たせない（表の「重なり」列に「共有ファイルのみ（並行可）」と出る）。
 - 両方に PR がある組は、`fleet-status` が PR の head を fetch して `git merge-tree` で実際に試し、衝突する組だけ、並べた順の後の側が待つ。衝突しなければ、同じファイルを変えていても並行して進める。
 - `git merge-tree --write-tree` が使えない環境（git 2.38 未満）や fetch に失敗したときは、PR 同士が全部「衝突」扱いになる（表のメモに「試せなかったため衝突ありとして扱う」と出る）。
 
@@ -88,7 +88,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 
 ## auto mode の保留の検討会
 
-auto mode で Jev の危険の判定が計画か PR を保留にしたとき、fleet が3つの担当に調べさせて結論を出す（Issue #681）。保留は検討会では解かない。人に上げるか、`files` が変わる計画に出し直して Jev に問い直させるだけ。結論の記録の書式と、その後の数え方は [docs/operations.md](../../../docs/operations.md#auto-mode-の保留の検討会)。
+auto mode で Jev の危険の判定が計画か PR を保留にしたとき、fleet が3つの担当に調べさせて結論を出す（Issue #681）。保留は検討会では解かない。人に上げるか、`files` が変わる計画に出し直して Jev に問い直させるだけ。結論の記録の書式と、その後の数え方は [harness/docs/operations.md](../../../harness/docs/operations.md#auto-mode-の保留の検討会)。
 
 - **見つけ方**：計画は、Issue の App の最新の計画ゲートの記録（`kind=plan-gate`）の `autoMode.hold` が真（停止のコメントに「auto mode（…）の危険の判定で保留にしました」）。PR は、受け付けの記録（`kind=acceptance`）に `autoMode.jev` があり、`autoMode.reasons` に Jev の危険の判定での保留がある（Human Merge の依頼 `kind=human-review` が付く）。
 - **開くのは fleet**：サブエージェント（general-purpose）を3つ並行に呼ぶ。保留を見つけたら、開くかを人に聞かずに開く（付き添いなら AskUserQuestion で聞かない。hq の worker のときも hq に `ask` しない。人の決定 2026-10-12、Issue #778）。人に上げるのは結論の3行だけ。新しいワークスペース・Orca の worker は開かない。入れ子の方式で保留を見つけた ship は検討会を開かず fleet に返す（入れ子の方式の手順1の「渡すもの」）。交互の方式では fleet が自分で見つけて開く。
@@ -107,7 +107,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
   2. 結論：誤検知らしい／本当に危険（／PR の変え方の案）— <一番強い根拠を1文。ファイル・行か AC>
   3. 見落とし：<反対役の見つけたこと。無ければ「無し」>。人がすること：進める／直させる／閉じる
   - 人に上げる経路は手順2の人の判断待ちと同じ（付き添いなら AskUserQuestion、hq の worker なら hq に `ask`）。
-- **記録**：結論を決めたら、人に上げる前・出し直す前に、[docs/operations.md](../../../docs/operations.md#auto-mode-の保留の検討会) の書式で、計画なら Issue、PR なら PR にコメントを残す（`gh api repos/{owner}/{repo}/issues/<Issue番号か PR番号>/comments -F body=@<ファイル>`。Issue と PR のどちらにも同じ形で付く）。
+- **記録**：結論を決めたら、人に上げる前・出し直す前に、[harness/docs/operations.md](../../../harness/docs/operations.md#auto-mode-の保留の検討会) の書式で、計画なら Issue、PR なら PR にコメントを残す（`gh api repos/{owner}/{repo}/issues/<Issue番号か PR番号>/comments -F body=@<ファイル>`。Issue と PR のどちらにも同じ形で付く）。
 - **しないこと**：保留を解かない。`agent:plan-review` を外さない。`plan-review-check` の `riskOnly` が真でも、聞かずに「進める」と決めない。`post-judgment` の `risk-only` を出さない。人の答えの無い `proceed` の記録を出さない。Jev の問い・保留の線・ラベルは変えない。
 
 ## Orca の worker で ship を動かすとき

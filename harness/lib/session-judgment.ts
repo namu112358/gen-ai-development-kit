@@ -11,7 +11,7 @@ import { Checker } from './validate.ts';
 /**
  * セッションの判定（```agent-session-judgment、Issue #340）：付き添いのセッションが、人に聞かずに決めたことの記録。
  * 決めたこと・当たった基準・理由・覆し方を Issue か PR のコメントに残し、ship・fleet の最後の一覧に「決めたこと（覆すなら）」で載せる。
- * 書式は docs/formats.md。agent:plan-review を「進める」と決めてよいか（planReviewRiskOnly）と、投稿してよいか（judgmentPostable）もここで決める。
+ * 書式は harness/docs/formats.md。agent:plan-review を「進める」と決めてよいか（planReviewRiskOnly）と、投稿してよいか（judgmentPostable）もここで決める。
  * どれも純粋な関数で、GitHub を読まない（読む側は harness/scripts/agent/commands/session-judgment.ts）。
  */
 
