@@ -23,6 +23,7 @@
 | `judge*.test.ts`・`verdict*.test.ts`・`compose-verdict-*.test.ts`・`facts*.test.ts`・`scope*.test.ts` | 判定の入力と出力、判定コメント（`agent-verdict`）の書式と判定した head のずれ、facts、PR を出す前の範囲照合 |
 | `merge-*.test.ts`・`human-merge*.test.ts`・`tests-*.test.ts`・`exempt*.test.ts`・`patch-id*.test.ts`・`revert*.test.ts`・`pr-*.test.ts`・`main-push*.test.ts`・`stack*.test.ts` | Merge の経路（自動 Merge と Human Merge）、テストの結果と例外ラベル、patch-id、revert、PR と Issue の結び付け、main への push、Stacked PR |
 | `review-panel-*.test.ts` | 合体版のレビューの組み立て・記録・担当の定義と、今の判定と比べる集計 |
+| `review-api-*.test.ts` | PR レビューの試作（`review-api/`）の Node で動く部分のテスト：設定（`review.config.json`）の読み取りなど |
 | `report-*.test.ts`・`render-*.test.ts` | 判定の集計（`harness/lib/report.ts`）：外れの数え方、fix の PR の結び付け、Jev の問いごとの確率、テストの改ざんの判定と人の判断の一致、文字数とトークン数の比、指標の描き方 |
 | `test-*.test.ts`・`mutate*.test.ts`・`observe*.test.ts`・`hotspot*.test.ts`・`patrol*.test.ts` | テストの改ざんの検査と Jev への問い方、テストの健康・減らせるテスト、ミュータントの検査、保守の観測（docs の照合・ホットスポット）、見直しのまとめ役 patrol |
 | `dashboard-*.test.ts` | 手元のダッシュボード（`harness/scripts/dashboard.ts`・`harness/scripts/dashboard/`）：グラフ・カード・サーバー・画面、GitHub の見張りと API の上限の扱い |

@@ -1,0 +1,27 @@
+{
+  "trigger": {
+    "actions": ["opened", "synchronize", "reopened", "converted_to_draft"],
+    "skipBotSenders": true,
+    "branchPrefix": "claude/",
+    "requireClosesIssue": true
+  },
+  "claude": {
+    "reviewModel": "claude-opus-5-5",
+    "riskModel": "claude-opus-5-5",
+    "effort": "high",
+    "maxTokens": 16000,
+    "maxToolCalls": 12,
+    "maxDiffChars": 200000,
+    "maxFileChars": 60000
+  },
+  "budget": {
+    "monthlyUsd": 50,
+    "perReviewUsd": 3
+  },
+  "pricing": {
+    "$comment": "公式の値（2026-10-12）。harness.config.json の pricing とは別に持つ",
+    "claude-opus-5-5": { "input": 4, "output": 20, "cacheWrite5m": 5, "cacheWrite1h": 8, "cacheRead": 0.2 },
+    "claude-sonnet-5-5": { "input": 2, "output": 10, "cacheWrite5m": 2.5, "cacheWrite1h": 4, "cacheRead": 0.1 },
+    "claude-haiku-5-5": { "input": 0.1, "output": 0.5, "cacheWrite5m": 0.125, "cacheWrite1h": 0.2, "cacheRead": 0.01 }
+  }
+}
