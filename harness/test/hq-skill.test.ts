@@ -46,6 +46,10 @@ const HQ_SPEC: SkillSpec = {
     { step: 6, order: ['Epic/Issue', '人待ち', 'ログ'] },
     // 手順7：heartbeat の一言をログのペインに使い、すぐ ack する（#425）
     { step: 7, words: ['heartbeat の一言', 'すぐ ack', '質問を遅らせない', 'ログのペイン', '#402', 'hq-heartbeat.json'] },
+    // 手順7：便りの振り分けと交代の判定は hq-decide.ts の結果に従う（#780）
+    { step: 7, words: ['hq-decide.ts route', 'hq-decide.ts handover'] },
+    // 手順8：動いている ship の数と空いた枠の割り当ては hq-decide.ts assign の結果に従う（#780）
+    { step: 8, words: ['hq-decide.ts assign'] },
     // 手順8：止まったタスクの見回し（#407）
     {
       step: 8,
