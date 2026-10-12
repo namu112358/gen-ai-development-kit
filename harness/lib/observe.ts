@@ -4,13 +4,16 @@ import { join } from 'node:path';
 import type { HarnessConfig } from './config.ts';
 import type { GitHub } from './github.ts';
 import { HOTSPOT_LOG_ARGS, countLines, parseNumstat, rankHotspots, type Hotspot } from './hotspot.ts';
+import { collectOpsHealth, type WorktreeEntry } from './observe-ops.ts';
 import { buildDocsInventory, checkDoc, isDocTarget, type DocFinding } from './observe-docs.ts';
+import { OPS_HEALTH_DEFAULTS, increasedItems, opsHealthThresholds, type OpsItem, type OpsItemId } from './ops-health.ts';
 import { collectCiHealth, parseJunit, slowTests, type FlakyTestsSection, type MutantsSection, type SlowTests, type Unavailable } from './test-health.ts';
 
 /**
  * 保守の観測（harness/scripts/observe.ts）のまとめ。docs の照合（observe-docs.ts）・ホットスポット（hotspot.ts）・
  * テストの健康（test-health.ts）を1回分の JSON（version 1）に組み、人が読む要約と、前回の JSON との差を作る。
  * 読む部分（git・ファイル・GitHub）は ObserveIo で受け取る。GitHub は GET だけ、出力は OS の一時ディレクトリに書く（リポジトリにも GitHub にも書かない）。
+ * 運用の健康（observe-ops.ts が GitHub と git を読み、ops-health.ts が 14 項目を判定する）も節として組み、`observe.opsHealth` のしきい値の型と範囲は opsHealthConfigErrors で検査する（誤りはその節だけ読めない扱い）。
  * LLM は呼ばない。判断（直すか・Issue にするか）は人か、次の段階の skill が行う。
  */
 
@@ -35,6 +38,8 @@ export interface ObserveReport {
   slowTests: SlowTests | Unavailable;
   flakyTests: FlakyTestsSection | Unavailable;
   mutants: MutantsSection | Unavailable;
+  /** 運用の健康 14 項目（直近 24 時間）。OBSERVE_SECTIONS には入れない。古い JSON には無い */
+  opsHealth?: { available: true; since: string; gets: number; maxGets: number; items: OpsItem[] } | Unavailable;
   /** 打ち切り・読めなかったものなど */
   notes: string[];
   diff?: ObserveDiff;
@@ -47,6 +52,8 @@ export interface ObserveDiff {
   previousGeneratedAt: string;
   /** どちらかが読めない節は null */
   sections: Record<ObserveSection, { added: string[]; removed: string[] } | null>;
+  /** 運用の健康：超えた項目の id の増減と値が増えた項目。前回か今回が無い・読めないなら null */
+  opsHealth?: { exceeded: { added: OpsItemId[]; removed: OpsItemId[] }; increased: { id: OpsItemId; previous: number; current: number }[] } | null;
 }
 
 export interface ObserveIo {
@@ -65,6 +72,8 @@ export interface ObserveIo {
   junit(): Promise<string | { reason: string }>;
   /** リポジトリのルート（junit の file を相対にする。無ければそのまま） */
   root?: string;
+  /** 本体を除いた worktree の一覧（運用の健康の項目 12）。無ければその項目を読めない旨にする */
+  worktrees?(): WorktreeEntry[];
 }
 
 const DAY = 86400_000;
@@ -103,6 +112,34 @@ export function parseObserveArgs(args: string[]): { ok: true; value: ObserveOpti
   }
   if (seen.has('--junit') && value.runTests) errors.push('--junit と --run-tests は同時に渡せません');
   return errors.length ? { ok: false, errors } : { ok: true, value };
+}
+
+// --- 運用の健康の設定 ---
+
+const OPS_COUNT_KEYS = new Set(['rateLimitFailures', 'gateRunsPerDay', 'requeueCount', 'planReviewCount', 'unplannedIssueCount', 'epicDrift', 'linkMismatch', 'staleWorktrees', 'reviewPanelFailures']);
+const OPS_AMOUNT_KEYS = new Set(['scheduleGapMinutes', 'failedGateMinutes', 'ciJobMinutes', 'readyHours', 'prOpenHours', 'claimIdleMinutes', 'areaFullMinutes']);
+const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** observe.opsHealth の型と範囲の誤り（maxGets と件数のキーは正の整数、…Minutes・…Hours のキーは正の有限の数、知らないキーも誤り）。loadConfig では検査しない */
+export function opsHealthConfigErrors(config: HarnessConfig): string[] {
+  const observeConfig: unknown = config.observe;
+  if (observeConfig === undefined) return [];
+  if (!isPlainObject(observeConfig)) return [`observe はオブジェクトで書いてください（今の値：${JSON.stringify(observeConfig)}）`];
+  const ops = observeConfig.opsHealth;
+  if (ops === undefined) return [];
+  if (!isPlainObject(ops)) return [`observe.opsHealth はオブジェクトで書いてください（今の値：${JSON.stringify(ops)}）`];
+  const errors: string[] = [];
+  for (const [key, value] of Object.entries(ops)) {
+    if (value === undefined) continue;
+    const shown = `observe.opsHealth.${key}（今の値：${JSON.stringify(value)}）`;
+    if (!(key in OPS_HEALTH_DEFAULTS)) errors.push(`${shown} は知らないキーです`);
+    else if (key === 'maxGets' || OPS_COUNT_KEYS.has(key)) {
+      if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) errors.push(`${shown} は正の整数で書いてください`);
+    } else if (OPS_AMOUNT_KEYS.has(key)) {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) errors.push(`${shown} は正の数で書いてください`);
+    }
+  }
+  return errors;
 }
 
 // --- 集める ---
@@ -177,6 +214,31 @@ export async function observe(io: ObserveIo, opts: ObserveOptions, previous?: Ob
     }
   }
 
+  // 運用の健康（GitHub と git）
+  let opsHealth: NonNullable<ObserveReport['opsHealth']>;
+  const opsErrors = opsHealthConfigErrors(io.config);
+  if (opsErrors.length > 0) {
+    opsHealth = { available: false, reason: `observe.opsHealth の設定の誤り：${opsErrors.join('；')}` };
+  } else if (io.gh === null) {
+    opsHealth = { available: false, reason: io.offlineReason ?? '--offline のため GitHub を読んでいません' };
+  } else {
+    try {
+      let worktrees: WorktreeEntry[] | null = null;
+      if (io.worktrees) {
+        try {
+          worktrees = io.worktrees();
+        } catch (e) {
+          notes.push(`worktree を読めません：${reasonOf(e)}`);
+        }
+      }
+      const ops = await collectOpsHealth(io.gh, { config: io.config, now: io.now, thresholds: opsHealthThresholds(io.config.observe?.opsHealth), worktrees });
+      notes.push(...ops.notes);
+      opsHealth = { available: true, since: ops.since, gets: ops.gets, maxGets: ops.maxGets, items: ops.items };
+    } catch (e) {
+      opsHealth = { available: false, reason: `GitHub を読めません：${reasonOf(e)}` };
+    }
+  }
+
   const report: ObserveReport = {
     version: 1,
     generatedAt: io.now.toISOString(),
@@ -188,6 +250,7 @@ export async function observe(io: ObserveIo, opts: ObserveOptions, previous?: Ob
     slowTests: slow,
     flakyTests,
     mutants,
+    opsHealth,
     notes,
   };
   if (previous) report.diff = diffReports(previous, report);
@@ -226,7 +289,19 @@ export function diffReports(previous: ObserveReport, current: ObserveReport): Ob
     const a = new Set(after);
     sections[s] = { added: after.filter((k) => !b.has(k)), removed: before.filter((k) => !a.has(k)) };
   }
-  return { previousGeneratedAt: previous.generatedAt, sections };
+  const diff: ObserveDiff = { previousGeneratedAt: previous.generatedAt, sections, opsHealth: null };
+  const before = previous.opsHealth;
+  const after = current.opsHealth;
+  if (before?.available && after?.available) {
+    const exceededIds = (items: OpsItem[]): OpsItemId[] => items.filter((i) => i.available && i.exceeded).map((i) => i.id);
+    const b = exceededIds(before.items);
+    const a = exceededIds(after.items);
+    diff.opsHealth = {
+      exceeded: { added: a.filter((id) => !b.includes(id)), removed: b.filter((id) => !a.includes(id)) },
+      increased: increasedItems(before.items, after.items),
+    };
+  }
+  return diff;
 }
 
 // --- 要約 ---
@@ -290,6 +365,24 @@ export function renderSummary(report: ObserveReport): string {
     ];
   });
 
+  const ops = report.opsHealth;
+  if (ops !== undefined) {
+    if (!ops.available) out.push('', '## 運用の健康', `読めません：${ops.reason}`);
+    else {
+      out.push('', `## 運用の健康（直近 24 時間、${ops.since} から。GitHub を読んだ数 ${ops.gets}/${ops.maxGets}）`);
+      const judged = ops.items.filter((i): i is Extract<OpsItem, { available: true }> => i.available);
+      const line = (i: Extract<OpsItem, { available: true }>, mark: string): string =>
+        `- ${mark} ${i.id}  ${i.title}  値 ${i.value} / しきい値 ${i.threshold}${i.evidence.length ? `  根拠：${i.evidence.join('；')}` : ''}`;
+      out.push('超えた項目：');
+      const exceeded = judged.filter((i) => i.exceeded);
+      out.push(...(exceeded.length ? exceeded.map((i) => line(i, '[超過]')) : ['- なし']));
+      const within = judged.filter((i) => !i.exceeded);
+      if (within.length) out.push('超えていない項目：', ...within.map((i) => line(i, '[正常]')));
+      const unread = ops.items.filter((i): i is Extract<OpsItem, { available: false }> => !i.available);
+      if (unread.length) out.push('読めない項目：', ...unread.map((i) => `- ${i.id}  ${i.title}  読めません：${i.reason}`));
+    }
+  }
+
   if (report.notes.length) out.push('', '## メモ', ...report.notes.map((n) => `- ${n}`));
   if (report.diff) {
     out.push('', `## 前回（${report.diff.previousGeneratedAt}）との差（上位の中での比較）`);
@@ -297,6 +390,14 @@ export function renderSummary(report: ObserveReport): string {
       const d = report.diff.sections[s];
       if (d === null) out.push(`- ${TITLES[s]}：どちらかが読めないので比べていません`);
       else out.push(`- ${TITLES[s]}：新しく出た ${d.added.length} 件、消えた ${d.removed.length} 件`, ...d.added.map((k) => `  - + ${k}`), ...d.removed.map((k) => `  - - ${k}`));
+    }
+    const o = report.diff.opsHealth;
+    if (o === undefined) {
+      // 古い JSON の差には欄が無い
+    } else if (o === null) out.push('- 運用の健康：どちらかが無い・読めないので比べていません');
+    else {
+      out.push(`- 運用の健康：新しく超えた ${o.exceeded.added.length} 件、超えなくなった ${o.exceeded.removed.length} 件、値が増えた ${o.increased.length} 件`);
+      out.push(...o.exceeded.added.map((id) => `  - 超えた + ${id}`), ...o.exceeded.removed.map((id) => `  - 超えなくなった - ${id}`), ...o.increased.map((x) => `  - 値が増えた ${x.id}：${x.previous} → ${x.current}`));
     }
   }
   return out.join('\n');
