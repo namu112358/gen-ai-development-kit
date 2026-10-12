@@ -139,9 +139,11 @@ test('入口の本文に、Linux で素の orca を使わない文がある', ()
 
 // ---- docs ----
 
-test(`docs/setup.md の節${ORCA_SECTION_NO}（Orca）に、Orca の必須と、Orca が無いときの退行手段が書かれている`, () => {
+test(`docs/setup.md の節${ORCA_SECTION_NO}（Orca）に、Orca が手元の標準であることと、クラウドの節（節12）への案内と、Orca が無いときの退行手段が書かれている`, () => {
   const section = orcaSection();
-  assert.ok(section.includes('必須'), 'Orca の節に「必須」が無い');
+  const body = section.split(/\r?\n/).slice(1).join('\n');
+  assert.ok(body.includes('標準'), 'Orca の節の本文に「標準」が無い');
+  assert.ok(section.includes('#12-クラウドの付き添いのセッション'), 'Orca の節に節12（クラウドの付き添いのセッション）へのリンク「#12-クラウドの付き添いのセッション」が無い');
   assert.ok(section.includes('Orca が無いとき'), 'Orca の節に「Orca が無いとき」が無い');
 });
 
