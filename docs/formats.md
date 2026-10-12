@@ -14,6 +14,7 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
 | ```` ```agent-incident ```` | Routine（#187。付き添いのセッションは書かない） | ダッシュボード Issue のコメント | `harness/lib/incident.ts`（表示だけで信頼しない） |
 | ```` ```arch-review ```` | 付き添いのセッション（arch-review の skill） | ダッシュボード Issue のコメント | `harness/lib/arch-review.ts` |
+| ```` ```patrol-state ```` | patrol の Routine と「patrol の下書きを選ぶ」のセッション | patrol のまとめの Issue の本文 | `harness/lib/patrol-issue.ts` |
 
 共通ルール：
 
@@ -171,7 +172,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
   "history": [ { "stage": "plan", "at": "2026-09-27T12:00:00.000Z" }, { "stage": "implement", "at": "2026-09-27T12:10:00.000Z", "after": 1234567890 } ] }
 ```
 
-- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）・`ensure-claim <番号>`（PR を作る前に使う。PR 番号なら PR が開いているかも確かめ、Merge 済み・Closed なら止まる。fix・sync は push の前に流す）は、このセッションの宣言（持ち主）が無いと止まる。読み直しで気づかなくても、ここで同じ決め方で止まる。定期 Routine は `worktree … --routine` で確かめを飛ばす（Routine の環境には `gh` が無い）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除を書く（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除を書くのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
+- `critic-input`・`post-plan`・`worktree`（`claude/issue-<番号>-` のブランチ。開いた PR があれば PR の宣言）・`ensure-claim <番号>`（PR を作る前に使う。PR 番号なら PR が開いているかも確かめ、Merge 済み・Closed なら止まる。fix・sync は push の前に流す）は、このセッションの宣言（持ち主）が無いと止まる。読み直しで気づかなくても、ここで同じ決め方で止まる。定期 Routine は `worktree … --routine` で確かめを飛ばす（Routine の環境では `gh api` の REST は通るが、GraphQL は 403）。`post-plan` は投稿の後、ゲートを通る見込みなら段階 `plan-gate` の宣言を出し直し、通らない見込み（`agent:plan-review` で人の判断待ち）なら解除を書く（`harness/lib/queue.ts` の `claimAfterPlan`）。宣言より新しい計画コメントでも宣言は終わった扱いになるが、解除を書くのは、ほかのセッションとダッシュボードに「このセッションが手を離した」ことが見えるようにするため。
 
 持ち主の `"released": true` の解除コメントか、宣言より新しい計画・判定コメントで着手は終わる。`manual` の着手は Routine が奪わない（`humanClaimStaleHours` を過ぎると停滞として表示）。`routine` の着手は `routineClaimTakeoverMinutes`（既定 90 分）を過ぎたら引き継ぐ。
 
@@ -426,6 +427,42 @@ arch-review の記録です（…）。次の arch-review はここから読み�
 - 記録のコメントの本文がコメントの上限（65536 文字、`ARCH_REVIEW_COMMENT_MAX`）を超えたら、`arch-review-record`・`arch-review-adopt` は投稿・編集せずに止まる。
 - 採用の書き戻し：`node harness/scripts/agent.ts arch-review-adopt <記録のコメントID> <下書きの番号> <Issue 番号> [--comment]` が、記録のコメントを読み直し（ダッシュボード Issue のコメントであることを確かめる）、番号（1始まり）の下書きの `created`（`--comment` なら `commented`）を書いてコメントを編集する（`adoptArchReviewDraft`）。元の目印のセッションは残す。コラボレーターの Claude の目印付きの記録でない・番号が範囲外・採用済み・`--comment` で宛先が `duplicateOf` と違うなら誤り。コメントの作成日時は変わらないので、前回の位置は動かない。
 - 集計：`node harness/scripts/agent.ts arch-review-pending` が、前回を選ぶのと同じ条件の記録すべてから、記録の数・下書きの数・採用された数と、未採用の下書き（記録のコメント ID・番号・タイトル・本文・`duplicateOf`）を出す（`archReviewAdoption`。読むだけ）。
+
+## patrol のまとめの Issue
+
+patrol の Routine（[.claude/skills/patrol/SKILL.md](../.claude/skills/patrol/SKILL.md)）が、patrol・qa-retro-loop・test-prune-loop の3つの状態と下書きを、1件のまとめの Issue（題は `patrolIssueTitle`。既定は `harness/lib/state.ts` の `DEFAULT_PATROL_ISSUE_TITLE`）の本文に置く。本文の読み書きは `harness/lib/patrol-issue.ts`、コマンドは `harness/scripts/agent/commands/patrol-issue.ts`。GitHub は REST だけで読み書きし、GraphQL・ラベル・下書きの Issue の作成は使わない。
+
+````markdown
+patrol の Routine が、見直し（arch-review・qa-retro・test-prune）の状態と下書きを置くまとめの Issue です。
+…
+
+<details><summary>状態（機械可読）</summary>
+
+```patrol-state
+{ "version": 1, "patrol": { … }, "qaRetro": { … }, "testPrune": { … } }
+```
+
+</details>
+````
+
+| フィールド | 内容 |
+| --- | --- |
+| `version` | 書式の版（`1`） |
+| `patrol` | `PatrolState`（`harness/lib/patrol.ts`。手元の `patrol.json` と同じ形）。まだ無ければ `null` |
+| `qaRetro` | `LoopState`（`harness/lib/qa-retro-loop.ts`。手元の `qa-retro-loop.json` と同じ形）。まだ無ければ `null` |
+| `testPrune` | `TestPruneLoopState`（`harness/lib/test-prune-loop.ts`。手元の `test-prune-loop.json` と同じ形）。まだ無ければ `null` |
+
+- フェンスの名前は `agent-` で始まらない。App の記録ではなく、`gate.yml` の `if:` にも当たらない。
+- 初回の扱い：ブロックが無い・JSON が壊れている・部分の状態が読めない本文は初回として読む（`patrol-pull` の標準出力の `first`・`reason`）。このとき `patrol-push` は、本文に `patrol-state` があったのに読めなかったことを回のコメントに残して書き直す（前の本文は Issue の編集履歴に残る）。`version` が 1 でない数なら、新しい書式を古い kit が上書きしないよう `patrol-pull` が止まる。
+- 縮め方：本文に置く前に、patrol の `rounds` を直近 10 件にし、採用済みの下書きの `body` を空にする。qa-retro・test-prune の回は落とさない。本文の上限は 65536 文字（`PATROL_ISSUE_BODY_MAX`）で、超えたら `patrol-push` は書かずに止まる。
+- `node harness/scripts/agent.ts patrol-pull --dir <dir>`：まとめの Issue（開いた Issue のうち題が一致し番号が最小のもの。無ければ作る）の本文を `<dir>/patrol.json`・`qa-retro-loop.json`・`test-prune-loop.json` に写す（`null` の部分は書かず、既にあれば消す）。`<dir>/pulled.json`（`{ issue, bodySha256, rounds: { qaRetro, testPrune } }`）を書き、標準出力に `{ issue, created, first, reason? }`。
+- `node harness/scripts/agent.ts patrol-push --dir <dir> [--arch-review <URL>] [--summary <ファイル>]`：今の本文の sha256 が `pulled.json` と違えば「pull の後にまとめの Issue の本文が変わりました。patrol-pull からやり直してください」で止まる。3つの状態を縮めて本文を `PATCH` し、増えた回・下書き・`--summary`・`--arch-review` があれば回のコメントを投稿する。増えた下書きは縮める前の状態から数える。標準出力に `{ issue, comment }`。
+- `node harness/scripts/agent.ts patrol-dedupe <下書きの JSON> --out <パス> [--max <n>]`：下書き（`[{ title, body, duplicateOf? }]`）を `checkIssueDrafts` で確かめ、開いた Issue（PR を除く）と題を照らして、同じ題のものを除いた先頭から n 件（既定 3）を `--out` に入力と同じ形で書く（`qa-retro-loop.ts advance --drafts`・`test-prune-loop.ts record --drafts` にそのまま渡せる）。標準出力に `{ kept, removed: [{ title, issue }] }`。
+- まとめの Issue は、題（`patrolIssueTitle`）で見分けて、App のラベル付け・Jev の分類・Epic の振り分け・fleet の対象・重複の照合から除かれる。題を変えたら設定も変える。
+- arch-review の下書きはまとめの Issue には置かず、ダッシュボード Issue の記録に残る（回のコメントには記録の URL を載せる）。
+- `PatrolState.observe` が指す観測の写し（`patrol-observe.json`）は本文に入れず、`patrol-pull` でも移らない。新しい `--dir` では観測の差が初回と同じ扱いになる。
+- `/issues?state=open` は 2000 件までしか読まない。開いた Issue と PR がそれを超えると、まとめの Issue を見落としたり、重複の照合が漏れたりする。
+- `patrol-push` の本文の確かめ（sha256）と `PATCH` の間に本文が変わっても気づけない（REST の Issue の更新には条件付きの更新が無い）。
 
 ## App の記録（agent-app）
 
