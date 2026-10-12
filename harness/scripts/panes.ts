@@ -6,6 +6,7 @@
  *   node harness/scripts/panes.ts hq [todo|board|log] [--once] [--fleets <控えのパス>]（ペインの名前が無ければ todo。todo・board だけ --json で1行の JSON を出す。Claude Code の mod が読む）
  *   node harness/scripts/panes.ts fleets --session <ID> [--session <ID>...]
  *   node harness/scripts/panes.ts line (--session <ID> | --snapshot <パス>)（スナップショットを1回読み、「fleet #508 実装 · #517 ゲート（人）」の1行を出す。Claude Code の mod の status line が読む。スナップショットが無い・読めなければ何も出さず終了コード 0）
+ *   node harness/scripts/panes.ts idle [--minutes <分>] [--exclude <handle>]...（Orca の全タブから、長く出力の無い claude のタブを1行ずつ出す。hq の見回しが読む。Issue #826）
  *   node harness/scripts/panes.ts config
  *
  * - collect：GitHub と記録を読むのはこれだけ。harness.config.json の panes.collectIntervalSeconds（既定 180 秒）ごとに、
@@ -27,6 +28,9 @@
  * - fleets：渡した fleet のスナップショットを1回読み、進んでいないかの判定（harness/lib/hq-stall.ts の fleetStall。しきい値は
  *   hq.staleSnapshotMinutes・hq.stuckMinutes）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
  *   終わった fleet の古いスナップショットも一時ディレクトリに残るので、--session は必ず渡す（無ければ終了コード 1）。
+ * - idle：Orca の `terminal list --json` を1回読み、agentIdentity が claude で lastOutputAt が hq.stuckMinutes（--minutes で上書き）以上前のタブを、
+ *   --exclude の handle を除いて「長く出力の無いタブ：<handle>・<分>分・<title>（<worktreePath>）」の1行ずつ出す。無ければ何も出さない。
+ *   Orca の一覧を読めなければ「Orca のタブの一覧を読めません（理由）」の1行を出して終了コード 0（hq の見回しを止めない）。タブは閉じない。
  * - config：fleet.shipMode・fleet.implementModel・hq・panes の設定を JSON で出す。shipModeConfig が止める理由（stopReason）を返したときだけ、理由を標準エラーに出して終了コード 1（今は subagent・worker とも null）。
  * - スナップショットの既定の置き場所は OS の一時ディレクトリの agent-harness-panes/<セッション ID>.json。
  * 段階の読み替えと描き方は harness/lib/panes.ts・harness/lib/panes-hq.ts。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
@@ -47,6 +51,7 @@ import { writeLocalFile } from '../lib/local-state.ts';
 import { TRANSCRIPT_SESSION_ID } from '../lib/session.ts';
 import { HEARTBEAT_FILE, freshHeartbeats, gitCommonDir, ledgerPath, parseLedger, readHeartbeatAt, readPendingFile, renderPending, type PendingFile } from './hq-state.ts';
 import { projectTranscriptDir } from '../lib/usage.ts';
+import { orcaCliCommand } from '../lib/worktree.ts';
 
 export interface RunResult {
   status: number | null;
@@ -538,7 +543,92 @@ function parseCli(args: string[]): CliArgs {
   return out;
 }
 
-const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | hq todo|board --json [--fleets <パス>] | fleets --session <ID>... | line (--session <ID> | --snapshot <パス>) | config';
+// ---- idle（長く出力の無い claude のタブ。Issue #826） ----
+
+export interface IdleTab {
+  handle: string;
+  minutes: number;
+  title: string;
+  worktreePath: string;
+}
+
+/** lastOutputAt（エポックのミリ秒の数か Date.parse できる文字列）をミリ秒にする。読めなければ null */
+function outputAtMs(v: unknown): number | null {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  if (typeof v === 'string') {
+    const t = Date.parse(v);
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
+/** Orca の terminal list --json の結果から、minutes 分以上（境界は以上）出力の無い claude のタブを選ぶ（exclude の handle は除く） */
+export function idleTabs(list: unknown, now: number, minutes: number, exclude: readonly string[]): { ok: true; tabs: IdleTab[] } | { ok: false; reason: string } {
+  const terminals = (list as { result?: { terminals?: unknown } } | null)?.result?.terminals;
+  if (!Array.isArray(terminals)) return { ok: false, reason: 'result.terminals が配列ではありません' };
+  const tabs: IdleTab[] = [];
+  for (const t of terminals as Record<string, unknown>[]) {
+    if (!t || typeof t.handle !== 'string' || t.agentIdentity !== 'claude' || exclude.includes(t.handle)) continue;
+    const at = outputAtMs(t.lastOutputAt);
+    if (at === null) continue;
+    const idle = Math.floor((now - at) / 60000);
+    if (idle < minutes) continue;
+    tabs.push({ handle: t.handle, minutes: idle, title: typeof t.title === 'string' ? t.title : '', worktreePath: typeof t.worktreePath === 'string' ? t.worktreePath : '' });
+  }
+  return { ok: true, tabs };
+}
+
+export function renderIdleTab(tab: IdleTab): string {
+  return `長く出力の無いタブ：${tab.handle}・${tab.minutes}分・${tab.title}（${tab.worktreePath}）`;
+}
+
+/** Orca を1回呼び、出す行を返す。読めなければ1行の案内だけ（hq の見回しを止めない） */
+export function readIdleTabs(run: (cmd: string, args: string[]) => RunResult, cmd: string, now: number, minutes: number, exclude: readonly string[]): string[] {
+  const unreadable = (why: string): string[] => [`Orca のタブの一覧を読めません（${why}）`];
+  const r = run(cmd, ['terminal', 'list', '--json']);
+  if (r.status !== 0) {
+    const last = r.stderr.trim().split('\n').pop() || '';
+    return unreadable(last || `終了コード ${r.status}`);
+  }
+  let json: unknown;
+  try {
+    json = JSON.parse(r.stdout);
+  } catch {
+    return unreadable('JSON ではありません');
+  }
+  const res = idleTabs(json, now, minutes, exclude);
+  return res.ok ? res.tabs.map(renderIdleTab) : unreadable(res.reason);
+}
+
+export function parseIdleArgs(args: string[]): { excludes: string[]; minutes: number | null } {
+  const out: { excludes: string[]; minutes: number | null } = { excludes: [], minutes: null };
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i];
+    if (a === '--exclude') {
+      const v = args[++i];
+      if (!v) throw new Error('--exclude には handle を渡してください');
+      out.excludes.push(v);
+    } else if (a === '--minutes') {
+      const v = args[++i];
+      if (!v || !/^[1-9]\d*$/.test(v)) throw new Error('--minutes は正の整数で渡してください');
+      out.minutes = Number(v);
+    } else throw new Error(`知らない引数：${a}`);
+  }
+  return out;
+}
+
+function mainIdle(rest: string[], config: ReturnType<typeof loadConfig>): void {
+  const a = parseIdleArgs(rest);
+  const minutes = a.minutes ?? hqStallConfig(config).stuckMinutes;
+  const run = (cmd: string, args: string[]): RunResult => {
+    const r = spawnSync(cmd, args, { shell: false, encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
+    if (r.error) return { status: null, stdout: '', stderr: r.error.message };
+    return { status: r.status, stdout: r.stdout ?? '', stderr: r.stderr ?? '' };
+  };
+  for (const line of readIdleTabs(run, orcaCliCommand(process.platform, process.env), Date.now(), minutes, a.excludes)) console.log(line);
+}
+
+const USAGE = 'panes.ts collect --session <ID> [--label <テーマ>] [--snapshot <パス>] [--cwd <パス>] <Issue 番号>... | progress|todo|prs (--session <ID> | --snapshot <パス>) | hq todo|board|log [--once] [--fleets <パス>] | hq todo|board --json [--fleets <パス>] | fleets --session <ID>... | idle [--minutes <分>] [--exclude <handle>]... | line (--session <ID> | --snapshot <パス>) | config';
 
 function main(argv: string[]): void {
   const [mode, ...rest] = argv;
@@ -561,6 +651,7 @@ function main(argv: string[]): void {
     return;
   }
   if (mode === 'hq') return mainHq(rest, config);
+  if (mode === 'idle') return mainIdle(rest, config);
   const args = parseCli(rest);
   const root = fileURLToPath(new URL('../..', import.meta.url));
   const every: Schedule = (fn, ms) => setInterval(fn, ms);
