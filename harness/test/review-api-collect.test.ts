@@ -1,7 +1,7 @@
 // review-api のレビューの材料集め（review-api/src/collect.ts の collectMaterial）が、偽の fetch に対して、PR 本文の Closes の Issue と
 // その plan-gate 記録の計画（App 以外の名義・目印の無いコメント・フェンスが壊れたコメントは読まず、最新の記録の plan を読む）、
 // Closes が無い・2つなら issue と plan が null、最後の記録に plan が無ければ plan が null、diff とファイルの上限（maxDiffChars・maxFileChars）、
-// 削除したファイルを読まないこと、前回の shadow 記録（head が違う最後のもの）を読むこと、collect.ts が cloudflare:workers・
+// 削除したファイルを読まないこと、前回の shadow 記録（reviewLogin の名義で head が違う最後のもの。Issue #911）を読むこと、collect.ts が cloudflare:workers・
 // @anthropic-ai/sdk・node:・harness/lib を import しないことを、外部 API を呼ばずに確かめる（Issue #898）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -14,6 +14,7 @@ import { renderShadowComment, type ShadowRecord } from '../../review-api/src/rec
 import { composeShadowVerdict, RISK_QUESTIONS, type Noul, type RiskQuestionKey } from '../../review-api/src/verdict.ts';
 
 const APP = 'agent-harness[bot]';
+const REVIEWER = 'review-api[bot]';
 const HEAD = 'a'.repeat(40);
 const OLD1 = 'b'.repeat(40);
 const OLD2 = 'c'.repeat(40);
@@ -73,10 +74,10 @@ const DIFF = [
   '',
 ].join('\n');
 const FILES: Record<string, string> = { 'src/a.ts': 'A'.repeat(25), 'src/new.ts': 'short', 'src/gone.ts': 'bye' };
-const PR_COMMENTS = [shadow(OLD1), shadow(OLD2), shadow(HEAD)].map((r, i) => comment(10 + i, APP, renderShadowComment(r)));
+const PR_COMMENTS = [shadow(OLD1), shadow(OLD2), shadow(HEAD)].map((r, i) => comment(10 + i, REVIEWER, renderShadowComment(r)));
 
 // URL で振り分ける偽の fetch を createGitHubClient に渡して collectMaterial を呼び、呼ばれた URL も返す
-const collect = async (opts: { prBody?: string; issueComments?: ReturnType<typeof comment>[] } = {}) => {
+const collect = async (opts: { prBody?: string; issueComments?: ReturnType<typeof comment>[]; prComments?: ReturnType<typeof comment>[] } = {}) => {
   const calls: string[] = [];
   const json = (v: unknown) => new Response(JSON.stringify(v), { headers: { 'content-type': 'application/json' } });
   const fetch = (async (input: string | URL | Request) => {
@@ -89,14 +90,14 @@ const collect = async (opts: { prBody?: string; issueComments?: ReturnType<typeo
     }
     if (p === '/issues/7') return json({ number: 7, title: 'Issue の題', body: 'Issue の本文', state: 'open', labels: [] });
     if (p === '/issues/7/comments') return json(opts.issueComments ?? ISSUE_COMMENTS);
-    if (p === '/issues/5/comments') return json(PR_COMMENTS);
+    if (p === '/issues/5/comments') return json(opts.prComments ?? PR_COMMENTS);
     if (p === `/compare/main...${HEAD}`) return new Response(DIFF);
     const file = p.startsWith('/contents/') ? FILES[decodeURIComponent(p.slice('/contents/'.length))] : undefined;
     if (file !== undefined && url.searchParams.get('ref') === HEAD) return new Response(file);
     return new Response('not found', { status: 404 });
   }) as typeof globalThis.fetch;
   const gh = createGitHubClient({ token: 't', owner: 'o', repo: 'r', fetch });
-  const material = await collectMaterial(gh, config, { owner: 'o', repo: 'r', pr: 5, headSha: HEAD, appLogin: APP });
+  const material = await collectMaterial(gh, config, { owner: 'o', repo: 'r', pr: 5, headSha: HEAD, appLogin: APP, reviewLogin: REVIEWER });
   return { material, calls };
 };
 
@@ -136,6 +137,13 @@ test('最後の plan-gate 記録に plan が無ければ、前の記録に plan 
   const { material } = await collect({ issueComments });
   assert.deepStrictEqual(material.issue, { number: 7, title: 'Issue の題', body: 'Issue の本文' });
   assert.equal(material.plan, null);
+});
+
+test('前回の記録は reviewLogin の名義のものだけを読み、ゲートの App やほかの人の名義の、より新しい記録は読まない', async () => {
+  const NEWER = 'd'.repeat(40);
+  const prComments = [...PR_COMMENTS, comment(20, APP, renderShadowComment(shadow(NEWER))), comment(21, 'someone', renderShadowComment(shadow(NEWER)))];
+  const { material } = await collect({ prComments });
+  assert.deepStrictEqual(material.previous, shadow(OLD2));
 });
 
 test('collect.ts は cloudflare:workers・@anthropic-ai/sdk・node:・harness/lib を import しない', () => {
