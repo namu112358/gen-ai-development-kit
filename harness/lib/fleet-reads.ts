@@ -2,12 +2,14 @@
  * fleet-status と step の事実集め（Issue ごとの Closes する PR・Issue と PR の事実・main との差・human-review・計画の files）。#249。
  * 材料はまとめた GraphQL の問い合わせ（harness/lib/graphql-prefetch.ts の readBatch）で先に読み、issueFacts・prFacts が送る REST の要求には先読みの Transport が答える。
  * 先読みで答えられない要求（PR の差分・Stacked PR の層の /pulls/{n}・読んでいない番号）だけが REST に流れる。書き込みはしない。
+ * クラウド（gh.restOnly）は GraphQL を使わず、先読みは空の Snapshot で、Closes する PR は REST（closingPrsRest）で読む。
  */
 import { appMarkKind } from './blocks.ts';
 import { areaLimitLabels } from './concurrency.ts';
 import type { HarnessConfig } from './config.ts';
 import { issueFacts, prFacts } from './facts.ts';
 import type { FleetIssue, FleetPr } from './fleet.ts';
+import { prsReferencing } from './gh-rest.ts';
 import { GitHub, type Transport } from './github.ts';
 import { PrefetchTransport, readBatch, Snapshot } from './graphql-prefetch.ts';
 import { bodyIssueRefs, isAppComment, isSameRepoPr, latestPlanGate, linkedIssuesWithSource, type PlanGateRecord, type PullRequest, withStack } from './state.ts';
@@ -23,11 +25,14 @@ const NUMBERS_PER_QUERY = 20;
  */
 export function prefetchedGitHub(gh: GitHub, config: HarnessConfig, snap: Snapshot): GitHub {
   const inner: Transport = { request: (method, path, opts) => gh.request(method, path, opts) };
-  return new GitHub(new PrefetchTransport({ snap, inner, repoPath: gh.repoPath, config, diffs: new Map(), stacks: new Map() }), `${gh.owner}/${gh.repo}`);
+  const out = new GitHub(new PrefetchTransport({ snap, inner, repoPath: gh.repoPath, config, diffs: new Map(), stacks: new Map() }), `${gh.owner}/${gh.repo}`);
+  out.restOnly = gh.restOnly;
+  return out;
 }
 
 /** fleet-status の先読み：対象の Issue（20件ごとに1回の問い合わせ）と、開いた PR の詳しい欄 */
 export async function readFleetSnapshot(gh: GitHub, config: HarnessConfig, numbers: number[]): Promise<Snapshot> {
+  if (gh.restOnly) return new Snapshot();
   const unique = [...new Set(numbers)];
   const snap = await readBatch(gh, config, { numbers: unique.slice(0, NUMBERS_PER_QUERY), openPrs: 'detail' });
   for (let i = NUMBERS_PER_QUERY; i < unique.length; i += NUMBERS_PER_QUERY) {
@@ -40,6 +45,7 @@ export async function readFleetSnapshot(gh: GitHub, config: HarnessConfig, numbe
  * step の先読み：Issue 1件と、開いた PR の一覧（紐付けに要る欄だけ）。Issue を Closes する開いた PR があれば、その番号だけ2回目の問い合わせで詳しく読む
  */
 export async function readStepSnapshot(gh: GitHub, config: HarnessConfig, n: number): Promise<Snapshot> {
+  if (gh.restOnly) return new Snapshot();
   const snap = await readBatch(gh, config, { numbers: [n], openPrs: 'light' });
   const repository = `${gh.owner}/${gh.repo}`;
   const open = (snap.closedBy.get(n) ?? []).filter((p) => p.repository.nameWithOwner === repository && p.state === 'OPEN').map((p) => p.number);
@@ -48,7 +54,8 @@ export async function readStepSnapshot(gh: GitHub, config: HarnessConfig, n: num
 }
 
 /** Issue を Closes する PR（開いたもの・Merge 済みのもの）。先読みにあればそれを使い、無ければ GraphQL で読む */
-export async function closingPrs(gh: GitHub, issue: number, snap?: Snapshot): Promise<{ number: number; state: string }[]> {
+export async function closingPrs(gh: GitHub, config: HarnessConfig, issue: number, snap?: Snapshot): Promise<{ number: number; state: string }[]> {
+  if (!snap?.closedBy.has(issue) && gh.restOnly) return closingPrsRest(gh, config, issue);
   const nodes = snap?.closedBy.get(issue) ?? (await gh.graphql<{ repository: { issue: { closedByPullRequestsReferences: { nodes: { number: number; state: string; repository: { nameWithOwner: string } }[] } } } }>(
     `query($owner:String!,$repo:String!,$n:Int!){repository(owner:$owner,name:$repo){issue(number:$n){closedByPullRequestsReferences(first:20,includeClosedPrs:true){nodes{number state repository{nameWithOwner}}}}}}`,
     { owner: gh.owner, repo: gh.repo, n: issue },
@@ -56,6 +63,30 @@ export async function closingPrs(gh: GitHub, issue: number, snap?: Snapshot): Pr
   return nodes
     .filter((p) => p.repository.nameWithOwner === `${gh.owner}/${gh.repo}` && (p.state === 'OPEN' || p.state === 'MERGED'))
     .map((p) => ({ number: p.number, state: p.state }));
+}
+
+/**
+ * クラウド用の closingPrs（GraphQL を使わない）。開いた PR は /pulls?state=open の本文の Closes（既定ブランチ宛て）。
+ * Merge 済みの PR は Issue の timeline の cross-referenced（同じリポジトリの Merge 済みの PR）を候補にし、PR を読んで本文の Closes・既定ブランチ宛て・同じリポジトリ（fork を除く）のものだけ残す
+ */
+async function closingPrsRest(gh: GitHub, config: HarnessConfig, issue: number): Promise<{ number: number; state: string }[]> {
+  const repository = `${gh.owner}/${gh.repo}`;
+  const out: { number: number; state: string }[] = [];
+  const open = await gh.paginate<PullRequest>('/pulls?state=open');
+  for (const r of prsReferencing(open, issue, repository)) {
+    if (r.keyword === 'closes' && open.find((p) => p.number === r.number)?.base.ref === config.defaultBranch) out.push({ number: r.number, state: 'OPEN' });
+  }
+  type Cross = { event: string; source?: { issue?: { number: number; repository?: { full_name?: string }; pull_request?: { merged_at?: string | null } } } };
+  const seen = new Set<number>();
+  for (const e of await gh.paginate<Cross>(`/issues/${issue}/timeline`)) {
+    const s = e.source?.issue;
+    if (e.event !== 'cross-referenced' || !s?.pull_request?.merged_at || s.repository?.full_name !== repository || seen.has(s.number)) continue;
+    seen.add(s.number);
+    const pr = await gh.request<PullRequest | null>('GET', `/pulls/${s.number}`, { allow404: true });
+    if (!pr || pr.base.ref !== config.defaultBranch || !isSameRepoPr(pr, repository)) continue;
+    if (bodyIssueRefs(pr.body).some((b) => b.keyword === 'closes' && b.number === issue)) out.push({ number: pr.number, state: 'MERGED' });
+  }
+  return out;
 }
 
 /** head が main に遅れているか。先読みの aheadBy があればそれを使い、無ければ（head のブランチが無いなど）REST の compare で読む */
@@ -75,7 +106,7 @@ export async function collectFleetIssues(gh: GitHub, config: HarnessConfig, item
   const openPrs = (await gh.paginate<PullRequest>('/pulls?state=open')).filter((p) => isSameRepoPr(p, repository));
   const openPrLabels = areaLimitLabels(config, openPrs, repository);
   const prsOf = new Map<number, { number: number; state: string }[]>();
-  for (const i of items) prsOf.set(i.number, await closingPrs(gh, i.number, snap));
+  for (const i of items) prsOf.set(i.number, await closingPrs(gh, config, i.number, snap));
   // GitHub の紐付けが空の Issue だけ、開いた PR の本文の Closes #N で補う（紐付けの抜け）
   const linkGaps = new Map<number, number[]>();
   for (const i of items) {
