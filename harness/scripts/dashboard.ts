@@ -1,12 +1,12 @@
 /**
- * エージェントの状態をグラフで見る、手元のダッシュボード（GitHub には書かず、気づきは手元の受け箱に書く）。
+ * エージェントの状態をグラフで見る、手元のダッシュボード（GitHub に書くのは POST /decisions の決定の記録のコメントだけで、気づきは手元の受け箱に書く）。
  *
  *   npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-open]（node harness/scripts/dashboard.ts でも同じ）
  *
  * 127.0.0.1 で待ち受け、起動したら既定のブラウザで開く（--no-open で開かない。開けなければ表示した URL を開く）。GitHub は条件付きリクエストで --interval 秒ごとに確かめ、
  * 変わった Issue / PR だけ組み直して Server-Sent Events で差分を送る。手元のセッション記録（~/.claude/projects）も見張る。
  * API の上限の残りが --min-remaining の割合を切ったらリセットまで読まず、失敗の後は backoff + jitter で遅らせ、
- * ブラウザの接続が0の間は GitHub を読まない。気づきを送る欄（POST /notes。Host・Origin・起動ごとの合言葉で確かめる）は、手元の受け箱に書く。
+ * ブラウザの接続が0の間は GitHub を読まない。気づきを送る欄（POST /notes）は手元の受け箱に書き、人がすることへの答え（POST /decisions）は決定の記録のコメントを1件だけ投稿する。どちらも Host・Origin・起動ごとの合言葉で確かめる。
  * 詳しくは harness/scripts/dashboard/README.md。
  */
 import { spawnSync } from 'node:child_process';
@@ -22,6 +22,7 @@ import { gitCommonDir } from '../lib/local-state.ts';
 import { mainRepoRoot, worktreeRoot } from '../lib/worktree.ts';
 import { openBrowser, wantsOpen } from './dashboard/browser.ts';
 import { buildGraph, diffGraphs, type Graph, type GraphEvent } from './dashboard/graph.ts';
+import { CommentOnlyTransport, createDecisionSink, type DecisionSink } from './dashboard/decision.ts';
 import { DashboardData, ReadOnlyTransport, UpdateWatcher } from './dashboard/github.ts';
 import { Inbox, inboxDir } from './dashboard/inbox.ts';
 import { limitFetch, RateLimitedTransport, RateLimitState } from './dashboard/rate-limit.ts';
@@ -106,12 +107,15 @@ const sse = (type: string, data: unknown) => `event: ${type}\ndata: ${JSON.strin
  * 127.0.0.1 で待ち受ける。port 0 なら空いたポート。snapshot() は /events の接続時に送る全体、
  * status() はその後に送る見張りの状態（event: status）。onConnect は接続のたびに呼ぶ
  */
-export function startServer(opts: { port: number; html: string; snapshot: () => Graph; status?: () => unknown; onConnect?: () => void; notes?: NotesSink }): Promise<DashboardServer> {
+export function startServer(opts: { port: number; html: string; snapshot: () => Graph; status?: () => unknown; onConnect?: () => void; notes?: NotesSink; decisions?: DecisionSink }): Promise<DashboardServer> {
   const clients = new Set<ServerResponse>();
   let port = opts.port;
   const notes = opts.notes;
-  // 合言葉の置き場所（meta）は、受け箱があるときだけ埋める
-  const html = notes ? opts.html.replace('__DASHBOARD_TOKEN__', () => notes.token) : opts.html;
+  const decisions = opts.decisions;
+  if (notes && decisions && notes.token !== decisions.token) return Promise.reject(new Error('notes と decisions の合言葉が違います'));
+  // 合言葉の置き場所（meta）は、受け箱か決定の受け皿があるときだけ埋める
+  const pageToken = (notes ?? decisions)?.token;
+  const html = pageToken !== undefined ? opts.html.replace('__DASHBOARD_TOKEN__', () => pageToken) : opts.html;
   const broadcast = (type: string, data: unknown) => {
     const chunk = sse(type, data);
     for (const c of clients) c.write(chunk);
@@ -120,15 +124,37 @@ export function startServer(opts: { port: number; html: string; snapshot: () => 
   const refuse = (req: IncomingMessage, res: ServerResponse, status: number, text: string) => {
     res.writeHead(status, { ...PLAIN, connection: 'close' }).end(text, () => req.destroy());
   };
-  const postNote = async (sink: NotesSink, req: IncomingMessage, res: ServerResponse) => {
-    if (!isAllowedOrigin(req.headers.origin, port)) return refuse(req, res, 403, 'forbidden');
+  const deny = (req: IncomingMessage, res: ServerResponse, status: number, text: string): null => {
+    refuse(req, res, status, text);
+    return null;
+  };
+  /** 書く要求の確かめ（Origin → 合言葉 → content-type → サイズ）。断ったら refuse で返して null、通れば本文 */
+  const readGuardedBody = async (req: IncomingMessage, res: ServerResponse, token: string): Promise<string | null> => {
+    if (!isAllowedOrigin(req.headers.origin, port)) return deny(req, res, 403, 'forbidden');
     const given = req.headers['x-dashboard-token'];
-    if (!tokenMatches(typeof given === 'string' ? given : undefined, sink.token)) return refuse(req, res, 403, 'forbidden');
+    if (!tokenMatches(typeof given === 'string' ? given : undefined, token)) return deny(req, res, 403, 'forbidden');
     const type = (req.headers['content-type'] ?? '').split(';')[0]!.trim().toLowerCase();
-    if (type !== 'application/json') return refuse(req, res, 415, 'unsupported media type');
-    if (Number(req.headers['content-length'] ?? 0) > NOTES_BODY_LIMIT) return refuse(req, res, 413, 'payload too large');
+    if (type !== 'application/json') return deny(req, res, 415, 'unsupported media type');
+    if (Number(req.headers['content-length'] ?? 0) > NOTES_BODY_LIMIT) return deny(req, res, 413, 'payload too large');
     const body = await readLimitedBody(req);
-    if (body === null) return refuse(req, res, 413, 'payload too large');
+    if (body === null) return deny(req, res, 413, 'payload too large');
+    return body;
+  };
+  const postDecision = async (sink: DecisionSink, req: IncomingMessage, res: ServerResponse) => {
+    const body = await readGuardedBody(req, res, sink.token);
+    if (body === null) return;
+    let raw: unknown;
+    try {
+      raw = JSON.parse(body);
+    } catch {
+      return refuse(req, res, 400, 'bad request');
+    }
+    const r = await sink.submit(raw);
+    res.writeHead(r.status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' }).end(JSON.stringify(r.body));
+  };
+  const postNote = async (sink: NotesSink, req: IncomingMessage, res: ServerResponse) => {
+    const body = await readGuardedBody(req, res, sink.token);
+    if (body === null) return;
     let text: unknown;
     try {
       text = (JSON.parse(body) as { text?: unknown } | null)?.text;
@@ -158,6 +184,12 @@ export function startServer(opts: { port: number; html: string; snapshot: () => 
     }
     if (notes && req.method === 'POST' && path === '/notes') {
       postNote(notes, req, res).catch(() => {
+        if (!res.headersSent) refuse(req, res, 500, 'error');
+      });
+      return;
+    }
+    if (decisions && req.method === 'POST' && path === '/decisions') {
+      postDecision(decisions, req, res).catch(() => {
         if (!res.headersSent) refuse(req, res, 500, 'error');
       });
       return;
@@ -245,6 +277,8 @@ async function main(args: string[]): Promise<void> {
   const tok = token();
   const limits = new RateLimitState({ minRemaining });
   const gh = new GitHub(new ReadOnlyTransport(new RateLimitedTransport({ fetch: (url, init) => fetch(url, init), token: tok, state: limits })), repo);
+  const write = new GitHub(new CommentOnlyTransport(new RateLimitedTransport({ fetch: (url, init) => fetch(url, init), token: tok, state: limits }), repo), repo);
+  const decisions = createDecisionSink({ config, read: gh, write, token: notes.token });
   const data = new DashboardData(gh, config);
   const watcher = new UpdateWatcher({ fetch: limitFetch((url, init) => fetch(url, init), limits), token: tok, repository: repo });
 
@@ -258,6 +292,7 @@ async function main(args: string[]): Promise<void> {
     status: () => scheduler?.status() ?? { state: 'running' },
     onConnect: () => void scheduler?.wake(),
     notes,
+    decisions,
   });
   console.log(`ダッシュボード: ${server.url}（${repo}、${intervalMs / 1000} 秒ごとに確かめます。ブラウザで開いている間だけ読みます。止めるには Ctrl+C）`);
   if (wantsOpen(args)) openBrowser(server.url, { onFail: (m) => console.error(`ブラウザを開けませんでした（${m}）。${server.url} を開いてください`) });
