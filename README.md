@@ -35,6 +35,7 @@ flowchart LR
 | [harness/docs/glossary.md](harness/docs/glossary.md) | 用語集 |
 | [docs/migration.md](docs/migration.md) | 個人の public から組織の private への移行 |
 | [docs/plan.md](docs/plan.md) | 計画と決定ログ |
+| [docs/review-api.md](docs/review-api.md) | PR レビューの外部化（Claude API + Cloudflare）の調査結果・設計・手順 |
 
 ## `.github/`
 
