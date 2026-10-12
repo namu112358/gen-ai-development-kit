@@ -2,7 +2,7 @@
  * 規則として参照する docs を harness/docs/ に移して導入先に配ることの検査（Issue #641）。
  * managed に harness/docs/** があること、6文書が harness/docs/ にあり docs/ に無いこと、
  * リポジトリの中に旧パス（root からの形の docs/<名前>.md）への参照が残っていないこと、
- * Markdown の文書の相対リンクが実在するファイルを指すことを確かめる。
+ * Markdown の文書の相対リンクが実在するファイルを指すことを確かめる（名指しした、まだ無いディレクトリへのリンクを除く）。
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -88,6 +88,20 @@ function isLinkCheckTarget(p: string): boolean {
   );
 }
 
+/**
+ * まだ無いディレクトリへのリンクとして許すもの（文書のパスとリンクの組を名指しする）。
+ * docs/review-api.md（#874）は Epic #861 で足す予定の review-api/ を先に指す（PR #871 の人の答え）。
+ * 許すのはリンク先のディレクトリがまだ無いあいだだけで、ディレクトリができたらファイルの実在を確かめる。
+ */
+const PENDING_DIR_LINKS: ReadonlyArray<readonly [file: string, link: string]> = [
+  ['docs/review-api.md', '../review-api/README.md'],
+];
+
+function isPendingDirLink(file: string, link: string, abs: string): boolean {
+  if (!PENDING_DIR_LINKS.some(([f, l]) => f === file && l === link)) return false;
+  return !existsSync(dirname(abs));
+}
+
 test('Markdown の文書の相対リンクが、各ファイルのディレクトリから見て存在するファイルを指す', () => {
   const targets = lsFiles().filter(isLinkCheckTarget);
   assert.ok(targets.includes('harness/CLAUDE.harness.md'), '対象の選び方が壊れている');
@@ -97,7 +111,8 @@ test('Markdown の文書の相対リンクが、各ファイルのディレク�
     for (const m of text.matchAll(/\]\((\.{0,2}\/?[^)#\s]+)/g)) {
       const link = m[1] ?? '';
       if (/^https?:/.test(link)) continue;
-      if (!existsSync(resolve(join(root, dirname(file)), link))) broken.push(`${file}: ${link}`);
+      const abs = resolve(join(root, dirname(file)), link);
+      if (!existsSync(abs) && !isPendingDirLink(file, link, abs)) broken.push(`${file}: ${link}`);
     }
   }
   assert.deepEqual(broken, [], `存在しないファイルへのリンク:\n${broken.join('\n')}`);
