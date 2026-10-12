@@ -20,13 +20,13 @@ npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-o
 - **タスクの層（辺）**：依存（Issue Dependencies）、Epic → 子 Issue、Stacked PR（base が別の開いた PR の head。PR が入ったカードどうしをつなぐ）、タスク → セッション（着手宣言の `session`、または手元のセッションのブランチ）。凡例のチェックで辺の種類ごとに隠せる。
 - **カードのセッション**：「N セッション」の折りたたみ。閉じていても、動いているセッションかサブエージェントがあれば点滅する。開くとセッションごとの行とサブエージェント。
 - **進み**：画面の上の帯（「人がすること」の上）。開いている Epic ごとの「閉じた数／全体」（Epic の子課題 sub-issues の数。`harness/gates/epic-close.ts` と同じ数え方）、今日の Merge の数（手元の日付の 0 時以降。Merge した人が App（`harness.config.json` の `appSlug`）なら App、それ以外は人）、動いているセッションとサブエージェントの数（下の「手元のセッション」の点滅と同じ判断）。数は `graph.ts` の純粋関数 `buildProgress` が組む。Epic と Merge の数は、まだ読んでいない間は「読み込み中」。
-- **人がすること**：画面の一番上の一覧。Human Merge の PR、計画ゲートで止まった Issue、止まる印（hold・blocked・waiting）の Issue、`priority:*` の無い Issue（label-audit と同じく `agent:*` か `epic` の付いたものだけ）。自動 Merge 待ちは出さない。
+- **人がすること**：画面の一番上の一覧。Human Merge の PR、計画ゲートで止まった Issue、止まる印（hold・blocked・waiting）の Issue、`priority:*` の無い Issue（label-audit と同じく `agent:*` か `epic` の付いたものだけ）。自動 Merge 待ちは出さない。計画ゲートで止まった Issue の行には答える欄が出る（進める＋書き添え、質問ごとの選択肢のボタンと文の欄、答えられないときはその理由だけ）。
 - **気づきを送る欄**：「人がすること」の下。textarea に書いて「送る」と、手元の受け箱に1件入る（4000 文字まで。intel が拾う）。欄の横に、受け箱の未読の数（「intel の受け箱：未読 N 件」）が出る。
 - **手元のセッション**：`~/.claude/projects/` のうち、このリポジトリと worktree の置き場所（既定は `<親>/<名前>.worktrees/`。`harness.config.json` の `worktreeRoot` か環境変数 `AGENT_HARNESS_WORKTREE_ROOT` で変えたときはその場所。サーバーの起動時に1回決める）のセッション記録。最後に動いた時刻と、サブエージェント（plan-critic・reviewer など）の種類と最後に動いた時刻。90 秒以内に動いていれば点滅する。右の列には動いているセッションだけを出し、残りは「ほか N 件」に畳む。会話の中身は読まない・送らない。
 
 ## 人がすることの答え方
 
-`POST /decisions`（本文は JSON `{ issue, planCommentId, proceed?: { text? }, answers?: { to, choice?, text? }[] }`。`proceed` と `answers` はどちらか片方）で、止まった計画への人の決定の記録（`agent-decision`。書式は [docs/formats.md](../../docs/formats.md#決定の記録agent-decision)）を、人の名義の Issue のコメント1件として投稿する。画面は #856。
+`POST /decisions`（本文は JSON `{ issue, planCommentId, proceed?: { text? }, answers?: { to, choice?, text? }[] }`。`proceed` と `answers` はどちらか片方）で、止まった計画への人の決定の記録（`agent-decision`。書式は [docs/formats.md](../../docs/formats.md#決定の記録agent-decision)）を、人の名義の Issue のコメント1件として投稿する。画面は、「進める」「答える」を押すと確かめの表示（`confirm`）を出し、了承すると合言葉（`x-dashboard-token`）を付けて `POST /decisions` に送り、送る間はボタンを無効にする。成功なら投稿したコメントへのリンク（`https://github.com/` で始まる url だけ）、失敗なら番号と理由を出す。入力・選んだ選択肢・結果は Issue 番号と `planCommentId` ごとに持ち、描き直しで消えない（計画が出し直されると別の欄になる）。
 
 - 投稿の前に Issue とコメントを読み直し（`post-decision` と同じ条件）、状態が食い違えば 409（Issue が開いていない・`agent:plan-review` が無い・止まった計画ゲートの記録が無い・`planCommentId` の不一致・`acChangeProposed`・PR の番号・`answers` で Planner の申告の停止でない）、答えの形の誤り（答えの無い項目・存在しない項目・選択肢にない `choice`・重複・空の答え）は 400。GitHub の読み・書きの失敗は 502（投稿はやり直さない）。できたら 201 と `{ url }`。400・409・502 の本文は `{ errors: string[] }`。
 - `proceed` の `text` は前後の空白を除いて人の言葉のまま `quote` に残り、空なら `quote` は「進める」。`at` はサーバーの時刻、コメントの目印はセッションの ID の無い `CLAUDE_MARK`。
