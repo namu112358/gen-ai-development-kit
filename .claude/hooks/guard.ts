@@ -103,7 +103,7 @@ const ALLOW: Decision = { deny: false };
 
 const ROLE = 'これは人か App の役割です（CLAUDE.md の「やってはいけないこと」）。別の方法で試さず、人に返してください。';
 const pythonStubReason = (name: string): string =>
-  `hook が止めました：${name} は Windows の中身の無い入口（Microsoft\WindowsApps の下のスタブ）で、何もせずに終わります。ファイルの読み書き・加工は node（node -e …）か Edit・Write ツールを使ってください。`;
+  `hook が止めました：${name} は Windows の中身の無い入口（Microsoft\\WindowsApps の下のスタブ）で、何もせずに終わります。ファイルの読み書き・加工は node（node -e …）か Edit・Write ツールを使ってください。`;
 const rootFindMessage = (place: string): string =>
   `hook が止めました：ルート（${place}）から始める find は、ドライブ全体を辿って終わらず、Bash の時間切れの後も find だけが残って PC を重くします。探す場所を絞るか（例：find mods -name x）、Glob ツールを使ってください。mod の型定義（claude-code.d.ts）の場所は mods/agent-harness/README.md にあります。`;
 const role = (what: string): string => `hook が止めました：${what}。${ROLE}`;
