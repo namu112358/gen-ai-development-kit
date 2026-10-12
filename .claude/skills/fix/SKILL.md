@@ -10,7 +10,7 @@ Routine の fix（[.claude/routine.md](../../routine.md)）を、付き添いの
 ## 入力
 
 - PR 番号
-- 直す指摘：App の最新の変更要求レビュー（本文に `kind=fix-request`、作成者が App）のブロッキング指摘と、現在の head へのコラボレーターのレビュー（Claude・App 以外、Comment か Request changes）。`gh pr view <PR番号> --comments` と `gh api repos/{owner}/{repo}/pulls/<PR番号>/reviews` で読む
+- 直す指摘：App の最新の変更要求レビュー（本文に `kind=fix-request`、作成者が App）のブロッキング指摘と、現在の head へのコラボレーターのレビュー（Claude・App 以外、Comment か Request changes）。`node harness/scripts/agent.ts rest pr-view <PR番号>` の `comments`・`reviews` で読む（`reviews` の `commit.oid` で現在の head へのレビューを見分ける）
 - 計画の `files`（`node harness/scripts/agent.ts show-plan <Issue番号>`）
 
 ## 手順
