@@ -254,12 +254,12 @@ test('agent.ts：ensure-claim <番号> のコマンドがあり、使い方に�
   assert.match(usage, /^\s*\*\s+node harness\/scripts\/agent\.ts ensure-claim <番号>/m, '使い方のコメント');
 });
 
-test('implement の skill：gh pr create の前に ensure-claim <番号> で宣言を確かめる', () => {
+test('implement の skill：rest-create draft-pr（PR の作成）の前に ensure-claim <番号> で宣言を確かめる', () => {
   const skill = read('.claude/skills/implement/SKILL.md');
   const ensure = skill.indexOf('ensure-claim <番号>');
-  const create = skill.indexOf('gh pr create');
+  const create = skill.indexOf('rest-create draft-pr');
   assert.ok(ensure >= 0, 'ensure-claim の手順がありません');
-  assert.ok(create >= 0 && ensure < create, 'ensure-claim は gh pr create より前');
+  assert.ok(create >= 0 && ensure < create, 'ensure-claim は rest-create draft-pr より前');
 });
 
 test('routine.md：実装・修正・衝突の解消の worktree の呼び出しに --routine を付ける（--detach は除く）', () => {

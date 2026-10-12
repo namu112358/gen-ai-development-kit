@@ -16,7 +16,7 @@ const skillPath = (name: string): string => `.claude/skills/${name}/SKILL.md`;
 const HANDOFF = '## ハーネスが更新されたときの交代';
 const TRIAGE_WORDS = [
   '振り分け', 'node harness/scripts/agent.ts incident list', 'node harness/scripts/agent.ts incident render-issue',
-  'gh issue list --state open --search', '人が選んだものだけ', '自動で起票しない', 'Jev',
+  'node harness/scripts/agent.ts rest issue-search', '人が選んだものだけ', '自動で起票しない', 'Jev',
 ];
 
 /** 箇条（- か「数字.」で始まる行と、その下の続きの行）ごとに分ける */
