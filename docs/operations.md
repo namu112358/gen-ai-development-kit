@@ -55,6 +55,8 @@ ship は人の Merge 待ち（App が auto-merge を付けたか、`kind=human-r
 | `orca`（既定） | サブエージェントの中でさらにサブエージェントを呼べる環境（Orca）向け。Issue ごとに ship をサブエージェントとして並行に動かす（fleet > ship > plan-critic・test-designer・reviewer・risk-agent）。ship は段階ごとに新しいサブエージェントで呼び、段階の間は引き継ぎ（[formats.md](formats.md) の agent-handoff）と GitHub の事実で渡す。同時に動かす ship の数は `--max`、無ければ `fleet.maxParallelShips`（既定 3）。ship は人に聞かずに止まって fleet に返し、fleet がまとめて聞く。ship が入れ子にできない（Agent ツールが無い）と返したら、そのセッションは `flat` の進め方に切り替える |
 | `flat` | 1つのセッションで、ship の段階を Issue ごとに交互に進める |
 
+クラウドの付き添いのセッション（`CLAUDE_CODE_REMOTE` が `true`）ではサブエージェントの入れ子が1段までなので、`orca` のままでも ship が入れ子にできないと返し、fleet は交互の方式（`flat`）になる。hq とペインは無い。作り方は [setup.md](setup.md#12-クラウドの付き添いのセッション)。
+
 bypass と委任承認の状態（#718）：`fleet-status` の表の末尾の「進め方」の行の後に、bypass と委任承認の今の状態を2行で出す（`bypass：有効（@人）`・`bypass：無効（理由）`、`委任承認：計画＋Merge`・`計画のみ`・`無効（理由）`、読めないときは `読めない（理由）`）。`--json` は `merge` に入れる（`{ readable: true, bypass: { active, by, since, reason }, delegate: { mode, active, planActive, by, since, reason } }`。読めないときは `{ readable: false, error }`）。状態は gates の `bypassState` と `delegateState` で決める表示だけで、Merge の判定は変えない。1回の `fleet-status` で GitHub の API が増えるのは、ダッシュボードを探す `GET /issues?state=open&creator=<App>`（ふだん1回）と、ダッシュボードに bypass か委任のラベルが付いているときだけの `GET /issues/<ダッシュボード>/timeline`（ページの数だけ）。
 
 キーは Issue #243 の例の `agentNesting` ではなく、fleet だけが読む設定として `fleet.nesting` にまとめた。入れ子の ship も着手宣言は同じセッションの ID（`AGENT_HARNESS_SESSION`）で出すので、同じセッションの宣言どうしは実装中（`implement`）のものだけを重なりの相手にし、それ以外は並べた順の先の側を選ぶ。
