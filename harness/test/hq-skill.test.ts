@@ -54,12 +54,18 @@ const HQ_SPEC: SkillSpec = {
         '担当のいない PR', '止まった宣言', 'どの fleet にも入っていない', 'Epic に入っていない', 'sub-issues',
         'send', 'hq.maxFleets', '手順3のとおり','引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel',
         'hq.maxParallelShips', '人に聞かずに起こす', '空き待ち',
+        // 長く出力の無いタブと期限切れの着手宣言（#826）
+        'panes.ts idle', '--exclude', '長く出力の無いタブ', '8時間', '期限切れの着手宣言', '閉じない', 'intelHandle', '--include-visual-layouts',
       ],
     },
     // 手順12：人がすることの一覧（#402・#407・#425・#396）
     {
       step: 12,
-      words: ['panes.ts hq todo --once', '割り振ったもの', '人が決めなかったもの', '今の状況', 'heartbeat の一言', 'intel に回せなかった気づき'],
+      words: [
+        'panes.ts hq todo --once', '割り振ったもの', '人が決めなかったもの', '今の状況', 'heartbeat の一言', 'intel に回せなかった気づき',
+        // 長く出力の無いタブと期限切れの着手宣言（#826）
+        '長く出力の無いタブ', '期限切れの着手宣言', 'session の短い ID', '引き継がなかった宣言',
+      ],
     },
     // 相談・アイデアを intel に回す（#396）
     {
