@@ -20,6 +20,7 @@ import { transcriptSessionId } from '../../lib/session.ts';
 import { linkedIssues, type PullRequest, withStack } from '../../lib/state.ts';
 import { countCalls, estimateCost, findSessionTranscriptsWithNote, summarizeUsage, totalTokens } from '../../lib/usage.ts';
 import { parseVerdict } from '../../lib/verdict.ts';
+import { resolveRepository } from '../../lib/repository.ts';
 
 /**
  * harness/scripts/agent.ts のサブコマンドが共有する補助（設定・GitHub・着手宣言・書式の検査・一時ファイル）と、コマンドの型・読み込み。
@@ -29,11 +30,9 @@ import { parseVerdict } from '../../lib/verdict.ts';
 export const config = loadConfig();
 
 export function repository(): string {
-  if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY;
-  const url = spawnGit(['remote', 'get-url', 'origin']);
-  const m = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/) ?? url.match(/\/git\/([^/]+\/[^/.]+?)(?:\.git)?$/);
-  if (!m) throw new Error(`origin から owner/repo を判別できません: ${url}`);
-  return m[1]!;
+  const r = resolveRepository(process.env.GITHUB_REPOSITORY, () => spawnGit(['remote', 'get-url', 'origin']));
+  if (!r.ok) throw new Error(r.error);
+  return r.repository;
 }
 
 export function spawnGit(args: string[]): string {

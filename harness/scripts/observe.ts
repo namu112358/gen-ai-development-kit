@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { observe, parseObserveArgs, renderSummary, writeReportFile, type ObserveOptions, type ObserveReport } from '../lib/observe.ts';
+import { resolveRepository } from '../lib/repository.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -31,11 +32,9 @@ function git(args: string[]): string {
 }
 
 function repository(): string {
-  if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY;
-  const url = git(['remote', 'get-url', 'origin']).trim();
-  const m = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/) ?? url.match(/\/git\/([^/]+\/[^/.]+?)(?:\.git)?$/);
-  if (!m) throw new Error(`origin から owner/repo を判別できません: ${url}`);
-  return m[1]!;
+  const r = resolveRepository(process.env.GITHUB_REPOSITORY, () => git(['remote', 'get-url', 'origin']).trim());
+  if (!r.ok) throw new Error(r.error);
+  return r.repository;
 }
 
 function readText(path: string): string | null {
