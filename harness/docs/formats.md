@@ -298,7 +298,7 @@ fleet の入れ子の方式で、ship が段階の終わりに fleet へ返す�
 
 ## 決定の記録（agent-decision）
 
-Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付き添いのセッションが記録する（`node harness/scripts/agent.ts post-decision <番号> <ファイル>`）。人のいない Routine は書かない（[.claude/routine.md](../../.claude/routine.md)）。
+Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付き添いのセッションが記録する（`node harness/scripts/agent.ts post-decision <番号> <ファイル>`）。人のいない Routine は書かない（[.claude/routine.md](../../.claude/routine.md)）。手元のダッシュボード（`POST /decisions`。`harness/scripts/dashboard/decision.ts`）からも同じ形で人の名義で投稿でき、そのときの目印はセッションの ID の無い `CLAUDE_MARK`、`at` はダッシュボードのサーバーの時刻。
 
 ````markdown
 <!-- agent-harness:claude -->
