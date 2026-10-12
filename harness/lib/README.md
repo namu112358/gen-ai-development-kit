@@ -5,6 +5,7 @@
 <!-- readme:generated start -->
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
+| `accepted-ac-change.ts` | 人が受け入れた AC の変更の提案を、judge が照らす AC にするかの判断（Issue #869）。 | ○ |
 | `api-count.ts` | GitHub API の呼び出しの回数を、メソッドとパスの形（番号などを伏せたもの）ごとに数える（#247）。 | ○ |
 | `arch-review.ts` | arch-review（Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを直す Issue の下書きを人に示す skill）の決まる部分。 | ○ |
 | `assignee.ts` | 担当（Issue の Assignee）の確かめ（Issue #172）。 | ○ |

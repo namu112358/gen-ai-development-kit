@@ -9,7 +9,7 @@ model: sonnet
 
 ## 入力
 
-呼び出し元が指示に含めて渡すもの：judge-input のファイルの中身（Issue 本文〔Goal・Requirements・Non-goals・AC〕、計画ゲートの記録の計画〔`plan.files`〕、PR 本文）。PR の base（judge-input のスタックの節の base。節が無ければ `main`）。
+呼び出し元が指示に含めて渡すもの：judge-input のファイルの中身（Issue 本文〔Goal・Requirements・Non-goals・AC〕、計画ゲートの記録の計画〔`plan.files`〕、「受け入れた AC の変更」の節〔人が受け入れた提案があるときだけ〕、PR 本文）。PR の base（judge-input のスタックの節の base。節が無ければ `main`）。
 
 出力のパス（呼び出し元が渡す。リポジトリの外の一時ディレクトリ）：返す JSON を書く先。
 
@@ -36,7 +36,7 @@ diff で足された・変えられた部分だけを、Issue の Goal・AC と�
 
 ## 手順
 
-1. Issue の Goal・AC・Non-goals と計画を読み、この PR が何を作るべきかを決める。
+1. Issue の Goal・AC・Non-goals と計画を読み、この PR が何を作るべきかを決める。「受け入れた AC の変更」の節があれば、変えられた AC はその節で照らす（受け入れた AC が求める実装を、本文の古い AC と比べて過剰としない）。
 2. diff を読み、上の3つに当たるものを探す。使われていないかは Grep で参照元を調べて確かめる。
 3. 重いものから5件までにする。計画の方針ごと過剰（計画を直すべき）なものは `planLevel: true` にする。
 4. 次の JSON だけを出力する（前後に説明文を付けない）。指摘が無ければ `findings` は空にする。

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { claudeMark, extractBlock, hasClaudeMark, renderBlock } from './blocks.ts';
+import type { AcceptedAcChange } from './accepted-ac-change.ts';
 import { CHECKS, type HarnessConfig } from './config.ts';
 import type { IssueComment } from './github.ts';
 import { parseIssueBody } from './issue-form.ts';
@@ -117,7 +118,7 @@ export interface JudgeFacts {
   /** baseRef は PR の base（無ければ既定ブランチとみなす。再レビューの補足の diff の取り方に使う） */
   pr: { number: number; headSha: string; body: string | null; baseRef?: string };
   /** PR が紐付く Issue（スタックの層は本文の `Refs`／`Closes`）。comments は Issue のコメント（App の計画ゲートの記録を含む）。epic は Epic の子課題なら親 */
-  issues: { number: number; title: string; body: string | null; comments: IssueComment[]; epic?: ParentEpic }[];
+  issues: { number: number; title: string; body: string | null; comments: IssueComment[]; epic?: ParentEpic; acceptedAcChange?: AcceptedAcChange | null }[];
   prComments: IssueComment[];
   /** head の check run */
   checkRuns: CheckRun[];
@@ -361,6 +362,24 @@ export function judgedHeadOf(text: string): string | null {
   return text.match(/^headSha: ([0-9a-f]{40})$/m)?.[1] ?? null;
 }
 
+/** 人が受け入れた AC の変更の節（根拠の行と提案の本文）。節の中に `=== ` で始まる行を書かない（節の終わりの目印のため） */
+function renderAcceptedAcChange(a: AcceptedAcChange): string[] {
+  const d = a.decision.accepted;
+  const safe = (s: string): string => s.split('\n').map((l) => (l.startsWith('=== ') ? ` ${l}` : l)).join('\n');
+  return [
+    '',
+    `=== 受け入れた AC の変更 (#${a.issue})`,
+    `人が受け入れた AC の変更の提案。Issue 本文の AC のうち提案が名指しで変えた項目は、この節の AC で照らす（根拠は決定の記録とラベルの外しの両方）。`,
+    `- 決定の記録: ${a.decision.url}`,
+    `- 人の言葉: ${safe(d.quote)}${d.choice ? `（選んだ項目: ${safe(d.choice)}）` : ''}`,
+    `- agent:plan-review を外した人: ${a.unlabeled.login} (${a.unlabeled.at})`,
+    `- 計画ゲートの記録: ${a.gateRecordUrl}`,
+    `- 計画コメント: ${a.planCommentUrl}`,
+    '',
+    safe(a.proposal),
+  ];
+}
+
 export function renderJudgeInput(config: HarnessConfig, facts: JudgeFacts): string {
   const out = [`headSha: ${facts.pr.headSha}`, `PR #${facts.pr.number} issues=${facts.issues.map((i) => `#${i.number}`).join(',') || '(なし)'}`];
   for (const issue of facts.issues) {
@@ -371,6 +390,7 @@ export function renderJudgeInput(config: HarnessConfig, facts: JudgeFacts): stri
     const { pass, reasons, plan } = (gate?.value ?? {}) as { pass?: boolean; reasons?: string[]; plan?: unknown };
     out.push('', `=== 計画ゲートの記録の計画 (#${issue.number})`);
     out.push(gate ? JSON.stringify({ pass, reasons, plan: plan ?? null }, null, 2) : '(計画ゲートの記録がありません)');
+    if (issue.acceptedAcChange) out.push(...renderAcceptedAcChange(issue.acceptedAcChange));
   }
   out.push('', '=== PR 本文', (facts.pr.body ?? '').trim());
   const prComments = prCommentsForJudge(config, facts.prComments);
