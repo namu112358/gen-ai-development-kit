@@ -46,7 +46,7 @@ GitHub（PR の作成・push・Draft 化）
   ▼
 Cloudflare Worker  review-api/src/worker.ts
   ├ 署名の検証（HMAC-SHA256、定数時間比較）
-  ├ 対象の判定（action・Bot・リポジトリの allowlist・installation id）
+  ├ 対象の判定（action・Bot・リポジトリの allowlist・installation id・ブランチの接頭辞・Closes の有無）
   ├ 重複の排除（Workflow の instance id = rv-<owner>-<repo>-<PR>-<sha>。同じ id は作れない）
   └ Workflow を起こして 202 を返す（数 ms。Claude を待たない）
           │
@@ -80,6 +80,8 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `src/worker.ts` | Webhook の受付。署名の検証 → 対象の判定 → Workflow の起動 | Workers |
 | `src/workflow.ts` | 上の段階1〜7。各段階は `step.do` で再試行・永続化 | Workflows |
 | `src/webhook.ts` | 署名の検証（WebCrypto）と、イベントから「レビューするか」を決める純粋な関数 | 共通（Node でテスト） |
+| `src/config.ts` | `review.config.json` の型と、検査して読む `loadReviewConfig` | 共通 |
+| `src/untrusted.ts` | 信頼できない入力を `<untrusted_…>` で囲む `wrapUntrusted` | 共通 |
 | `src/github-app.ts` | App の JWT（RS256。PKCS#1 の鍵は PKCS#8 に包む）と installation token（`permissions` で絞る） | 共通 |
 | `src/github.ts` | REST の薄いクライアント（PR・Issue・コメント・compare の diff・contents・tree）。`fetch` を注入 | 共通 |
 | `src/collect.ts` | レビューの材料（Issue の本文、plan-gate の計画、diff、変更ファイル、前回の記録）を集める | 共通 |
@@ -92,6 +94,11 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `src/redact.ts` | ログ・コメントから鍵と token を伏せる | 共通 |
 | `review.config.json` | モデル・effort・レビューの条件・上限・単価 | 設定 |
 | `wrangler.jsonc` | Worker・Workflow・KV の束ね方 | 設定 |
+| `package.json` | 依存（`@anthropic-ai/sdk`・`@cloudflare/workers-types` など）と `npm run check` | 設定 |
+| `package-lock.json` | 依存の版の固定 | 設定 |
+| `tsconfig.json` | review-api の型検査の設定 | 設定 |
+| `.dev.vars.example` | `wrangler dev` 用の環境変数の例（実際の値は `.dev.vars` に書き、git に入れない） | 設定 |
+| `.gitignore` | `node_modules`・`.dev.vars` などを git に入れない | 設定 |
 | `scripts/send-webhook.ts` | 手元の `wrangler dev` に署名つきの Webhook を送る | Node |
 
 テストは `harness/test/review-api-*.test.ts`（`node:test`。外部 API は呼ばず、`fetch` と Claude のクライアントを偽物にする）。根の CI は根の `npm ci` → `npm run check` だけを行い、根の `tsconfig.json`（include は `harness/**`）が `harness/test` の import を辿って `review-api/src` も型検査する。そのため `review-api/src` のうち `cloudflare:workers`・`@anthropic-ai/sdk` を読み込むのは `worker.ts` と `workflow.ts` だけ（テストは import しない）で、ほかは Node 24 でそのまま動く。`review-api/package.json` は `"type": "module"`（根の tsconfig は `module: nodenext` なので、辿られたファイルを ESM として扱わせる）。Worker・Workflow の型検査は `review-api/tsconfig.json`（`src/**`・`scripts/**`、`@cloudflare/workers-types`）で別に行う。
@@ -108,7 +115,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 
 | 項目 | 実装 |
 | --- | --- |
-| Webhook の署名 | `X-Hub-Signature-256` を HMAC-SHA256（WebCrypto）で検証し、`timingSafeEqual` で比べる。署名が無い・違えば 401。本文は読むだけで保存しない |
+| Webhook の署名 | `X-Hub-Signature-256` を HMAC-SHA256（WebCrypto）で検証し、バイト列の XOR による定数時間の比較（`constantTimeEqual`）で比べる。署名が無い・違えば 401。本文は読むだけで保存しない |
 | 対象の制限 | `ALLOWED_REPOS`（`owner/repo` の一覧）と `GITHUB_INSTALLATION_ID` に当たるイベントだけ。外から任意のリポジトリを指定しても Claude は呼ばれない |
 | App の token | JWT（`iat` −60 秒、`exp` 10 分、`iss` は Client ID）→ installation token（1 時間）。読み取り用は `contents: read`・`pull_requests: read`・`issues: read`・`metadata: read`、書き込み用は `pull_requests: write` だけに絞る。token は段階の中で作り、段階の結果・ログ・コメントに出さない |
 | 最小権限 | レビュー専用 App の権限：Contents read、Issues read、Pull requests write（PR へのコメントに要る）、Metadata read。Checks・Workflows・Administration は無し。インストール先はこのリポジトリだけ |
