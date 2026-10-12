@@ -230,7 +230,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 ### 読み込みの記録
 
-付き添いのセッションが始めたときに読み込んだハーネスのファイル（`CLAUDE.md`・`harness/CLAUDE.harness.md`・`.claude/agents/`・`.claude/skills/`・`.claude/settings.json`）の版を、SessionStart の hook（`.claude/hooks/session-env.ts`）が git の共通ディレクトリの下の `agent-harness/loaded/<セッションの ID>.json`（名前の読み替えは段階のファイルと同じ）に書く（`harness/lib/harness-drift.ts`。#199）。`CLAUDE_PROJECT_DIR` があるときだけ書き、同じ ID の記録が既にあれば書かない（resume・compact で上書きしない）。
+付き添いのセッションが始めたときに読み込んだハーネスのファイル（`CLAUDE.md`・`harness/CLAUDE.harness.md`・`.claude/agents/`・`.claude/skills/`・`.claude/settings.json`）の版を、SessionStart の hook（`.claude/hooks/session-env.ts`）が git の共通ディレクトリの下の `agent-harness/loaded/<セッションの ID>.json`（名前の読み替えは段階のファイルと同じ）に書く（`harness/lib/harness-drift.ts`。#199）。`CLAUDE_PROJECT_DIR` があるときだけ書き、同じ ID の記録が既にあれば書かない（resume・compact で上書きしない）。版と `head` は SessionStart の入力の `cwd` の作業ツリーの一番上から読む（`cwd` が無い・git の外・git の共通ディレクトリが `CLAUDE_PROJECT_DIR` と違うときは `CLAUDE_PROJECT_DIR` から。desktop アプリの worktree のセッションでは `CLAUDE_PROJECT_DIR` が本体の checkout を指すため。#843）。
 
 ```json
 { "version": 1, "session": "3f2a9c1e-…", "at": "2026-09-30T12:00:00.000Z", "source": "startup", "head": "8339a47…",
