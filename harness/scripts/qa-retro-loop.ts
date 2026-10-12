@@ -26,6 +26,7 @@ import { GitHub, transportFromEnv } from '../lib/github.ts';
 import { exitWithErrors as fail, loadLoopState, loopStatePath, parseLoopArgs, readJsonFile, saveLoopState, type LoopResult } from '../lib/local-state-loop.ts';
 import { collectQaRetro } from '../lib/qa-retro.ts';
 import { adoptDraft, advanceLoopState, loopPeriod, parseLoopState, pendingDrafts, QA_RETRO_LOOP_LAG_DAYS, type LoopState } from '../lib/qa-retro-loop.ts';
+import { resolveRepository } from '../lib/repository.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -36,11 +37,9 @@ function git(args: string[]): string {
 }
 
 function repository(): string {
-  if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY;
-  const url = git(['remote', 'get-url', 'origin']).trim();
-  const m = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/) ?? url.match(/\/git\/([^/]+\/[^/.]+?)(?:\.git)?$/);
-  if (!m) fail([`origin から owner/repo を判別できません: ${url}`]);
-  return m[1]!;
+  const r = resolveRepository(process.env.GITHUB_REPOSITORY, () => git(['remote', 'get-url', 'origin']).trim());
+  if (!r.ok) fail([r.error]);
+  return r.repository;
 }
 
 /** 誤りならそこで終える */

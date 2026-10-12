@@ -15,6 +15,7 @@ import { sessionFromEnv, transcriptSessionId } from '../lib/session.ts';
 import type { PullRequest } from '../lib/state.ts';
 import { findSessionTranscripts } from '../lib/usage.ts';
 import { addWorktree, projectCommand, removeWorktree, worktreeOptions } from '../lib/worktree.ts';
+import { resolveRepository } from '../lib/repository.ts';
 
 /**
  * 合体版のレビュー（.claude/skills/review-panel/SKILL.md）の CLI。判断は harness/lib/review-panel.ts の純粋関数で行い、ここは git・npm・API を呼ぶだけ。
@@ -62,11 +63,9 @@ function headError(judgedHead: string, current: PullRequest): string | null {
 }
 
 function repository(): string {
-  if (process.env.GITHUB_REPOSITORY) return process.env.GITHUB_REPOSITORY;
-  const url = git(['remote', 'get-url', 'origin']).stdout.trim();
-  const m = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/) ?? url.match(/\/git\/([^/]+\/[^/.]+?)(?:\.git)?$/);
-  if (!m) throw new Error(`origin から owner/repo を判別できません: ${url}`);
-  return m[1]!;
+  const r = resolveRepository(process.env.GITHUB_REPOSITORY, () => git(['remote', 'get-url', 'origin']).stdout.trim());
+  if (!r.ok) throw new Error(r.error);
+  return r.repository;
 }
 
 function readJson(file: string): unknown {
