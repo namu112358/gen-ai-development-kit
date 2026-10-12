@@ -18,7 +18,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
 ## 手順
 
 1. 状態を読み、次の段階を決める。PR があれば手順4から、計画ゲートを通った計画があれば手順3から始める。Merge 済みの PR があれば、下の「Merge 済みで呼び直されたとき」だけを行う。
-   - Merge 済みで呼び直されたとき（Epic #281 の決定。ship は Issue と PR の Close に責任を持つ）：手順7の `worktree-remove` で worktree を片付け（消すのは Merge 済みの PR の head のブランチの worktree だけ。既に無ければ消さない。消す前に `git -C <worktree> status --porcelain` と未 push の commit（`git -C <worktree> log @{u}..`）を確かめ、upstream が無いとき（`git -C <worktree> rev-parse --abbrev-ref @{u}` が失敗する。GitHub が Merge の後にブランチを自動で消した）は、Merge 済みの PR の head（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `headRefOid`）と比べ（`git -C <worktree> log <headRefOid>..HEAD`）、commit が出れば消さずに人に返す。headRefOid が手元に無い（`git -C <worktree> cat-file -e <headRefOid>` が失敗する）ときも消さずに人に返す。`@{u}` が解決するときは今のまま `@{u}` で比べる。残っていれば消さずに人に返す。`worktree-remove` は未 commit の変更があっても消すため）、Issue が Close されたか（`node harness/scripts/agent.ts rest issue-view <番号>` の `state`）を見届ける。Validation Requirements のうちセッションで確かめられるもの（main で検証コマンド（`project.checkCommand`。既定 `npm run check`）を流すなど、コマンドを流すだけのもの）は ship が行って結果を返し、人にしかできないものだけを人がすることの項目にする。何度呼ばれても同じ結果になるようにする。コードは変えず、着手宣言もしない。
+   - Merge 済みで呼び直されたとき（ship は Issue と PR の Close に責任を持つ）：手順7の `worktree-remove` で worktree を片付け（消すのは Merge 済みの PR の head のブランチの worktree だけ。既に無ければ消さない。消す前に `git -C <worktree> status --porcelain` と未 push の commit（`git -C <worktree> log @{u}..`）を確かめ、upstream が無いとき（`git -C <worktree> rev-parse --abbrev-ref @{u}` が失敗する。GitHub が Merge の後にブランチを自動で消した）は、Merge 済みの PR の head（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `headRefOid`）と比べ（`git -C <worktree> log <headRefOid>..HEAD`）、commit が出れば消さずに人に返す。headRefOid が手元に無い（`git -C <worktree> cat-file -e <headRefOid>` が失敗する）ときも消さずに人に返す。`@{u}` が解決するときは今のまま `@{u}` で比べる。残っていれば消さずに人に返す。`worktree-remove` は未 commit の変更があっても消すため）、Issue が Close されたか（`node harness/scripts/agent.ts rest issue-view <番号>` の `state`）を見届ける。Validation Requirements のうちセッションで確かめられるもの（main で検証コマンド（`project.checkCommand`。既定 `npm run check`）を流すなど、コマンドを流すだけのもの）は ship が行って結果を返し、人にしかできないものだけを人がすることの項目にする。何度呼ばれても同じ結果になるようにする。コードは変えず、着手宣言もしない。
    - ハーネスが更新されたとき：各段階の `claim` の前に、`node harness/scripts/agent.ts harness-drift`（か `claim` の標準エラーの一言）で、このセッションの読み込みが古いかを見る。古ければ進めている段階を終えてから `release <番号>` し、fleet の節「ハーネスが更新されたときの交代」と同じ手順で交代する（渡す1行は `/fleet <自分の Issue 番号>`。Epic の子課題なら `/fleet --epic <Epic番号> <自分の Issue 番号>`）。judge は古いセッションで始めない（`claim --stage judge` も止まる）。
    - 着手宣言：Issue に手を付ける最初に、その段階の skill の手順どおり `claim <番号> --manual --stage <段階>` で宣言する（計画・批評の前も）。宣言にはこのセッションの ID が入り、ほかのセッションとダッシュボードに段階が見える。ほかのセッションの宣言があれば `claim` は止まるので、引き継ぐかを AskUserQuestion で人に聞く（引き継ぐのは人が決めたときだけ `--takeover`）。
    - 最初の宣言が持ち主。`claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue は進めず、作業を始めずに、手順10の一覧に「#番号 は session …（エラーに出た短い ID）が着手中」と書いて終える。引き継ぐかは人が決める（この場では聞かない）。
@@ -100,7 +100,7 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 
 ## 実装のモデル（fleet から起こされた ship）
 
-fleet から起こされた ship（節「サブエージェントの ship として動くとき」の入れ子のサブエージェントと、fleet が Orca の worker として起こした ship（fleet の `--spec` に、前置きの `ask` で fleet に聞き `worker_done` を送る指示がある））は、コードを書く部分だけを、`node harness/scripts/agent.ts show-plan <番号>` の出力の `modelRouting.use` のモデルのサブエージェントに任せる（Epic #446、Issue #139）。`use` は、`jev.modelRouting` が `enforce` で、計画ゲートを通った計画に Jev の勧めがあれば勧め、それ以外（`shadow`・`off`・勧めの記録なし）は `implementModel`（`harness.config.json` の `fleet.implementModel`。既定 `sonnet`、`opus` に戻せる）。implement だけでなく fix・sync の段階も同じ `show-plan` の結果を使う。
+fleet から起こされた ship（節「サブエージェントの ship として動くとき」の入れ子のサブエージェントと、fleet が Orca の worker として起こした ship（fleet の `--spec` に、前置きの `ask` で fleet に聞き `worker_done` を送る指示がある））は、コードを書く部分だけを、`node harness/scripts/agent.ts show-plan <番号>` の出力の `modelRouting.use` のモデルのサブエージェントに任せる。`use` は、`jev.modelRouting` が `enforce` で、計画ゲートを通った計画に Jev の勧めがあれば勧め、それ以外（`shadow`・`off`・勧めの記録なし）は `implementModel`（`harness.config.json` の `fleet.implementModel`。既定 `sonnet`、`opus` に戻せる）。implement だけでなく fix・sync の段階も同じ `show-plan` の結果を使う。
 
 - 見分け方：`fleet.shipMode` の値だけでは決めない。人が直接呼んだ ship は、`shipMode` が `worker` でも単独の ship として扱う。
 - `show-plan` が止まる計画（`agent:plan-review` から人か、Risk だけの計画ならセッションの判定で進めると決めた計画）は、`node harness/scripts/panes.ts config` の `implementModel`（`fleet.implementModel`）を使う。
@@ -110,7 +110,7 @@ fleet から起こされた ship（節「サブエージェントの ship とし
 - 指示に次の文を入れる：「計画に無い設計の判断（新しいファイル・公開の形の変更・計画の `files` の外の変更）が要るなら、書かずに止まり、理由を返す。AskUserQuestion は使わない。commit・push はしない」。
 - 任せたときは、implement の手順4の「範囲外の変更が要るなら AskUserQuestion で人に聞く」の代わりに、この節の「止まって返す」に従う。
 - サブエージェントが止まって理由を返したら、ship は自分で書き足さずに `node harness/scripts/agent.ts claim <番号> --manual --stage plan` で段階を `plan` に戻し、理由を踏まえて plan の skill で計画を出し直す（計画ゲートを通し直す）。
-- commit・push・PR・判定は ship が行う（implement の手順6から、fix・sync の push からは今のまま）。
+- commit・push・PR・判定は ship が行う（implement は手順6から、fix・sync は push から、各 skill の手順どおり）。
 - 変えないもの：plan・plan-critic・judge の担当（reviewer・risk-agent・合体版のレビューの担当）・test-designer・fleet・hq のモデル。
 - 人が付き添う単独の ship（fleet の交互の方式を含む）はモデルを切り替えず、本体のセッションが自分で書く。
 - PR 本文（implement の手順10）に `実装のモデル: <model>` の1行を書く（任せたなら使ったモデル、単独の ship なら本体のモデル）。
