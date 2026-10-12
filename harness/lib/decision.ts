@@ -1,4 +1,6 @@
 import type { HarnessConfig } from './config.ts';
+import { delegatePlanExclude } from './delegate.ts';
+import { guardrailPatterns, type GuardrailConfig } from './guardrail.ts';
 import { plannerRequestsHuman, recordedOrigin, type Plan } from './plan.ts';
 import type { PlanGateRecord, TimelineEvent } from './state.ts';
 import { Checker } from './validate.ts';
@@ -229,13 +231,15 @@ export interface SplitReleaseInput {
   gates: { planCreatedAt: string | null; gateCreatedAt: string; value: PlanGateRecord & { plan?: Plan } }[];
   /** Issue のイベント（古い順） */
   events: TimelineEvent[];
+  /** 子課題の files の照合に使う設定（ガードレールと delegateMergeExclude） */
+  config: GuardrailConfig & Pick<HarnessConfig, 'delegateMergeExclude'>;
 }
 
 /**
  * split の計画で、Planner の申告で付いた agent:plan-review を App が外してよいか（Issue #659）。理由（外さない理由）が空なら release: true。
  * 計画自身に Planner の申告が無い・最新の記録が Planner の申告による停止・印が計画の投稿か App の停止の窓で付いた・
  * 印を付けた計画に申告があり、その計画と最新の計画に acChangeProposed が無いときだけ外す。窓の外で付いた印（人が付けた印）は外さない。
- * ガードレール・委任・auto mode の判定はここでは見ない（呼び出し元が委任・auto mode の前のゲートで見る）。
+ * 計画自身の files のガードレールの判定は呼び出し元が委任・auto mode の前のゲートで見る。子課題の files は、ガードレール・delegateMergeExclude・harness.config.json に触れれば外さない（Issue #779）。
  */
 export function splitPlannerRelease(input: SplitReleaseInput): { release: boolean; reasons: string[] } {
   const reasons: string[] = [];
@@ -258,6 +262,13 @@ export function splitPlannerRelease(input: SplitReleaseInput): { release: boolea
     else if (!(hit.value.plan.needsHuman || hit.value.plan.openQuestions.length > 0)) reasons.push('印を付けた計画に Planner の申告（needsHuman・openQuestions）がありません');
     else if (hit.value.plan.acChangeProposed) reasons.push('印を付けた計画に要件・AC の変更提案があります');
   }
+  (plan.split ?? []).forEach((child, i) => {
+    const label = `子課題 ${i + 1}「${child.title}」の files が`;
+    const guard = guardrailPatterns(input.config, child.files);
+    if (guard.length > 0) reasons.push(`${label}ガードレールに触れます: ${guard.join(', ')}`);
+    const noDelegate = delegatePlanExclude(input.config, child.files);
+    if (noDelegate.length > 0) reasons.push(`${label}delegateMergeExclude か harness.config.json に触れます（一覧が無い設定ではすべて当たる）: ${noDelegate.join(', ')}`);
+  });
   return { release: reasons.length === 0, reasons };
 }
 
