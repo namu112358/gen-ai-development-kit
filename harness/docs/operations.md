@@ -116,6 +116,8 @@ Merge 済みの変更をまとめて見直すときは arch-review の skill（[
 
 いま動いているエージェントの様子は、手元のダッシュボード（[harness/scripts/dashboard/README.md](../scripts/dashboard/README.md)）で見られる。`npm run dashboard` で起動すると既定のブラウザで開き（`--no-open` で開かない）、どの Issue / PR がどの段階にいるか（着手宣言の段階を優先し、無ければ fleet-status と同じ判断）、依存・Epic・Closes・Stacked PR・担当のセッションの関係、手元のセッションで動いているサブエージェントが1画面に出る。GitHub に書くのは、人がすることへの答え（`POST /decisions` の決定の記録のコメント。[formats.md](formats.md#決定の記録agent-decision)）だけ（画面の「気づきを送る」欄から送った文は、手元の受け箱に書き、intel が拾う）。
 
+intel は、人に頼まれたときと決まった時刻（既定 08:30・17:30、手元の時刻）に、`node harness/scripts/dashboard/digest.ts show` のまとめ（前回からの Merge（App と人）・閉じた Issue と Epic・人の判断待ち・人の Merge 待ち・止まっていそうな着手宣言・人がすること3つまで）を出す。時刻は intel が `run_in_background` で置く見張り（`harness/scripts/intel-watch.ts`）が知らせ、intel が止まっていた間に過ぎた時刻は、置いた時にすぐ出す。すぐ知らせるのは、人の Merge 待ち（Human Merge）の PR と計画ゲートで止まった Issue が新しく出たときだけで、intel のタブに書く（OS の通知は出さない。hq が動いているときは hq が伝え、mods/agent-harness の通知が出るので intel は書かない）。GitHub には書かず、Routine も使わない。控えは git の共通ディレクトリの下の `agent-harness/digest/`（見張りは置き直すたびに最初に開いた Issue・PR を全部読み直す）。手順は intel の skill の手順9（[intel](../../.claude/skills/intel/SKILL.md)）。
+
 毎時の Routine（[.claude/routine.md](../../.claude/routine.md)）が queue に従って同じ段階を進めるのは将来の構想。この文書の「Routine」は、付き添いのセッションで同じ段階を行うときはそのセッションに読み替える。
 
 ## ラベル
