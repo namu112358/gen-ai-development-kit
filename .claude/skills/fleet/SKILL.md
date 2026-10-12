@@ -222,6 +222,7 @@ Orca のコマンドは、orchestration の skill（[.claude/skills/orchestratio
 9. **範囲の外の気づき**（#396）：ship・fleet が進める中で見つけた、今の Issue の範囲の外の気づき（仕組みの問題・改善案・Issue の種。今すぐの判断が要らないもの）は、hq を通さずに `SendMessage` の `to: intel` で intel（[intel](../intel/SKILL.md)。本体のタブで待つ）に送る。本文は出どころ（テーマ・Issue 番号）・要点・根拠。返事は待たない。
    - 人の判断が要るもの（今の進め方を決めるもの）は、今までどおり 5 の `ask` で hq に上げる（hq に聞けない障害なら `escalation`）。1つの気づきに両方が混ざるときは分け、判断の要る部分は hq に上げ、残りを intel に送る。迷ったら intel ではなく hq に上げる側にする（判断の要るものを intel に流して止めないため。hq の skill の「相談・アイデアを intel に回す」と同じ考え方）。
    - intel がいない（`ListAgents` に無い・`SendMessage` が失敗した）ときは送らずに、手順9の一覧（`worker_done` のレポート）に「intel に回せなかった気づき」として書く。
+10. **縮められた後**：hq から `/compact` で縮められた後は、`node harness/scripts/hq-state.ts ledger` の自分の Dispatch の要素の `issues` と `fleet-status <その集合>` を読み直し、前置きの ID はそのまま使って続ける（#737）。
 
 ## ハーネスが更新されたときの交代
 

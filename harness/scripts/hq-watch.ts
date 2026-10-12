@@ -7,10 +7,14 @@
  * - heartbeat 以外の行が入った束（question・escalation・worker_done・status）か、結びつかない一言のある束は、ack せずに標準出力へ
  *   `{"wake":"messages",...}` を書いて終わる（hq が処理して ack する）。区切りまで何も来なければ `{"wake":"timeout"}`。
  * - Orca が失敗したら標準エラーに1行書いて終了コード 1。
+ * - 区切り（timeout）で戻る前に、hq.compactMinutes 以上経って hq の端末がターンを終えていれば、hq 自身に /compact を送り、縮め終わるのを待つ
+ *   （出力に `"compacted":true`。失敗しても見張りは止めない。Issue #737。hq-compact.ts）。
  * - 区切りは起動からの全体の締め切り。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
 import { spawnSync } from 'node:child_process';
 import { orcaCliCommand } from '../lib/worktree.ts';
+import { hqCompactConfig, maybeCompactHq, realHqDeps } from './hq-compact.ts';
+import { loadConfig } from '../lib/config.ts';
 import { gitCommonDir, heartbeatPath, readHeartbeatAt, readLedgerFile, recordHeartbeat, writeJson, type HqLedger } from './hq-state.ts';
 
 export const WATCH_TYPES = 'worker_done,escalation,question,status,heartbeat';
@@ -22,7 +26,7 @@ export interface WorkerRow { dispatchId: string; agentTerminalHandle: string | n
 export interface WatchOpts { ack: string | null; timeoutMs: number; terminal: string | null }
 export type WatchOutcome =
   | { wake: 'messages'; deliveryId: string; messages: CheckMessage[] }
-  | { wake: 'timeout' }
+  | { wake: 'timeout'; compacted?: true }
   | { wake: 'error'; error: string };
 export interface WatchDeps {
   check(args: string[]): CheckResult;
@@ -146,7 +150,15 @@ if (import.meta.main) {
       ledger: () => (commonDir ? readLedgerFile(commonDir) : null),
       now: () => Date.now(),
     };
-    const out = watch(deps, opts);
+    let out = watch(deps, opts);
+    if (out.wake === 'timeout' && commonDir) {
+      try {
+        const r = await maybeCompactHq(realHqDeps(commonDir), opts.terminal, hqCompactConfig(loadConfig() as { hq?: unknown }).compactMinutes);
+        if (r.compacted) out = { wake: 'timeout', compacted: true };
+      } catch (e) {
+        console.error(`hq の縮めに失敗しました：${(e as Error).message}`);
+      }
+    }
     if (out.wake === 'error') {
       console.error(out.error);
       process.exit(1);
