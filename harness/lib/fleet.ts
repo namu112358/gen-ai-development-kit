@@ -4,7 +4,7 @@ import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfi
 import { patternsOverlap } from './epic.ts';
 import { fleetStageOf, stepOf, type FlowFleetStage, type FlowNodeId, type FlowStep, type FlowStopLabel } from './flow.ts';
 import { globToRegExp } from './scope.ts';
-import { describeClaim, isOwnClaim, type Claim, type IssueFacts, type PrFacts } from './queue.ts';
+import { describeClaim, isOwnClaim, type Claim, type ClaimStage, type IssueFacts, type PrFacts } from './queue.ts';
 import { patrolIssueTitle } from './state.ts';
 
 /**
@@ -147,10 +147,17 @@ export interface HumanWait {
   decide: string;
 }
 
-/** 行の人の判断待ち。plan-review・Issue の止まる印は facts.humanWaitSince から分を数え、PR の止まる印は時間を問わず overdue。待ちでなければ null */
+/** plan-review の後の着手宣言の段階。ここにあれば、人かセッションが進めると決めた後で、人の判断待ちではない（Issue #667） */
+const PAST_PLAN_REVIEW: ClaimStage[] = ['implement', 'judge', 'fix', 'sync'];
+
+/**
+ * 行の人の判断待ち。plan-review・Issue の止まる印は facts.humanWaitSince から分を数え、PR の止まる印は時間を問わず overdue。待ちでなければ null。
+ * plan-review でも、Issue の着手宣言が implement 以降なら（人かセッションが進めると決めた後）待ちに数えない。
+ */
 export function humanWaitOf(row: FleetRow, facts: IssueFacts, now: Date, limitMinutes: number): HumanWait | null {
   if (row.humanStop === 'pr') return { since: null, minutes: null, overdue: true, decide: `${row.note ?? '止まる印'} を外すか` };
   if (row.stage !== 'plan-review' && row.humanStop !== 'issue') return null;
+  if (row.stage === 'plan-review' && facts.claim && !facts.claim.released && facts.claim.stage !== undefined && PAST_PLAN_REVIEW.includes(facts.claim.stage)) return null;
   const since = facts.humanWaitSince ?? null;
   if (since === null) return null;
   const t = Date.parse(since);

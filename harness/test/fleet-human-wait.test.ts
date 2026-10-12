@@ -112,6 +112,25 @@ test('selectFleet：時間を超えた plan-review の Issue を脇に置き、f
   assert.deepEqual(data.setAsideReleases, [1], 'このセッションの宣言が残る脇に置いた Issue だけ');
 });
 
+test('selectFleet：plan-review のままでも implement の着手宣言があれば（進めると決めた後）脇に置かず、宣言も解除の対象にしない', () => {
+  const run = (stage: ClaimStage) => {
+    const f = facts([fi(planReview(1, { humanWaitSince: minsAgo(500), claim: manual(SESSION, stage) }))]);
+    const rows = fleetStatus(f);
+    assert.equal(rows[0]!.stage, 'plan-review', '前提');
+    const sel = selectFleet(config, f, rows, null, SESSION, null, { limitMinutes: 120, now: NOW });
+    return { sel, data: fleetStatusData(f, rows, sel, null, SESSION) };
+  };
+  const proceed = run('implement');
+  assert.deepEqual(proceed.sel.selected, [1]);
+  assert.equal(proceed.sel.excluded.has(1), false);
+  assert.equal(proceed.data.rows[0]!.humanWait, null);
+  assert.deepEqual(proceed.data.setAsideReleases, []);
+
+  const waiting = run('plan-gate');
+  assert.match(waiting.sel.excluded.get(1) ?? '', /脇に置く/);
+  assert.deepEqual(waiting.data.setAsideReleases, [1]);
+});
+
 const own: FleetClaimInfo = { by: 'manual', stage: 'plan-gate', session: SESSION, own: true };
 const other: FleetClaimInfo = { by: 'manual', stage: 'plan-gate', session: 'sess-other', own: false };
 const overdue: HumanWait = { since: minsAgo(121), minutes: 121, overdue: true, decide: 'x' };
