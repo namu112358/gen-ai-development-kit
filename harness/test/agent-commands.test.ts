@@ -60,8 +60,8 @@ const BEFORE_SPLIT = [
   'worktree-remove',
 ];
 
-/** 分けた後に commands/ に足したサブコマンドの名前（step は Issue #306、arch-review-pending・arch-review-adopt は Issue #328、harness-drift は Issue #199、incident は Issue #186、label-fill は Issue #538、backlog-scan は Issue #183、plan-review-check・render-judgment・post-judgment は Issue #340、rest は Issue #712、rest-create は Issue #713、session-judgment-digest は Issue #805、patrol-supply は Issue #828、head-check は Issue #784） */
-const ADDED_AFTER_SPLIT = ['step', 'arch-review-pending', 'arch-review-adopt', 'harness-drift', 'incident', 'label-fill', 'backlog-scan', 'issue-overlap', 'plan-review-check', 'render-judgment', 'post-judgment', 'rest', 'rest-create', 'patrol-pull', 'patrol-push', 'patrol-dedupe', 'session-judgment-digest', 'patrol-supply', 'head-check', 'check-changed'];
+/** 分けた後に commands/ に足したサブコマンドの名前（step は Issue #306、arch-review-pending・arch-review-adopt は Issue #328、harness-drift は Issue #199、incident は Issue #186、label-fill は Issue #538、backlog-scan は Issue #183、plan-review-check・render-judgment・post-judgment は Issue #340、rest は Issue #712、rest-create は Issue #713、session-judgment-digest は Issue #805、patrol-supply は Issue #828、head-check は Issue #784、judge-routine-check は Issue #786） */
+const ADDED_AFTER_SPLIT = ['step', 'arch-review-pending', 'arch-review-adopt', 'harness-drift', 'incident', 'label-fill', 'backlog-scan', 'issue-overlap', 'plan-review-check', 'render-judgment', 'post-judgment', 'rest', 'rest-create', 'patrol-pull', 'patrol-push', 'patrol-dedupe', 'session-judgment-digest', 'patrol-supply', 'head-check', 'check-changed', 'judge-routine-check'];
 
 test('loadCommands(COMMANDS_DIR) の名前は分ける前の31件と、分けた後に足したものとちょうど同じ', async () => {
   const { loadCommands, COMMANDS_DIR } = await loadCli();

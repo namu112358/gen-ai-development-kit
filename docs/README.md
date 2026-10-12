@@ -5,6 +5,7 @@
 <!-- readme:generated start -->
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
+| `judge-routine.md` | クラウドの Routine で判定の1回分（`/judge --routine`）を回し、App が選んだ PR 1件を、人のいないまま付き添いのセッションと同じ手順（judge の skill。 |  |
 | `migration.md` | 個人の public リポジトリから組織の private リポジトリへの移行の手順。 |  |
 | `patrol-routine.md` | クラウドの Routine で patrol の1回分（`/patrol --routine`）を回し、見直し（arch-review・qa-retro・test-prune）の下書きをまとめの Issue に積む設定の手順。 |  |
 | `plan.md` | 計画と決定ログ（なぜこの形にしたか）。 |  |
