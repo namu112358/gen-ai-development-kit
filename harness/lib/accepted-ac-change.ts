@@ -12,7 +12,7 @@ import { hasLabel, isAppComment, isTrustedComment, latestPlanGate, type Timeline
  *       コラボレーター（App 以外）が書き、書いた後に編集されていない（updated_at が created_at と同じ）。計画ゲートの記録は acChangeProposed で、
  *       計画コメントの今の本文がゲートの見た本文（planBodySha256）と同じ
  *   (B) その決定の記録より後に、App 以外のコラボレーター（collaborators に入る login）が agent:plan-review を外し、その後に付け直されず、今も付いていない
- * 提案の本文は計画コメントの見出し「AC の変更の提案」の節だけ。見出しが無い・節が空なら返さない。
+ * 提案の本文は計画コメントの見出しが「AC の変更の提案」で始まる節だけ。見出しが無い・節が空なら返さない。
  * App の受け付け・計画ゲートはこの関数を使わない（Merge の経路は変わらない）。
  */
 
@@ -45,7 +45,7 @@ const HEADING = /^(#{1,6})[ \t]+(.*)$/;
 const FENCE = /^(`{3,})/;
 const TITLE = 'AC の変更の提案';
 
-/** 計画コメントの見出しのうち「AC の変更の提案」を含む最初のものから、同じかより上の段の次の見出しの前まで（agent-plan ブロックは省く）。無い・空なら null */
+/** 計画コメントの見出しのうち「AC の変更の提案」で始まる最初のものから、同じかより上の段の次の見出しの前まで（agent-plan ブロックは省く）。無い・空なら null */
 export function acChangeProposal(body: string): string | null {
   const lines = body.replace(/\r\n/g, '\n').split('\n');
   const kept: string[] = [];
@@ -73,7 +73,7 @@ export function acChangeProposal(body: string): string | null {
     if (h) {
       if (started) {
         if (h[1]!.length <= level) break;
-      } else if (h[2]!.includes(TITLE)) {
+      } else if (h[2]!.trim().startsWith(TITLE)) {
         started = true;
         level = h[1]!.length;
         continue;
