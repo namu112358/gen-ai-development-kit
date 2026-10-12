@@ -211,3 +211,35 @@ export function autoModeDanger(config: Pick<HarnessConfig, 'autoMode'>, input: {
   const jev = jevLine(input.jev, dangerSafe);
   return { hold: jev.hold, reasons: [jev.text] };
 }
+
+/** auto mode でも回らない人の判断待ち1件（計画の agent:plan-review か、Human Merge 待ちの PR） */
+export interface HumanWaitItem {
+  kind: 'plan' | 'pr';
+  number: number;
+  title: string;
+  url: string;
+  /** 待ちの始まりの時刻。無い・読めないものは選ばない */
+  since: string | null;
+  reason: string;
+}
+
+/**
+ * 待ちが limitMinutes（hq.humanWaitMinutes）を超えた行だけを、待った時間の長い順（同じなら番号の順）に返す。
+ * 経過は分で切り捨てて数え、ちょうど limitMinutes は超えたに含めない（lib/fleet.ts の humanWaitOf と同じ）
+ */
+export function humanWaitDigest(items: HumanWaitItem[], now: Date, limitMinutes: number): (HumanWaitItem & { minutes: number })[] {
+  const rows: (HumanWaitItem & { minutes: number })[] = [];
+  for (const item of items) {
+    if (item.since === null) continue;
+    const t = Date.parse(item.since);
+    if (Number.isNaN(t)) continue;
+    const minutes = Math.floor((now.getTime() - t) / 60000);
+    if (minutes > limitMinutes) rows.push({ ...item, minutes });
+  }
+  return rows.sort((a, b) => b.minutes - a.minutes || a.number - b.number);
+}
+
+/** 時間を超えた人の判断待ちの行（ダッシュボードの節と知らせのコメントで同じものを使う） */
+export function renderHumanWaitDigest(rows: (HumanWaitItem & { minutes: number })[], limitMinutes: number): string[] {
+  return rows.map((r) => `- [#${r.number}](${r.url}) ${r.title} — ${r.kind === 'plan' ? '計画' : 'PR'}・${r.minutes} 分待ち（${limitMinutes} 分超）・${r.reason}`);
+}
