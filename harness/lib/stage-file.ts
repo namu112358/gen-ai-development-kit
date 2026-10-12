@@ -1,6 +1,6 @@
 /**
  * 段階のファイル：agent.ts step（harness/lib/step.ts）が返した今の段階（Issue・ノード・ブランチ・計画の files）を、セッションごとに書くファイル（Issue #306）。
- * 置き場所は git の共通ディレクトリ（`git rev-parse --path-format=absolute --git-common-dir`）の下の `agent-harness/stage/<セッションの ID>.json`。
+ * 置き場所は git の共通ディレクトリ（`git rev-parse --path-format=absolute --git-common-dir`）の下の `agent-harness/stage/<セッションの ID>.json`（URL の ID は sessionFileKey で最後の部分に、cse_ は session_ に読み替えたファイル名）。
  * 書き込みと場所の決め方は harness/lib/local-state.ts。worktree からも同じ場所で、commit されない。段階に合わない操作を止める hook（別 Issue）がこれを読む。
  * 批評の回（plan ⇄ plan-critique の回と必須の指摘）も、同じ Issue・同じ計画ゲートの記録の間だけここに残す。
  */
@@ -41,7 +41,7 @@ export interface StageFile {
   critique: CritiqueState | null;
 }
 
-/** 段階のファイルのパス。ID が記録のファイル名に使える形（TRANSCRIPT_SESSION_ID）でなければ null（書かない） */
+/** 段階のファイルのパス。ID は sessionFileKey でファイル名に読み替える。読み替えても形に当たらなければ null（書かない） */
 export function stageFilePath(gitCommonDir: string, session: string | null): string | null {
   return sessionFilePath(gitCommonDir, 'stage', session);
 }
