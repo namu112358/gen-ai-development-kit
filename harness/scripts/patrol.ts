@@ -4,7 +4,7 @@
  *   node harness/scripts/patrol.ts previous [--state <path>]
  *       前回の観測の写し（observe.ts の JSON）のパスを出す。写しが無ければ何も出さない（初回）
  *   node harness/scripts/patrol.ts select <観測の JSON> [--max <n>] [--state <path>]
- *       観測の差と前回からの経過で今回まわす見直しを決め、JSON（run・suggest・skipped・reasons）を出す。状態は変えない
+ *       観測の差と前回からの経過で今回まわす見直しを決め、JSON（run・suggest・skipped・reasons・alerts・alertsNote）を出す。状態は変えない
  *   node harness/scripts/patrol.ts record <観測の JSON> [--ran <名前>]... [--suggested <名前>]... [--state <path>]
  *       回した見直しの lastRunAt・勧めた見直しの lastSuggestedAt を今の時刻にし、観測の JSON を状態と同じディレクトリに写す（次の回の --previous）
  *
