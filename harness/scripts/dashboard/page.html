@@ -72,6 +72,14 @@
   #todos li a:hover { text-decoration: underline; }
   #todos .reason { color: var(--muted); }
   #todos .none { color: var(--muted); margin: 0; }
+  #todos .decision { margin: 4px 0 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 12px; display: grid; gap: 6px; }
+  #todos .decision textarea { width: 100%; box-sizing: border-box; min-height: 48px; resize: vertical; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  #todos .decision button { font: inherit; padding: 3px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--col); color: var(--ink); cursor: pointer; }
+  #todos .decision button:disabled { cursor: default; opacity: .5; }
+  #todos .decision button[aria-pressed="true"] { border-color: var(--active); color: var(--active); font-weight: 650; }
+  #todos .decision .item { display: grid; gap: 4px; }
+  #todos .decision .choices { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
+  #todos .decision .result, #todos .decision .note { color: var(--muted); }
   #notes { margin: 12px 16px 0; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; font-size: 12px; }
   #notes h2 { font-size: 13px; margin: 0 0 4px; }
   #notes textarea { width: 100%; box-sizing: border-box; min-height: 56px; resize: vertical; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
@@ -381,9 +389,164 @@ function sessionCard(s) {
   return c;
 }
 
+/** 答える欄の入力・選択・結果。Issue 番号と planCommentId ごとに持ち、描き直しても消さない */
+const decisionDrafts = new Map();
+function decisionKey(info) { return info.issue + ':' + info.planCommentId; }
+function decisionDraft(info) {
+  const k = decisionKey(info);
+  if (!decisionDrafts.has(k)) decisionDrafts.set(k, { text: '', answers: {}, sending: false, result: null });
+  return decisionDrafts.get(k);
+}
+
+/** 送る本文を組む（DOM に触れない）。答えがそろわない answers と none は null */
+function decisionRequest(info, draft) {
+  const base = { issue: info.issue, planCommentId: info.planCommentId };
+  if (info.mode === 'proceed') {
+    const text = String(draft.text || '').trim();
+    return { ...base, proceed: text === '' ? {} : { text } };
+  }
+  if (info.mode !== 'answers' || !info.items.length) return null;
+  const answers = [];
+  for (const item of info.items) {
+    const a = (draft.answers && draft.answers[item.id]) || {};
+    const choice = a.choice ? String(a.choice) : '';
+    const text = String(a.text || '').trim();
+    if (choice === '' && text === '') return null;
+    const one = { to: item.id };
+    if (choice !== '') one.choice = choice;
+    if (text !== '') one.text = text;
+    answers.push(one);
+  }
+  return { ...base, answers };
+}
+
+function decisionConfirmText(info, request) {
+  const lines = ['#' + info.issue + ' に、人の名義で決定の記録のコメントを1件投稿します'];
+  if (request.proceed) lines.push('進める：' + (request.proceed.text || '（書き添えなし）'));
+  else for (const a of request.answers) lines.push(a.to + '：' + (a.choice || '') + (a.choice && a.text ? ' ／ ' : '') + (a.text || ''));
+  return lines.join('\n');
+}
+
+/** 応答を結果の表示の材料に（url は https://github.com/ で始まるものだけリンクにする） */
+function decisionResult(status, body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (status === 201) {
+    return typeof b.url === 'string' && b.url.startsWith('https://github.com/') ? { ok: true, url: b.url } : { ok: true };
+  }
+  const errs = Array.isArray(b.errors) && b.errors.every((e) => typeof e === 'string') ? b.errors : [];
+  return { ok: false, text: '送れませんでした（' + status + '）' + errs.join('、') };
+}
+
+/** 確かめてから送る。送らなかった（答えがそろわない・取り消した）ときは null */
+async function submitDecision(info, draft, env) {
+  const request = decisionRequest(info, draft);
+  if (request === null) return null;
+  if (!env.confirm(decisionConfirmText(info, request))) return null;
+  try {
+    const r = await env.fetch('/decisions', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dashboard-token': env.token },
+      body: JSON.stringify(request),
+    });
+    let body = {};
+    try { body = await r.json(); } catch (e) { body = {}; }
+    return decisionResult(r.status, body);
+  } catch (e) {
+    return { ok: false, text: '送れませんでした（通信の失敗）' };
+  }
+}
+
+function dashboardToken() {
+  const meta = document.querySelector('meta[name="dashboard-token"]');
+  return meta ? meta.content : '';
+}
+
+async function sendDecision(info) {
+  const draft = decisionDraft(info);
+  if (draft.sending) return;
+  draft.sending = true;
+  renderTodos();
+  try {
+    const result = await submitDecision(info, draft, { confirm: (m) => window.confirm(m), fetch: (u, i) => fetch(u, i), token: dashboardToken() });
+    if (result !== null) draft.result = result;
+  } finally {
+    draft.sending = false;
+    renderTodos();
+  }
+}
+
+function decisionField(key, field, value, label, onInput) {
+  const ta = el('textarea');
+  ta.rows = 2;
+  ta.value = value;
+  ta.setAttribute('aria-label', label);
+  ta.dataset.key = key;
+  ta.dataset.field = field;
+  ta.addEventListener('input', () => onInput(ta.value));
+  return ta;
+}
+
+/** 計画ゲートで止まった行の答える欄（外から入る文は textContent で描く） */
+function renderDecision(info) {
+  const key = decisionKey(info);
+  const draft = decisionDraft(info);
+  const box = el('div', 'decision');
+  if (info.mode === 'none') {
+    box.append(el('div', 'note', info.note || 'この画面からは答えられません'));
+    return box;
+  }
+  const send = el('button', null, info.mode === 'proceed' ? '進める' : '答える');
+  send.type = 'button';
+  const refresh = () => { send.disabled = draft.sending || decisionRequest(info, draft) === null; };
+  if (info.mode === 'proceed') {
+    box.append(el('div', null, '直してほしいことがあれば（人の言葉のまま記録に残ります）'));
+    box.append(decisionField(key, 'text', draft.text, '直してほしいこと', (v) => { draft.text = v; }));
+  } else {
+    for (const item of info.items) {
+      const a = draft.answers[item.id] || (draft.answers[item.id] = { choice: '', text: '' });
+      const wrap = el('div', 'item');
+      wrap.append(el('div', null, (item.kind === 'reason' ? '理由：' : '質問：') + item.text));
+      if (item.choices.length) {
+        const row = el('div', 'choices');
+        for (const c of item.choices) {
+          const b = el('button', null, c);
+          b.type = 'button';
+          b.disabled = draft.sending;
+          b.setAttribute('aria-pressed', a.choice === c ? 'true' : 'false');
+          b.addEventListener('click', () => {
+            a.choice = a.choice === c ? '' : c;
+            for (const x of row.children) x.setAttribute('aria-pressed', x.textContent === a.choice ? 'true' : 'false');
+            refresh();
+          });
+          row.append(b);
+        }
+        wrap.append(row);
+      }
+      wrap.append(decisionField(key, item.id, a.text, item.id + ' への答え', (v) => { a.text = v; refresh(); }));
+      box.append(wrap);
+    }
+  }
+  refresh();
+  send.addEventListener('click', () => sendDecision(info));
+  const row = el('div', 'choices');
+  row.append(send);
+  const r = draft.sending ? { text: '送っています…' } : draft.result;
+  if (r && r.ok && r.url) {
+    const a = el('a', null, '投稿したコメント');
+    a.href = r.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    row.append(a);
+  } else if (r) row.append(el('span', 'result', r.ok ? '投稿しました' : r.text));
+  box.append(row);
+  return box;
+}
+
 function renderTodos() {
   document.getElementById('todosTitle').textContent = '人がすること（' + todos.length + '）';
   const body = document.getElementById('todosBody');
+  // 描き直しの後に、打っていた欄とカーソルの位置を戻す
+  const f = document.activeElement;
+  const focus = f && f.dataset && f.dataset.field && body.contains(f)
+    ? { key: f.dataset.key, field: f.dataset.field, start: f.selectionStart, end: f.selectionEnd } : null;
   body.replaceChildren();
   if (!todos.length) { body.append(el('p', 'none', 'いま人がすることはありません')); return; }
   const ul = el('ul');
@@ -392,9 +555,14 @@ function renderTodos() {
     const a = el('a', null, (t.kind === 'pr' ? 'PR #' : '#') + t.number + ' ' + t.title);
     a.href = t.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
     li.append(a, el('span', 'reason', ' — ' + t.reason));
+    if (t.decision) li.append(renderDecision(t.decision));
     ul.append(li);
   }
   body.append(ul);
+  if (focus) {
+    const n = [...body.querySelectorAll('textarea')].find((x) => x.dataset.key === focus.key && x.dataset.field === focus.field);
+    if (n) { n.focus(); try { n.setSelectionRange(focus.start, focus.end); } catch (e) { /* 位置を戻せなくてもよい */ } }
+  }
 }
 
 /** 進みの帯：Epic ごとの閉じた数／全体、今日の Merge、動いているセッションの数（文字は textContent で描く） */
