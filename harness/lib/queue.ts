@@ -153,6 +153,8 @@ export interface IssueFacts {
   openPr: number | null;
   /** 計画の触るファイルが入る領域のうち、判定前の Agent PR（Draft）の数が上限に達しているもの（説明文。無ければ null） */
   areaFull?: string | null;
+  /** 人の判断待ち（plan-review・Issue の止まる印）の始まりの時刻。待ちでない・計画の出し直しでゲートの返事待ちなら null。fleet の脇に置く判定（fleet.ts の humanWaitOf）だけが使う。queue の判断には使わない（Issue #667） */
+  humanWaitSince?: string | null;
 }
 
 export interface PrFacts {

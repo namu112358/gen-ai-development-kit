@@ -26,6 +26,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
 
 - `harness.config.json` の `requireAssignee` が有効なら、Assignee が自分（今の GitHub のユーザー）1人でない Issue（誰もいない・ほかの人・2人以上）は選ばず、表の「選択」に理由が出る（PR の段階も Issue の Assignee で見る）。アサインは人が決め、fleet も ship も自分からはアサインしない。外れた Issue は最後の一覧に理由と一緒に書く。
 - 領域の上限（`areaConcurrency`）は fleet では見ない。
+- 人の判断待ち（`plan-review`・Issue の止まる印）が `hq.humanWaitMinutes`（既定 120 分）を超えた Issue と、PR の止まる印（`agent:hold`・`agent:blocked`）の Issue は、脇に置く（`plan-review` は表の選択が「待つ：人の判断待ちが N 分…脇に置く」になる。`--json` の行の `humanWait` に始まり・分・`overdue`・決めてほしいこと。PR の止まる印は時刻を読まないので分は無い）。人の判断が付く（印が外れる・計画の出し直し）と、また「選ぶ」に戻る（#667）。
 - PR が無い段階の Issue は、既に選んだ Issue・PR 段階・実装中の Issue と計画の files が重なれば待つ。重なりの相手にする着手宣言は、ほかのセッションの解除されていない宣言と、このセッションの実装中（段階 `implement`）の宣言だけ。このセッションのほかの段階（plan・plan-gate など）の宣言どうしで重なれば、並べた順の先の側を選び、後の側が待つ（入れ子の方式では ship が全部このセッションの ID で宣言するため）。
 - 既に選んだ Issue のうち段階が `plan-review`（人の判断待ち）のものは、ほかの Issue の重なりの相手にしない（今は進まないので、進められる Issue を待たせない）。`plan-review` の Issue 自身は、PR 段階・実装中の Issue と重なれば待つ。人が進めると決めた後は、手順3で読み直した表で改めて重なりを判定し、相手が既に実装中（`implement` の宣言）ならその Issue が待つ。
 - `harness.config.json` の `fleet.sharedFiles`（無ければ空。このリポジトリの `harness.config.json` では決定ログ・記録用の docs・各 README.md）だけで重なる組は待たせない（表の「重なり」列に「共有ファイルのみ（並行可）」と出る）。
@@ -50,6 +51,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - 計画の後に「触るファイルが重なるため待つ」になった Issue は、実装に進めない（先に選んだほうの Merge の後に読み直す）。
    - PR 同士が衝突して待つ Issue は、先の側が Merge された後に sync の skill で main を取り込んでから進める。
    - `--max` の本数で待つ Issue は、ほかが Merge されるまで進めない。
+   - 脇に置いた行（人の判断待ちが `hq.humanWaitMinutes` を超えた Issue・PR の止まる印）は進めない。表の下の「脇に置いた人の判断待ちの、このセッションの着手宣言：…（release する）」の行（`--json` の `setAsideReleases`）の番号を、それぞれ `release <番号>` で解除する（PR 番号もそのまま渡す）。脇に置いた Issue は AskUserQuestion・hq への `ask` で聞き直さない（既に聞いたものを繰り返さない）。
 4. Merge 済みの Issue が出たら、次にやることが sync になった残りの PR に sync の skill をする（判定が引き継がれたかを確かめ、変わっていれば判定し直す）。
 5. 「選ぶ」の Issue が全部、人の Merge 待ち（Ready・人の Merge 待ち、自動 Merge 待ち）か人の判断待ち（plan-review、止まる印あり、各 skill の人に返す条件）になるまで、手順2〜4を繰り返す。その後、手順6〜9で一覧を出し、人の判断待ちだけが残ったのでなければ、終わらずに節「待つ間の読み直し」へ進む。
 6. ラベル（`priority:*`・`area:*`）は、ship の手順8と同じく、まず Jev に任せ、App の名義の `kind=label-triage` の記録の `notApplied` がまだ足りなければ、本文と Jev の提案を見て決めて付け、付けたラベルと理由を Issue のコメントに残す（`node harness/scripts/agent.ts label-fill` で付ける。`gh issue edit` は使わない）。記録が無ければ付けない。人や App が付けたラベル・`type:*`・違反は変えない。不足や違反を手順9の一覧に書かず、人にも聞かない。
@@ -60,7 +62,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - 例外ラベル：`test:exempt` は自動 Merge の対象の PR で `agent/tests` が failure のときだけ（Human Merge の PR では付けず、依頼のコメントに載ったテストの変更を Merge の前に確かめる、を「Merge」の項に書く）。`review:exempt` は付けるかの判断。どちらも、その理由を書いた場所
    - `node harness/scripts/setup.ts` の実行が要る変更か
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
-   - 人の判断待ち：どの Issue の、どの段階の、何を決めてほしいか。一覧を出した後に AskUserQuestion でまとめて聞く（1回に4問まで。聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。入れ子の方式の投稿の前の質問で答えが無いまま終える Issue は、`release <番号>` で解除してから「計画は投稿していない」と書く。聞いた答えを ship に渡して記録させるときも、決定のコメントにセッションの言葉で Merge の経路を書かない（経路は App が決める）
+   - 人の判断待ち：脇に置いた Issue は「#番号 人の判断待ち N 分：<決めてほしいこと>」の1行で書く（PR の止まる印は「時間は読まない」。聞き直さない）。どの Issue の、どの段階の、何を決めてほしいか。一覧を出した後に AskUserQuestion でまとめて聞く（1回に4問まで。聞き方は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方）。入れ子の方式の投稿の前の質問で答えが無いまま終える Issue は、`release <番号>` で解除してから「計画は投稿していない」と書く。聞いた答えを ship に渡して記録させるときも、決定のコメントにセッションの言葉で Merge の経路を書かない（経路は App が決める）
    - 待たせた Issue と理由（重なり・PR 同士の衝突・`--max` の本数）
    - 宣言で負けて飛ばした Issue：「#番号 は session … が着手中」
    - 費用：進めた本数と、手順7のトークン数・推定料金
@@ -245,11 +247,11 @@ App の計画ゲート・判定の受け付け・自動 Merge・CI を待つ間�
 4. **「Close されていない」の扱い**：このセッションで既に呼び直して ship が「Close されていない（理由）」で返した Issue は、人の判断待ちとして手順9の一覧に載せ、同じ行が出続けても呼び直さない。この印はセッションの中で持ち、見張りの記録には残さない。交代の後の新しい fleet は最初の1回だけ呼び直す。終わり方の「人の判断待ちだけが残った」でもこの Issue を人の判断待ちに数える。
 5. **自分の PR の sync**：自分の行（`fleet-status` に渡した Issue の PR）の次にやることが `sync` になったら、`human-merge`・`auto-merge` の段階でも、その Issue の ship を (a) の段階 `sync` で新しいサブエージェントとして呼び直して sync させる。fleet 自身は衝突を直さない（直すのは ship）。ほかのセッション・持ち主のいない PR は対象にしない。
 6. **App が動かないとき**：表の下に「App が動いていない」の行（`fleet.watch.appStallMinutes`、既定 20 分以上、計画ゲートの記録が付かない・auto-merge が付いたまま Merge されない）が出たら、人に知らせる（付き添いでは文章で。Orca の worker のときは節「Orca の worker として動くとき」のとおり hq に `escalation`）。同じ行を知らせるのは1回だけで、その後も読み直しを続ける。
-7. **終える**：読み直しを終えるのは、受け持つ Epic が Close し、かつ hq が足した Epic の外の Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき（`gh issue view <Epic番号> --json state`。その後に手順6〜9の最後の一覧を出す。足された Epic の外の Issue が残る間は終えない）と、人の判断待ち（`plan-review`・止まる印・各 skill の人に返す条件・上の 4）だけが残ったとき。受け持つ Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき。
+7. **終える**：読み直しを終えるのは、受け持つ Epic が Close し、かつ hq が足した Epic の外の Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき（`gh issue view <Epic番号> --json state`。その後に手順6〜9の最後の一覧を出す。足された Epic の外の Issue が残る間は終えない）と、人の判断待ち（`plan-review`・止まる印・各 skill の人に返す条件・上の 4。`hq.humanWaitMinutes` を超えて脇に置いた Issue も含む）だけが残ったとき。受け持つ Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになったとき。受け持ちが全部、人の判断待ち（脇に置いたものを含む）になったら「今は進められない（人の判断待ちが `hq.humanWaitMinutes` を超えた）」として終える。Orca の worker なら `worker_done` のレポートの先頭にそう書く。
 
 ## 終わりの状態
 
-- 受け持つ Epic が Close した（Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになった）か、人の判断待ちだけが残っている（`node harness/scripts/agent.ts fleet-status --watch` の表で確かめた）。人の Merge 待ち・App 待ちが残る間は終わらず、節「待つ間の読み直し」を続ける。
+- 受け持つ Epic が Close した（Epic が無い fleet は、選んだ Issue が全部 Merge 済み（見届け済み）か人の判断待ちになった）か、人の判断待ちだけが残っている（脇に置いた Issue を含む）（`node harness/scripts/agent.ts fleet-status --watch` の表で確かめた）。人の Merge 待ち・App 待ちが残る間は終わらず、節「待つ間の読み直し」を続ける。
 - 人がすることの一覧（トークン数・推定料金・改善の候補を含む）を出した。
 - 続けて使わない worktree は `node harness/scripts/agent.ts worktree-remove <ブランチ>` で消した。
 

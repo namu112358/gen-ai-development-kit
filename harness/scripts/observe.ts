@@ -1,5 +1,5 @@
 /**
- * 保守の観測（docs の照合・ホットスポット・テストの健康）を、人が指示したときに1回分だけ出す（LLM を呼ばない決まる集計）。
+ * 保守の観測（docs の照合・ホットスポット・テストの健康・運用の健康）を、人が指示したときに1回分だけ出す（LLM を呼ばない決まる集計）。
  *
  *   node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run-tests] [--previous <前回の JSON>] [--offline]
  *
@@ -7,11 +7,12 @@
  * - --junit：遅いテストに使う Node の junit の出力。--run-tests：このリポジトリのテスト（harness/test/**\/*.test.ts）を junit で動かして使う。
  *   どちらも無ければ遅いテストの節は読めない旨を出す
  * - --previous：前回の JSON。節ごとに「新しく出たもの」「消えたもの」の差を足す
- * - --offline：GitHub を読まない（不安定なテスト・生き残ったミュータントの節は読めない旨を出す）
+ * - --offline：GitHub を読まない（不安定なテスト・生き残ったミュータント・運用の健康の節は読めない旨を出す）
+ * - 運用の健康：直近 24 時間の 14 項目（しきい値と GitHub を読む上限は harness.config.json の observe.opsHealth）
  *
  * 標準出力に人が読む要約を出し、最後の行に JSON（harness/lib/observe.ts の ObserveReport）のパスを出す。
  * JSON は OS の一時ディレクトリに書く。リポジトリにも GitHub にも書かない（GitHub は gh の認証で GET だけ）。
- * 集計のロジックは harness/lib/observe.ts・observe-docs.ts・hotspot.ts・test-health.ts。
+ * 集計のロジックは harness/lib/observe.ts・observe-docs.ts・hotspot.ts・test-health.ts・observe-ops.ts・ops-health.ts。
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
@@ -20,13 +21,14 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from '../lib/config.ts';
 import { GitHub, transportFromEnv } from '../lib/github.ts';
+import { readWorktrees } from '../lib/observe-ops.ts';
 import { observe, parseObserveArgs, renderSummary, writeReportFile, type ObserveOptions, type ObserveReport } from '../lib/observe.ts';
 import { resolveRepository } from '../lib/repository.ts';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
-function git(args: string[]): string {
-  const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
+function git(args: string[], cwd: string = ROOT): string {
+  const r = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 });
   if (r.status !== 0) throw new Error(`git ${args[0]} が失敗しました: ${(r.stderr ?? '').trim()}`);
   return r.stdout ?? '';
 }
@@ -104,6 +106,7 @@ async function main(): Promise<void> {
       head: () => git(['rev-parse', 'HEAD']).trim(),
       readText,
       gh,
+      worktrees: () => readWorktrees((args, cwd) => git(args, cwd)),
       ...(offlineReason ? { offlineReason } : {}),
       junit: () => junit(opts),
     },

@@ -1,5 +1,5 @@
 {
-  "$comment": "導入先に配るファイルの一覧（Issue #155）。managed は sync が上書きする kit のもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー（混ぜ方は sync の Issue で決める）。harness/test・package.json・tsconfig.json は配らない（ゲートは依存なしで Node 24 だけで動く）",
+  "$comment": "導入先に配るファイルの一覧（Issue #155）。managed は sync が上書きする kit のもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー（混ぜ方は sync の Issue で決める）。harness/test・package.json・tsconfig.json は配らない（ゲートは依存なしで Node 24 だけで動く）。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。sync は写さない",
   "managed": [
     "harness/lib/**",
     "harness/gates/**",
@@ -12,6 +12,30 @@
     ".claude/routine.md",
     ".github/workflows/gate.yml",
     ".github/ISSUE_TEMPLATE/agent-task.yml"
+  ],
+  "exclude": [
+    "harness/scripts/observe.ts",
+    "harness/scripts/test-prune.ts",
+    "harness/scripts/test-prune-loop.ts",
+    "harness/scripts/qa-retro-loop.ts",
+    "harness/scripts/mutate.ts",
+    "harness/scripts/patrol.ts",
+    "harness/scripts/jev-language.ts",
+    "harness/lib/observe.ts",
+    "harness/lib/observe-docs.ts",
+    "harness/lib/hotspot.ts",
+    "harness/lib/test-prune.ts",
+    "harness/lib/test-prune-loop.ts",
+    "harness/lib/patrol.ts",
+    "harness/lib/arch-review.ts",
+    "harness/lib/qa-retro-loop.ts",
+    "harness/scripts/agent/commands/arch-review.ts",
+    "harness/scripts/agent/commands/qa-retro.ts",
+    ".claude/skills/arch-review/**",
+    ".claude/skills/qa-retro/**",
+    ".claude/skills/test-prune/**",
+    ".claude/skills/patrol/**",
+    ".claude/agents/arch-reviewer.md"
   ],
   "projectOwned": [
     {

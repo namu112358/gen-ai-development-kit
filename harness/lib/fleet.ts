@@ -4,7 +4,7 @@ import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfi
 import { patternsOverlap } from './epic.ts';
 import { fleetStageOf, stepOf, type FlowFleetStage, type FlowNodeId, type FlowStep, type FlowStopLabel } from './flow.ts';
 import { globToRegExp } from './scope.ts';
-import { describeClaim, isOwnClaim, type Claim, type IssueFacts, type PrFacts } from './queue.ts';
+import { describeClaim, isOwnClaim, type Claim, type ClaimStage, type IssueFacts, type PrFacts } from './queue.ts';
 import { patrolIssueTitle } from './state.ts';
 
 /**
@@ -118,6 +118,53 @@ export interface FleetRow {
   note: string | null;
   /** 判定が差し戻され、判定のやり直しが要る */
   rejudge?: boolean;
+  /** 止まる印（hold・blocked・waiting）で止まった行だけ。Issue の印か PR の印か。依存・Epic の stopped には付かない（Issue #667） */
+  humanStop?: 'issue' | 'pr';
+}
+
+/** 人の判断待ちを脇に置くまでの時間の既定値（分）。hq.stuckMinutes の既定にそろえる（Issue #667） */
+export const HUMAN_WAIT_DEFAULT_MINUTES = 120;
+
+/** hq.humanWaitMinutes（正の整数、分）。無ければ既定。hq-stall.ts の hqStallConfig と同じ読み方（Issue #667） */
+export function humanWaitMinutes(config: { hq?: unknown }): number {
+  const hq = config.hq;
+  if (hq === undefined) return HUMAN_WAIT_DEFAULT_MINUTES;
+  if (typeof hq !== 'object' || hq === null || Array.isArray(hq)) throw new Error('hq はオブジェクトで書いてください');
+  const v = (hq as { humanWaitMinutes?: unknown }).humanWaitMinutes;
+  if (v === undefined) return HUMAN_WAIT_DEFAULT_MINUTES;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) throw new Error('hq.humanWaitMinutes は正の整数（分）で書いてください');
+  return v;
+}
+
+/** 人の判断待ちの、始まり・経過・脇に置くか（Issue #667） */
+export interface HumanWait {
+  /** 待ちの始まりの時刻。PR の止まる印は時刻を読まないので null */
+  since: string | null;
+  minutes: number | null;
+  /** 設定の時間を超えた（PR の止まる印は時間を問わず true） */
+  overdue: boolean;
+  /** 人に決めてほしいこと */
+  decide: string;
+}
+
+/** plan-review の後の着手宣言の段階。ここにあれば、人かセッションが進めると決めた後で、人の判断待ちではない（Issue #667） */
+const PAST_PLAN_REVIEW: ClaimStage[] = ['implement', 'judge', 'fix', 'sync'];
+
+/**
+ * 行の人の判断待ち。plan-review・Issue の止まる印は facts.humanWaitSince から分を数え、PR の止まる印は時間を問わず overdue。待ちでなければ null。
+ * plan-review でも、Issue の着手宣言が implement 以降なら（人かセッションが進めると決めた後）待ちに数えない。
+ */
+export function humanWaitOf(row: FleetRow, facts: IssueFacts, now: Date, limitMinutes: number): HumanWait | null {
+  if (row.humanStop === 'pr') return { since: null, minutes: null, overdue: true, decide: `${row.note ?? '止まる印'} を外すか` };
+  if (row.stage !== 'plan-review' && row.humanStop !== 'issue') return null;
+  if (row.stage === 'plan-review' && facts.claim && !facts.claim.released && facts.claim.stage !== undefined && PAST_PLAN_REVIEW.includes(facts.claim.stage)) return null;
+  const since = facts.humanWaitSince ?? null;
+  if (since === null) return null;
+  const t = Date.parse(since);
+  if (Number.isNaN(t)) return null;
+  const minutes = Math.floor((now.getTime() - t) / 60000);
+  const decide = row.stage === 'plan-review' ? '計画を進めるか（`agent:plan-review`）' : `${row.note ?? '止まる印'} を外すか`;
+  return { since, minutes, overdue: minutes > limitMinutes, decide };
 }
 
 const STOP_LABELS = [LABELS.hold, LABELS.blocked, LABELS.waiting];
@@ -198,7 +245,11 @@ export function issueNode(i: FleetIssue, anyMerged: boolean): IssueNode {
 /** issueNode の結果を fleet の表の段階と次にやることにする（sync は段階を残して次にやることだけ sync、人の PR の fix・sync は none） */
 function issueStage(i: FleetIssue, anyMerged: boolean): Stage {
   const n = issueNode(i, anyMerged);
-  const s = at(n.node, n.pr, n.note);
+  const s: Stage = at(n.node, n.pr, n.note);
+  if (n.node === 'stopped' && (n.stopReason === 'hold' || n.stopReason === 'blocked' || n.stopReason === 'waiting')) {
+    const label = { hold: LABELS.hold, blocked: LABELS.blocked, waiting: LABELS.waiting }[n.stopReason];
+    s.humanStop = i.facts.labels.includes(label) ? 'issue' : 'pr';
+  }
   if (n.humanPr) return { ...s, next: 'none' };
   if (n.sync) return { ...s, next: stepOf('sync') };
   if (n.node === 'judge' && i.prs.find((p) => p.number === n.pr && !p.merged)?.facts?.verdictRejected) return { ...s, rejudge: true };
@@ -221,6 +272,8 @@ export interface FleetSelection {
   sharedOnlyOverlaps: Map<number, number[]>;
   /** 表のメモの列に足す文（衝突を試せなかった組など） */
   notes: Map<number, string>;
+  /** 人の判断待ち（超えていないものも）。selectFleet に humanWait を渡したときだけ（Issue #667） */
+  humanWaits?: Map<number, HumanWait>;
 }
 
 /** 行の PR（issueStage が選んだ開いた PR）の着手宣言。PR の事実が無ければ null */
@@ -259,9 +312,10 @@ function overlapKind(a: string[], b: string[], sharedFiles: string[]): 'none' | 
  * 両方に PR がある組は、実際に試して衝突した組（prConflicts）だけ、既に選んだ PR と衝突する後の側が待つ。
  * PR がまだ無い Issue は、既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
  * 既に選んだ Issue のうち段階が plan-review（人の判断待ち）のものは、この重なりの相手にしない（今は進まないので、進められる Issue を待たせない。Issue #312）。人が進めると決めて段階が変われば、読み直した表で相手になる。
+ * humanWait を渡したときは、人の判断待ち（plan-review）が limitMinutes を超えた Issue を、着手宣言の確かめの後・--max の前に「脇に置く」で外す（Issue #667。止まる印の行は今も先に外れる）。
  * 計画の無い Issue は重なりが分からないので、その判定から外して選ぶ（計画の後に重なれば、後から選んだほうが待つ）。
  */
-export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null, me: string | null = null): FleetSelection {
+export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null, me: string | null = null, humanWait: { limitMinutes: number; now: Date } | null = null): FleetSelection {
   const checkAssignee = requireAssignee(config);
   const sharedFiles = config.fleet?.sharedFiles ?? [];
   const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
@@ -287,6 +341,13 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
     facts.prConflicts.find((c) => (c.prs[0] === a && c.prs[1] === b) || (c.prs[0] === b && c.prs[1] === a));
   const selected: FleetIssue[] = [];
   const excluded = new Map<number, string>();
+  const humanWaits = new Map<number, HumanWait>();
+  if (humanWait) {
+    for (const r of rows) {
+      const w = humanWaitOf(r, byNumber.get(r.issue)!.facts, humanWait.now, humanWait.limitMinutes);
+      if (w) humanWaits.set(r.issue, w);
+    }
+  }
 
   for (const r of order) {
     const i = byNumber.get(r.issue)!;
@@ -299,6 +360,11 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
     if (claim && !claim.released && !isOwnClaim(claim, currentSession)) {
       const detail = describeClaim(claim);
       excluded.set(r.issue, `着手宣言あり（ほかのセッションが着手中${detail ? `・${detail}` : ''}）`);
+      continue;
+    }
+    const hw = humanWaits.get(r.issue);
+    if (r.stage === 'plan-review' && hw?.overdue && humanWait) {
+      excluded.set(r.issue, `人の判断待ちが ${hw.minutes} 分（hq.humanWaitMinutes の ${humanWait.limitMinutes} 分を超えた）。脇に置く（人の判断が付けば選び直す）`);
       continue;
     }
     if (max !== null && selected.length >= max) { excluded.set(r.issue, `--max で指定した、人が1回にさばける数（${max}）に達した`); continue; }
@@ -352,7 +418,7 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
     if (noteParts.length > 0) notes.set(a.facts.number, noteParts.join('。'));
   }
 
-  return { selected: selected.map((i) => i.facts.number), excluded, overlaps, sharedOnlyOverlaps, notes };
+  return { selected: selected.map((i) => i.facts.number), excluded, overlaps, sharedOnlyOverlaps, notes, ...(humanWait ? { humanWaits } : {}) };
 }
 
 const NEXT_LABELS: Record<FleetNext, string> = { plan: 'plan', implement: 'implement', judge: 'judge', fix: 'fix', sync: 'sync', none: '—' };
@@ -482,6 +548,20 @@ export interface FleetStatusRow {
   claim: FleetClaimInfo | null;
   /** 行の開いた PR の解除されていない着手宣言 */
   prClaim: FleetClaimInfo | null;
+  /** 人の判断待ち（待ちでなければ null）。脇に置くかは overdue（Issue #667） */
+  humanWait?: HumanWait | null;
+}
+
+/** 脇に置いた（overdue の）人の判断待ちの行のうち、このセッションの着手宣言が残る番号（Issue の宣言→PR の宣言の順、行の順、重複なし）。fleet が release する（Issue #667） */
+export function setAsideReleases(rows: FleetStatusRow[]): number[] {
+  const out: number[] = [];
+  const add = (n: number): void => { if (!out.includes(n)) out.push(n); };
+  for (const r of rows) {
+    if (!r.humanWait?.overdue) continue;
+    if (r.claim?.own) add(r.issue);
+    if (r.prClaim?.own && r.pr !== null) add(r.pr);
+  }
+  return out;
 }
 
 /** fleet-status --json の出力 */
@@ -498,6 +578,8 @@ export interface FleetStatusData {
   mode: { nesting: 'orca' | 'flat'; parallel: number } | null;
   /** bypass・委任承認の今の状態。渡したときだけ鍵が入る */
   merge?: FleetMergeState;
+  /** 脇に置いた人の判断待ちの、このセッションの着手宣言の番号（release する。Issue #667） */
+  setAsideReleases?: number[];
 }
 
 function claimInfo(claim: Claim | null, currentSession: string | null, age?: ClaimAge): FleetClaimInfo | null {
@@ -516,9 +598,7 @@ function claimInfo(claim: Claim | null, currentSession: string | null, age?: Cla
  */
 export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetSelection, max: number | null, currentSession: string | null, mode?: FleetMode, merge?: FleetMergeState, claimAge?: ClaimAge): FleetStatusData {
   const byNumber = new Map(facts.issues.map((i) => [i.facts.number, i]));
-  return {
-    version: 1,
-    rows: sortedRows(rows, sel).map((r) => {
+  const statusRows: FleetStatusRow[] = sortedRows(rows, sel).map((r) => {
       const v = rowView(r, sel);
       const i = byNumber.get(r.issue);
       const prClaim = i !== undefined && r.pr !== null && r.stage !== 'merged' ? openPrClaim(i, r) : null;
@@ -536,12 +616,17 @@ export function fleetStatusData(facts: FleetFacts, rows: FleetRow[], sel: FleetS
         note: v.note === '' ? null : v.note,
         claim: claimInfo(i?.facts.claim ?? null, currentSession, claimAge),
         prClaim: claimInfo(prClaim, currentSession, claimAge),
+        humanWait: sel.humanWaits?.get(r.issue) ?? null,
       };
-    }),
+    });
+  return {
+    version: 1,
+    rows: statusRows,
     selectedCount: sel.selected.length,
     selected: [...sel.selected],
     max,
     mode: mode ? { nesting: mode.nesting, parallel: parallelShips(max, mode) } : null,
     ...(merge ? { merge } : {}),
+    setAsideReleases: setAsideReleases(statusRows),
   };
 }
