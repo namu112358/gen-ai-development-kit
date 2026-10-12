@@ -76,6 +76,7 @@ Orca がある環境では、hq の skill（[.claude/skills/hq/SKILL.md](../.cla
 - fleet は途中の報告・連絡を `orchestration send --type status` の件名（`ready-<PR>`・`merged-<PR>`・`verdict-<PR>`・`wait-<Issue>`・`notice`）で hq に送り、hq は人の Merge 待ち（`ready-<PR>`）と人の判断が要る `notice` を人にすぐ伝え、ほかは人がすることの一覧にためる（#395）。相談は今までどおり `ask`。fleet は hq に聞いて答えを待っている Issue があるうちは `worker_done` しない。
 - hq はターンを終える前に必ず見張り（`harness/scripts/hq-watch.ts`）を run_in_background で置く。heartbeat だけの束は見張りが一言を控えて ack し、hq を起こさない。question・escalation・worker_done・status が届くと hq が起きて処理し、見張りを置き直す。fleet は heartbeat の本文に今の状況を一言（Issue 番号・段階・次にすること・待っているもの）入れ、hq はそれを人がすることの一覧の「今の状況」に使う（ログのペインにも出る。#438）。手順は hq の SKILL.md の手順7と、fleet の SKILL.md の「Orca の worker として動くとき」の6〜8。
 - 進んでいない fleet（ペインのスナップショットの `at` が `hq.staleSnapshotMinutes` より古い、AI の番の行が `hq.stuckMinutes` より長い）は起こし直さず、`orchestration send` で状況を聞き、答えが無ければ人に知らせる。hq がまだ答えていない質問のある Issue は、人の答え待ちなので数えない。判定は `node harness/scripts/panes.ts fleets --session <ID>...`。
+- hq は見回し（手順8）で、前に縮めてから（無ければ起こしてから）`hq.compactMinutes` 以上経ち、ship が動いておらず（`plan-gate` 以外の着手宣言が無い）、端末がターンを終えている fleet に `/compact` を送り（`hq-compact.ts fleet`）、hq 自身は見張りが `timeout` の切れ目で同じ条件で送る。記録は git の共通ディレクトリの下の `agent-harness/hq/hq-compact.json`。縮めた後は控えと `fleet-status` から受け持ちを読み直す。
 - 止まった fleet を起こし直すのは、`orca orchestration worker-list` で `exited` と確かめたときだけ（`unverifiable` は止まった証拠にしない）。同じ fleet は1時間に2回まで（Epic への hq の記録のコメントで数える）、超えたら人に知らせる。起こし直すときは、前の fleet の着手宣言を新しい fleet に引き継ぐかを1問で人に聞き、引き継ぐなら新しい fleet が `--takeover` で出し直す。
 - fleet が人の Merge 待ちで終わっても、Epic が開いていればワークスペースを残す。片付け（worker の解放とワークスペースの削除）は Epic が Close したとき。ただし hq が足した Epic の外の Issue があって `worker_done` がまだなら、`worker_done` を受けてから片付ける。Epic の無い単発の fleet は、`worker_done` を受け、集合の Issue が全部 Close したら片付ける（人の判断待ちが残れば残す）。
 - fleet が「今は進められない」で終わったら、hq はその Epic に起こし直さず、空いた枠をほかの Epic の fleet で埋める（空きの補充。#663）。
@@ -99,10 +100,11 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 | `hq.maxParallelShips` | 6 | 全体で同時に動かす ship の数の上限（正の整数）。hq が空いた枠に Issue を割り当てる上限。全体の枠に届くのは `hq.maxFleets` × `fleet.maxParallelShips` が `hq.maxParallelShips` 以上のとき |
 | `hq.staleSnapshotMinutes` | 30 | fleet のペインのスナップショットの `at` がこれ以上古ければ、collect が止まっているとみなす（正の整数、分） |
 | `hq.stuckMinutes` | 120 | AI の番の行がこれ以上同じ状態なら、進んでいないとみなす（正の整数、分） |
+| `hq.compactMinutes` | 180 | hq が fleet・hq 自身の端末に `/compact` を送るまでの間隔（前に縮めてから、無ければ起こしてから。正の整数、分） |
 | `hq.humanWaitMinutes` | 120 | 人の判断待ち（plan-review・止まる印）がこれ以上続いた Issue を、fleet・hq の選ぶ対象から一時的に外し、このセッションの着手宣言を解除する（正の整数、分） |
 | `panes.collectIntervalSeconds` | 180 | fleet の進み具合のペイン（`panes.ts collect`）が GitHub と記録を読む間隔（60 以上の整数、秒） |
 
-`hq.staleSnapshotMinutes`・`hq.stuckMinutes`・`hq.humanWaitMinutes` は既定値で動くので、`harness.config.json` と雛形には書いていない。変えるときは `"hq": { "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }` のように書き足す。
+`hq.staleSnapshotMinutes`・`hq.stuckMinutes`・`hq.humanWaitMinutes`・`hq.compactMinutes` は既定値で動くので、`harness.config.json` と雛形には書いていない。変えるときは `"hq": { "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }` のように書き足す。
 
 `fleet.implementModel` を戻す目安：数日分の PR で、実装のモデルごとの判定に1回で合格した割合（`report.ts` の「実装のモデルごとの品質」の節）を比べ、`sonnet` が `opus` のときより大きく落ちたら、`opus` に戻すかを人が決める。戻すときは `"implementModel": "opus"` と書く。
 
