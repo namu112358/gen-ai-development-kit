@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import { type Decision, decisionTargets, uncoveredTargets } from '../../../lib/decision.ts';
+import { type Decision, decisionTargets, proceedPostErrors, uncoveredTargets } from '../../../lib/decision.ts';
 import { writeClaim } from '../../../lib/claim.ts';
 import { critiqueClaimedBefore } from '../../../lib/facts.ts';
 import { GitHub } from '../../../lib/github.ts';
@@ -29,7 +29,7 @@ import { type AgentCommand, checkFile, config, currentSession, ensureOwnClaim, f
  *   node harness/scripts/agent.ts post-plan <issue> <file>  計画コメントを検査して投稿（このセッションの着手宣言が要る）。投稿の後、ゲートを通る見込みなら段階 plan-gate の宣言を出し直し、通らない見込み（人の判断待ち）なら解除する（出力の claim）。
  *                                                           見込みは批評の関所を含む（critique が無い、またはこの Issue に段階 plan-critique の宣言が無ければ止まる見込み）
  *   node harness/scripts/agent.ts post-decision <issue> <file>  決定の記録（agent-decision）を検査して投稿（App の最新の計画ゲートの記録の計画コメントと、答えの無い項目が無いことを確かめる。ラベルは変えない）。
- *                                                           proceed の記録（人が止まった計画で進めると決めた）は、最新の記録が止まった記録で、agent:plan-review が付いていて、acChangeProposed が無いことを確かめる
+ *                                                           proceed の記録（人が止まった計画で進めると決めた）は、最新の記録が止まった記録で、agent:plan-review が付いていて、acChangeProposed の計画では acChangeAccepted（人が受け入れた明示）があることを確かめる
  *   node harness/scripts/agent.ts critic-input <issue> <plan-file> [--previous <critique.json>]  （このセッションの着手宣言が要る）
  *                                                           plan-critic に渡す入力（Issue 本文、コラボレーターのコメント、計画。
  *                                                           --previous は前回の plan-critic の出力で、必須の fixes を「前回の批評」に入れる）をファイルに書き、パスを出力。
@@ -64,10 +64,7 @@ async function postDecision(gh: GitHub, n: number, file: string): Promise<void> 
   if (decision.proceed) {
     // 進める記録：App の proceedEligibility で対象外になるものを投稿の前に避ける（印の窓・編集の有無は App が見る）
     const issue = await gh.get<{ labels: { name: string }[] }>(`/issues/${n}`);
-    const errors: string[] = [];
-    if (gate!.value.pass !== false) errors.push(`#${n} の最新の計画ゲートの記録は止まった記録ではありません（進める記録は要りません）`);
-    if (!issue.labels.some((l) => l.name === 'agent:plan-review')) errors.push(`#${n} に agent:plan-review が付いていません`);
-    if (gate!.value.plan!.acChangeProposed) errors.push('計画に要件・AC の変更提案があります（Issue 本文の変更は人の役割のため、進める記録では使えません）');
+    const errors = proceedPostErrors({ issueNumber: n, labels: issue.labels, record: { pass: gate!.value.pass, plan: gate!.value.plan! }, decision });
     if (errors.length > 0) fail(errors);
     const posted = await gh.comment(n, readBlockFile(file));
     console.log(JSON.stringify({ posted: posted.html_url }, null, 2));
