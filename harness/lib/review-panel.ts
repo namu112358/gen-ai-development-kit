@@ -61,7 +61,7 @@ export interface PanelFinding {
 export interface PanelOutputs {
   intake: IntakeOutput;
   findings: PanelFinding[];
-  /** ac-scope・safety の concerns・checkPoints を順に連結したもの */
+  /** ac-scope・safety の concerns・checkPoints・acNotes を順に連結したもの（acNotes はどちらかが返したときだけ） */
   notes: HumanNotes;
   /** ⑨（overbuild）の出力が無かった。組み立てで humanNotes.concerns に OVERBUILD_MISSING_NOTE を入れる */
   overbuildMissing: boolean;
@@ -206,10 +206,11 @@ function parseLens(c: Checker, n: number, raw: unknown, suggestions: string[]): 
 function parseChecker(c: Checker, name: 'ac-scope' | 'safety', raw: unknown, notes: HumanNotes, suggestions: string[]): PanelFinding[] {
   const kinds: readonly BlockingKind[] = name === 'ac-scope' ? AC_SCOPE_KINDS : SAFETY_KINDS;
   const o = c.object(raw, name) ?? {};
-  checkKnownKeys(c, o, name, ['findings', 'concerns', 'checkPoints', 'suggestions']);
+  checkKnownKeys(c, o, name, ['findings', 'concerns', 'checkPoints', 'acNotes', 'suggestions']);
   readSuggestions(c, o, name, suggestions);
   notes.concerns.push(...c.stringArray(o.concerns, `${name}.concerns`));
   notes.checkPoints.push(...c.stringArray(o.checkPoints, `${name}.checkPoints`));
+  if (o.acNotes !== undefined) (notes.acNotes ??= []).push(...c.stringArray(o.acNotes, `${name}.acNotes`));
   return c.array(o.findings, `${name}.findings`).map((item, i): PanelFinding => {
     const path = `${name}.findings[${i}]`;
     const f = c.object(item, path) ?? {};
@@ -332,6 +333,7 @@ export function composePanel(input: {
   const blocking: BlockingFinding[] = [];
   const nonBlocking: string[] = [];
   const humanNotes: HumanNotes = { concerns: [...(input.notes?.concerns ?? [])], checkPoints: [...(input.notes?.checkPoints ?? [])] };
+  if (input.notes?.acNotes !== undefined) humanNotes.acNotes = [...input.notes.acNotes];
   if (input.check.exitCode !== 0) {
     blocking.push({ kind: 'typecheck-test-failure', detail: `${input.check.command ?? 'npm run check'} が終了コード ${input.check.exitCode} で失敗しました。出力の末尾:\n${input.check.outputTail}` });
   }
@@ -564,7 +566,11 @@ export function parsePanelRecord(body: string): Parsed<PanelRecord> {
       pass: c.boolean(review.pass, 'record.review.pass'),
       blocking,
       nonBlocking: c.stringArray(review.nonBlocking, 'record.review.nonBlocking'),
-      humanNotes: { concerns: c.stringArray(notes.concerns, 'record.review.humanNotes.concerns'), checkPoints: c.stringArray(notes.checkPoints, 'record.review.humanNotes.checkPoints') },
+      humanNotes: {
+        concerns: c.stringArray(notes.concerns, 'record.review.humanNotes.concerns'),
+        checkPoints: c.stringArray(notes.checkPoints, 'record.review.humanNotes.checkPoints'),
+        ...(notes.acNotes !== undefined ? { acNotes: c.stringArray(notes.acNotes, 'record.review.humanNotes.acNotes') } : {}),
+      },
     },
     findings,
     check: { exitCode: c.integer(check.exitCode, 'record.check.exitCode') },
