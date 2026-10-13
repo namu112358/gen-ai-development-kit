@@ -26,7 +26,7 @@ model: opus
    - `secret-leak`：秘密情報（鍵・トークン・個人情報）のコミットやログ出力
    - `regression`：AC の外で既存の挙動が変わる（変わったシンボルの参照元を Grep で調べる）
 2. 再レビュー（「前回の判定」がある）のとき：前回のブロッキング指摘のうち上の3つの種類のものが直っていなければ、その指摘を `unfixedPrevious: true` で出す。ほかの指摘は `unfixedPrevious: false`。
-3. 壊れるとしたらどこか、確かめきれていないことを `concerns` に、人に見てほしいファイル・関数・観点を `checkPoints` に書く。`concerns`・`checkPoints` は、ハーネス自体・公開インターフェース・データに触れる変更と、テストで確かめきれていない変更では必ず書く（今の Reviewer の humanNotes と同じ）。
+3. 壊れるとしたらどこか、確かめきれていないことを `concerns` に、人が Merge の前に確かめることを `checkPoints` に書く。`concerns` は重要な順に5件まで、1件1〜2文（「〜の場合に〜が起きうる」）。`checkPoints` は重要な順に3件まで、1件1〜2文で、ファイル・関数と「何を見れば安心できるか」を書く。`concerns`・`checkPoints` は、ハーネス自体・公開インターフェース・データに触れる変更と、テストで確かめきれていない変更では必ず書く（今の Reviewer の humanNotes と同じ）。
 4. 次の JSON だけを出力する（前後に説明文を付けない）。
 
 ```json

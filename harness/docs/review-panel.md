@@ -38,7 +38,8 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 - ⑨の出力が無くても組み立ては止めない（`humanNotes.concerns` に「⑨の記録なし」を残す）。そのため⑨の出力が欠けた判定は、⑨のブロッキングが無いまま合格しうる。
 - ⑨の `over-*` の種類は今の reviewer が出さないので、report の合体版と今の reviewer の比較では合体版だけの指摘（`panelOnly`）に数えられる。
 - 担当（review-lens・review-ac-scope・review-safety）は、Merge を止めない提案を任意の `suggestions` に返せる。組み立ては提案を採点せず、`[提案・<担当>] <文>` の形で `nonBlocking` の末尾に入れる（合否を変えない。確信の低い指摘は担当が `findings` に書き、`suggestions` に回さない）。
-- 出力は reviewer と同じ形（`pass`・`blocking`・`nonBlocking`・`humanNotes`）なので、`compose-verdict` の reviewer の出力の位置にそのまま渡せる。
+- review-ac-scope は AC の照合の帳簿（どちらの AC で照らしたか、受け入れた変更で外した・緩めた項目、⑧に任せた項目、スタックの条件）を任意の `acNotes` に返せる。組み立ては ac-scope・safety の `acNotes` を順に連結して `humanNotes.acNotes` に引き継ぐ（どちらも返さなければ欄を作らない）。`concerns` は重要な順に5件まで、`checkPoints` は人が Merge の前に確かめることを重要な順に3件までが目安（コードでは拒まない）。
+- 出力は reviewer と同じ形（`pass`・`blocking`・`nonBlocking`・`humanNotes`。`humanNotes` は `acNotes` を含みうる）なので、`compose-verdict` の reviewer の出力の位置にそのまま渡せる。
 
 ## モード
 
