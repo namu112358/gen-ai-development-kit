@@ -148,7 +148,8 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
     "maxToolCalls": 12,                // read_file / list_files の上限
     "maxDiffChars": 200000,
     "maxFileChars": 60000,
-    "diffOnlyExtensions": [".md", ".html"] // 全文を添えず diff だけを渡す拡張子（Issue #990）。大文字小文字は区別しない
+    "diffOnlyExtensions": [".md", ".html"], // 全文を添えず diff だけを渡す拡張子（Issue #990）。大文字小文字は区別しない
+    "docsOnly": { "extensions": [".md"], "model": "claude-sonnet-5-5" } // 変更ファイルが全部この拡張子の PR は Reviewer・Risk をこのモデルで問う（Issue #993）。鍵が無ければ使わない
   },
   "budget": { "monthlyUsd": 50, "perReviewUsd": 3 },
   "pricing": { "claude-opus-5-5": { "input": 4, "output": 20, "cacheWrite5m": 5, "cacheWrite1h": 8, "cacheRead": 0.2 }, "claude-sonnet-5-5": { ... } }
@@ -158,6 +159,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 - `settleSeconds` は push が続くあいだの古い head に Claude の費用を払わないための待ち（Issue #991）。DRY_RUN で手元で試すときは 0 にできる。
 - `ready_for_review` は head が変わらないので対象にしない（同じ head は二重に見ない）。
 - モデルは役ごとに変えられる（Sonnet で一次 → Opus へ委譲、のような段階化は Phase 4 の比較で決める）。今の既定は Reviewer が Opus 5.5、Risk が Sonnet 5.5（人の決定 2026-10-13。Risk は diff の分類で軽く、半額）。
+- 変更ファイルが全部 `docsOnly.extensions` のどれかで終わる PR は、Reviewer と Risk を `docsOnly.model` で問う。diff が切れている・読めないパスがある・削除を含むコードの変更はコード扱い。`docsOnly` が無ければ今と同じ。`docsOnly.model` は `pricing` にも置く（無ければ `budget-exceeded`）。
 - `pricing` は `harness.config.json` の `pricing` と同じ形（モデル ID の完全一致か、最も長い前方一致）。`harness.config.json` の鍵は `claude-opus-5-5`・`claude-sonnet-5`（`claude-sonnet-5-5` は前方一致で当たる）なので、`review.config.json` には `claude-opus-5-5`・`claude-sonnet-5-5`・`claude-haiku-5-5` を明示して持つ。`review.config.json` の `pricing` は `harness.config.json` とは別に持ち、公式の値（下の「費用」）で書くので、`harness.config.json` の推定値（2026-09 時点）とは違うことがある。`harness.config.json` は変えない。
 
 ## 7. 費用
@@ -178,6 +180,8 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 
 **上限**：`budget.monthlyUsd` を超えたら Claude を呼ばず `outcome: budget-exceeded` を記録する。`budget.perReviewUsd` は材料とツールの呼び出しの見込み（下の「キャッシュの置き方」の式）で事前に確かめる（超えたら `outcome: too-large`）。KV は結果整合なので月の上限は目安（数件の超過はあり得る）。
 
+**上限をダッシュボードで変える**：Worker の Settings → Variables and Secrets で、`BUDGET_MONTHLY_USD`（月）・`BUDGET_PER_REVIEW_USD`（1 レビュー）を Type Text で入れると、`review.config.json` の `budget` をその値で上書きする（保存するとその場で新しい版が出る。PR は要らない）。消せば `review.config.json` の値に戻る。`wrangler.jsonc` の `keep_vars: true` でデプロイの後も残る。正の数として読めない値（数でない・0 以下）を入れたときは、既定に戻さず Claude を呼ばずに `budget-exceeded` を記録し（記録に `budgetInvalid: true`）、ログに `budget invalid` を出す。使った上限は毎回ログの `budget limits monthlyUsd=… perReviewUsd=…` の行に出る。
+
 **キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置きだけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。Reviewer と Risk が同じモデルのときは Risk の問いが Reviewer の書いた system＋材料のキャッシュを読み（今の既定は別モデルなので Risk は自分の材料を書き込む）、ツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。今の設定（Reviewer Opus 5.5・Risk Sonnet 5.5）では材料 20k で Reviewer＋Risk 約 $1.4、60k で約 $1.9（Reviewer の分は変わらず、Risk の分が半額）。Risk のキャッシュは Reviewer（Opus）と共有できない（キャッシュはモデルごと）。Risk の材料は Sonnet の単価で書き込む。
 
 **実測**：
@@ -187,7 +191,7 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 | 2026-10-13 | #959（7 ファイル +68/−16） | 930k / 6.5k / 4.7k | $3.83 | 89 | キャッシュ無し（system の前置きだけ）。ツール 12 回で会話全体を送り直した |
 | | | | | | 直した後の最初のレビューを人が記入する |
 
-**比較の計画（Phase 4）**：同じ PR を (1) 既存の判定（`agent-verdict`）、(2) Opus 全部、(3) Sonnet 全部、(4) Sonnet → Opus、(5) Batches で評価し、指摘の一致（同じ問題を見つけたか・重大な見逃し・無いバグの指摘）、Risk の level と 8問の一致、所要時間、USD を表にする。モデルの切り替えは `review.config.json` だけで行う。Risk の level と 8 問の一致は Risk のモデル（記録の `models.risk`）ごとに分けて数え、Sonnet で一致率が下がっていれば `riskModel` を Opus に戻す。
+**比較の計画（Phase 4）**：同じ PR を (1) 既存の判定（`agent-verdict`）、(2) Opus 全部、(3) Sonnet 全部、(4) Sonnet → Opus、(5) Batches で評価し、指摘の一致（同じ問題を見つけたか・重大な見逃し・無いバグの指摘）、Risk の level と 8問の一致、所要時間、USD を表にする。モデルの切り替えは `review.config.json` だけで行う。Risk の level と 8 問の一致は Risk のモデル（記録の `models.risk`）ごとに分けて数え、Sonnet で一致率が下がっていれば `riskModel` を Opus に戻す。文書だけの PR は記録の `models` で分けて数える。
 
 ## 8. セットアップ手順
 
@@ -212,6 +216,8 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 3. 作成後、Settings → Builds で、Preview builds（main 以外のブランチのビルド）を無効にし（Agent の PR ブランチの push でビルドが走らないように）、Build watch paths の Include paths を `review-api/**` にし（review-api に関係ない Merge でビルドが走らないように）、API token が「unavailable」なら新しく作るか既存のものを選ぶ（無いとビルドがデプロイできない）。
 4. Settings → Variables and Secrets で、節 8.3 の秘密の3つを **Type を Secret** にして入れる。秘密でない5つはダッシュボードで入れず、`wrangler.jsonc` の `vars` に書く（デプロイで入る）。前の手順で5つをダッシュボードに入れていたら、Secret でも Text でも、`vars` を足す変更の Merge の前に消す（同じ名前の Secret が残っているとデプロイが失敗する）。
 
+Observability（Worker のログ）は `wrangler.jsonc` の `observability` で on にしている。ダッシュボードで切り替えても、次のデプロイで `wrangler.jsonc` の値に戻る。
+
 手元で wrangler を使うのは `wrangler dev`（節 9）だけ。
 
 ### 8.3 必要な Secrets・変数と権限の一覧
@@ -226,8 +232,10 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 | `ALLOWED_REPOS` | var | `review-api/wrangler.jsonc` の `vars` | 受け付けるリポジトリ（`<owner>/<repo>`。カンマ区切り） |
 | `REVIEW_APP_LOGIN` | var | `review-api/wrangler.jsonc` の `vars` | レビュー専用 App の bot の login（例 `<slug>[bot]`）。前回の記録・同じ head の記録をこの名義のコメントに絞る |
 | `GATE_APP_LOGIN` | var | `review-api/wrangler.jsonc` の `vars` | plan-gate の記録を書く既存 App の bot の login。この名義の計画を読む |
+| `BUDGET_MONTHLY_USD` | var（任意） | Cloudflare の Worker（ダッシュボード、Type Text） | 月の上限の上書き（節 7）。無ければ `review.config.json` の値 |
+| `BUDGET_PER_REVIEW_USD` | var（任意） | Cloudflare の Worker（ダッシュボード、Type Text） | 1 レビューの上限の上書き（節 7）。無ければ `review.config.json` の値 |
 
-秘密でない5つは `wrangler.jsonc` の `vars` に書き、ダッシュボードでは入れない。`wrangler deploy`（Workers Builds）は `wrangler.jsonc` に無いダッシュボードの Text の変数を消す（Secret は残る）ので、ダッシュボードに Text で入れた値は次のデプロイで黙って消え、Worker が止まる（2026-10-13 に `ALLOWED_REPOS` が消えて `repo-not-allowed` で止まった。#985）。秘密の3つは `wrangler.jsonc` に書かない。
+識別子の5つは `wrangler.jsonc` の `vars` に書き、ダッシュボードでは入れない（変更はレビューを通す）。運用で変える上限の2つはダッシュボードで入れる。`wrangler deploy`（Workers Builds）は、`wrangler.jsonc` の `keep_vars: true` で `wrangler.jsonc` に無いダッシュボードの変数を残し、`vars` にある名前は `wrangler.jsonc` の値で上書きする（`keep_vars` が無かった 2026-10-13 には、ダッシュボードに Text で入れた `ALLOWED_REPOS` がデプロイで消えて `repo-not-allowed` で止まった。#985）。秘密の3つは `wrangler.jsonc` に書かない。
 
 **ほかのリポジトリへの転用**：導入先ごとに変える値は `wrangler.jsonc` の `name`・KV の id・`vars` の5つで、秘密の3つは導入先の Cloudflare の Secret に入れる。同じ owner の別のリポジトリは、レビュー専用 App をそこにもインストールし（同じ installation になる）、`ALLOWED_REPOS` にカンマ区切りで足せば、1つの Worker で受けられる。
 
@@ -290,5 +298,5 @@ main への Merge で Cloudflare の Workers Builds がビルドしてデプロ�
 | --- | --- | --- |
 | レビュー専用の GitHub App を作る | 新しい名義と Webhook の作成（セキュリティ） | 作る（権限は節8.1） |
 | Cloudflare の plan | 課金の発生 | Free で始め、CPU の制限に当たったら Paid（$5/月） |
-| Claude API のキー | 課金の発生。Console のワークスペースで上限（月の spend limit）を切れる | 専用のワークスペースを作り、月の上限を `budget.monthlyUsd` と同じにする |
+| Claude API のキー | 課金の発生。Console のワークスペースで上限（月の spend limit）を切れる | 専用のワークスペースを作り、月の上限を `budget.monthlyUsd` と同じにする（`BUDGET_MONTHLY_USD` で上書きしたらその値に合わせる） |
 | Risk を Sonnet 5.5 のままにするか | 精度と費用の取り引き | 比較で一致率が下がらなければ Sonnet のまま |

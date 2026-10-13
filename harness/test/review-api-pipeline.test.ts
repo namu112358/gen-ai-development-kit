@@ -9,135 +9,30 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import type { ContentBlock, Message, MessagesClient, MessagesParams } from '../../review-api/src/claude.ts';
+import type { Message, MessagesParams } from '../../review-api/src/claude.ts';
 import type { ReviewConfig } from '../../review-api/src/config.ts';
-import { createGitHubClient } from '../../review-api/src/github.ts';
-import { createToolRunner, estimateLoopUsd, runReview, type ReviewOutcome, type ReviewParams } from '../../review-api/src/pipeline.ts';
-import { parseShadowComment, renderShadowComment, type ShadowRecord } from '../../review-api/src/record.ts';
-import { composeShadowVerdict, RISK_QUESTIONS, type Noul, type RiskOutput, type RiskQuestionKey } from '../../review-api/src/verdict.ts';
-
-const GATE = 'agent-harness[bot]';
-const REVIEWER = 'review-api[bot]';
-const HEAD = 'a'.repeat(40);
-const OTHER = 'b'.repeat(40);
-const MODEL = 'claude-opus-5-5';
-const TOKEN = 'ghs_FAKETOKEN911abcdef';
-const API_KEY = 'sk-ant-api03-FAKEKEY911';
-const NOW = Date.UTC(2026, 9, 13);
-const REVIEW_KEY = `review:o/r:5:${HEAD}`;
-const COST_KEY = 'cost:2026-10';
-// 1回の問いの usage（入力 1000・出力 100）の料金は 0.005 + 0.0025
-const CALL_USD = 0.0075;
-
-const baseConfig = (): ReviewConfig => ({
-  trigger: { actions: ['opened'], skipBotSenders: true, branchPrefix: 'claude/', requireClosesIssue: false, settleSeconds: 0 },
-  claude: { reviewModel: MODEL, riskModel: MODEL, effort: 'high', maxTokens: 1000, maxToolCalls: 10, maxDiffChars: 10000, maxFileChars: 100, diffOnlyExtensions: [] },
-  budget: { monthlyUsd: 10, perReviewUsd: 5 },
-  pricing: { [MODEL]: { input: 5, output: 25, cacheWrite5m: 6.25, cacheWrite1h: 10, cacheRead: 0.5 } },
-});
-const params = (config = baseConfig()): ReviewParams => ({ owner: 'o', repo: 'r', pr: 5, headSha: HEAD, gateAppLogin: GATE, reviewAppLogin: REVIEWER, config });
-
-const comment = (id: number, login: string, body: string) => ({ id, body, user: { login }, author_association: 'NONE' });
-const RISK_OK: RiskOutput = {
-  level: 'low',
-  answers: Object.fromEntries(RISK_QUESTIONS.map((q) => [q.key, q.safe])) as Record<RiskQuestionKey, Noul>,
-  rationale: 'r',
-  facts: { references: '', tests: '', fileKinds: '' },
-};
-const REVIEW_OK = { pass: true, blocking: [], nonBlocking: [] as string[] };
-const shadowComment = (id: number, login: string, headSha: string) => {
-  const record: ShadowRecord = {
-    version: 1, pr: 5, headSha,
-    verdict: composeShadowVerdict({ pr: 5, headSha, reviewer: REVIEW_OK, risk: RISK_OK, model: MODEL }),
-    models: { review: MODEL, risk: MODEL }, usage: {}, usd: null, durationSec: 1,
-  };
-  return comment(id, login, renderShadowComment(record));
-};
-
-type Pr = { state: string; merged?: boolean; head: string };
-const DIFF = ['diff --git a/src/a.ts b/src/a.ts', '--- a/src/a.ts', '+++ b/src/a.ts', '@@ -1 +1 @@', '-old', '+new', ''].join('\n');
-const FILES: Record<string, string> = { 'src/a.ts': 'new', '.env': 'SECRET=1', 'config/server.key': 'KEY' };
-const TREE = {
-  sha: HEAD,
-  truncated: false,
-  tree: [
-    { path: 'src', type: 'tree', sha: '1' },
-    { path: 'src/a.ts', type: 'blob', sha: '2' },
-    { path: '.env', type: 'blob', sha: '3' },
-    { path: 'config/server.key', type: 'blob', sha: '4' },
-  ],
-};
-
-// URL で振り分ける偽の GitHub。state は Claude の呼び出しの後に書き換えられる（投稿の直前の取り直しを見るため）
-function fakeGitHub(state: { pr: Pr; comments: ReturnType<typeof comment>[] }) {
-  const calls: string[] = [];
-  const posted: string[] = [];
-  const json = (v: unknown) => new Response(JSON.stringify(v), { headers: { 'content-type': 'application/json' } });
-  const fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const raw = String(input instanceof Request ? input.url : input);
-    calls.push(raw);
-    const url = new URL(raw);
-    const p = url.pathname.replace('/repos/o/r', '');
-    if (p === '/pulls/5') {
-      const { state: s, merged = false, head } = state.pr;
-      return json({ number: 5, title: 'PR の題', body: '説明', state: s, merged, draft: true, head: { ref: 'h', sha: head }, base: { ref: 'main', sha: OTHER }, user: null });
-    }
-    if (p === '/issues/5/comments' && init?.method === 'POST') {
-      const body = (JSON.parse(String(init.body)) as { body: string }).body;
-      posted.push(body);
-      return json(comment(99, REVIEWER, body));
-    }
-    if (p === '/issues/5/comments') return json(state.comments);
-    if (p === `/compare/main...${HEAD}`) return new Response(DIFF);
-    if (p === `/git/trees/${HEAD}`) return json(TREE);
-    const file = p.startsWith('/contents/') ? FILES[decodeURIComponent(p.slice('/contents/'.length))] : undefined;
-    if (file !== undefined && url.searchParams.get('ref') === HEAD) return new Response(file);
-    return new Response('not found', { status: 404 });
-  }) as typeof globalThis.fetch;
-  return { gh: createGitHubClient({ token: TOKEN, owner: 'o', repo: 'r', fetch }), calls, posted };
-}
-
-const msg = (content: ContentBlock[], stop_reason: string): Message => ({ model: MODEL, content, stop_reason, usage: { input_tokens: 1000, output_tokens: 100 } });
-const answer = (v: unknown): Message => msg([{ type: 'text', text: JSON.stringify(v) }], 'end_turn');
-
-// 1回の runReview を偽の依存で回す。afterClaude は Claude を2回呼んだ後に GitHub の state を書き換える
-async function run(opts: {
-  pr?: Pr;
-  comments?: ReturnType<typeof comment>[];
-  kv?: Record<string, string>;
-  config?: ReviewConfig;
-  responses?: Message[];
-  afterClaude?: (state: { pr: Pr; comments: ReturnType<typeof comment>[] }) => void;
-} = {}) {
-  const state = { pr: opts.pr ?? { state: 'open', head: HEAD }, comments: opts.comments ?? [] };
-  const { gh, calls, posted } = fakeGitHub(state);
-  const kv = new Map(Object.entries(opts.kv ?? {}));
-  const claudeCalls: MessagesParams[] = [];
-  const responses = opts.responses ?? [answer(REVIEW_OK), answer(RISK_OK)];
-  const claude: MessagesClient = {
-    async create(p) {
-      claudeCalls.push(structuredClone(p));
-      const r = responses[claudeCalls.length - 1];
-      if (r === undefined) throw new Error('偽の Claude の応答が足りない');
-      if (claudeCalls.length === 2) opts.afterClaude?.(state);
-      return r;
-    },
-  };
-  const logs: string[] = [];
-  const result = await runReview(
-    {
-      github: { reader: async () => gh, writer: async () => gh },
-      claude,
-      kv: { get: async (k) => kv.get(k) ?? null, put: async (k, v) => void kv.set(k, v) },
-      now: () => NOW,
-      log: (line) => logs.push(line),
-      secrets: [API_KEY],
-    },
-    params(opts.config),
-  );
-  const record = kv.has(REVIEW_KEY) ? (JSON.parse(kv.get(REVIEW_KEY)!) as { outcome: string }) : null;
-  return { result, calls, posted, kv, claudeCalls, logs, record };
-}
+import { createToolRunner, estimateLoopUsd, type ReviewOutcome } from '../../review-api/src/pipeline.ts';
+import { parseShadowComment } from '../../review-api/src/record.ts';
+import {
+  answer,
+  API_KEY,
+  baseConfig,
+  CALL_USD,
+  COST_KEY,
+  fakeGitHub,
+  GATE,
+  HEAD,
+  MODEL,
+  msg,
+  OTHER,
+  REVIEW_KEY,
+  REVIEW_OK,
+  REVIEWER,
+  RISK_OK,
+  run,
+  shadowComment,
+  TOKEN,
+} from './support/review-api-pipeline.ts';
 
 test('estimateLoopUsd はツールのループと prompt caching を織り込んだ式で見積もり、単価の無いモデルは null', () => {
   // JSON.stringify({ system, tools, messages }) は 68 文字 → m = 34。maxFileChars 100 → t = 50、output は毎回 2000
@@ -203,6 +98,25 @@ test('outcome ごとに Claude の呼び出しの数・投稿・KV の review: �
     if (name.startsWith('KV に')) assert.equal(r.kv.get(REVIEW_KEY), opts!.kv![REVIEW_KEY], `${name}: 上書きしない`);
     else assert.equal(r.record?.outcome, outcome, `${name}: KV の記録`);
     if (claudeCount === 0) assert.equal(r.kv.get(COST_KEY), opts?.kv?.[COST_KEY], `${name}: 月の累計は変えない`);
+  }
+});
+
+test('上限が正の有限の数でない（NaN）ときは Claude を呼ばずに budget-exceeded で止まり、KV の記録に budgetInvalid: true を入れる（Issue #989）', async () => {
+  const cases: [string, (c: ReviewConfig) => void][] = [
+    ['monthlyUsd が NaN', (c) => (c.budget.monthlyUsd = NaN)],
+    ['perReviewUsd が NaN', (c) => (c.budget.perReviewUsd = NaN)],
+  ];
+  for (const [name, mutate] of cases) {
+    const config = baseConfig();
+    mutate(config);
+    const r = await run({ config });
+    assert.equal(r.result.outcome, 'budget-exceeded', name);
+    assert.equal(r.claudeCalls.length, 0, `${name}: Claude の呼び出し`);
+    assert.equal(r.posted.length, 0, `${name}: 投稿`);
+    assert.equal(r.record?.outcome, 'budget-exceeded', `${name}: KV の記録`);
+    assert.equal((r.record as { budgetInvalid?: unknown } | null)?.budgetInvalid, true, `${name}: budgetInvalid`);
+    assert.equal(r.kv.get(COST_KEY), undefined, `${name}: 月の累計は変えない`);
+    assert.ok(r.logs.some((l) => l.includes('budget invalid')), `${name}: ログ ${r.logs.join(' | ')}`);
   }
 });
 

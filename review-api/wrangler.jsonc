@@ -3,6 +3,10 @@
   "name": "gen-ai-development-kit-review-api",
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
+  // Worker のログ（Observability）。wrangler deploy はここに無い設定をダッシュボードの値ごと off に戻すので、ここで on にする
+  "observability": { "enabled": true },
+  // ダッシュボードの変数（費用の上限 BUDGET_MONTHLY_USD・BUDGET_PER_REVIEW_USD など）をデプロイで消さない。vars にある名前はここの値が入る
+  "keep_vars": true,
   "workflows": [
     { "name": "review-workflow", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }
   ],

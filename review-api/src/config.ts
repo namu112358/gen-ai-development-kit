@@ -20,6 +20,9 @@ export interface ReviewConfig {
     maxDiffChars: number;
     maxFileChars: number;
     diffOnlyExtensions: string[];
+    docsOnly?: { extensions: string[]; model: string };
+    /** false なら、Reviewer と Risk のモデルが違っても Risk を Reviewer のモデルで比べない（無ければ比べる） */
+    riskCompare?: boolean;
   };
   budget: { monthlyUsd: number; perReviewUsd: number };
   pricing: Record<string, ModelPricing>;
@@ -97,6 +100,25 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
     }
   }
 
+  let docsOnly: { extensions: string[]; model: string } | undefined;
+  if (isObject(raw) && isObject(root.claude) && claude.docsOnly !== undefined) {
+    const d = claude.docsOnly;
+    if (!isObject(d)) {
+      fail('claude.docsOnly', 'オブジェクト');
+    } else {
+      const exts = d.extensions;
+      let extensions: string[] = [];
+      if (Array.isArray(exts) && exts.length > 0 && exts.every((e) => typeof e === 'string' && e.startsWith('.') && e !== '.')) {
+        extensions = exts as string[];
+      } else {
+        fail('claude.docsOnly.extensions', "'.' で始まる文字列の空でない配列");
+      }
+      docsOnly = { extensions, model: str(d, 'claude.docsOnly', 'model') };
+    }
+  }
+
+  const riskCompare = Object.hasOwn(claude, 'riskCompare') ? claude.riskCompare : undefined;
+  if (Object.hasOwn(claude, 'riskCompare') && typeof riskCompare !== 'boolean') fail('claude.riskCompare', '真偽値');
   const out: ReviewConfig = {
     trigger: {
       actions,
@@ -114,6 +136,8 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
       maxDiffChars: posInt(claude, 'claude', 'maxDiffChars'),
       maxFileChars: posInt(claude, 'claude', 'maxFileChars'),
       diffOnlyExtensions,
+      ...(docsOnly !== undefined ? { docsOnly } : {}),
+      ...(typeof riskCompare === 'boolean' ? { riskCompare } : {}),
     },
     budget: {
       monthlyUsd: posNum(budget, 'budget', 'monthlyUsd'),
@@ -146,4 +170,32 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
 
   if (errors.length > 0) throw new Error(`review.config.json の誤り（${errors.length} 件）\n${errors.join('\n')}`);
   return out;
+}
+
+/** 費用の上限を上書きする Worker の環境変数（ダッシュボードの変数。docs/review-api.md の節7） */
+export interface BudgetEnv {
+  BUDGET_MONTHLY_USD?: string;
+  BUDGET_PER_REVIEW_USD?: string;
+}
+
+/**
+ * env の上限で config.budget を上書きした新しい設定を返す（元の config は変えない）。
+ * 無い・空なら review.config.json の値のまま。有限の正の数として読めなければその上限を NaN にし、名前を invalid に入れる
+ * （黙って既定に戻さず、budget の段階で止める）。
+ */
+export function applyBudgetEnv(config: ReviewConfig, env: BudgetEnv): { config: ReviewConfig; invalid: string[] } {
+  const invalid: string[] = [];
+  const pick = (name: keyof BudgetEnv, fallback: number): number => {
+    const raw = env[name]?.trim() ?? '';
+    if (raw === '') return fallback;
+    const v = Number(raw);
+    if (Number.isFinite(v) && v > 0) return v;
+    invalid.push(name);
+    return NaN;
+  };
+  const budget = {
+    monthlyUsd: pick('BUDGET_MONTHLY_USD', config.budget.monthlyUsd),
+    perReviewUsd: pick('BUDGET_PER_REVIEW_USD', config.budget.perReviewUsd),
+  };
+  return { config: { ...config, budget }, invalid };
 }
