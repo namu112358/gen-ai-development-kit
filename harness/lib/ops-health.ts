@@ -1,6 +1,6 @@
 import { extractBlock } from './blocks.ts';
 import { areaLimitLabels, describeFullAreas, fullAreas } from './concurrency.ts';
-import type { HarnessConfig } from './config.ts';
+import type { HarnessConfig, OpsHealthThresholds } from './config.ts';
 import { GitHub, type IssueComment, type RequestOptions, type Transport } from './github.ts';
 import { stalledClaims, renderStalledClaimLine, type StalledClaimInput } from './stalled-claim.ts';
 import { bodyIssueRefs, isTrustedComment, type PullRequest } from './state.ts';
@@ -15,6 +15,8 @@ import { renderUnclaimedJudgeLine, unclaimedJudgePrs, type UnclaimedJudgeInput }
  * budgetedGitHub は渡された GitHub に GET だけを取り次ぎ、上限を超える GET と GET 以外は呼ばずに誤りにする（Epic #417、Issue #690）。
  */
 
+export type { OpsHealthThresholds };
+
 export const OPS_ITEM_IDS = [
   'schedule-gap', 'rate-limit', 'failed-gate', 'gate-runs', 'ci-load', 'pr-stall', 'requeue',
   'stalled-claim', 'plan-backlog', 'epic-drift', 'link-mismatch', 'stale-worktree', 'area-full', 'review-panel',
@@ -25,13 +27,6 @@ export type OpsItem =
   | { id: OpsItemId; title: string; available: true; value: number; threshold: number; exceeded: boolean; evidence: string[] }
   | { id: OpsItemId; title: string; available: false; reason: string };
 type Judged = Extract<OpsItem, { available: true }>;
-
-export interface OpsHealthThresholds {
-  scheduleGapMinutes: number; rateLimitFailures: number; failedGateMinutes: number; gateRunsPerDay: number;
-  ciJobMinutes: number; readyHours: number; prOpenHours: number; requeueCount: number; claimIdleMinutes: number;
-  planReviewCount: number; unplannedIssueCount: number; epicDrift: number; linkMismatch: number; staleWorktrees: number;
-  areaFullMinutes: number; reviewPanelFailures: number; maxGets: number;
-}
 
 export const OPS_HEALTH_DEFAULTS: OpsHealthThresholds = {
   scheduleGapMinutes: 90, rateLimitFailures: 1, failedGateMinutes: 60, gateRunsPerDay: 600, ciJobMinutes: 10,
