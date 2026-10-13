@@ -9,7 +9,7 @@ import { Checker } from './validate.ts';
 /**
  * 確認事項（```agent-confirm）と、それへの人の答え（Issue #949・#953）。
  * 付き添いのセッションは、人の判断が要る場面で止まって待たずに、確認事項を対象の Issue か PR にコメントで書き（`agent.ts post-confirm`）、ほかの作業を続ける。
- * 人はコメントで答え、そのコメントがそのまま人の名義の決定の記録になる。step・fleet-status の待つ・再開は #954、書式の説明（harness/docs/formats.md）も #954 で入る。
+ * 人はコメントで答え、そのコメントがそのまま人の名義の決定の記録になる。step・fleet-status の待つ・再開は fleet.ts の confirmState・resumeAllowed と step.ts の decideStep、書式の説明は harness/docs/formats.md の「確認事項（agent-confirm）」。
  *
  * 確認事項の値：{ version: 1, target, stage, resume, questions: [{ text, why, choices? }], holds }
  * - target はコメント先の Issue か PR の番号。stage は止めた段階、resume は答えの後に再開する段階（CONFIRM_STAGES。resume は stage と同じか手前）
@@ -228,10 +228,13 @@ const stageIndex = (stage: string | undefined): number => (stage === undefined ?
 
 /**
  * コメント（Issue と PR のものを合わせてよい）から確認事項と答えの組を古い順に作る。
+ * コメント先の番号は、targetOf があればそれで決め（null を返すコメントは確認事項として読まない）、無ければ html_url から読む。
+ * targetOf があるときは、答えも targetOf の番号が確認事項の target と同じコメントだけを読む（html_url の形に依らず、Issue と PR の取り違えを防ぐため）。
  * resumed は、答えのコメントの created_at より後の claim.at を持ち、段階が resume と同じか先（CLAIM_STAGES の順）の宣言があるか（どのセッションでも、解除も含む）。
  * 比べるのは claims の要素の claim.at（history の段階は段階の at）で、要素の at（先頭の段階と history の無い宣言はコメントの created_at）ではない。段階の無い要素は数えない
  */
-export function confirmFacts(comments: IssueComment[], claims: ClaimTimelineItem[]): ConfirmFact[] {
+export function confirmFacts(comments: IssueComment[], claims: ClaimTimelineItem[], targetOf?: (c: IssueComment) => number | null): ConfirmFact[] {
+  const targetFor = targetOf ?? commentTarget;
   const sorted = [...comments].sort((a, b) => a.id - b.id);
   const facts: ConfirmFact[] = [];
   for (const c of sorted) {
@@ -239,11 +242,12 @@ export function confirmFacts(comments: IssueComment[], claims: ClaimTimelineItem
     const block = extractBlock(c.body, 'agent-confirm');
     if (!block.found || !block.ok) continue;
     const parsed = parseConfirm(block.value);
-    if (!parsed.ok || commentTarget(c) !== parsed.value.target) continue;
+    if (!parsed.ok || targetFor(c) !== parsed.value.target) continue;
     const confirm = { commentId: c.id, value: parsed.value };
     let answer: ConfirmFact['answer'] = null;
     for (const r of sorted) {
       if (r.id <= c.id) continue;
+      if (targetOf !== undefined && targetOf(r) !== parsed.value.target) continue;
       const a = confirmAnswerOf(confirm, r);
       if (a.ok) {
         answer = { commentId: r.id, url: r.html_url, createdAt: r.created_at, answers: a.value.answers };
