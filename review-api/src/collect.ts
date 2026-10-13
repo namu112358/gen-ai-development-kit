@@ -10,6 +10,8 @@ export interface MaterialFile {
   path: string;
   content: string;
   truncated: boolean;
+  /** 全文を省いた（変更は diff にある）。設定の claude.diffOnlyExtensions に当たる拡張子 */
+  diffOnly?: true;
 }
 
 export interface Material {
@@ -45,6 +47,12 @@ function latestPlan(comments: IssueComment[], appLogin: string): unknown | null 
   return plan === undefined || plan === null ? null : plan;
 }
 
+// 拡張子（大文字・小文字を区別しない末尾一致）が claude.diffOnlyExtensions に当たるか。当たるファイルは全文を読まず diff だけを渡す（Issue #990）
+function isDiffOnly(path: string, extensions: string[]): boolean {
+  const lower = path.toLowerCase();
+  return extensions.some((e) => lower.endsWith(e.toLowerCase()));
+}
+
 // diff の変更ファイル（追加・変更）のパス。diff --git から最初の @@ か次の diff --git までをヘッダーとし、
 // その中の `+++ b/<path>` だけを見る（追加した行の本文は hunk の中なので取り違えない）。
 // 削除（+++ /dev/null）、+++ の無いもの（バイナリ・名前だけ・モードだけの変更）、引用符で囲まれたパスは除く。重複は1回
@@ -69,7 +77,7 @@ export async function collectMaterial(
   config: Pick<ReviewConfig, 'claude'>,
   input: { owner: string; repo: string; pr: number; headSha: string; appLogin: string; reviewLogin: string },
 ): Promise<Material> {
-  const { maxDiffChars, maxFileChars } = config.claude;
+  const { maxDiffChars, maxFileChars, diffOnlyExtensions } = config.claude;
   const pr = await gh.getPr(input.pr);
 
   let issue: Material['issue'] = null;
@@ -84,6 +92,10 @@ export async function collectMaterial(
   const fullDiff = await gh.compareDiff(pr.base.ref, input.headSha);
   const files: MaterialFile[] = [];
   for (const path of changedPaths(fullDiff)) {
+    if (isDiffOnly(path, diffOnlyExtensions)) {
+      files.push({ path, content: '', truncated: false, diffOnly: true });
+      continue;
+    }
     const content = await gh.getFileContent(path, input.headSha);
     if (content === null) continue;
     files.push({ path, content: content.slice(0, maxFileChars), truncated: content.length > maxFileChars });

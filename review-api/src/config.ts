@@ -19,6 +19,7 @@ export interface ReviewConfig {
     maxToolCalls: number;
     maxDiffChars: number;
     maxFileChars: number;
+    diffOnlyExtensions: string[];
   };
   budget: { monthlyUsd: number; perReviewUsd: number };
   pricing: Record<string, ModelPricing>;
@@ -80,6 +81,16 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
     }
   }
 
+  const rawDiffOnly = claude.diffOnlyExtensions;
+  let diffOnlyExtensions: string[] = [];
+  if (isObject(raw) && isObject(root.claude)) {
+    if (Array.isArray(rawDiffOnly) && rawDiffOnly.every((e) => typeof e === 'string' && e.startsWith('.') && e !== '')) {
+      diffOnlyExtensions = rawDiffOnly as string[];
+    } else {
+      fail('claude.diffOnlyExtensions', "'.' で始まる文字列の配列（空配列可）");
+    }
+  }
+
   const out: ReviewConfig = {
     trigger: {
       actions,
@@ -95,6 +106,7 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
       maxToolCalls: posInt(claude, 'claude', 'maxToolCalls'),
       maxDiffChars: posInt(claude, 'claude', 'maxDiffChars'),
       maxFileChars: posInt(claude, 'claude', 'maxFileChars'),
+      diffOnlyExtensions,
     },
     budget: {
       monthlyUsd: posNum(budget, 'budget', 'monthlyUsd'),
