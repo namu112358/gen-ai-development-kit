@@ -80,17 +80,17 @@ test('panesConfig：60 以上の整数でなければ throw する', () => {
 
 // ---- 設定ファイル ----
 
-for (const [name, path, maxFleets, maxParallelShips] of [
-  ['harness.config.json', join(root, 'harness.config.json'), 5, 10],
-  ['雛形（harness/templates/harness.config.json）', join(root, 'harness', 'templates', 'harness.config.json'), 2, 6],
+for (const [name, path, shipMode, maxFleets, maxParallelShips] of [
+  ['harness.config.json', join(root, 'harness.config.json'), 'worker', 5, 10],
+  ['雛形（harness/templates/harness.config.json）', join(root, 'harness', 'templates', 'harness.config.json'), 'subagent', 2, 6],
 ] as const) {
-  test(`${name}：fleet.shipMode subagent・hq.maxFleets ${maxFleets}・panes.collectIntervalSeconds 180 が入り、読める`, () => {
+  test(`${name}：fleet.shipMode ${shipMode}・hq.maxFleets ${maxFleets}・panes.collectIntervalSeconds 180 が入り、読める`, () => {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as { fleet?: { shipMode?: unknown }; hq?: { maxFleets?: unknown }; panes?: { collectIntervalSeconds?: unknown } };
-    assert.equal(raw.fleet?.shipMode, 'subagent');
+    assert.equal(raw.fleet?.shipMode, shipMode);
     assert.equal(raw.hq?.maxFleets, maxFleets);
     assert.equal(raw.panes?.collectIntervalSeconds, 180);
     const config = readJson(path);
-    assert.deepEqual(shipModeConfig(config), { shipMode: 'subagent', stopReason: null });
+    assert.deepEqual(shipModeConfig(config), { shipMode, stopReason: null });
     assert.deepEqual(hqConfig(config), { maxFleets, maxParallelShips });
     assert.deepEqual(panesConfig(config), { collectIntervalSeconds: 180 });
     assert.deepEqual(Object.keys(fleetConfig(config)).sort(), ['maxParallelShips', 'nesting']);
