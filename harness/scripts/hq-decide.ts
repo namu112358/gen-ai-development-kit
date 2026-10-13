@@ -14,16 +14,16 @@
  *     届いた便りの振り分け（手順7）。--wake は hq-watch.ts の {"wake":"messages",...} の出力。出力：{ deliveryId, items: [{ id, type, subject, from, dispatch, action }] }。
  *   node harness/scripts/hq-decide.ts takeover --theme <テーマ> --fleet-status <file> [--ledger <file>]
  *     起こし直す fleet の着手宣言を、人に聞かずに引き継いでよいか（手順9・10。#770）。--fleet-status は起こし直す fleet の Issue 番号を渡した `fleet-status --json` の出力。
- *     自分（own）でない宣言のうち、控えのそのテーマの fleet の session と priorSessions[テーマ] にあるものが known、無いもの（session が null・控えが無いときは全部）が unknown。
+ *     自分（own）でない宣言のうち、控えのそのテーマの fleet の session と、priorSessions[テーマ] のうち at が staleHours（harness.config.json）以内のものにあるものが known、無いもの（期限を過ぎた・at の無い古い形・今より5分を超えて未来の at のもの、session が null、控えが無いときは全部）が unknown。
  *     出力：{ decision: auto | ask | none, theme, known, unknown }（auto は unknown が空で known がある、ask は unknown がある、none は宣言が無い）。
  *
- * 控えの fleets の要素は theme・epic・dispatch・session・issues（Issue 番号の配列）を、最上位の priorSessions（{"<テーマ>": [session…]}）も読む。形の違う値は読み飛ばす。
+ * 控えの fleets の要素は theme・epic・dispatch・session・issues（Issue 番号の配列）を、最上位の priorSessions（{"<テーマ>": [{ "session": "<ID>", "at": "<控えに入れた時刻 ISO>" }…]}）も読む。形の違う値は読み飛ばす。
  * 引数の誤り・読めないファイルは標準エラーに1行書いて終了コード 1。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
 import { readFileSync } from 'node:fs';
 import { fleetConfig, hqConfig, loadConfig } from '../lib/config.ts';
 import type { FleetStatusData, FleetStatusRow } from '../lib/fleet.ts';
-import { gitCommonDir, readLedgerFile, type HqLedger } from './hq-state.ts';
+import { gitCommonDir, readLedgerFile, readPriorSessions, type HqLedger } from './hq-state.ts';
 import type { CheckMessage, WorkerRow } from './hq-watch.ts';
 
 export interface LedgerFleet { theme: string; epic: number | null; dispatch: string; session: string | null; issues: number[] }
@@ -186,15 +186,20 @@ export function handoverDecision(input: HandoverInput): HandoverResult {
 // ---- takeover（手順9・10：hq が自分で起こした fleet の宣言の引き継ぎ） ----
 
 export interface TakeoverClaim { issue: number; pr: number | null; stage: string | null; session: string | null }
-export interface TakeoverInput { theme: string; status: FleetStatusData; ledger: HqLedger | null }
+export interface TakeoverInput { theme: string; status: FleetStatusData; ledger: HqLedger | null; now: Date; staleHours: number }
 export interface TakeoverResult { decision: 'auto' | 'ask' | 'none'; theme: string; known: TakeoverClaim[]; unknown: TakeoverClaim[] }
+
+/** priorSessions の at が今より未来にあってよい時計のずれ（これを超える未来の at は期限切れとみなす） */
+export const PRIOR_SESSION_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 export function takeoverDecision(input: TakeoverInput): TakeoverResult {
   const mine = new Set<string>();
   for (const f of readLedgerFleets(input.ledger)) if (f.theme === input.theme && f.session !== null) mine.add(f.session);
-  const prior = input.ledger?.priorSessions;
-  const list = isObj(prior) ? prior[input.theme] : null;
-  if (Array.isArray(list)) for (const s of list) if (typeof s === 'string' && s !== '') mine.add(s);
+  for (const p of readPriorSessions(input.ledger).get(input.theme) ?? []) {
+    if (p.at === null) continue;
+    const age = input.now.getTime() - Date.parse(p.at);
+    if (age <= input.staleHours * 3_600_000 && -age <= PRIOR_SESSION_CLOCK_SKEW_MS) mine.add(p.session);
+  }
   const known: TakeoverClaim[] = [];
   const unknown: TakeoverClaim[] = [];
   for (const row of input.status.rows) {
@@ -352,6 +357,8 @@ function run(argv: string[]): unknown {
       theme: one(f, '--theme', true) as string,
       status: loadStatus(one(f, '--fleet-status', true) as string),
       ledger: loadLedgerFleets(one(f, '--ledger', false)).raw,
+      now: new Date(),
+      staleHours: loadConfig().staleHours,
     });
   }
   if (cmd === 'route') {
