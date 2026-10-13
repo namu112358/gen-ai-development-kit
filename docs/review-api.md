@@ -2,7 +2,7 @@
 
 reviewer / risk-agent の判定を Claude API + Cloudflare に委ねる試作（Shadow Mode）の調査結果・設計・手順。既存の判定と並走させ、Merge の経路には影響しない。コードは Epic #861 の子課題で `review-api/` に足す。
 
-更新：2026-10-13（デプロイの経路を Workers Builds に変更。外部の仕様と料金は 2026-10-12 に公式の文書で確かめた値）
+更新：2026-10-13（デプロイの経路を Workers Builds に変更。秘密でない設定を `wrangler.jsonc` の `vars` に移した。外部の仕様と料金は 2026-10-12 に公式の文書で確かめた値）
 
 ## 結論
 
@@ -93,11 +93,11 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `src/pipeline.ts` | 段階1〜7を純粋な関数として並べたもの（Workflow と Node のテストが同じコードを動かす） | 共通 |
 | `src/redact.ts` | ログ・コメントから鍵と token を伏せる | 共通 |
 | `review.config.json` | モデル・effort・レビューの条件・上限・単価 | 設定 |
-| `wrangler.jsonc` | Worker・Workflow・KV の束ね方（`vars` は置かない。値は Cloudflare の Secrets）。`name` と KV の id は導入先ごとの値（`harness.config.json` と同じ扱い。review-api を導入先に配るときは `harness/managed.json` の `projectOwned` に雛形で登録する。Cloudflare の Import の既定の名前は `<リポジトリ名>-review-api`） | 設定 |
+| `wrangler.jsonc` | Worker・Workflow・KV の束ね方と、秘密でない設定5つ（`vars`）。秘密の3つは Cloudflare の Secret（節 8.3）。`name`・KV の id・`vars` は導入先ごとの値（`harness.config.json` と同じ扱い。review-api を導入先に配るときは `harness/managed.json` の `projectOwned` に雛形で登録する。Cloudflare の Import の既定の名前は `<リポジトリ名>-review-api`） | 設定 |
 | `package.json` | 依存（`@anthropic-ai/sdk`・`@cloudflare/workers-types` など）と `npm run check` | 設定 |
 | `package-lock.json` | 依存の版の固定 | 設定 |
 | `tsconfig.json` | review-api の型検査の設定 | 設定 |
-| `.dev.vars.example` | `wrangler dev` 用の環境変数の例（実際の値は `.dev.vars` に書き、git に入れない） | 設定 |
+| `.dev.vars.example` | `wrangler dev` 用の秘密と、`scripts/send-webhook.ts` が読む `GITHUB_INSTALLATION_ID` の例（実際の値は `.dev.vars` に書き、git に入れない。ほかは `wrangler.jsonc` の `vars` から読む） | 設定 |
 | `.gitignore` | `node_modules`・`.dev.vars` などを git に入れない | 設定 |
 | `scripts/send-webhook.ts` | 手元の `wrangler dev` に署名つきの Webhook を送る | Node |
 | `README.md` | 構成・コマンド・docs への案内 | 文書 |
@@ -206,24 +206,28 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
    ```
 2. ダッシュボードの Workers & Pages → Create application → Import a repository でこのリポジトリを選ぶ。Project name は `gen-ai-development-kit-review-api`（`wrangler.jsonc` の `name` と一致させる。別の Worker ができないように。Import の既定の名前は `<リポジトリ名>-review-api`）、Root directory は `review-api`、Build command は空、Deploy command は `npx wrangler deploy`。Deploy を押す（Worker のコードがまだ無ければ初回のビルドは失敗して構わない）。
 3. 作成後、Settings → Builds で、Preview builds（main 以外のブランチのビルド）を無効にし（Agent の PR ブランチの push でビルドが走らないように）、Build watch paths の Include paths を `review-api/**` にし（review-api に関係ない Merge でビルドが走らないように）、API token が「unavailable」なら新しく作るか既存のものを選ぶ（無いとビルドがデプロイできない）。
-4. Settings → Variables and Secrets で、節 8.3 の8つを **Type を Secret** にして入れる（識別子も、デプロイで消えないよう Secret として入れる）。
+4. Settings → Variables and Secrets で、節 8.3 の秘密の3つを **Type を Secret** にして入れる。秘密でない5つはダッシュボードで入れず、`wrangler.jsonc` の `vars` に書く（デプロイで入る）。前の手順で5つをダッシュボードに入れていたら、Secret でも Text でも、`vars` を足す変更の Merge の前に消す（同じ名前の Secret が残っているとデプロイが失敗する）。
 
 手元で wrangler を使うのは `wrangler dev`（節 9）だけ。
 
-### 8.3 必要な Secrets と権限の一覧
+### 8.3 必要な Secrets・変数と権限の一覧
 
 | 名前 | 種類 | 置き場所 | 用途 |
 | --- | --- | --- | --- |
 | `GITHUB_WEBHOOK_SECRET` | Secret | Cloudflare の Worker（Settings → Variables and Secrets） | Webhook の署名の検証。`openssl rand -hex 32` で自分で作り、GitHub App の Webhook の secret にも同じ値を入れる |
 | `GITHUB_APP_PRIVATE_KEY` | Secret | Cloudflare の Worker | レビュー専用 App の JWT（App の Credentials → Key pairs → New key で落ちる `.pem` の中身。PKCS#1 でも PKCS#8 でもよい） |
 | `ANTHROPIC_API_KEY` | Secret | Cloudflare の Worker | Claude API |
-| `GITHUB_APP_CLIENT_ID` | Secret | Cloudflare の Worker | JWT の `iss`（秘密ではないが、デプロイで消えないよう Secret として入れる） |
-| `GITHUB_INSTALLATION_ID` | Secret | Cloudflare の Worker | token の発行先と、イベントの照合（同上） |
-| `ALLOWED_REPOS` | Secret | Cloudflare の Worker | 受け付けるリポジトリ（`owner/repo`。カンマ区切り。同上） |
-| `REVIEW_APP_LOGIN` | Secret | Cloudflare の Worker | レビュー専用 App の bot の login（例 `<slug>[bot]`）。前回の記録・同じ head の記録をこの名義のコメントに絞る（同上） |
-| `GATE_APP_LOGIN` | Secret | Cloudflare の Worker | plan-gate の記録を書く既存 App の bot の login。この名義の計画を読む（同上） |
+| `GITHUB_APP_CLIENT_ID` | var | `review-api/wrangler.jsonc` の `vars` | JWT の `iss` |
+| `GITHUB_INSTALLATION_ID` | var | `review-api/wrangler.jsonc` の `vars` | token の発行先と、イベントの照合 |
+| `ALLOWED_REPOS` | var | `review-api/wrangler.jsonc` の `vars` | 受け付けるリポジトリ（`<owner>/<repo>`。カンマ区切り） |
+| `REVIEW_APP_LOGIN` | var | `review-api/wrangler.jsonc` の `vars` | レビュー専用 App の bot の login（例 `<slug>[bot]`）。前回の記録・同じ head の記録をこの名義のコメントに絞る |
+| `GATE_APP_LOGIN` | var | `review-api/wrangler.jsonc` の `vars` | plan-gate の記録を書く既存 App の bot の login。この名義の計画を読む |
 
-`wrangler.jsonc` に置くのは KV の id だけ（秘密ではない）。値は `vars` に書かない（書くとデプロイのたびにダッシュボードの値を上書きする）。既存 App（`AGENT_APP_PRIVATE_KEY`・`AGENT_APP_CLIENT_ID`・`JEV_API_KEY`）は触らない。GitHub Actions の Secrets・変数も増やさない。
+秘密でない5つは `wrangler.jsonc` の `vars` に書き、ダッシュボードでは入れない。`wrangler deploy`（Workers Builds）は `wrangler.jsonc` に無いダッシュボードの Text の変数を消す（Secret は残る）ので、ダッシュボードに Text で入れた値は次のデプロイで黙って消え、Worker が止まる（2026-10-13 に `ALLOWED_REPOS` が消えて `repo-not-allowed` で止まった。#985）。秘密の3つは `wrangler.jsonc` に書かない。
+
+**ほかのリポジトリへの転用**：導入先ごとに変える値は `wrangler.jsonc` の `name`・KV の id・`vars` の5つで、秘密の3つは導入先の Cloudflare の Secret に入れる。同じ owner の別のリポジトリは、レビュー専用 App をそこにもインストールし（同じ installation になる）、`ALLOWED_REPOS` にカンマ区切りで足せば、1つの Worker で受けられる。
+
+既存 App（`AGENT_APP_PRIVATE_KEY`・`AGENT_APP_CLIENT_ID`・`JEV_API_KEY`）は触らない。GitHub Actions の Secrets・変数も増やさない。
 
 ### 8.4 既存 GitHub App の変更要否
 
@@ -234,7 +238,7 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 ```bash
 npm run check                                      # 根の型検査とテスト（review-api の純粋なロジックのテストを含む）
 cd review-api && npm install && npm run check      # Worker / Workflow の型検査
-cp .dev.vars.example .dev.vars                     # 値を埋める（gitignore 済み。vars は wrangler.jsonc に無いので、Client ID・installation id・ALLOWED_REPOS・REVIEW_APP_LOGIN・GATE_APP_LOGIN もここに書く）
+cp .dev.vars.example .dev.vars                     # 秘密の3つと、send-webhook.ts が読む GITHUB_INSTALLATION_ID（wrangler.jsonc の vars と同じ値）を書く（gitignore 済み。ほかは wrangler.jsonc の vars から読む）
 npm run dev                                        # wrangler dev（http://localhost:8787）
 node scripts/send-webhook.ts opened owner/repo 123 <sha>   # 署名つきの Webhook を送る（別の端末）
 ```
