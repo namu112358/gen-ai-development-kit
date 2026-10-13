@@ -1,6 +1,6 @@
 # harness/scripts/dashboard/
 
-エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。GitHub に書くのは、人がすることへの答えの決定の記録のコメント1件だけ（ほかに書くのは手元の受け箱）。
+エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。GitHub に書くのは、人がすることへの答えのコメント1件だけ（計画ゲートの決定の記録と、確認事項への答え。ほかに書くのは手元の受け箱）。
 
 ## 起動
 
@@ -20,7 +20,7 @@ npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-o
 - **タスクの層（辺）**：依存（Issue Dependencies）、Epic → 子 Issue、Stacked PR（base が別の開いた PR の head。PR が入ったカードどうしをつなぐ）、タスク → セッション（着手宣言の `session`、または手元のセッションのブランチ）。凡例のチェックで辺の種類ごとに隠せる。
 - **カードのセッション**：「N セッション」の折りたたみ。閉じていても、動いているセッションかサブエージェントがあれば点滅する。開くとセッションごとの行とサブエージェント。
 - **進み**：画面の上の帯（「人がすること」の上）。開いている Epic ごとの「閉じた数／全体」（Epic の子課題 sub-issues の数。`harness/gates/epic-close.ts` と同じ数え方）、今日の Merge の数（手元の日付の 0 時以降。Merge した人が App（`harness.config.json` の `appSlug`）なら App、それ以外は人）、動いているセッションとサブエージェントの数（下の「手元のセッション」の点滅と同じ判断）。数は `graph.ts` の純粋関数 `buildProgress` が組む。Epic と Merge の数は、まだ読んでいない間は「読み込み中」。
-- **人がすること**：画面の一番上の一覧。Human Merge の PR、計画ゲートで止まった Issue、止まる印（hold・blocked・waiting）の Issue、`priority:*` の無い Issue（label-audit と同じく `agent:*` か `epic` の付いたものだけ）。自動 Merge 待ちは出さない。計画ゲートで止まった Issue の行には答える欄が出る（進める＋書き添え、質問ごとの選択肢のボタンと文の欄、答えられないときはその理由だけ）。
+- **人がすること**：画面の一番上の一覧。Human Merge の PR、計画ゲートで止まった Issue、答えの無い確認事項（```agent-confirm。古い順。Issue と PR のどちらでも。`agent:*` も宣言も PR も無い Issue でも出る）、止まる印（hold・blocked・waiting）の Issue、`priority:*` の無い Issue（label-audit と同じく `agent:*` か `epic` の付いたものだけ）。自動 Merge 待ちは出さない。計画ゲートで止まった Issue の行には答える欄が出る（進める＋書き添え、質問ごとの選択肢のボタンと文の欄、答えられないときはその理由だけ）。確認事項の行にも答える欄が出る（質問ごとに本文・なぜ人が要るか・選択肢のボタン・文の欄。全部の質問に答えがそろうと「答える」を押せる）。
 - **気づきを送る欄**：「人がすること」の下。textarea に書いて「送る」と、手元の受け箱に1件入る（4000 文字まで。intel が拾う）。欄の横に、受け箱の未読の数（「intel の受け箱：未読 N 件」）が出る。未読の数が読めないときはログに出して続け、POST /notes は書き込めていれば 201 を返す（画面の数は次の見回しで直る）。
 - **手元のセッション**：`~/.claude/projects/` のうち、このリポジトリと worktree の置き場所（既定は `<親>/<名前>.worktrees/`。`harness.config.json` の `worktreeRoot` か環境変数 `AGENT_HARNESS_WORKTREE_ROOT` で変えたときはその場所。サーバーの起動時に1回決める）のセッション記録。最後に動いた時刻と、サブエージェント（plan-critic・reviewer など）の種類と最後に動いた時刻。90 秒以内に動いていれば点滅する。右の列には動いているセッションだけを出し、残りは「ほか N 件」に畳む。会話の中身は読まない・送らない。
 
@@ -32,6 +32,13 @@ npm run dashboard [-- --port 4177] [--interval 30] [--min-remaining 0.3] [--no-o
 - `proceed` の `text` は前後の空白を除いて人の言葉のまま `quote` に残り、空なら `quote` は「進める」。`at` はサーバーの時刻、コメントの目印はセッションの ID の無い `CLAUDE_MARK`。
 - `jev.decisionRelease` が `shadow` の間は、答えの記録を出しても App は印を外さない。答えの記録が出た後は、欄が「進める」に変わり、続けて押して `proceed` の記録を出す。
 - 計画そのものを直してほしいとき（`acChangeProposed`・人が付けた印など欄が出ない場合）は、付き添いのセッションに伝える。
+
+### 確認事項への答え
+
+`POST /confirm-answers`（本文は JSON `{ target, confirmCommentId, answers: { to: "question:<添字>", choice?, text? }[] }`）で、確認事項（書式は [harness/docs/formats.md](../../docs/formats.md)）への答え（`agent-confirm-answer`）を、人の名義のコメント1件として投稿する（`confirm.ts`。判定は `harness/lib/confirm.ts` の `confirmFacts`・`confirmAnswerOf`）。画面は `POST /decisions` と同じく確かめの表示を出し、了承すると合言葉を付けて送る。入力・結果は `target` と確認事項のコメントの ID ごとに持つ。
+
+- 投稿の前に対象と確認事項を読み直し、状態が食い違えば 409（開いていない・その ID の確認事項が無い・もう答えがある）、答えの形の誤り（存在しない質問・重複・選択肢にない `choice`・空の答え・答えのそろわない質問・長すぎる文）と `target`・`confirmCommentId`・`answers` の形の誤りは 400。GitHub の読み・書きの失敗は 502（投稿はやり直さない）。できたら 201 と `{ url }`。400・409・502 の本文は `{ errors: string[] }`。
+- `text` は前後の空白を除いて人の言葉のまま `quote` に残り、無ければ `choice`。`at` はサーバーの時刻、目印はセッションの ID の無い `CLAUDE_MARK`。組み立てた本文は `confirmAnswerOf` で答えとして読めると確かめてから投稿する。
 
 ## 更新の仕組み
 
@@ -56,7 +63,7 @@ node harness/scripts/dashboard/digest.ts show [--no-mark]
 
 前回のまとめからの動きと、今の人がすることを短い Markdown にして標準出力に出す（ブラウザは開かない）。見張りと intel の手順（#854）がこれを呼ぶ。
 
-- **中身**：1行目が結論（前回の時刻、Merge の数と App・人の内訳、閉じた Issue と Epic の数、人がすることの数と群ごとの内訳）。続けて「人がすること」を人の Merge 待ち → 計画ゲートで止まった Issue → 止まる印 → 止まっていそうな宣言 の順に3つまで出し、残りは件数とダッシュボードの案内の1行にする。「進んだこと」には Merge した PR（5件まで。残りは件数）・閉じた Epic・閉じた Issue の件数を出す。動きも人がすることも無ければ結論の1行だけ。`priority:*` の不足は出さない。
+- **中身**：1行目が結論（前回の時刻、Merge の数と App・人の内訳、閉じた Issue と Epic の数、人がすることの数と群ごとの内訳（人の Merge 待ち・計画ゲート・確認事項・止まる印・止まっていそうな宣言））。続けて「人がすること」を人の Merge 待ち → 計画ゲートで止まった Issue → 答えの無い確認事項 → 止まる印 → 止まっていそうな宣言 の順に3つまで出し、残りは件数とダッシュボードの案内の1行にする。「進んだこと」には Merge した PR（5件まで。残りは件数）・閉じた Epic・閉じた Issue の件数を出す。動きも人がすることも無ければ結論の1行だけ。`priority:*` の不足は出さない。
 - **前回の時刻**：git の共通ディレクトリの下の `agent-harness/digest/state.json`（`{ "version": 1, "lastDigestAt": "<ISO>" }`）。無い・壊れている・今より後のときは24時間前。`show` は本文を出した後に今の時刻を書き、`--no-mark` では書かない。
 - **材料**：開いた Issue と PR は `DashboardData.loadAll` と `buildGraph`（手元のセッションは渡さない）の `todos` と `tasks`。Merge と閉じた Issue は GraphQL の問い合わせ1回（検索は前回の UTC の日付の前の日から広めに読み、時刻での絞り込みは組み立てで行う。100件を超えれば「N 件以上」）。
 - **止まっていそうな宣言**：ダッシュボードの「停滞」と同じ判断（手動の着手宣言が `humanClaimStaleHours` を超えた）。止まる印・依存・衝突のあるカードの古い宣言は、先にその状態で決まるので、この群には出ない（止まる印の Issue は止まる印の群に出る）。
@@ -69,10 +76,10 @@ node harness/scripts/dashboard/digest.ts show [--no-mark]
 ## 安全
 
 - `127.0.0.1` だけで待ち受け、`Host` が `127.0.0.1:<port>` / `localhost:<port>` でない要求は 403（DNS rebinding で非公開リポジトリの状態を読まれないように）。
-- GitHub からの読み取りは `ReadOnlyTransport` を通し、GET と mutation を含まない GraphQL のほかは送らない。書く経路は `CommentOnlyTransport`（`decision.ts`）で、`POST /repos/{repo}/issues/{n}/comments` だけを送り、ほかは送らない。トークンはブラウザに送らない。
+- GitHub からの読み取りは `ReadOnlyTransport` を通し、GET と mutation を含まない GraphQL のほかは送らない。書く経路は `CommentOnlyTransport`（`decision.ts`。`confirm.ts` も同じものを使う）で、`POST /repos/{repo}/issues/{n}/comments` だけを送り、ほかは送らない。トークンはブラウザに送らない。
 - `digest.ts` も GitHub からの読み取りを `ReadOnlyTransport` に通し、GitHub には書かない（書くのは前回の時刻の控えのファイルだけ）。
 - タイトルなど外から入る文字は `textContent` で描く。
-- 書く入口は `POST /notes` と `POST /decisions`。どちらも同じ確かめで、`Host`・`Origin`（`http://127.0.0.1:<port>` か `http://localhost:<port>` に完全に一致）・起動ごとの合言葉（`x-dashboard-token`。起動のたびに作り、`GET /` で返すページの meta に埋めて配る。ログには出さない）の順で確かめ、合わなければ 403 で何も書かない。続けて `content-type` が `application/json`（違えば 415）、本文は 16 KiB まで（超えれば 413）、`text` は前後の空白を除いて 1〜4000 文字（違えば 400）。`/notes` の書く先はリポジトリの外の受け箱だけ。`/decisions` は上の「人がすることの答え方」の投稿だけで、ラベル・Issue の本文・Merge には触れない。
+- 書く入口は `POST /notes`・`POST /decisions`・`POST /confirm-answers`。どちらも同じ確かめで、`Host`・`Origin`（`http://127.0.0.1:<port>` か `http://localhost:<port>` に完全に一致）・起動ごとの合言葉（`x-dashboard-token`。起動のたびに作り、`GET /` で返すページの meta に埋めて配る。ログには出さない）の順で確かめ、合わなければ 403 で何も書かない。続けて `content-type` が `application/json`（違えば 415）、本文は 16 KiB まで（超えれば 413）、`text` は前後の空白を除いて 1〜4000 文字（違えば 400）。`/notes` の書く先はリポジトリの外の受け箱だけ。`/decisions` と `/confirm-answers` は上の「人がすることの答え方」「確認事項への答え」の投稿だけで、ラベル・Issue の本文・Merge には触れない。
 
 ## 受け箱（intel が読む）
 
@@ -87,6 +94,7 @@ node harness/scripts/dashboard/digest.ts show [--no-mark]
 | `browser.ts` | 起動したダッシュボードの URL を既定のブラウザで開く（OS ごとのコマンドの選び方は純粋関数） |
 | `graph.ts` | facts とセッションから列・タスク・辺を組む純粋関数と、前後の差分 |
 | `decision.ts` | 答える欄の材料・決定の記録の組み立て・投稿の前の読み直し・コメントの POST だけを送る Transport・`POST /decisions` の受け皿 |
+| `confirm.ts` | 答えの無い確認事項の材料（古い順）・確認事項への答えの組み立て・`POST /confirm-answers` の受け皿 |
 | `digest.ts` | 前回のまとめからの Merge・閉じた Issue と Epic・人がすること3つまでを組む純粋関数と、まとめを標準出力に出す `show`（前回の時刻の控えつき。GitHub には書かない） |
 | `github.ts` | 読み取り専用の Transport、条件付きリクエストでの見張り、facts の取り直し（まとめた GraphQL の問い合わせでの先読み） |
 | `inbox.ts` | 気づきの受け箱（git の共通ディレクトリの下）の読み書きと、intel が使う CLI（list・mark-read・wait） |

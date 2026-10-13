@@ -93,7 +93,7 @@ export function sinceFacts(data: unknown, app: string, epicLabel: string): Since
   return { merged, closed, truncated: { merged: d.merged?.pageInfo?.hasNextPage === true, closed: d.closed?.pageInfo?.hasNextPage === true } };
 }
 
-export type DigestGroup = 'merge' | 'review' | 'stop' | 'stale';
+export type DigestGroup = 'merge' | 'review' | 'confirm' | 'stop' | 'stale';
 export interface DigestItem { group: DigestGroup; kind: 'issue' | 'pr'; number: number; url: string; title: string; reason: string }
 
 export interface Digest {
@@ -112,8 +112,8 @@ export interface Digest {
 export const DIGEST_TODO_LIMIT = 3;
 export const DIGEST_MERGED_LIMIT = 5;
 
-const GROUPS: DigestGroup[] = ['merge', 'review', 'stop', 'stale'];
-const TODO_PREFIX: [string, DigestGroup][] = [['merge-pr-', 'merge'], ['review-issue-', 'review'], ['stop-issue-', 'stop']];
+const GROUPS: DigestGroup[] = ['merge', 'review', 'confirm', 'stop', 'stale'];
+const TODO_PREFIX: [string, DigestGroup][] = [['merge-pr-', 'merge'], ['review-issue-', 'review'], ['confirm-', 'confirm'], ['stop-issue-', 'stop']];
 
 /** 手元の時刻で M/D HH:mm */
 function localTime(iso: string | Date): string {
@@ -122,7 +122,7 @@ function localTime(iso: string | Date): string {
   return `${d.getMonth() + 1}/${d.getDate()} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-/** 前回より後の Merge・閉じた Issue と、人がすること（人の Merge 待ち → 計画ゲート → 止まる印 → 止まっていそうな宣言）を組む */
+/** 前回より後の Merge・閉じた Issue と、人がすること（人の Merge 待ち → 計画ゲート → 確認事項 → 止まる印 → 止まっていそうな宣言）を組む */
 export function buildDigest(input: { now: Date; since: Date; facts: SinceFacts; todos: Todo[]; tasks: Task[] }): Digest {
   const sinceMs = input.since.getTime();
   const merged = input.facts.merged.filter((m) => Date.parse(m.mergedAt) >= sinceMs).sort((a, b) => Date.parse(b.mergedAt) - Date.parse(a.mergedAt));
@@ -151,7 +151,7 @@ export function buildDigest(input: { now: Date; since: Date; facts: SinceFacts; 
       push({ group, kind: t.kind, number: t.number, url: t.url, title: t.title, reason: t.reason });
     }
   }
-  const counts: Record<DigestGroup, number> = { merge: 0, review: 0, stop: 0, stale: 0 };
+  const counts: Record<DigestGroup, number> = { merge: 0, review: 0, confirm: 0, stop: 0, stale: 0 };
   for (const i of items) counts[i.group] += 1;
   return {
     now: input.now.toISOString(),
@@ -180,7 +180,7 @@ export function renderDigest(d: Digest): string {
   const closedPart = d.closed.length > 0 ? `閉じた Issue ${count(d.closed.length, d.truncated.closed)}（うち Epic ${epics.length}）` : '閉じた Issue なし';
   const c = d.counts;
   const todoPart = todoTotal > 0
-    ? `人がすること ${todoTotal} 件（人の Merge 待ち ${c.merge}・計画ゲート ${c.review}・止まる印 ${c.stop}・止まっていそうな宣言 ${c.stale}）。`
+    ? `人がすること ${todoTotal} 件（人の Merge 待ち ${c.merge}・計画ゲート ${c.review}・確認事項 ${c.confirm}・止まる印 ${c.stop}・止まっていそうな宣言 ${c.stale}）。`
     : '人がすることはありません。';
   const lines = [`前回（${since}）から ${mergePart}、${closedPart}。${todoPart}`];
 
