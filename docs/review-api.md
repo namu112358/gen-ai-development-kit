@@ -108,7 +108,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 ## 4. 既存のレビューとの互換性
 
 - **役の分離**を保つ：Reviewer の問いには Issue・計画・PR 本文・diff・関連コードを渡し、Risk の問いには diff と関連コードだけを渡す（risk-agent.md の「読んではいけないもの」と同じ）。
-- **JSON の形**は reviewer / risk-agent の出力と同じ。`blocking[].kind` は `harness/lib/verdict.ts` の `BLOCKING_KINDS`、8問のキーは `RISK_QUESTIONS` と同じ語彙。ずれはテスト（`harness/test/review-api-schema.test.ts`）で止める。
+- **JSON の形**は reviewer / risk-agent の出力と同じ。`blocking[].kind` は `harness/lib/verdict.ts` の `BLOCKING_KINDS`、8問のキーは `RISK_QUESTIONS` と同じ語彙。ずれはテスト（`harness/test/review-api-verdict.test.ts`）で止める。
 - **再レビュー**：同じ PR の前回の shadow 記録（head とブロッキング指摘）を Reviewer に渡し、前回からの差分と直っていない指摘だけをブロッキングにするよう指示する（reviewer.md の「再レビュー」と同じ）。
 - **受理できるか**：`compose-verdict` は2つの JSON ファイルを受け取るので、API の出力をそのまま渡せる（`facts` は risk の中に置く）。ただし判定コメントは本人名義で投稿する決まりで、Cloudflare が投稿するものを App が判定として受け付けることは**しない**（信頼の投稿者・形式・権限は変えない）。正式な置き換えは、judge の skill が「サブエージェントの代わりに API の結果を取りに行く」形で行う（下の「本運用への移行条件」）。
 - **影響しない根拠**：新 App は `author_association` がコラボレーターでないので `on-comment.ts` が無視する。コメントの本文に `gate.yml` の起動条件のフェンスを含めない。Check Run・ラベル・レビュー（approve / request changes）・Draft の切り替え・Merge は呼ばない（token の `permissions` でも `pull_requests: write` 以外を渡さない）。
@@ -275,7 +275,7 @@ main への Merge で Cloudflare の Workers Builds がビルドしてデプロ�
 ## 11. Shadow Mode の比較手順
 
 1. 既存の流れはそのまま（ship / judge）。Agent PR が作られる・push されるたびに、PR に新 App のコメント「API レビュー（shadow）」が付く。
-2. `node review-api/scripts/compare.ts <PR 番号>`（Phase 4 で足す）で、同じ head の `agent-verdict` と `api-review-shadow` を並べる：`pass` の一致、ブロッキング指摘の対応（同じ・片方だけ）、Risk の level・8問の一致、USD・所要秒。
+2. 比較のスクリプト（未作成。Phase 4 で `review-api/scripts/` に足す）で、同じ head の `agent-verdict` と `api-review-shadow` を並べる：`pass` の一致、ブロッキング指摘の対応（同じ・片方だけ）、Risk の level・8問の一致、USD・所要秒。
 3. 20 件ほど溜まったら表にして、見逃し（既存にあって API に無い重大な指摘）と誤検知（API だけが指摘し、人が見て違うもの）を数える。
 
 ## 12. 本運用への移行条件
