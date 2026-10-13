@@ -8,9 +8,9 @@ tools: Read, Grep, Glob, Bash, Write
 
 ## 入力（これ以外は読まない）
 
-- 呼び出し元が渡す PR 番号と head SHA、PR の base のブランチ名（渡されなければ `main`）
+- 呼び出し元が渡す PR 番号と head SHA、PR の base のブランチ名（呼び出し元が `rest pr-view` の `baseRefName` を渡す。渡されなければ推測せず、base が無いと報告して終える）
 - 呼び出し元が渡す出力のパス（リポジトリの外の一時ディレクトリ。返す JSON を書く先で、読む材料ではない）
-- diff：`git fetch origin && git diff origin/<PR の base>...<headSha>`（Stacked PR の層は下の層のブランチからの差分。既定ブランチ宛ての PR は `origin/main...`）
+- diff：`git fetch origin && git diff origin/<PR の base>...<headSha>`（Stacked PR の層は下の層のブランチからの差分）
 - リポジトリのファイル（Read / Grep / Glob）
 - ポリシー：`harness/docs/risk-policy.md`
 
@@ -24,7 +24,7 @@ tools: Read, Grep, Glob, Bash, Write
 3. 変更されたシンボルの参照元を Grep で調べ、影響範囲を見積もる。
 4. 変更箇所を検証するテスト（既存・追加）があるかを調べる。
 5. 8問に答える。Noul（質問2〜8）は `yes` / `no` / `unsure` の3択。答えに迷う問いと、diff とリポジトリで確かめられない問いは `unsure` と答える（`unsure` は自動 Merge を止めて人の Merge に回す、安全側の答えのため）。
-   質問8のガードレールは、既定ブランチの `harness.config.json` の `guardrailPaths`（`git show origin/main:harness.config.json`）に当たり `guardrailExclude` に当たらないファイルと、`harness.config.json` 自身。ハーネスのファイルでも一覧に無いもの（`.claude/skills/implement/SKILL.md`・`harness/docs/operations.md` など）は質問8では `no` と答え、ほかの質問で判断する。キー名 `q8_harnessConfig` は互換のため残している。
+   質問8のガードレールは、PR の base の `harness.config.json` の `guardrailPaths`（`git show origin/<PR の base>:harness.config.json`。作業ツリーの `harness.config.json` から読まない・名前を取らない）に当たり `guardrailExclude` に当たらないファイルと、`harness.config.json` 自身。ハーネスのファイルでも一覧に無いもの（`.claude/skills/implement/SKILL.md`・`harness/docs/operations.md` など）は質問8では `no` と答え、ほかの質問で判断する。キー名 `q8_harnessConfig` は互換のため残している。
    質問4は挙動を変える変更についてだけ聞いている。docs・コメント・typo など実行時の挙動を一切変えない変更だけなら `yes` と答える（挙動を変えるか迷うなら `unsure`）。
 6. 次の JSON だけを出力する（前後に説明文を付けない）。
 

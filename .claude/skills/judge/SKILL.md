@@ -21,15 +21,15 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
    - `shadow`：手順4の reviewer・risk-agent と、review-panel の skill（段階0〜4）を並行に動かす（入れ子のときの呼び方は [ship の skill](../ship/SKILL.md) の節「サブエージェントの ship として動くとき」）。全部が終わってから、review-panel の compose と post で合体版の記録を投稿し、その後に手順6・7（判定は reviewer の出力）。合体版が失敗しても判定は止めず、記録が無いことを人に伝える。
    - `enforce`：reviewer を呼ばない。手順4の risk-agent と review-panel の skill を動かし、review-panel の compose の出力 `review-<PR番号>-<head7>.json` を、手順6の compose-verdict の reviewer の出力の位置に渡す。合体版が失敗したら判定せず人に返す。review-intake が `eligible: false`（PR が closed、または前回の判定と同じ head）を返したら、判定を投稿せずに終え、理由を人に伝える（同じ head を二重に判定しない。closed の PR は判定しない）。
 4. 担当を呼ぶ前に、`git status --porcelain --untracked-files=all` の結果を scratchpad の `worktree-<PR番号>-<head7>.txt` に書き出して控える（`shadow`・`enforce` で review-panel を並行に動かすときも、控えるのはここの1回で、review-panel の skill は控えない）。あわせて `git rev-parse HEAD` と `git branch --show-current` の結果を、別のファイル scratchpad の `head-<PR番号>-<head7>.txt` に書き出して控える（git status の控えと混ぜない）。続けてサブエージェントを並列に呼ぶ。入れ子のサブエージェントの ship の中で判定するときは、担当を `run_in_background` にせず前で呼び、並行は1つのメッセージに複数の Agent 呼び出しを並べる（[ship の skill](../ship/SKILL.md) の節「サブエージェントの ship として動くとき」）。どれにも「GitHub を直接読まない、環境変数や資格情報を調べない」と念を押し、出力のパスを渡して「返す JSON と同じものをそのパスに Write で書く。ほかのパスは書かない」と伝える。出力のパスは scratchpad の `reviewer-<PR番号>-<head7>.json`・`risk-<PR番号>-<head7>.json`（head7 は headSha の先頭7文字）。PR 番号と head を名前に入れるのは、並行して別の PR や別の head を判定しても取り違えないため。
-   - **reviewer**（`enforce` では呼ばない）：judge-input のファイルの中身と、出力のパス `reviewer-<PR番号>-<head7>.json` を指示に含めて渡す。Agent の説明は `reviewer <PR番号> <head7>` にする（合体版と費用を分けて数えるため）。
-   - **risk-agent**：PR 番号と head SHA と、PR の base のブランチ名（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `baseRefName`）と、出力のパス `risk-<PR番号>-<head7>.json` **だけ**を渡す（Issue・PR の説明は渡さない）。diff は `git fetch origin && git diff origin/<PR の base>...<headSha>` で読むよう伝える（既定ブランチ宛ての PR は base が `main`）。
+   - **reviewer**（`enforce` では呼ばない）：judge-input のファイルの中身と、PR の base のブランチ名（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `baseRefName`）と、出力のパス `reviewer-<PR番号>-<head7>.json` を指示に含めて渡す。Agent の説明は `reviewer <PR番号> <head7>` にする（合体版と費用を分けて数えるため）。
+   - **risk-agent**：PR 番号と head SHA と、PR の base のブランチ名（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `baseRefName`）と、出力のパス `risk-<PR番号>-<head7>.json` **だけ**を渡す（Issue・PR の説明は渡さない）。diff は `git fetch origin && git diff origin/<PR の base>...<headSha>` で読むよう伝える（既定ブランチ宛ての PR も `baseRefName` をそのまま渡す。作業ツリーの `harness.config.json` から決めない）。
 5. 全部の担当（`shadow`・`enforce` では review-panel の担当も）が返った後に、次を確かめる。呼び出し元は担当の出力のファイルを書かない、直さない（担当の代わりに書かない）。
    - 担当が書いたファイルが出力のパスにあり、JSON として読めること（`node -e 'JSON.parse(require("node:fs").readFileSync(process.argv[1], "utf8"))' <ファイル>` で読むだけ）。
    - ファイルが無いときは、同じパスを渡してその担当を1回だけ呼び直す。2回目も無ければ判定せず人に返す。
    - ファイルがあって JSON として読めないときは、呼び直さずに判定せず人に返す。
    - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、判定せず人に返す（担当が出力のパスの外を書いた恐れがある）。付き添いの作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
    - 呼んだ後の `git rev-parse HEAD` と `git branch --show-current` の結果を、呼ぶ前に控えた結果と比べる。違えば、戻さずに（直さない）判定せず人に返す（担当がブランチや HEAD を動かした恐れがある）。
-6. `node harness/scripts/agent.ts compose-verdict <PR番号> <reviewer-<PR番号>-<head7>.json> <risk-<PR番号>-<head7>.json> --judge-input <judge-input のファイル> --model <モデル名>` で判定コメントを作る（出力はファイルのパス。`enforce` では reviewer の出力の位置に合体版の組み立ての出力を渡す）。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら（main の取り込みだけなら）判定した head のまま組み立てる（App は patch-id で受け付ける）。patch-id が違って止まったら手順1からやり直す。risk-agent の出力に定義に無いキーがあって止まったら（定義に合わない古い出力など）、出力を直さずに risk-agent を呼び直す（手順1からやり直す）。
+6. `node harness/scripts/agent.ts compose-verdict <PR番号> <reviewer-<PR番号>-<head7>.json> <risk-<PR番号>-<head7>.json> --judge-input <judge-input のファイル> --model <モデル名>` で判定コメントを作る（出力はファイルのパス。`enforce` では reviewer の出力の位置に合体版の組み立ての出力を渡す）。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら（既定ブランチの取り込みだけなら）判定した head のまま組み立てる（App は patch-id で受け付ける）。patch-id が違って止まったら手順1からやり直す。risk-agent の出力に定義に無いキーがあって止まったら（定義に合わない古い出力など）、出力を直さずに risk-agent を呼び直す（手順1からやり直す）。
    - その PR を実装したセッション（ship の中で同じセッションが judge するとき）だけ、任意で `--author-view <file>`（実装したセッションの見解を書いたテキストのファイル。scratchpad に置く）を渡せる。判定の `agent-verdict` の `authorView` に入り、auto mode の危険の問い（Jev）の見解ありの問いにだけ渡る。保留するかには使われない（shadow）。judge を単独で呼んだ別のセッションは渡さない。
 7. `node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル>` で投稿する。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら判定した head のまま投稿する。patch-id が違って止まったら手順1からやり直す。
 8. App が受け付けたかを `node harness/scripts/agent.ts rest pr-view <PR番号>` の `isDraft`・`statusCheckRollup` で確かめる。合格なら `agent/review`・`agent/risk` が成功し、`isDraft` が false になる。数分待っても変わらなければ、PR のコメント（App の `verdict-rejected` など）とゲートの実行（`gh run list --workflow gate.yml`）の結果を見る。確かめてから人に報告する。
@@ -41,7 +41,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 
 合体版も同じ決まりで、review-panel の compose が組み立てのときに行う（前回の head から変わった行への指摘、⑥⑦の直っていない前回の指摘、⑧だけをブロッキングにする）。
 
-judge-input の「再レビューの範囲（補足）」には、前回の head の後に main の取り込みがあったかが入る。取り込みがあれば、前回の head からの差分には main から来た変更も入る。PR 自身の変更は、それぞれの head で `git diff origin/<PR の base>...<head>` を取って比べると分かる（差分の取り方は reviewer.md のまま。既定ブランチ宛ての PR は `origin/main...`）。最新の判定コメントのブロックが壊れていれば、それを飛ばした前の正しい判定が「前回の判定」に入り、そのことが注記される。
+judge-input の「再レビューの範囲（補足）」には、前回の head の後に既定ブランチの取り込みがあったかが入る。取り込みがあれば、前回の head からの差分には既定ブランチから来た変更も入る。PR 自身の変更は、それぞれの head で `git diff origin/<PR の base>...<head>` を取って比べると分かる（差分の取り方は reviewer.md のまま）。最新の判定コメントのブロックが壊れていれば、それを飛ばした前の正しい判定が「前回の判定」に入り、そのことが注記される。
 
 ## Routine の1回分（`/judge --routine`）
 
