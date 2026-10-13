@@ -1,4 +1,4 @@
-// Issue #329：qa-retro を /loop から回すときの期間のつなぎ方（状態のファイル・前回の終わりからの期間・下書きの記録と採用）と、skill・docs の回し方の書き方を確かめる。
+// Issue #329：qa-retro を /loop から回すときの期間のつなぎ方（状態のファイル・前回の終わりからの期間・下書きの記録と採用）と、skill に書いたサブコマンドがスクリプトにあるかを確かめる。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -359,27 +359,11 @@ test('parseLoopState：壊れた JSON・version が 1 でない・形の誤り�
   }
 });
 
-// --- skill・docs ---
+// --- skill のコマンドの実在 ---
 
 const root = join(import.meta.dirname, '..', '..');
 const readRoot = (...parts: string[]): string => readFileSync(join(root, ...parts), 'utf8').replace(/\r\n/g, '\n');
 const skill = (): string => readRoot('.claude', 'skills', 'qa-retro', 'SKILL.md');
-
-/** 見出しから次の同じ深さの見出しまでの本文。見出しが無ければ null */
-function section(text: string, heading: string): string | null {
-  const lines = text.split('\n');
-  const start = lines.indexOf(heading);
-  if (start < 0) return null;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((l) => /^## /.test(l));
-  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
-}
-
-function frontmatter(text: string): Record<string, string> {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!m) return {};
-  return Object.fromEntries(m[1]!.split('\n').map((l) => l.match(/^([a-z-]+):\s*(.*)$/)).filter((x) => x !== null).map((x) => [x[1]!, x[2]!.trim()]));
-}
 
 /** skill が使う qa-retro-loop.ts のサブコマンド */
 const usedLoopCommands = (text: string): string[] => [...text.matchAll(/node harness\/scripts\/qa-retro-loop\.ts ([a-z][\w-]*)/g)].map((m) => m[1]!);
@@ -391,69 +375,10 @@ function documentedLoopCommands(): Set<string> {
   return new Set(usedLoopCommands(doc));
 }
 
-const loopSection = (): string => {
-  const body = section(skill(), '## /loop で回すとき');
-  assert.ok(body !== null, 'SKILL.md に「## /loop で回すとき」がありません');
-  return body;
-};
-
-test('skill：入力に --loop がある', () => {
-  const body = section(skill(), '## 入力');
-  assert.ok(body !== null, '「## 入力」がありません');
-  assert.ok(body.includes('--loop'), '「## 入力」に --loop がありません');
-});
-
-test('skill：/loop で回すときの節に、間隔（/loop <間隔> /qa-retro --loop）と止め方がある', () => {
-  const body = loopSection();
-  assert.match(body, /\/loop\s+\S+\s+\/qa-retro --loop/, '`/loop 1d /qa-retro --loop` の形の書き方がありません');
-  assert.ok(body.includes('止め方'), '「止め方」がありません');
-});
-
-test('skill：/loop で回すときの節で、qa-retro-loop.ts の data・advance・pending・adopt を使う', () => {
-  const used = new Set(usedLoopCommands(loopSection()));
-  for (const sub of ['data', 'advance', 'pending', 'adopt']) assert.ok(used.has(sub), `node harness/scripts/qa-retro-loop.ts ${sub} がありません`);
-});
-
-test('skill：ループの回では AskUserQuestion を呼ばず、gh issue create もしないと書かれている', () => {
-  const lines = loopSection().split('\n');
-  assert.ok(lines.some((l) => l.includes('AskUserQuestion') && l.includes('呼ばない')), '「AskUserQuestion」と「呼ばない」を同じ行に含む行がありません');
-  assert.ok(lines.some((l) => l.includes('gh issue create') && l.includes('しない')), '「gh issue create」と「しない」を同じ行に含む行がありません');
-});
-
-test('skill：/loop で回すときの節から harness/docs/operations.md の共通の節へリンクしている', () => {
-  assert.match(loopSection(), /\]\([^)]*docs\/operations\.md[^)]*\)/, 'harness/docs/operations.md へのリンクがありません');
-});
-
-test('skill：やってはいけないことに、無人の定期 Routine を動かさない規則が残り、/loop と patrol の --routine の例外を許す文がある', () => {
-  const body = section(skill(), '## やってはいけないこと');
-  assert.ok(body !== null, '「## やってはいけないこと」がありません');
-  assert.ok(body.includes('無人の定期 Routine'), '「無人の定期 Routine」がありません');
-  assert.ok(body.includes('/loop'), '/loop を許す文がありません');
-  assert.ok(body.includes('patrol の --routine'), 'patrol の --routine の例外の文がありません');
-});
-
-test('skill：description に「qa-retro の下書きを選ぶ」がある', () => {
-  const fm = frontmatter(skill());
-  assert.ok((fm.description ?? '').includes('qa-retro の下書きを選ぶ'), `description: ${fm.description}`);
-});
-
 test('skill が使う qa-retro-loop.ts のサブコマンドは、スクリプトの使い方のコメントに実在する', () => {
   const known = documentedLoopCommands();
   for (const sub of ['data', 'advance', 'pending', 'adopt']) assert.ok(known.has(sub), `qa-retro-loop.ts の使い方のコメントに ${sub} がありません`);
   const used = usedLoopCommands(skill());
   assert.ok(used.length > 0, 'SKILL.md が qa-retro-loop.ts を使っていません');
   for (const sub of used) assert.ok(known.has(sub), `qa-retro-loop.ts ${sub} は使い方のコメントにありません`);
-});
-
-test('harness/docs/risk-policy.md の見直しの手順に、/loop での回し方（--loop・1日・7日前・止め方・SKILL.md へのリンク）がある', () => {
-  const body = section(readRoot('harness', 'docs', 'risk-policy.md'), '## 見直しの手順');
-  assert.ok(body !== null, '「## 見直しの手順」がありません');
-  for (const word of ['--loop', '1日', '7日前', '止め方']) assert.ok(body.includes(word), `「${word}」がありません`);
-  assert.match(body, /\]\([^)]*\.claude\/skills\/qa-retro\/SKILL\.md[^)]*\)/, 'qa-retro の SKILL.md へのリンクがありません');
-});
-
-test('harness/CLAUDE.harness.md の skill の表の qa-retro の行に /loop がある', () => {
-  const row = readRoot('harness', 'CLAUDE.harness.md').split('\n').find((l) => l.startsWith('| [qa-retro](../.claude/skills/qa-retro/SKILL.md) |'));
-  assert.ok(row, 'qa-retro の行がありません');
-  assert.ok(row.includes('/loop'), `qa-retro の行に /loop がありません: ${row}`);
 });

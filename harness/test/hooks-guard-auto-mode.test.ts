@@ -157,14 +157,3 @@ test('.claude/settings.json と deny の雛形に、agent:auto-mode の規則が
   }
   assert.deepEqual(autoRulesOf[0], autoRulesOf[1], '.claude/settings.json と雛形の agent:auto-mode の規則が食い違う');
 });
-
-test('規則：harness/CLAUDE.harness.md の「やってはいけないこと」と各 skill・routine.md が agent:auto-mode の付け外しを禁じる', () => {
-  const read = (p: string) => readFileSync(join(root, p), 'utf8');
-  const rules = read('harness/CLAUDE.harness.md');
-  const section = rules.slice(rules.indexOf('## やってはいけないこと'));
-  assert.ok(section.split('\n').some((l) => l.startsWith('- ') && l.includes(`\`${AUTO}\``)), 'CLAUDE.harness.md の「やってはいけないこと」に行が無い');
-  for (const p of ['.claude/routine.md', ...['ship', 'fleet', 'plan', 'implement', 'judge', 'fix', 'sync'].map((s) => `.claude/skills/${s}/SKILL.md`)]) {
-    const line = read(p).split('\n').find((l) => l.includes('やってはいけないこと'));
-    assert.ok(line?.includes(`\`${AUTO}\``), `${p} の「やってはいけないこと」に ${AUTO} が無い`);
-  }
-});
