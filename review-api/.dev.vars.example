@@ -1,11 +1,9 @@
-# wrangler dev 用の値の雛形（秘密と、Cloudflare では Secret に入れる値）。`cp .dev.vars.example .dev.vars` で作り、値を入れる（.dev.vars は commit しない）
+# wrangler dev 用の秘密の雛形。`cp .dev.vars.example .dev.vars` で作り、値を入れる（.dev.vars は commit しない）
+# 秘密でない設定（GITHUB_APP_CLIENT_ID・ALLOWED_REPOS・REVIEW_APP_LOGIN・GATE_APP_LOGIN）は wrangler dev が wrangler.jsonc の vars から読む。手元で上書きしたいときだけ同じ名前を足す
 GITHUB_WEBHOOK_SECRET=
 GITHUB_APP_PRIVATE_KEY=
 ANTHROPIC_API_KEY=
-GITHUB_APP_CLIENT_ID=
+# scripts/send-webhook.ts が読むので、wrangler.jsonc の vars と同じ値を書く（違うと installation-mismatch で止まる）
 GITHUB_INSTALLATION_ID=
-ALLOWED_REPOS=
-REVIEW_APP_LOGIN=
-GATE_APP_LOGIN=
 # 1 なら Claude を呼ばず固定の JSON を使う（実 API で試すときは消す）
 DRY_RUN=1
