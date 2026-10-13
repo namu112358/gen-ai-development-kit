@@ -104,57 +104,7 @@ export interface QaRetroData {
 
 // --- 引数 ---
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-function parseDate(v: string | undefined, name: string, errors: string[]): Date | null {
-  if (v === undefined || !DATE_RE.test(v)) {
-    errors.push(`${name} は YYYY-MM-DD で書いてください`);
-    return null;
-  }
-  const d = new Date(`${v}T00:00:00Z`);
-  if (Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== v) {
-    errors.push(`${name} の日付が正しくありません: ${v}`);
-    return null;
-  }
-  return d;
-}
-
-/**
- * `--days <n>`・`--since <YYYY-MM-DD>`・`--until <YYYY-MM-DD>` を読む。既定は直近 14 日。
- * since はその日の 00:00Z から、until はその日を含む（翌日の 00:00Z の手前まで）。
- */
-export function parseQaRetroArgs(args: string[], now: Date): { ok: true; value: { since: Date; until: Date } } | { ok: false; errors: string[] } {
-  const errors: string[] = [];
-  const opts: Record<string, string | undefined> = {};
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i]!;
-    if (a === '--days' || a === '--since' || a === '--until') {
-      if (a in opts) errors.push(`${a} が2回あります`);
-      opts[a] = args[++i];
-    } else {
-      errors.push(`知らない引数です: ${a}`);
-    }
-  }
-  if ('--days' in opts && '--since' in opts) errors.push('--days と --since は同時に渡せません');
-  let until = now;
-  if ('--until' in opts) {
-    const d = parseDate(opts['--until'], '--until', errors);
-    if (d) until = new Date(d.getTime() + DAY);
-  }
-  let days = 14;
-  if ('--days' in opts) {
-    const v = opts['--days'];
-    if (v === undefined || !/^[1-9]\d*$/.test(v)) errors.push('--days は正の整数で書いてください');
-    else days = Number(v);
-  }
-  let since = new Date(until.getTime() - days * DAY);
-  if ('--since' in opts) {
-    const d = parseDate(opts['--since'], '--since', errors);
-    if (d) since = d;
-  }
-  if (errors.length === 0 && since.getTime() >= until.getTime()) errors.push('期間の始まりが終わりより後です');
-  return errors.length ? { ok: false, errors } : { ok: true, value: { since, until } };
-}
+export { parseQaRetroArgs } from './session-judgment.ts';
 
 // --- 純粋関数 ---
 

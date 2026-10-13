@@ -35,8 +35,10 @@ test('managed.json：exclude の各項目が実在し、managed の glob に当�
 test('managed.json：Issue の根拠に名前のある観測系が exclude にある', () => {
   const exclude = loadManaged().exclude ?? [];
   const named = [
-    ...['observe', 'test-prune', 'test-prune-loop', 'qa-retro-loop', 'mutate', 'patrol'].map((n) => `harness/scripts/${n}.ts`),
+    ...['observe', 'test-prune', 'test-prune-loop', 'qa-retro-loop', 'mutate', 'patrol', 'report'].map((n) => `harness/scripts/${n}.ts`),
     ...['hotspot', 'observe-docs', 'test-prune', 'patrol', 'arch-review'].map((n) => `harness/lib/${n}.ts`),
+    // Issue #1011：観測系からしか使わない lib
+    ...['report', 'qa-retro', 'ops-health', 'observe-ops', 'test-health', 'local-state-loop'].map((n) => `harness/lib/${n}.ts`),
     ...['patrol', 'qa-retro', 'test-prune', 'arch-review'].map((n) => `.claude/skills/${n}/**`),
     '.claude/agents/arch-reviewer.md',
   ];
