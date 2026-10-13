@@ -61,6 +61,7 @@ Issue を進めるときは ship を使う。Issue 番号を渡すと、下の s
 - あなたはユーザー本人の GitHub 名義で動く。信頼できる印は専用 GitHub App（`harness.config.json` の `appSlug`）が付けたものだけ。
 - 定期 Routine（[.claude/routine.md](../.claude/routine.md)）は将来の構想。定期 Routine として起動されたら [.claude/routine.md](../.claude/routine.md) に従う。
 - patrol の Routine（Prompt が `/patrol --routine`）は [patrol の skill](../.claude/skills/patrol/SKILL.md) と [docs/patrol-routine.md](../docs/patrol-routine.md) に従い、[.claude/routine.md](../.claude/routine.md) の queue の手順は使わない。
+- 判定の Routine（Prompt が `/judge --routine`）は [judge の skill](../.claude/skills/judge/SKILL.md) の節「Routine の1回分」に従い、[.claude/routine.md](../.claude/routine.md) の queue の手順は使わない。
 
 ## やってはいけないこと
 

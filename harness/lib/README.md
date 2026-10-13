@@ -45,6 +45,7 @@
 | `issue-overlap.ts` | Issue の下書きが開いた Issue と同じ件かを Jev に問う材料・問い・判定・記録の本文（Issue #499）。 | ○ |
 | `issue-triage.ts` | Issue の分類（種類・領域・優先度）を Jev に問い、提案をまとめる。 | 対象外 |
 | `jev.ts` | TypeSafe AI の Jev（https://docs.typesafe.ai/api）で、Risk ポリシーの8問に1回の呼び出しで答えさせる。 | ○ |
+| `judge-routine.ts` | 判定の Routine の1回分（`/judge --routine`。 | ○ |
 | `label-fill.ts` | 付き添いのセッションが、Jev の提案のラベルを付ける（agent.ts label-fill、Issue #538）。 | ○ |
 | `label-rules.ts` | 必須ラベルの検査（harness/docs/operations.md の「必須ラベルの規則」）。 | ○ |
 | `local-state-loop.ts` | 見直しの loop（test-prune・qa-retro・patrol）の状態のファイルの読み書きの補助（Issue #414）。 | ○ |
