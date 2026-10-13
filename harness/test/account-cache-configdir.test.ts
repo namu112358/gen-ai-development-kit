@@ -18,7 +18,7 @@ let seq = 0;
 
 /** 控えの configDir を決める（dir は対応表のアカウントの実際のディレクトリ。null なら書かない） */
 type CacheDir = (dir: string, home: string) => string | null;
-interface Spec { tableDir?: string; cache?: { source: string; dir: CacheDir }; orcaFive?: number }
+interface Spec { tableDir?: string; cache?: { source: string; dir: CacheDir; ageMin?: number }; orcaFive?: number }
 
 /** アカウント a を1つ置いた home と、runPick・runProbe の deps を返す */
 function setup(spec: Spec) {
@@ -34,7 +34,7 @@ function setup(spec: Spec) {
   if (spec.cache) {
     const cacheDir = spec.cache.dir(dir, home);
     put(join(base, 'usage', 'org-a.json'), JSON.stringify({
-      at: NOW - 1 * MIN,
+      at: NOW - (spec.cache.ageMin ?? 1) * MIN,
       session: { usedPercent: 30, resetsAt: NOW + 90 * MIN },
       weekly: { usedPercent: 1, resetsAt: NOW + 3 * 24 * 60 * MIN },
       source: spec.cache.source,
@@ -130,4 +130,19 @@ test('対応表の configDir が ~/… でも、runPick の前置きと runProbe
 test('runPick：Orca の使用量だけがあり控えが無いアカウントは no-usage で外れる', () => {
   const r = runPick(setup({ orcaFive: 10 }).deps);
   assert.deepEqual({ result: r.result, excluded: r.excluded }, NO_USAGE);
+});
+
+test('新しさは pick と probe で同じ規則：pick が使わない古さの控えなら probe は問い合わせ、使う控えなら問い合わせない', () => {
+  const cases: { label: string; source: string; ageMin: number; use: boolean }[] = [
+    { label: 'statusline の 7 分前（5 分を超える）', source: 'statusline', ageMin: 7, use: false },
+    { label: 'statusline の 5 分前', source: 'statusline', ageMin: 5, use: true },
+    { label: 'probe の 7 分前（10 分以内）', source: 'probe', ageMin: 7, use: true },
+  ];
+  for (const c of cases) {
+    const p = setup({ cache: { source: c.source, dir: (d) => d, ageMin: c.ageMin } });
+    assert.equal(runPick(p.deps).result, c.use ? 'picked' : 'default', c.label);
+    const q = setup({ cache: { source: c.source, dir: (d) => d, ageMin: c.ageMin } });
+    runProbe(q.deps);
+    assert.deepEqual(q.claudeCalls, c.use ? [] : [q.dir], c.label);
+  }
 });

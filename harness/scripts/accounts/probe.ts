@@ -6,7 +6,7 @@
  * 入力
  * - 対応表 ~/.config/agent-harness/accounts.json（pick.ts の parseAccountsTable と同じ読み方）
  * - Orca の `account list --json`（組織の ID と、ずれの確かめに使う Orca の 5h）
- * - 使用量の控え ~/.config/agent-harness/usage/<組織の ID>.json（`at` が 10 分以内で、pick.ts の cacheMatches が真（source が probe か、configDir の実パスが対応表と同じ）なら問い合わせない）
+ * - 使用量の控え ~/.config/agent-harness/usage/<組織の ID>.json（pick.ts が使う控え（readCacheUsage・isFreshUsage。source が probe なら 10 分、configDir の実パスが対応表と同じほかの控えは 5 分以内）があれば問い合わせない）
  * - `.claude.json`（候補から外す確かめ pick.ts の checkConfigDir が読むだけ。書かない）
  *
  * 書くファイル：問い合わせたアカウントの usage/<組織の ID>.json だけ
@@ -28,7 +28,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeLocalJson } from '../../lib/local-state.ts';
 import { mainRepoRoot } from '../../lib/worktree.ts';
-import { PROBE_MAX_AGE_MS, cacheMatches, checkConfigDir, expandHome, parseAccountsTable, parseOrcaAccounts, realPathOrNull, runOrcaCli } from './pick.ts';
+import { checkConfigDir, expandHome, isFreshUsage, parseAccountsTable, parseOrcaAccounts, readCacheUsage, realPathOrNull, runOrcaCli } from './pick.ts';
 
 export const PROBE_TIMEOUT_MS = 90_000;
 export const MISMATCH_POINTS = 20;
@@ -123,9 +123,7 @@ export function runProbe(deps: ProbeDeps): ProbeResult {
       continue;
     }
     const path = join(base, 'usage', `${org}.json`);
-    const cached = parseJson(deps.readText(path));
-    const at = isObj(cached) && cacheMatches(cached, a, { home: deps.home, realPath }) ? num(cached.at) : null;
-    if (at !== null && deps.now - at <= PROBE_MAX_AGE_MS) {
+    if (isFreshUsage(readCacheUsage(parseJson(deps.readText(path)), a, { home: deps.home, realPath }), deps.now)) {
       out.skipped.push({ name: a.name, reason: 'fresh' });
       continue;
     }

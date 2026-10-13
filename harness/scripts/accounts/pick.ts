@@ -134,6 +134,17 @@ export function checkConfigDir(entry: AccountEntry, opts: { home: string; repoRo
   return null;
 }
 
+/** 控えの JSON から使ってよい値を読む（cacheMatches が偽・読めなければ null）。pick.ts と probe.ts で同じ読み方にする */
+export function readCacheUsage(c: unknown, entry: AccountEntry, opts: { home: string; realPath: (p: string) => string | null }): UsageValue | null {
+  if (!isObj(c) || !cacheMatches(c, entry, opts)) return null;
+  return usageFrom(c, num(c.at), c.source === 'probe' ? 'probe' : 'cache', c.status);
+}
+
+/** 新しい値か：5h があり、probe の控えは 10 分・ほかの控えは 5 分以内。pick.ts が使うかと probe.ts が問い合わせを省くかを同じ規則で決める */
+export function isFreshUsage(v: UsageValue | null | undefined, now: number): v is UsageValue {
+  return !!v && v.fiveHour !== null && now - v.at <= (v.source === 'probe' ? PROBE_MAX_AGE_MS : CACHE_MAX_AGE_MS);
+}
+
 /** 取り違えの疑い：問い合わせでない2つの控えで 5h が同じ・5h のリセットの差が 120 秒以内・7d が同じ（null 同士を含む） */
 const sameLooking = (a: UsageValue, b: UsageValue): boolean =>
   a.fiveHour === b.fiveHour &&
@@ -142,15 +153,10 @@ const sameLooking = (a: UsageValue, b: UsageValue): boolean =>
 
 /** アカウントごとに使う値を選ぶ。取り元の順は 10 分以内の probe の控え → 5 分以内のほかの控え（Orca の値は使わない）。取り違えの値は飛ばす */
 export function chooseUsage(input: { accounts: AccountEntry[]; cache: Map<string, UsageValue | null>; now: number }): Map<string, UsageValue | null> {
-  const fresh = (v: UsageValue | null | undefined, max: number): UsageValue | null => (v && v.fiveHour !== null && input.now - v.at <= max ? v : null);
   const cands = new Map<string, UsageValue[]>();
   for (const a of input.accounts) {
     const c = input.cache.get(a.orcaId);
-    const list: (UsageValue | null)[] = [
-      c?.source === 'probe' ? fresh(c, PROBE_MAX_AGE_MS) : null,
-      c && c.source !== 'probe' ? fresh(c, CACHE_MAX_AGE_MS) : null,
-    ];
-    cands.set(a.orcaId, list.filter((v): v is UsageValue => v !== null));
+    cands.set(a.orcaId, isFreshUsage(c, input.now) ? [c] : []);
   }
   const out = new Map<string, UsageValue | null>();
   for (const a of input.accounts) {
@@ -273,9 +279,7 @@ export function runPick(deps: PickDeps): PickResult {
     }
     usable.push(a);
     if (org !== null && /^[\w.-]+$/.test(org)) {
-      const c = parseJson(deps.readText(join(base, 'usage', `${org}.json`)));
-      const ok = isObj(c) && cacheMatches(c, a, { home: deps.home, realPath });
-      cache.set(a.orcaId, ok ? usageFrom(c, num(c.at), c.source === 'probe' ? 'probe' : 'cache', c.status) : null);
+      cache.set(a.orcaId, readCacheUsage(parseJson(deps.readText(join(base, 'usage', `${org}.json`))), a, { home: deps.home, realPath }));
     }
   }
   const usage = chooseUsage({ accounts: usable, cache, now: deps.now });

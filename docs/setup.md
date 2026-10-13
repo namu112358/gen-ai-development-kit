@@ -212,7 +212,7 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 - `threshold7d`（既定 90）：7d の使用量（%）がこの値以上のアカウントも選ばない。7d が分からない（null の）アカウントは 7d では外さない。リセット時刻を過ぎた 5h・7d の値は 0% とみなし、順番は 5h と 7d の高い方で決める。
 - 設定ディレクトリ（`configDir`）の準備は人が手でする。`~/.config/agent-harness/claude/` の下に置き、その設定ディレクトリで一度 `CLAUDE_CONFIG_DIR=<configDir> claude` を起動して、ログインと初回の案内、本体（main の checkout）のパスの信頼、auto mode の確認を済ませる。済んでいないと pick が `onboarding`・`trust`・`auto-mode-prompt` で外す。信頼は本体のパスで済ませる（表記が違うと `trust` で外れ、残りの候補か `default` になる）。ハーネスは設定ディレクトリを作らず、書き換えない。
 - `configDir` の先頭の `~/` はホームに展開する（候補の確かめ・前置き・問い合わせのすべて）。
-- 問い合わせ（`probe.ts`）はアカウントごとに haiku を1回呼ぶ（使用量を少し使う。対応表の設定ディレクトリで書いた（または問い合わせの）10 分以内の控えがあれば呼ばない）。
+- 問い合わせ（`probe.ts`）はアカウントごとに haiku を1回呼ぶ（使用量を少し使う。pick が使える控え（問い合わせの控えは 10 分、対応表の設定ディレクトリで書いた控えは 5 分以内）があれば呼ばない）。
 - 使用量の控えのうち使われるのは、問い合わせ（`source: probe`）の控えと、`configDir` の実パスが対応表のそのアカウントの `configDir` と同じ控え（`CLAUDE_CONFIG_DIR` を付けたセッションのステータスラインが書いたもの。書き方は [statusline.md](statusline.md) の「使用量の控え」）だけ。Orca の使用量は選ぶのに使わない（`~/.claude` で動くセッションが Orca のアカウントの切り替えの後に別のアカウントの値を書くことがあるため。Issue #976）。
 - 環境変数 `ANTHROPIC_API_KEY`・`CLAUDE_CODE_OAUTH_TOKEN` が worker の端末にあると、`CLAUDE_CONFIG_DIR` のアカウントでなくその資格情報で動くので、振り分けを使うときは置かない（端末の環境はハーネスが変えない。問い合わせの子プロセスには渡さない）。
 - 前置き（`CLAUDE_CONFIG_DIR='<dir>' `）は POSIX のシェル（bash など）の書き方。worker の画面の `auto mode` が確かめられなければ、今の手順どおりその worker を閉じて人に返す。
