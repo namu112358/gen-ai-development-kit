@@ -1,4 +1,4 @@
-// Issue #770：hq が自分で起こした fleet の着手宣言を人に聞かずに引き継ぐための、控えの前のセッション（priorSessions）を
+// Issue #770（#941 で priorSessions の要素を { session, at } に、takeoverDecision に now・staleHours を足した）：hq が自分で起こした fleet の着手宣言を人に聞かずに引き継ぐための、控えの前のセッション（priorSessions）を
 // 残す処理（hq-state.ts の carryPriorSessions・ledger-save）と、読む処理（hq-decide.ts の takeoverDecision・takeover）を確かめる。
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { FLEET_STAGES, type FleetClaimInfo, type FleetStatusData, type FleetStatusRow } from '../lib/fleet.ts';
 import { takeoverDecision, type TakeoverResult } from '../scripts/hq-decide.ts';
-import { carryPriorSessions, PRIOR_SESSIONS_LIMIT, type HqLedger } from '../scripts/hq-state.ts';
+import { carryPriorSessions, PRIOR_SESSIONS_LIMIT, type HqLedger, type PriorSession } from '../scripts/hq-state.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const ledger = (fleets: Record<string, unknown>[], patch: Partial<HqLedger> = {}): HqLedger => ({
@@ -21,9 +21,14 @@ const row = (issue: number, patch: Partial<FleetStatusRow> = {}): FleetStatusRow
 const claim = (session: string | null, stage = 'implement', own = false): FleetClaimInfo => ({ by: 'manual', stage, session, own });
 const status = (rows: FleetStatusRow[]): FleetStatusData => ({ version: 1, rows, selectedCount: rows.length, selected: rows.map((r) => r.issue), max: null, mode: null });
 const tc = (issue: number, session: string | null, pr: number | null = null, stage = 'implement') => ({ issue, pr, stage, session });
+// priorSessions の要素（#941：控えに入れた時刻 at を持つ）。既定の at は NOW の1時間前（STALE_HOURS 以内）
+const NOW = new Date('2026-10-13T12:00:00.000Z');
+const STALE_HOURS = 24;
+const FRESH = new Date(NOW.getTime() - 3_600_000).toISOString();
+const ps = (session: string, at: string | null = FRESH): PriorSession => ({ session, at });
 
 // テーマ T の今の fleet は s-cur、前のセッションは s-old。テーマ U の fleet は s-u（別テーマ）
-const known = ledger([{ theme: 'T', dispatch: 'd-T', session: 's-cur' }, { theme: 'U', dispatch: 'd-U', session: 's-u' }], { priorSessions: { T: ['s-old'], U: ['s-u-old'] } });
+const known = ledger([{ theme: 'T', dispatch: 'd-T', session: 's-cur' }, { theme: 'U', dispatch: 'd-U', session: 's-u' }], { priorSessions: { T: [ps('s-old')], U: [ps('s-u-old')] } });
 
 const decisions: { name: string; rows: FleetStatusRow[]; ledger: HqLedger | null; want: Omit<TakeoverResult, 'theme'> }[] = [
   {
@@ -53,15 +58,15 @@ const decisions: { name: string; rows: FleetStatusRow[]; ledger: HqLedger | null
 ];
 
 test('takeoverDecision：控えの前のセッションの宣言だけなら auto、控えに無い宣言があれば ask、宣言が無ければ none', () => {
-  for (const c of decisions) assert.deepEqual(takeoverDecision({ theme: 'T', status: status(c.rows), ledger: c.ledger }), { theme: 'T', ...c.want }, c.name);
+  for (const c of decisions) assert.deepEqual(takeoverDecision({ theme: 'T', status: status(c.rows), ledger: c.ledger, now: NOW, staleHours: STALE_HOURS }), { theme: 'T', ...c.want }, c.name);
 });
 
-const many = Array.from({ length: PRIOR_SESSIONS_LIMIT }, (_, i) => `p${i}`);
-// 比べるときは順を問わず、空の鍵は無いものとして見る
+const many = Array.from({ length: PRIOR_SESSIONS_LIMIT }, (_, i) => ps(`p${i}`));
+// 比べるときは session だけを順を問わずに見て、空の鍵は無いものとして見る（at は hq-takeover-expiry.test.ts で確かめる）
 const prior = (l: HqLedger): Record<string, string[]> | undefined => {
-  const p = l.priorSessions as Record<string, string[]> | undefined;
+  const p = l.priorSessions as Record<string, PriorSession[]> | undefined;
   if (!p) return undefined;
-  const e = Object.entries(p).filter(([, v]) => v.length > 0).map(([k, v]) => [k, [...v].sort()]);
+  const e = Object.entries(p).filter(([, v]) => v.length > 0).map(([k, v]) => [k, v.map((x) => x.session).sort()]);
   return e.length === 0 ? undefined : Object.fromEntries(e);
 };
 const carries: { name: string; prev: HqLedger | null; next: HqLedger; want: Record<string, string[]> | undefined }[] = [
@@ -73,24 +78,24 @@ const carries: { name: string; prev: HqLedger | null; next: HqLedger; want: Reco
   },
   {
     name: '前と新しい priorSessions の和をとり、今動いている session を除き、形の違うものを捨てる。同じ session の fleet は足さない',
-    prev: ledger([{ theme: 'A', dispatch: 'd-A', session: 'a2' }, { theme: 'B', dispatch: 'd-B', session: 7 }], { priorSessions: { A: ['a0', 'a1', 3], B: 'b0', C: ['c0'] } }),
-    next: ledger([{ theme: 'A', dispatch: 'd-A', session: 'a2' }, { theme: 'C', dispatch: 'd-C', session: 'c0' }], { priorSessions: { A: ['a9'] } }),
+    prev: ledger([{ theme: 'A', dispatch: 'd-A', session: 'a2' }, { theme: 'B', dispatch: 'd-B', session: 7 }], { priorSessions: { A: [ps('a0'), ps('a1'), 3, { session: 4, at: FRESH }, { at: FRESH }], B: 'b0', C: [ps('c0')] } }),
+    next: ledger([{ theme: 'A', dispatch: 'd-A', session: 'a2' }, { theme: 'C', dispatch: 'd-C', session: 'c0' }], { priorSessions: { A: [ps('a9')] } }),
     want: { A: ['a0', 'a1', 'a9'] },
   },
   { name: '前の控えが null → priorSessions を作らない', prev: null, next: ledger([{ theme: 'A', dispatch: 'd-A', session: 'a1' }]), want: undefined },
-  { name: 'priorSessions がオブジェクトでなければ捨てる', prev: ledger([], { priorSessions: ['a0'] }), next: ledger([]), want: undefined },
+  { name: 'priorSessions がオブジェクトでなければ捨てる', prev: ledger([], { priorSessions: [ps('a0')] }), next: ledger([]), want: undefined },
 ];
 
 test('carryPriorSessions：前の fleet の session を priorSessions に残す', () => {
   for (const c of carries) {
     const before = JSON.stringify(c.next);
-    const r = carryPriorSessions(c.prev, c.next);
+    const r = carryPriorSessions(c.prev, c.next, NOW);
     assert.deepEqual(prior(r), c.want, c.name);
     assert.deepEqual(r.fleets, c.next.fleets, `${c.name}：fleets は新しい控えのまま`);
     assert.equal(JSON.stringify(c.next), before, `${c.name}：引数を変えない`);
   }
-  const r = carryPriorSessions(ledger([{ theme: 'A', dispatch: 'd-A', session: 'newest' }], { priorSessions: { A: many } }), ledger([{ theme: 'A', dispatch: 'd-A', session: 'next' }]));
-  const kept = (r.priorSessions as Record<string, string[]>).A ?? [];
+  const r = carryPriorSessions(ledger([{ theme: 'A', dispatch: 'd-A', session: 'newest' }], { priorSessions: { A: many } }), ledger([{ theme: 'A', dispatch: 'd-A', session: 'next' }]), NOW);
+  const kept = ((r.priorSessions as Record<string, PriorSession[]>).A ?? []).map((x) => x.session);
   assert.equal(kept.length, PRIOR_SESSIONS_LIMIT, '鍵ごとに PRIOR_SESSIONS_LIMIT 件まで');
   assert.ok(kept.includes('newest'), '新しいものを残す');
 });
@@ -105,10 +110,17 @@ const file = (dir: string, name: string, v: unknown): string => { const p = join
 test('CLI：ledger-save を2回流すと ledger に priorSessions が残り、hq-decide.ts takeover がそれを読んで auto を返す', () => withDir((dir) => {
   const state = (args: string[]) => node(['harness/scripts/hq-state.ts', args[0]!, '--common-dir', dir, ...args.slice(1)]);
   assert.equal(state(['ledger-save', file(dir, 'in1.json', ledger([{ theme: 'T', dispatch: 'd-T', session: 's-old' }]))]).status, 0);
+  const before = Date.now();
   const r = state(['ledger-save', file(dir, 'in2.json', ledger([{ theme: 'T', dispatch: 'd-T2', session: 's-new' }]))]);
+  const after = Date.now();
   assert.equal(r.status, 0, r.stderr);
   const saved = JSON.parse(state(['ledger']).stdout);
-  assert.deepEqual(saved.priorSessions, { T: ['s-old'] });
+  assert.deepEqual(Object.keys(saved.priorSessions), ['T']);
+  assert.equal(saved.priorSessions.T.length, 1);
+  assert.equal(saved.priorSessions.T[0].session, 's-old');
+  // at は ledger-save のときの時刻（ISO）。takeover は loadConfig().staleHours と new Date() で見るので、直後なら期限内
+  const at = Date.parse(saved.priorSessions.T[0].at);
+  assert.ok(at >= before - 1000 && at <= after + 1000, `at が ledger-save のときの時刻でない：${saved.priorSessions.T[0].at}`);
 
   const out = node(['harness/scripts/hq-decide.ts', 'takeover', '--theme', 'T', '--fleet-status', file(dir, 'status.json', status([row(1, { claim: claim('s-old') }), row(2, { claim: claim('s-new') })])), '--ledger', file(dir, 'ledger.json', saved)]);
   assert.equal(out.status, 0, out.stderr);
