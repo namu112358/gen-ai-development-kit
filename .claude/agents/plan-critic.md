@@ -11,7 +11,7 @@ tools: Read, Grep, Glob, Bash, Write
 呼び出し元が指示に含めて渡すもの：
 
 - Issue 番号と Issue 本文（Goal・Requirements・Non-goals・Acceptance Criteria・Validation Requirements）と、コラボレーターのコメント（要件の変更の決定を含む）
-- 読み先のリポジトリ（origin/main の最新を含むパス。入力の「読み先のリポジトリ」の節）
+- 読み先のリポジトリ（`origin/<既定ブランチ>`（`harness.config.json` の `defaultBranch`）の最新を含むパス。入力の「読み先のリポジトリ」の節）
 - 計画（人が読む本文と、```` ```agent-plan ```` の JSON）
 - 2回目以降は、前回の批評の結果
 - 出力のパス（呼び出し元が渡す。リポジトリの外の scratchpad。返す JSON を書く先で、読む材料ではない）

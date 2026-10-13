@@ -6,6 +6,7 @@ import { parseVerdict, riskAllowsAutoMerge, RISK_QUESTIONS } from '../lib/verdic
 
 // Issue #743：risk-agent の定義から「唯一の判定者」を外し、手順5・rationale の文言を直しても、
 // 自然言語を読まない守り・unsure で止める守り・出力の書式（parseVerdict）が効き続けることを固定する
+// Issue #866：質問8のガードレールを PR の base の設定から読み、harness.config.json 自身を含め続けることを固定する
 
 const root = join(import.meta.dirname, '..', '..');
 const read = (path: string): string => readFileSync(join(root, path), 'utf8').replace(/\r\n/g, '\n');
@@ -39,6 +40,18 @@ test('手順5は迷う・確かめられない問いを unsure と答える（�
   assert.ok(line, '手順5の行が無い');
   for (const w of ['unsure', '迷う', '確かめられない']) assert.ok(line.includes(w), `手順5に「${w}」が無い`);
   for (const w of ['少しでも', '**', '`yes` / `no` で答える']) assert.ok(!line.includes(w), `手順5に「${w}」がある`);
+});
+
+test('質問8は PR の base の harness.config.json から guardrailPaths を読み、harness.config.json 自身を含む。入力の base に main の既定が無い', () => {
+  const line = definition.split('\n').find((l) => l.includes('質問8のガードレール'));
+  assert.ok(line, '質問8のガードレールの行が無い');
+  for (const w of ['guardrailPaths', '`harness.config.json` 自身', 'git show origin/<PR の base>:harness.config.json']) {
+    assert.ok(line.includes(w), `質問8に「${w}」が無い`);
+  }
+  for (const w of ['origin/main', 'defaultBranch']) assert.ok(!line.includes(w), `質問8に「${w}」がある`);
+  const input = definition.split('\n## ').find((s) => s.startsWith('入力'));
+  assert.ok(input, '## 入力 の節が無い');
+  assert.ok(!input.includes('渡されなければ `main`'), '入力に「渡されなければ `main`」が残っている');
 });
 
 test('rationale の説明に文の数の決まりが無い', () => {

@@ -1,4 +1,5 @@
 // Issue #834：SessionStart の hook（.claude/hooks/session-env.ts）が、startup でだけ前提の確かめ（session-doctor）の行を Orca の知らせと1つの JSON にまとめて出すことを確かめる。
+// 既定ブランチの古さは clone の harness.config.json の defaultBranch（main）で見る（Issue #866）。
 // resume・clear・compact・Routine では確かめず、どの場合も exit 0 で AGENT_HARNESS_SESSION を書き、偽の gh の出力を漏らさず、git の子に画面を出さない env を渡すこと、
 // 確かめの読み込みが投げても行が無いだけなことも見る。砂場の bare の origin と PATH の先頭の偽の gh・git で動かし、本物の gh・ネットワークを呼ばない。
 import assert from 'node:assert/strict';
@@ -17,7 +18,7 @@ const TOKEN = 'gho_FAKE0123456789abcdefTOKEN';
 const input = (source: string): string => JSON.stringify({ session_id: SESSION_ID, hook_event_name: 'SessionStart', source });
 const exportLine = new RegExp(`^export AGENT_HARNESS_SESSION=(['"]?)${SESSION_ID}\\1$`, 'm');
 
-/** 一時ディレクトリに、bare の origin と main を1つ戻した clone（手元の main が origin より古い）、名義の無い git の設定、偽の gh・git を置く */
+/** 一時ディレクトリに、bare の origin と main を1つ戻した clone（手元の既定ブランチ main が origin より古い。defaultBranch が main の harness.config.json を未追跡で置く）、名義の無い git の設定、偽の gh・git を置く */
 function makeSandbox() {
   const dir = mkdtempSync(join(tmpdir(), 'session-doctor-'));
   const [home, bin, origin, clone, work] = ['home', 'bin', 'origin.git', 'clone', 'work'].map((p) => join(dir, p)) as [string, string, string, string, string];
@@ -36,6 +37,8 @@ function makeSandbox() {
   git(clone, 'commit', '--allow-empty', '-m', 'two');
   git(clone, 'push', 'origin', 'main');
   git(clone, 'reset', '--hard', 'HEAD~1');
+  // コミットしない（main の SHA と古さの関係を変えない）
+  writeFileSync(join(clone, 'harness.config.json'), JSON.stringify({ defaultBranch: 'main' }));
 
   const log = join(dir, 'calls.log');
   const realGit = spawnSync('sh', ['-c', 'command -v git'], { encoding: 'utf8' }).stdout.trim();
@@ -75,7 +78,7 @@ function runHook(sb: Sandbox, source: string, extra: Record<string, string> = {}
   return { ...r, envContent: readFileSync(sb.envFile, 'utf8'), calls: existsSync(sb.log) ? readFileSync(sb.log, 'utf8').split('\n').filter(Boolean) : [] };
 }
 
-test('startup：Orca の知らせと、git の名義・main の古さ・gh の認証の行が1つの JSON に入り、gh の出力は漏れず、git の子に画面を出さない env が渡る', { skip: SKIP }, () => {
+test('startup：Orca の知らせと、git の名義・既定ブランチの古さ・gh の認証の行が1つの JSON に入り、gh の出力は漏れず、git の子に画面を出さない env が渡る', { skip: SKIP }, () => {
   const sb = makeSandbox();
   try {
     const r = runHook(sb, 'startup');
@@ -85,7 +88,7 @@ test('startup：Orca の知らせと、git の名義・main の古さ・gh の�
     const out = JSON.parse(r.stdout) as { systemMessage: string; hookSpecificOutput: { hookEventName: string; additionalContext: string } };
     assert.equal(out.hookSpecificOutput.hookEventName, 'SessionStart');
     for (const [name, text] of [['systemMessage', out.systemMessage], ['additionalContext', out.hookSpecificOutput.additionalContext]] as const) {
-      for (const part of ['docs/setup.md の節11', 'git の名義', '手元の main が origin より古い', 'gh の認証']) {
+      for (const part of ['docs/setup.md の節11', 'git の名義', '手元の既定ブランチ（main）が origin より古い', 'gh の認証']) {
         assert.ok(text.includes(part), `${name} に「${part}」が無い: ${text}`);
       }
       assert.ok(!text.includes('Orca の CLI が見つかりません'), `${name}：Orca の知らせを出したのに確かめの Orca の行が重なった`);
