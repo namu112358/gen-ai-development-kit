@@ -145,7 +145,8 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
     "maxTokens": 16000,
     "maxToolCalls": 12,                // read_file / list_files の上限
     "maxDiffChars": 200000,
-    "maxFileChars": 60000
+    "maxFileChars": 60000,
+    "diffOnlyExtensions": [".md", ".html"] // 全文を添えず diff だけを渡す拡張子（Issue #990）。大文字小文字は区別しない
   },
   "budget": { "monthlyUsd": 50, "perReviewUsd": 3 },
   "pricing": { "claude-opus-5-5": { "input": 4, "output": 20, "cacheWrite5m": 5, "cacheWrite1h": 8, "cacheRead": 0.2 }, "claude-sonnet-5-5": { ... } }

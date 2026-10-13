@@ -19,7 +19,7 @@ const HEAD = 'a'.repeat(40);
 const OLD1 = 'b'.repeat(40);
 const OLD2 = 'c'.repeat(40);
 const config: Pick<ReviewConfig, 'claude'> = {
-  claude: { reviewModel: 'm', riskModel: 'm', effort: 'high', maxTokens: 1000, maxToolCalls: 10, maxDiffChars: 200, maxFileChars: 10 },
+  claude: { reviewModel: 'm', riskModel: 'm', effort: 'high', maxTokens: 1000, maxToolCalls: 10, maxDiffChars: 200, maxFileChars: 10, diffOnlyExtensions: [] },
 };
 
 const comment = (id: number, login: string, body: string) => ({ id, body, user: { login }, author_association: 'NONE' });

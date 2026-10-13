@@ -212,6 +212,10 @@ function sharedBlocks(m: Material): TextBlock[] {
       blocks.push(text(`${OMITTED}${f.path}`));
       continue;
     }
+    if (f.diffOnly) {
+      blocks.push(text(`${f.path} は全文を省いた（変更は diff にある。要るなら read_file で読める）。`));
+      continue;
+    }
     blocks.push(text(wrapUntrusted('file', `path: ${f.path}\n---\n${f.content}`)));
     if (f.truncated) blocks.push(text(`${f.path} の中身は maxFileChars で切れている（後ろが無い）。`));
   }
