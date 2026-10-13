@@ -2,6 +2,7 @@
 // ツールのループを maxToolCalls で止め（ツールの実行は maxToolCalls 回、最後の問いだけ tool_choice none）、最後の text の JSON を返すこと、
 // JSON が読めない・refusal・max_tokens・上限の後のツールの要求でそれぞれの理由を返すこと、usage がモデルごとに足されること、
 // 400・401・403 で NonRetryableError を投げ 429・500 では元のエラーのままにすること、
+// ツールのループで最新の tool_result だけに cache_control を付け、前の回のものからは外し、材料のブロックの cache_control は残すこと（Issue #960）、
 // claude.ts が @anthropic-ai/sdk・cloudflare:workers・cloudflare:workflows・node:・harness/lib を import しないことを確かめる（Issue #910）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -108,7 +109,10 @@ test('askWithTools はツールを maxToolCalls 回だけ実行し、最後の�
   // 2回目の後：thinking を含む content がそのまま、tool_result は1つの user メッセージにまとまり、上限の後のものは is_error
   const m2 = calls[2]!.messages;
   assert.equal(m2.length, 5);
-  assert.deepEqual(m2.slice(0, 3), m1);
+  // 先頭の2つは同じ。前の回の tool_result は cache_control が外れるだけで、ほかは同じ（付け外しは Issue #960 のテストで見る）
+  const withoutCache = (blocks: Record<string, unknown>[]) => blocks.map(({ cache_control: _c, ...b }) => b);
+  assert.deepEqual(m2.slice(0, 2), m1.slice(0, 2));
+  assert.deepEqual(withoutCache(m2[2]!.content as Record<string, unknown>[]), withoutCache(r1));
   assert.deepEqual(m2[3], { role: 'assistant', content: second });
   assert.equal(m2[4]!.role, 'user');
   const r2 = m2[4]!.content as Record<string, unknown>[];
@@ -168,6 +172,63 @@ test('askWithTools は usage をモデルごとに足し、cache_creation の内
     [other]: { input: 20, output: 2, cacheWrite5m: 6, cacheWrite1h: 0, cacheRead: 0 },
   };
   assert.deepEqual(result.usage, expected);
+});
+
+test('askWithTools は最新の tool_result だけに cache_control を付け、前の回の tool_result からは外し、材料のブロックの cache_control は残す', async () => {
+  const EPHEMERAL = { type: 'ephemeral' };
+  const materialBlocks = [
+    { type: 'text', text: 'a' },
+    { type: 'text', text: 'b', cache_control: EPHEMERAL },
+  ];
+  const params: MessagesParams = { ...baseParams(), messages: [{ role: 'user', content: materialBlocks }] };
+  const original = structuredClone(params.messages);
+  const { client, calls } = fakeClient([
+    msg([toolUse('t1')], 'tool_use'),
+    msg([toolUse('t2')], 'tool_use'),
+    msg([text('{"ok":true}')], 'end_turn'),
+  ]);
+
+  const result = await askWithTools(client, params, countingTool().runTool, 5);
+
+  assert.equal(result.ok, true);
+  assert.equal(calls.length, 3);
+  assert.deepEqual(params.messages, original, '呼び出し元の params.messages は変えない');
+
+  // (1) 材料（params.messages 由来）のブロックの cache_control は 1〜3 回目のすべてで残る
+  for (const [i, c] of calls.entries()) assert.deepEqual(c.messages[0], original[0], `${i + 1} 回目の材料`);
+
+  const lastUserBlocks = (i: number): Record<string, unknown>[] => {
+    const m = calls[i]!.messages;
+    const last = m.at(-1)!;
+    assert.equal(last.role, 'user', `${i + 1} 回目の末尾は user`);
+    return last.content as Record<string, unknown>[];
+  };
+
+  // (2) 2 回目：1 回目の tool_result（末尾の user メッセージの最後のブロック）に cache_control が付く
+  const r1 = lastUserBlocks(1);
+  assert.equal(calls[1]!.messages.length, 3);
+  assert.deepEqual(calls[1]!.messages[1], { role: 'assistant', content: [toolUse('t1')] }, 'assistant の content は触らない');
+  assert.equal(r1.length, 1);
+  assert.equal(r1[0]!.tool_use_id, 't1');
+  assert.deepEqual(r1[0]!.cache_control, EPHEMERAL, '2 回目の tool_result に cache_control がない');
+
+  // (3) 3 回目：前の回の tool_result からは外れ、新しい tool_result だけに付く
+  const m3 = calls[2]!.messages;
+  assert.equal(m3.length, 5);
+  const prev = m3[2]!.content as Record<string, unknown>[];
+  assert.equal(prev[0]!.tool_use_id, 't1');
+  assert.equal('cache_control' in prev[0]!, false, '3 回目で前の回の tool_result に cache_control が残っている');
+  assert.deepEqual({ ...prev[0], cache_control: EPHEMERAL }, r1[0], 'cache_control 以外は 2 回目の tool_result と同じ');
+  assert.deepEqual(m3[3], { role: 'assistant', content: [toolUse('t2')] }, 'assistant の content は触らない');
+  const r2 = lastUserBlocks(2);
+  assert.equal(r2.length, 1);
+  assert.equal(r2[0]!.tool_use_id, 't2');
+  assert.deepEqual(r2[0]!.cache_control, EPHEMERAL, '3 回目の tool_result に cache_control がない');
+  // 3 回目で cache_control を持つのは、材料の最後のブロックと最新の tool_result だけ
+  const cached = m3.flatMap((m, i) => (Array.isArray(m.content) ? m.content : []).map((b, j) => [i, j, (b as Record<string, unknown>).cache_control] as const))
+    .filter(([, , cc]) => cc !== undefined)
+    .map(([i, j]) => [i, j]);
+  assert.deepEqual(cached, [[0, 1], [4, 0]]);
 });
 
 test('client.create の 400・401・403 は NonRetryableError（キーと本文を含まない）、429・500・status 無しは元のエラーのまま', async () => {

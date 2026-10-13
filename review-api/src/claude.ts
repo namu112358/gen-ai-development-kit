@@ -35,6 +35,15 @@ export interface MessagesClient {
 
 export type ToolRunner = (call: { name: string; input: unknown }) => Promise<{ content: string; isError?: boolean }>;
 
+/** tool_result のブロック。cache_control は最新の tool_result の user メッセージの最後のブロックにだけ付ける（Issue #960） */
+export type ToolResultBlock = {
+  type: 'tool_result';
+  tool_use_id: string;
+  content: string;
+  is_error?: true;
+  cache_control?: { type: 'ephemeral' };
+};
+
 export type AskFailure = 'invalid-json' | 'refusal' | 'max-tokens' | 'tool-limit';
 
 export type AskResult =
@@ -88,12 +97,16 @@ async function create(client: MessagesClient, params: MessagesParams): Promise<M
 /**
  * ツールを呼びながら最後の JSON を受け取る。ツールの実行は maxToolCalls 回まで。
  * 達したら次の問いを最後の1回にして tool_choice none を付ける（any・tool は使わない）。
- * 履歴は足すだけ（返った assistant の content はそのまま）で、params.messages は書き換えない
+ * 履歴は足すだけ（返った assistant の content はそのまま）で、params.messages は書き換えない。
+ * prompt caching の breakpoint は最新の tool_result の user メッセージの最後のブロックに1つだけ置き、
+ * 次の回では前の回の tool_result のメッセージを「印を外した複製」に差し替える（params.messages 由来の材料と assistant の content には触れない。Issue #960）
  */
 export async function askWithTools(client: MessagesClient, params: MessagesParams, runTool: ToolRunner, maxToolCalls: number): Promise<AskResult> {
   const messages: MessageParam[] = [...params.messages];
   const usage: Record<string, Usage> = {};
   let toolCalls = 0;
+  // 前の回の tool_result の user メッセージの添字（印を外す対象。材料のメッセージは対象にしない）
+  let lastResultIndex: number | null = null;
   const fail = (reason: AskFailure): AskResult => ({ ok: false, reason, usage, toolCalls });
 
   for (;;) {
@@ -107,7 +120,16 @@ export async function askWithTools(client: MessagesClient, params: MessagesParam
       const uses = res.content.filter(isToolUse);
       if (uses.length === 0) return fail('invalid-json');
       messages.push({ role: 'assistant', content: res.content });
-      const results: unknown[] = [];
+      if (lastResultIndex !== null) {
+        const prev = messages[lastResultIndex]!;
+        const content = Array.isArray(prev.content) ? [...prev.content] : prev.content;
+        if (Array.isArray(content) && content.length > 0) {
+          const { cache_control: _dropped, ...rest } = content[content.length - 1] as ToolResultBlock;
+          content[content.length - 1] = rest;
+        }
+        messages[lastResultIndex] = { ...prev, content };
+      }
+      const results: ToolResultBlock[] = [];
       for (const use of uses) {
         if (toolCalls >= maxToolCalls) {
           results.push({
@@ -122,7 +144,9 @@ export async function askWithTools(client: MessagesClient, params: MessagesParam
         const out = await runTool({ name: use.name, input: use.input });
         results.push({ type: 'tool_result', tool_use_id: use.id, content: out.content, ...(out.isError ? { is_error: true } : {}) });
       }
+      results[results.length - 1] = { ...results[results.length - 1]!, cache_control: { type: 'ephemeral' } };
       messages.push({ role: 'user', content: results });
+      lastResultIndex = messages.length - 1;
       continue;
     }
 
