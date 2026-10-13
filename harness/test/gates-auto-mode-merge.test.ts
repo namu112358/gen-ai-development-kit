@@ -6,6 +6,7 @@ import { AUTO_MODE_JEV_QUESTION_SET, autoModeConfig } from '../lib/auto-mode.ts'
 import { appMark, renderBlock } from '../lib/blocks.ts';
 import { bypassMergeConfig, CHECKS, delegateConfig, LABELS, type HarnessConfig } from '../lib/config.ts';
 import type { askJev } from '../lib/jev.ts';
+import { AUTO_MODE_HOLD_REASON_PREFIX } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import type { Verdict } from '../lib/verdict.ts';
 import { onComment } from '../gates/on-comment.ts';
@@ -253,15 +254,17 @@ test('auto mode と bypass が両方有効：両方で乗る PR には auto mode
   assert.equal(checks(fake, CHECKS.mergeRoute).at(-1)?.title, 'auto mode の条件を満たしています');
 });
 
-test('auto mode の危険の判定で保留でも、bypass が有効で bypass で乗るなら bypass-merge を書いて auto-merge を付ける（bypass の動きは変えない）', async () => {
+test('auto mode の危険の判定で保留なら、bypass が有効で bypass で乗れる PR でも auto-merge を付けず、bypass-merge を書かず、human-review に保留の1行を出す（Issue #942）', async () => {
   const fake = verdictFake({ dashboardLabels: [AUTO, BYPASS], events: [bypassOn(), autoOn()] });
   await accept(fake, critical(), { jev: fakeJev(0.5) });
   const w = fake.writes();
-  assert.ok(w.includes('enablePullRequestAutoMerge'), w.join('\n'));
-  assert.ok(w.includes('comment:bypass-merge'), w.join('\n'));
+  assert.ok(!w.includes('enablePullRequestAutoMerge'), w.join('\n'));
+  assert.ok(!w.includes('comment:bypass-merge'), w.join('\n'));
   assert.ok(!w.includes('comment:auto-mode-merge'), w.join('\n'));
-  assert.ok(!w.includes('comment:human-review'), w.join('\n'));
-  assert.equal(checks(fake, CHECKS.mergeRoute).at(-1)?.title, 'bypass モードの条件を満たしています');
+  assert.ok(w.includes('comment:human-review'), w.join('\n'));
+  assert.ok((postedBodies(fake, 'human-review').at(-1) ?? '').includes(AUTO_MODE_HOLD_REASON_PREFIX), postedBodies(fake, 'human-review').at(-1));
+  assert.equal(postedRecord(fake, 'acceptance').autoMode?.hold, true, '受け付けの記録に hold を残す');
+  assert.notEqual(checks(fake, CHECKS.mergeRoute).at(-1)?.title, 'bypass モードの条件を満たしています');
 });
 
 // ---- 新しい判定で乗らなくなったら外す ----

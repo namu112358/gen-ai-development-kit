@@ -9,6 +9,7 @@
  * auto mode が有効（autoModeMode）なら、自動 Merge の対象でも委任でも通らない受け付けのうち、autoMode.eligible が真のものを判定由来の理由では止めない
  * （Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev の自動 Merge の許可を飛ばす。Jev の危険の判定で保留なら eligible は偽。harness/gates/auto-mode.ts）。
  * 順番は 自動 Merge の対象 → 委任 → auto mode → bypass。
+ * ただし auto mode が有効で受け付けが Jev の危険の判定で保留（autoModeHolds）なら、委任・bypass でも自動経路に乗せない（Issue #942）。
  */
 import type { AutoModeJevRecord } from './auto-mode.ts';
 import type { OverbuildJevRecord } from './overbuild-jev.ts';
@@ -41,10 +42,22 @@ export interface AutoModeRecord {
   eligible: boolean;
   /** auto mode でも自動経路に乗せない理由（必須の条件と、Jev の危険の判定での保留） */
   reasons: string[];
+  /** Jev の危険の判定で保留にしたか（無い古い記録は reasons の文頭で読む。autoModeHolds） */
+  hold?: boolean;
   /** auto mode なら飛ばす理由（Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev の自動 Merge の許可） */
   skipped: string[];
   /** Jev の危険の問いの記録（問わなかったときは無い。同じ patch-id なら使い回す） */
   jev?: AutoModeJevRecord;
+}
+
+/** 受け付けの記録の autoMode.reasons で、Jev の危険の判定での保留の理由の文頭 */
+export const AUTO_MODE_HOLD_REASON_PREFIX = 'auto mode の危険の判定で保留';
+
+/** 受け付けが auto mode の Jev の危険の判定で保留か。autoMode.hold があればそれ、無い古い記録は reasons の文頭で読む */
+export function autoModeHolds(acceptance: Acceptance | null): boolean {
+  const a = acceptance?.autoMode;
+  if (!a) return false;
+  return a.hold ?? a.reasons.some((r) => r.startsWith(AUTO_MODE_HOLD_REASON_PREFIX));
 }
 
 export interface Acceptance {
@@ -128,13 +141,15 @@ export function evaluateMergeRoute(input: MergeRouteInput): CheckOutcome {
   if (input.hold) reasons.push('`agent:hold` が付いています');
   if (!input.autoMergeMode) reasons.push('自動 Merge モードが無効です');
   if (input.stacked) reasons.push('base が既定ブランチではありません（Stacked PR は Human Merge）');
-  const delegated = input.delegateMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.delegate?.eligible === true;
+  const autoModeHeld = input.autoModeMode === true && autoModeHolds(input.acceptance);
+  const delegated = !autoModeHeld && input.delegateMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.delegate?.eligible === true;
   const autoModed = !delegated && input.autoModeMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.autoMode?.eligible === true;
-  const bypassed = !delegated && !autoModed && input.bypassMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.bypass?.eligible === true;
+  const bypassed = !autoModeHeld && !delegated && !autoModed && input.bypassMode === true && input.acceptance !== null && !input.acceptance.autoEligible && input.acceptance.bypass?.eligible === true;
   if (!input.acceptance) {
     reasons.push('現在の差分に対して有効な判定がありません');
   } else if (!input.acceptance.autoEligible && !delegated && !autoModed && !bypassed) {
     reasons.push(...input.acceptance.reasons);
+    if (autoModeHeld) reasons.push('auto mode の危険の判定で保留のため、委任承認・bypass でも自動経路に乗せません');
     if (input.delegateMode && input.acceptance.delegate) reasons.push(...input.acceptance.delegate.reasons.map((r) => `委任承認でも不可: ${r}`));
     if (input.autoModeMode && input.acceptance.autoMode) reasons.push(...input.acceptance.autoMode.reasons.map((r) => `auto mode でも不可: ${r}`));
     if (input.bypassMode && input.acceptance.bypass) reasons.push(...input.acceptance.bypass.reasons.map((r) => `bypass でも不可: ${r}`));
