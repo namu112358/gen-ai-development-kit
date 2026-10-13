@@ -5,6 +5,7 @@ Orca につないだ Claude のアカウントのうち、使用量の低いも�
 - `pick.ts`：`node harness/scripts/accounts/pick.ts`（引数なし）。標準出力に JSON を1つ返し、終了コードは常に 0。
   - 入力（読むだけ。書くのは `launches.json` だけ）：対応表 `~/.config/agent-harness/accounts.json`（`threshold5h`（既定 80）・`threshold7d`（既定 90。7d が null のアカウントは 7d では外さない）と `accounts[]` の `orcaId`・`name`・`configDir`。`configDir` の先頭の `~/` はホームに展開する）、使用量の控え `~/.config/agent-harness/usage/<組織の ID>.json`、起こした数の控え `usage/launches.json`、Orca の `account list --json`（アカウントの一覧と組織の ID だけを読む）。
   - 結果：`picked`（`prefix` は `CLAUDE_CONFIG_DIR='<configDir>' `、`name`・`orcaId`・`usage`・`excluded`）、`wait`（全部が 5h か 7d のしきい値以上か `rejected`。リセット時刻を過ぎた値は 0% とみなす。`resetAt` はアカウントが選べるようになる時刻の一番早いもの。5h と 7d の両方で外れたアカウントは遅い方）、`default`（対応表が無い・Orca が読めない・候補が無い。`prefix` は空、`reason` に理由）。
+  - 順番（Issue #979）：5h（リセット済みは 0%）＋ 10 × 直近 15 分に起こした数（`launches.json`。値の時刻にかかわらず数える）で低い方から。同点なら 7d が低い方（null は後ろ）、それも同じなら対応表の順。7d は `threshold7d` で外す条件と同点の順番にだけ使う。
   - 候補から外す理由（`excluded` の `reason`）：`outside-config-root`・`unreadable-claude-json`・`onboarding`・`trust`・`auto-mode-prompt`・`org-mismatch`・`no-usage`。
   - 値の取り元は 10 分以内の問い合わせ（`source: probe`）の控え → 5 分以内のほかの控えの順。別のアカウントと取り違えていそうな値は使わない。
   - 控えが使われる条件（Issue #976）：`source` が `probe` の控えか、控えの `configDir` の実パスが対応表のそのアカウントの `configDir` の実パスと同じ控えだけ。`configDir` が無い・違う控え（どの設定ディレクトリで書いたか分からない）は無いものとして扱う。

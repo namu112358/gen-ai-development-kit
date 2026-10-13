@@ -16,6 +16,8 @@
  * - default：{ result, prefix: '', reason, excluded }（対応表・Orca が読めない、候補が無い）
  * excluded は { name, reason } の一覧。reason は outside-config-root・unreadable-claude-json・onboarding・trust・auto-mode-prompt・org-mismatch・no-usage。
  *
+ * 順番は 5h（＋直近 15 分に起こした数 × 10）で決め、7d は外す条件と同点の順番（低い方が先、null は後ろ）にだけ使う（Issue #979）。
+ *
  * 判定は純粋関数で、ファイルの読み書きと Orca の呼び出しは deps で差し替える。CLI は import.meta.main の中だけで動く。
  */
 import { spawnSync } from 'node:child_process';
@@ -40,6 +42,7 @@ export const PROBE_MAX_AGE_MS = 10 * MIN;
 export const CACHE_MAX_AGE_MS = 5 * MIN;
 export const MIXUP_RESET_GAP_MS = 120_000;
 export const LAUNCH_PENALTY = 10;
+export const LAUNCH_WINDOW_MS = 15 * MIN;
 export const DEFAULT_THRESHOLD_5H = 80;
 export const DEFAULT_THRESHOLD_7D = 90;
 const ORCA_TIMEOUT_MS = 15_000;
@@ -180,7 +183,8 @@ export function effectiveUsage(u: UsageValue, now: number): { fiveHour: number; 
   return { fiveHour, sevenDay };
 }
 
-/** 候補から選ぶ。使える値が無いアカウントは no-usage で外す。リセット済みの枠は 0% として、5h・7d のしきい値と順番を決める */
+/** 候補から選ぶ。使える値が無いアカウントは no-usage で外す。リセット済みの枠は 0% として、5h・7d のしきい値と順番を決める。
+ *  順番は 5h ＋ LAUNCH_PENALTY × 直近 LAUNCH_WINDOW_MS に起こした数、同点なら 7d が低い方（null は後ろ）、次に対応表の順 */
 export function pickAccount(input: { accounts: AccountEntry[]; threshold5h: number; threshold7d: number; usage: Map<string, UsageValue | null>; launches: Launch[]; excluded: Excluded[]; now: number }): PickResult {
   const excluded = [...input.excluded];
   const cands: { a: AccountEntry; u: UsageValue; e: { fiveHour: number; sevenDay: number | null }; index: number }[] = [];
@@ -205,9 +209,12 @@ export function pickAccount(input: { accounts: AccountEntry[]; threshold5h: numb
     }
     return { result: 'wait', prefix: '', resetAt: times.length === 0 ? null : new Date(Math.min(...times)).toISOString(), excluded };
   }
+  // 起こした分は値の時刻にかかわらず直近 LAUNCH_WINDOW_MS の数で数える（取り直した値にはまだ入っていないため。Issue #979）
   const score = (c: (typeof cands)[number]): number =>
-    Math.max(c.e.fiveHour, c.e.sevenDay ?? c.e.fiveHour) + LAUNCH_PENALTY * input.launches.filter((l) => l.name === c.a.name && l.at > c.u.at).length;
-  open.sort((x, y) => score(x) - score(y) || (x.e.sevenDay ?? 0) - (y.e.sevenDay ?? 0) || x.index - y.index);
+    c.e.fiveHour + LAUNCH_PENALTY * input.launches.filter((l) => l.name === c.a.name && input.now - l.at < LAUNCH_WINDOW_MS).length;
+  // 同点なら 7d が低い方、7d が null は後ろ
+  const seven = (c: (typeof cands)[number]): number => c.e.sevenDay ?? Number.POSITIVE_INFINITY;
+  open.sort((x, y) => score(x) - score(y) || (seven(x) - seven(y) || 0) || x.index - y.index);
   const best = open[0]!;
   return { result: 'picked', prefix: shellPrefix(resolve(best.a.configDir)), name: best.a.name, orcaId: best.a.orcaId, usage: best.u, excluded };
 }
