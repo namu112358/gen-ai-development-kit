@@ -1,4 +1,4 @@
-import type { FleetClaimInfo, FleetStatusData, FleetStatusRow } from './fleet.ts';
+import type { FleetClaimInfo, FleetRow, FleetStatusData, FleetStatusRow } from './fleet.ts';
 
 /**
  * fleet のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。純粋関数だけ。hq の3つのペインは harness/lib/panes-hq.ts。
@@ -318,6 +318,16 @@ export interface TodoItem {
   sub: string;
 }
 
+/** 人がすることの項目の種類（merge：人の Merge 待ちの PR、review：計画ゲートで停止）。panes の todoItems とダッシュボードの buildTodos が使う */
+export type HumanTodoKind = 'merge' | 'review';
+
+/** fleet-status の行から、人がすることの項目の種類を決める。PR の無い human-merge は merge にしない */
+export function humanTodoKind(row: Pick<FleetRow, 'stage' | 'pr'>): HumanTodoKind | null {
+  if (row.stage === 'human-merge' && row.pr !== null) return 'merge';
+  if (row.stage === 'plan-review') return 'review';
+  return null;
+}
+
 const TEST_CHECK = 'agent/tests';
 const TEST_EXEMPT = 'test:exempt';
 
@@ -328,8 +338,9 @@ export function todoItems(snap: PaneSnapshot): TodoItem[] {
   for (const row of rows) {
     const at = locateRow(row);
     if (at.who !== 'human' || at.other) continue;
-    if (row.stage === 'human-merge') items.push({ rank: 0, issue: row.issue, pr: row.pr, text: `PR #${row.pr}（#${row.issue}）を確かめて Merge する`, sub: 'Human Merge の依頼のコメントに確かめる点がある' });
-    else if (row.stage === 'plan-review') items.push({ rank: 1, issue: row.issue, pr: null, text: `#${row.issue} の計画が計画ゲートで止まっている → 進めてよいか決める`, sub: 'fleet のペインで聞かれたら答える' });
+    const kind = humanTodoKind(row);
+    if (kind === 'merge') items.push({ rank: 0, issue: row.issue, pr: row.pr, text: `PR #${row.pr}（#${row.issue}）を確かめて Merge する`, sub: 'Human Merge の依頼のコメントに確かめる点がある' });
+    else if (kind === 'review') items.push({ rank: 1, issue: row.issue, pr: null, text: `#${row.issue} の計画が計画ゲートで止まっている → 進めてよいか決める`, sub: 'fleet のペインで聞かれたら答える' });
     else items.push({ rank: 2, issue: row.issue, pr: row.pr, text: `#${row.issue}：${at.what}`, sub: '' });
   }
   for (const pr of snap.prs) {

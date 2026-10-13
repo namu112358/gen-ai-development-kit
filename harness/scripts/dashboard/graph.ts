@@ -7,6 +7,7 @@ import { shortSession } from '../../lib/blocks.ts';
 import { LABELS, PRIORITY_LABELS } from '../../lib/config.ts';
 import { parseChildMarker } from '../../lib/epic.ts';
 import { fleetStatus, type FleetIssue, type FleetPr, type FleetRow, type FleetStage } from '../../lib/fleet.ts';
+import { humanTodoKind } from '../../lib/panes.ts';
 import type { Claim, IssueFacts } from '../../lib/queue.ts';
 import type { ConfirmInfo } from './confirm.ts';
 import type { DecisionInfo } from './decision.ts';
@@ -169,11 +170,11 @@ export function buildTodos(issues: DashIssue[], prs: DashPr[], rows: FleetRow[])
     ({ id: `${key}-issue-${i.fleet.facts.number}`, kind: 'issue', number: i.fleet.facts.number, url: i.url, title: i.fleet.facts.title, reason });
   const merge: Todo[] = [];
   for (const r of rows) {
-    if (r.stage !== 'human-merge' || r.pr === null) continue;
+    if (humanTodoKind(r) !== 'merge') continue;
     const p = prs.find((x) => x.number === r.pr);
     if (p) merge.push({ id: `merge-pr-${p.number}`, kind: 'pr', number: p.number, url: p.url, title: p.title, reason: 'PR を確かめて Merge する' });
   }
-  const review = issues.filter((i) => rows.some((r) => r.issue === i.fleet.facts.number && r.stage === 'plan-review'))
+  const review = issues.filter((i) => rows.some((r) => r.issue === i.fleet.facts.number && humanTodoKind(r) === 'review'))
     .map((i) => {
       const t = issueTodo(i, 'review', '計画ゲートで止まった。進めるか決める');
       return i.decision ? { ...t, decision: i.decision } : t;
