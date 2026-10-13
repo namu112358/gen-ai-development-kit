@@ -22,10 +22,8 @@ let seq = 0;
 /** 1つのアカウントの置き方 */
 interface AccountSpec {
   name: string;
-  /** Orca の値（無ければ Orca に使用量が無い） */
-  orca?: { five: number | null; reset?: number | null; seven?: number | null; status?: string; ageMin?: number };
-  /** 控え usage/<org>.json（無ければ置かない） */
-  cache?: { five: number | null; reset?: number | null; seven?: number | null; status?: string; source?: string; ageMin: number };
+  /** 控え usage/<org>.json（無ければ置かない。configDir は対応表と同じ、source は既定 statusline、ageMin は既定 1） */
+  cache?: { five: number | null; reset?: number | null; seven?: number | null; status?: string; source?: string; ageMin?: number };
   /** configDir を差し替える（root は ~/.config/agent-harness/claude） */
   configDir?: (configRoot: string, home: string) => string;
   /** .claude.json の中身（null なら置かない、文字列ならそのまま書く） */
@@ -55,12 +53,6 @@ interface PickOut {
 
 const orgOf = (name: string): string => `org-${name}`;
 const idOf = (name: string): string => `orca-${name}`;
-const rl = (v: NonNullable<AccountSpec['orca']>, i: number) => ({
-  status: v.status ?? 'allowed',
-  session: { usedPercent: v.five, resetsAt: v.reset === undefined ? NOW + (60 + i * 10) * MIN : v.reset },
-  weekly: { usedPercent: v.seven ?? null, resetsAt: NOW + 3 * 24 * 60 * MIN },
-  updatedAt: NOW - (v.ageMin ?? 1) * MIN,
-});
 
 /** 一時ディレクトリに home を作り、runPick の deps と Orca の JSON を返す */
 function setup(s: Setup) {
@@ -86,10 +78,11 @@ function setup(s: Setup) {
     if (a.cache) {
       const c = a.cache;
       put(join(base, 'usage', `${orgOf(a.name)}.json`), JSON.stringify({
-        at: NOW - c.ageMin * MIN,
+        at: NOW - (c.ageMin ?? 1) * MIN,
         session: { usedPercent: c.five, resetsAt: c.reset === undefined ? NOW + 90 * MIN : c.reset },
         weekly: { usedPercent: c.seven ?? null, resetsAt: NOW + 3 * 24 * 60 * MIN },
-        ...(c.source ? { source: c.source } : {}),
+        source: c.source ?? 'statusline',
+        configDir,
         ...(c.status ? { status: c.status } : {}),
       }));
     }
@@ -98,16 +91,11 @@ function setup(s: Setup) {
   if (!s.noTable) put(join(base, 'accounts.json'), JSON.stringify({ ...(s.threshold5h === undefined ? {} : { threshold5h: s.threshold5h }), accounts: entries }));
   if (s.launches) put(join(base, 'usage', 'launches.json'), JSON.stringify(s.launches));
 
-  const [active, ...inactive] = s.accounts;
   const orcaJson = JSON.stringify({
     result: {
       claude: {
         accounts: s.accounts.map((a) => ({ id: idOf(a.name), organizationUuid: orgOf(a.name), email: EMAIL })),
-        activeAccountId: active ? idOf(active.name) : null,
-      },
-      rateLimits: {
-        claude: active?.orca ? rl(active.orca, 0) : null,
-        inactiveClaudeAccounts: inactive.filter((a) => a.orca).map((a) => ({ accountId: idOf(a.name), rateLimits: rl(a.orca!, s.accounts.indexOf(a)) })),
+        activeAccountId: s.accounts[0] ? idOf(s.accounts[0].name) : null,
       },
     },
   });
@@ -143,7 +131,7 @@ const pick = async (deps: Parameters<typeof runPick>[0]): Promise<PickOut> => (a
 const byName = (xs: { name: string; reason: string }[] = []) => [...xs].sort((a, b) => a.name.localeCompare(b.name));
 
 test('低いアカウントが選ばれ、前置きは単一引用符の CLAUDE_CONFIG_DIR で、launches.json だけに1件足される', async () => {
-  const s = setup({ accounts: [{ name: 'a', orca: { five: 60, seven: 10 } }, { name: 'b', orca: { five: 20, seven: 10 } }], launches: [{ name: 'a', at: NOW - 5 * MIN }] });
+  const s = setup({ accounts: [{ name: 'a', cache: { five: 60, seven: 10 } }, { name: 'b', cache: { five: 20, seven: 10 } }], launches: [{ name: 'a', at: NOW - 5 * MIN }] });
   const r = await pick(s.deps);
   assert.equal(r.result, 'picked');
   assert.equal(r.name, 'b');
@@ -156,7 +144,7 @@ test('低いアカウントが選ばれ、前置きは単一引用符の CLAUDE_
 });
 
 test('選び方の順：しきい値・rejected・起こした数の +10・5h が同じなら 7d（null は 0）・それも同じなら対応表の順', async () => {
-  const cases: { label: string; a: AccountSpec['orca']; b: AccountSpec['orca']; launches?: { name: string; at: number }[]; threshold5h?: number; expect: string }[] = [
+  const cases: { label: string; a: AccountSpec['cache']; b: AccountSpec['cache']; launches?: { name: string; at: number }[]; threshold5h?: number; expect: string }[] = [
     { label: '5h が低いほう', a: { five: 40 }, b: { five: 30 }, expect: 'b' },
     { label: '値の後に起こした1件で +10', a: { five: 30, ageMin: 2 }, b: { five: 25, ageMin: 2 }, launches: [{ name: 'b', at: NOW - 1 * MIN }], expect: 'a' },
     { label: '値より前に起こした分は数えない', a: { five: 30, ageMin: 2 }, b: { five: 25, ageMin: 2 }, launches: [{ name: 'b', at: NOW - 3 * MIN }], expect: 'b' },
@@ -168,25 +156,23 @@ test('選び方の順：しきい値・rejected・起こした数の +10・5h �
     { label: 'rejected は外れる', a: { five: 10, status: 'rejected' }, b: { five: 50 }, expect: 'b' },
   ];
   for (const c of cases) {
-    const s = setup({ accounts: [{ name: 'a', orca: c.a }, { name: 'b', orca: c.b }], launches: c.launches, threshold5h: c.threshold5h });
+    const s = setup({ accounts: [{ name: 'a', cache: c.a }, { name: 'b', cache: c.b }], launches: c.launches, threshold5h: c.threshold5h });
     const r = await pick(s.deps);
     assert.equal(r.result, 'picked', c.label);
     assert.equal(r.name, c.expect, c.label);
   }
 });
 
-test('取り元の順：10 分以内の probe の控え > 5 分以内のほかの控え > 30 分以内の Orca、古いものは使わない', async () => {
-  const cases: { label: string; cache?: AccountSpec['cache']; orca?: AccountSpec['orca']; expect: { source: string; five: number } | 'no-usage' }[] = [
-    { label: '新しい probe', cache: { five: 11, source: 'probe', ageMin: 9 }, orca: { five: 50 }, expect: { source: 'probe', five: 11 } },
-    { label: '古い probe は Orca に落ちる', cache: { five: 11, source: 'probe', ageMin: 11 }, orca: { five: 50 }, expect: { source: 'orca', five: 50 } },
-    { label: '新しいほかの控え', cache: { five: 22, ageMin: 4 }, orca: { five: 50 }, expect: { source: 'cache', five: 22 } },
-    { label: '古いほかの控えは Orca に落ちる', cache: { five: 22, ageMin: 6 }, orca: { five: 50 }, expect: { source: 'orca', five: 50 } },
-    { label: '5h が null の控えは使えない', cache: { five: null, source: 'probe', ageMin: 1 }, orca: { five: 50 }, expect: { source: 'orca', five: 50 } },
-    { label: '30 分以内の Orca', orca: { five: 50, ageMin: 29 }, expect: { source: 'orca', five: 50 } },
-    { label: '古い Orca だけなら使える値が無い', cache: { five: 22, ageMin: 6 }, orca: { five: 50, ageMin: 31 }, expect: 'no-usage' },
+test('取り元の順：10 分以内の probe の控え > 5 分以内のほかの控え、古いものは使わない', async () => {
+  const cases: { label: string; cache: AccountSpec['cache']; expect: { source: string; five: number } | 'no-usage' }[] = [
+    { label: '新しい probe', cache: { five: 11, source: 'probe', ageMin: 9 }, expect: { source: 'probe', five: 11 } },
+    { label: '古い probe', cache: { five: 11, source: 'probe', ageMin: 11 }, expect: 'no-usage' },
+    { label: '新しいほかの控え', cache: { five: 22, ageMin: 4 }, expect: { source: 'cache', five: 22 } },
+    { label: '古いほかの控え', cache: { five: 22, ageMin: 6 }, expect: 'no-usage' },
+    { label: '5h が null の控えは使えない', cache: { five: null, source: 'probe', ageMin: 1 }, expect: 'no-usage' },
   ];
   for (const c of cases) {
-    const s = setup({ accounts: [{ name: 'a', cache: c.cache, orca: c.orca }] });
+    const s = setup({ accounts: [{ name: 'a', cache: c.cache }] });
     const r = await pick(s.deps);
     if (c.expect === 'no-usage') {
       assert.equal(r.result, 'default', c.label);
@@ -199,17 +185,18 @@ test('取り元の順：10 分以内の probe の控え > 5 分以内のほか�
   }
 });
 
-test('取り違え：問い合わせでない値が 5h 同じ・リセットの差 120 秒以内・7d 同じなら両方使わず、probe の控えがあるほうが probe の値で選ばれる', async () => {
+test('取り違え：問い合わせでない値が 5h 同じ・リセットの差 120 秒以内・7d 同じなら両方使わず、probe の控えのアカウントが選ばれる', async () => {
   const cases: { label: string; resetGapSec: number; expect: { name: string; source: string; excludedA: boolean } }[] = [
-    { label: '差 120 秒は取り違え', resetGapSec: 120, expect: { name: 'b', source: 'probe', excludedA: true } },
-    { label: '差 121 秒は取り違えでない', resetGapSec: 121, expect: { name: 'a', source: 'orca', excludedA: false } },
+    { label: '差 120 秒は取り違え', resetGapSec: 120, expect: { name: 'c', source: 'probe', excludedA: true } },
+    { label: '差 121 秒は取り違えでない', resetGapSec: 121, expect: { name: 'a', source: 'cache', excludedA: false } },
   ];
   for (const c of cases) {
     const reset = NOW + 100 * MIN;
     const s = setup({
       accounts: [
-        { name: 'a', orca: { five: 40, seven: 30, reset } },
-        { name: 'b', orca: { five: 40, seven: 30, reset: reset + c.resetGapSec * 1000 }, cache: { five: 70, seven: 5, source: 'probe', ageMin: 2 } },
+        { name: 'a', cache: { five: 40, seven: 30, reset } },
+        { name: 'b', cache: { five: 40, seven: 30, reset: reset + c.resetGapSec * 1000 } },
+        { name: 'c', cache: { five: 70, seven: 5, source: 'probe', ageMin: 2 } },
       ],
     });
     const r = await pick(s.deps);
@@ -223,9 +210,9 @@ test('全部の 5h がしきい値以上（rejected を含む）なら wait と�
   const early = NOW + 30 * MIN;
   const s = setup({
     accounts: [
-      { name: 'a', orca: { five: 85, reset: NOW + 90 * MIN } },
-      { name: 'b', orca: { five: 20, status: 'rejected', reset: early } },
-      { name: 'c', orca: { five: 95, reset: null } },
+      { name: 'a', cache: { five: 85, reset: NOW + 90 * MIN } },
+      { name: 'b', cache: { five: 20, status: 'rejected', reset: early } },
+      { name: 'c', cache: { five: 95, reset: null } },
     ],
   });
   const r = await pick(s.deps);
@@ -238,16 +225,16 @@ test('全部の 5h がしきい値以上（rejected を含む）なら wait と�
 test('設定ディレクトリが外・.claude.json が読めない・フラグが偽・組織が違うと理由つきで外れ、メールアドレスを出さない', async () => {
   const s = setup({
     accounts: [
-      { name: 'outside', orca: { five: 1 }, configDir: (_r, home) => join(home, 'elsewhere', 'outside') },
-      { name: 'sibling', orca: { five: 1 }, configDir: (r) => `${r}-evil` },
-      { name: 'dotdot', orca: { five: 1 }, configDir: (r) => `${r}/../dotdot` },
-      { name: 'missing', orca: { five: 1 }, claudeJson: null },
-      { name: 'broken', orca: { five: 1 }, claudeJson: '{not json' },
-      { name: 'onboard', orca: { five: 1 }, claudeJson: (b) => ({ ...b, hasCompletedOnboarding: false }) },
-      { name: 'trust', orca: { five: 1 }, claudeJson: (b) => ({ ...b, projects: { '/other/repo': { hasTrustDialogAccepted: true } } }) },
-      { name: 'automode', orca: { five: 1 }, claudeJson: (b) => { const { hasSeenAutoModeOutsideReadPrompt: _, ...rest } = b; return rest; } },
-      { name: 'org', orca: { five: 1 }, orgInClaudeJson: 'org-someone-else' },
-      { name: 'good', orca: { five: 60 } },
+      { name: 'outside', cache: { five: 1 }, configDir: (_r, home) => join(home, 'elsewhere', 'outside') },
+      { name: 'sibling', cache: { five: 1 }, configDir: (r) => `${r}-evil` },
+      { name: 'dotdot', cache: { five: 1 }, configDir: (r) => `${r}/../dotdot` },
+      { name: 'missing', cache: { five: 1 }, claudeJson: null },
+      { name: 'broken', cache: { five: 1 }, claudeJson: '{not json' },
+      { name: 'onboard', cache: { five: 1 }, claudeJson: (b) => ({ ...b, hasCompletedOnboarding: false }) },
+      { name: 'trust', cache: { five: 1 }, claudeJson: (b) => ({ ...b, projects: { '/other/repo': { hasTrustDialogAccepted: true } } }) },
+      { name: 'automode', cache: { five: 1 }, claudeJson: (b) => { const { hasSeenAutoModeOutsideReadPrompt: _, ...rest } = b; return rest; } },
+      { name: 'org', cache: { five: 1 }, orgInClaudeJson: 'org-someone-else' },
+      { name: 'good', cache: { five: 60 } },
     ],
   });
   const before = readFileSync(join(s.configRoot, 'good', '.claude.json'), 'utf8');
@@ -278,11 +265,11 @@ test('対応表が無いとき CLI は default と空の前置きを終了コー
   assert.deepEqual([out.result, out.prefix], ['default', '']);
 
   // 対応表が無ければ Orca を呼ばない
-  const none = setup({ accounts: [{ name: 'a', orca: { five: 10 } }], noTable: true });
+  const none = setup({ accounts: [{ name: 'a', cache: { five: 10 } }], noTable: true });
   const rn = await pick(none.deps);
   assert.deepEqual([rn.result, rn.prefix, none.orcaCalls()], ['default', '', 0]);
 
-  const s = setup({ accounts: [{ name: 'a', orca: { five: 10 } }] });
+  const s = setup({ accounts: [{ name: 'a', cache: { five: 10 } }] });
   const r = await pick({ ...s.deps, runOrca: () => null });
   assert.deepEqual([r.result, r.prefix], ['default', '']);
   assert.ok(r.reason);
