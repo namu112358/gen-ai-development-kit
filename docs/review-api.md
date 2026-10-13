@@ -85,7 +85,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `src/github-app.ts` | App の JWT（RS256。PKCS#1 の鍵は PKCS#8 に包む）と installation token（`permissions` で絞る） | 共通 |
 | `src/github.ts` | REST の薄いクライアント（PR・Issue・コメント・compare の diff・contents・tree）。`fetch` を注入 | 共通 |
 | `src/collect.ts` | レビューの材料（Issue の本文、plan-gate の計画、diff、変更ファイル、前回の記録）を集める | 共通 |
-| `src/prompts.ts` | Reviewer / Risk の system prompt（reviewer.md・risk-agent.md の基準と JSON を写したもの）、JSON Schema、ツールの定義 | 共通 |
+| `src/prompts.ts` | 共通の system prompt（前置き）と、材料の後ろに置く Reviewer / Risk の基準（reviewer.md・risk-agent.md の基準と JSON を写したもの）、JSON Schema、ツールの定義、messages の組み立て | 共通 |
 | `src/claude.ts` | Claude API の呼び方（structured outputs、prompt caching、ツールのループの上限、再試行）。クライアントは注入 | 共通 |
 | `src/verdict.ts` | 出力の検査（`parseVerdict` と同じ規則）と `agent-verdict` 互換の形への組み立て | 共通 |
 | `src/cost.ts` | usage → USD（`harness.config.json` の `pricing` と同じ形の表）、月の累計、上限の判定 | 共通 |
@@ -170,7 +170,16 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 
 **記録**：レビューごとに `review:<owner>/<repo>:<PR>:<sha>`（モデルごとの input / output / cache write / cache read のトークン、推定 USD、結果の要約、所要秒、`outcome`）、月ごとに `cost:<YYYY-MM>`（USD の累計）。同じ内容を PR のコメントの `api-review-shadow` ブロックにも書く（比較は PR のコメントだけで行える）。
 
-**上限**：`budget.monthlyUsd` を超えたら Claude を呼ばず `outcome: budget-exceeded` を記録する。`budget.perReviewUsd` は材料の文字数から見積もった入力で事前に確かめる（超えたら `outcome: too-large`）。KV は結果整合なので月の上限は目安（数件の超過はあり得る）。
+**上限**：`budget.monthlyUsd` を超えたら Claude を呼ばず `outcome: budget-exceeded` を記録する。`budget.perReviewUsd` は材料とツールの呼び出しの見込み（下の「キャッシュの置き方」の式）で事前に確かめる（超えたら `outcome: too-large`）。KV は結果整合なので月の上限は目安（数件の超過はあり得る）。
+
+**キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置きだけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。これで Risk の問いは Reviewer が書いた system＋材料のキャッシュを読み、ツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。今の設定では材料 20k で Reviewer＋Risk 約 $1.9、60k で約 $2.6。
+
+**実測**：
+
+| 日付 | PR | 入力 / キャッシュ読み / 出力（トークン） | USD | 所要秒 | 備考 |
+| --- | --- | --- | --- | --- | --- |
+| 2026-10-13 | #959（7 ファイル +68/−16） | 930k / 6.5k / 4.7k | $3.83 | 89 | キャッシュ無し（system の前置きだけ）。ツール 12 回で会話全体を送り直した |
+| | | | | | 直した後の最初のレビューを人が記入する |
 
 **比較の計画（Phase 4）**：同じ PR を (1) 既存の判定（`agent-verdict`）、(2) Opus 全部、(3) Sonnet 全部、(4) Sonnet → Opus、(5) Batches で評価し、指摘の一致（同じ問題を見つけたか・重大な見逃し・無いバグの指摘）、Risk の level と 8問の一致、所要時間、USD を表にする。モデルの切り替えは `review.config.json` だけで行う。
 

@@ -8,11 +8,10 @@ import type { ModelPricing, ReviewConfig } from './config.ts';
 import { checkBudget, estimateUsd, monthKey, type Usage } from './cost.ts';
 import type { GitHubClient } from './github.ts';
 import {
+  COMMON_SYSTEM,
   REVIEW_TOOLS,
   REVIEWER_OUTPUT_SCHEMA,
-  REVIEWER_SYSTEM,
   RISK_OUTPUT_SCHEMA,
-  RISK_SYSTEM,
   buildReviewerMessages,
   buildRiskMessages,
   isSecretPath,
@@ -71,12 +70,34 @@ export function costKey(date: Date): string {
   return `cost:${monthKey(date)}`;
 }
 
-/** 送る system・tools・messages の文字数の半分（切り上げ）を入力トークン、maxTokens を出力トークンとした推定料金。モデルが読めない・単価が無ければ null */
-export function estimateRequestUsd(params: MessagesParams, maxTokens: number, pricing: Record<string, ModelPricing>): number | null {
+/** tool_result 1 件の見込みのトークン数の上限（ファイルの中身は maxFileChars より小さいことが多い。4000 トークン ≒ 8000 文字） */
+const TOOL_RESULT_TOKENS = 4000;
+/** 1 回の問いの出力の見込み（thinking を含む。maxTokens は上限なので見積もりには使わない） */
+const OUTPUT_TOKENS_PER_CALL = 2000;
+
+/**
+ * ツールのループを考慮した 1 問いの推定料金（Issue #960）。材料のトークン m は system・tools・messages の文字数の半分（切り上げ）。
+ * breakpoint を付けた材料と各回の tool_result は cacheWrite5m、前の回までの分は cacheRead で数える（input は 0。同じトークンを二重に数えない）。
+ * 1 回目：cacheWrite5m m・output 2000。k 回目（k = 1..maxToolCalls）：cacheRead m + (k−1)·t・cacheWrite5m t・output 2000（t = min(ceil(maxFileChars/2), 4000)）。
+ * Risk が Reviewer のキャッシュを読む分は見込まない（安全側）。モデルが読めない・単価が無ければ null
+ */
+export function estimateLoopUsd(
+  params: MessagesParams,
+  limits: { maxToolCalls: number; maxFileChars: number },
+  pricing: Record<string, ModelPricing>,
+): number | null {
   const model = params['model'];
   if (typeof model !== 'string') return null;
   const chars = JSON.stringify({ system: params['system'], tools: params['tools'], messages: params.messages }).length;
-  return estimateUsd({ input: Math.ceil(chars / 2), output: maxTokens, cacheWrite5m: 0, cacheWrite1h: 0, cacheRead: 0 }, model, pricing);
+  const m = Math.ceil(chars / 2);
+  const t = Math.min(Math.ceil(limits.maxFileChars / 2), TOOL_RESULT_TOKENS);
+  const usage: Usage = { input: 0, output: OUTPUT_TOKENS_PER_CALL, cacheWrite5m: m, cacheWrite1h: 0, cacheRead: 0 };
+  for (let k = 1; k <= limits.maxToolCalls; k++) {
+    usage.cacheRead += m + (k - 1) * t;
+    usage.cacheWrite5m += t;
+    usage.output += OUTPUT_TOKENS_PER_CALL;
+  }
+  return estimateUsd(usage, model, pricing);
 }
 
 type ToolResult = { content: string; isError?: boolean };
@@ -188,16 +209,17 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     messages,
     output_config: { effort: config.claude.effort, format: { type: 'json_schema', schema } },
   });
-  const reviewRequest = (): MessagesParams => request(config.claude.reviewModel, REVIEWER_SYSTEM, buildReviewerMessages(material), REVIEWER_OUTPUT_SCHEMA);
-  const riskRequest = (): MessagesParams => request(config.claude.riskModel, RISK_SYSTEM, buildRiskMessages(material), RISK_OUTPUT_SCHEMA);
+  const reviewRequest = (): MessagesParams => request(config.claude.reviewModel, COMMON_SYSTEM, buildReviewerMessages(material), REVIEWER_OUTPUT_SCHEMA);
+  const riskRequest = (): MessagesParams => request(config.claude.riskModel, COMMON_SYSTEM, buildRiskMessages(material), RISK_OUTPUT_SCHEMA);
   const month = costKey(new Date(deps.now()));
 
   // 3. budget
   const budget = await step('budget', async (): Promise<Stop | null> => {
     const raw = await deps.kv.get(month);
     const monthUsd = raw === null ? 0 : raw.trim() === '' ? NaN : Number(raw);
-    const a = estimateRequestUsd(reviewRequest(), config.claude.maxTokens, config.pricing);
-    const b = estimateRequestUsd(riskRequest(), config.claude.maxTokens, config.pricing);
+    const limits = { maxToolCalls: config.claude.maxToolCalls, maxFileChars: config.claude.maxFileChars };
+    const a = estimateLoopUsd(reviewRequest(), limits, config.pricing);
+    const b = estimateLoopUsd(riskRequest(), limits, config.pricing);
     let outcome: ReviewOutcome | null = null;
     if (!Number.isFinite(monthUsd) || monthUsd < 0 || a === null || b === null) outcome = 'budget-exceeded';
     else {
