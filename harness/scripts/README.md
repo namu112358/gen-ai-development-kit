@@ -20,7 +20,7 @@
 | `jev-context.ts` | auto mode の危険の問い（autoModePrJevRequest）を、4通りの材料（今の材料・＋Issue・＋ファイル全体・＋両方）で Jev に問い直し、PR ごとの危険の確率を Markdown の表で標準出力に出す、手で実行する実験用スクリプト（Issue #596）。 |  |
 | `mutate.ts` | テストが効いているかを確かめる（mutation）。 |  |
 | `observe.ts` | 保守の観測（docs の照合・ホットスポット・テストの健康・運用の健康）を、人が指示したときに1回分だけ出す（LLM を呼ばない決まる集計）。 |  |
-| `orca-cli.ts` | hq・fleet が env・printenv を使わずに Orca の CLI を得る入口（Issue #757）。 |  |
+| `orca-cli.ts` | Orca の CLI を env・printenv を使わずに決める関数（orcaCliInfo・onPath）の置き場所（Issue #757）。 |  |
 | `panes.ts` | fleet と hq のワークスペースのペイン表示（進み具合・人がすること・PR と費用）。 |  |
 | `patrol.ts` | 見直しのまとめ役（patrol の skill）が、付き添いのセッションの `/loop` の1回分で使う、前回の観測の読み出し・今回まわす見直しの決定・回の記録。 |  |
 | `plan-companions.ts` | 計画の files に、今の規則で一緒に変えるファイルが抜けていないかを見る（`agent.ts check` が plan で使う）。 |  |
