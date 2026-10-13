@@ -86,8 +86,11 @@ probabilities は記録用で、判定には使われない。`;
 const block = (text: string, cache = false): TextBlock =>
   cache ? { type: 'text', text, cache_control: { type: 'ephemeral' } } : { type: 'text', text };
 
-export const REVIEWER_SYSTEM: TextBlock[] = [block(COMMON_PREAMBLE, true), block(REVIEWER_CRITERIA)];
-export const RISK_SYSTEM: TextBlock[] = [block(COMMON_PREAMBLE, true), block(RISK_CRITERIA)];
+/**
+ * system は共通の前置きだけ（Reviewer と Risk で同じ。cache_control あり）。役の基準は材料の後ろの user ブロックに置く。
+ * キャッシュの接頭辞は tools → system → messages の順で決まるので、system と材料を両方で同じにして Risk の問いが Reviewer のキャッシュを読めるようにする（Issue #960）
+ */
+export const COMMON_SYSTEM: TextBlock[] = [block(COMMON_PREAMBLE, true)];
 
 // ---- 出力の JSON Schema（範囲の検査は verdict.ts の checkReviewerOutput・checkRiskOutput がする） ----
 
@@ -212,11 +215,17 @@ function sharedBlocks(m: Material): TextBlock[] {
     blocks.push(text(wrapUntrusted('file', `path: ${f.path}\n---\n${f.content}`)));
     if (f.truncated) blocks.push(text(`${f.path} の中身は maxFileChars で切れている（後ろが無い）。`));
   }
+  // 材料の最後のブロックに breakpoint を置く（ツールのループの 2 回目以降と Risk の問いがここまでをキャッシュ読みにする。Issue #960）
+  const last = blocks[blocks.length - 1]!;
+  blocks[blocks.length - 1] = { ...last, cache_control: { type: 'ephemeral' } };
   return blocks;
 }
 
+/** 材料（両方で同じ）→ Reviewer の基準 → Reviewer だけの材料（PR・Issue・計画・前回）→ 指示。材料を先頭に置くのはキャッシュの接頭辞を Risk とそろえるため */
 export function buildReviewerMessages(m: Material): UserMessage[] {
   const blocks: TextBlock[] = [
+    ...sharedBlocks(m),
+    text(REVIEWER_CRITERIA),
     text(`リポジトリ: ${m.repository}\nPR: #${m.pr.number}`),
     text(wrapUntrusted('pr', `タイトル: ${m.pr.title}\n\n${m.pr.body}`)),
     text(
@@ -225,7 +234,6 @@ export function buildReviewerMessages(m: Material): UserMessage[] {
         : wrapUntrusted('issue', `#${m.issue.number} ${m.issue.title}\n\n${m.issue.body}`),
     ),
     text(m.plan === null ? '計画の記録なし' : wrapUntrusted('plan', JSON.stringify(m.plan, null, 2))),
-    ...sharedBlocks(m),
   ];
   if (m.previous !== null) {
     const prev = `前回の head SHA: ${m.previous.headSha}\n前回のブロッキング指摘:\n${JSON.stringify(m.previous.verdict.review.blocking, null, 2)}`;
@@ -235,6 +243,7 @@ export function buildReviewerMessages(m: Material): UserMessage[] {
   return [{ role: 'user', content: blocks }];
 }
 
+/** 材料（Reviewer と同じ）→ Risk の基準 → 指示。Issue・PR 本文・計画・前回は入れない */
 export function buildRiskMessages(m: Material): UserMessage[] {
-  return [{ role: 'user', content: [...sharedBlocks(m), text('上の材料で risk-agent の JSON を返す。')] }];
+  return [{ role: 'user', content: [...sharedBlocks(m), text(RISK_CRITERIA), text('上の材料で risk-agent の JSON を返す。')] }];
 }
