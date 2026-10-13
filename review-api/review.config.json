@@ -7,7 +7,7 @@
   },
   "claude": {
     "reviewModel": "claude-opus-5-5",
-    "riskModel": "claude-opus-5-5",
+    "riskModel": "claude-sonnet-5-5",
     "effort": "high",
     "maxTokens": 16000,
     "maxToolCalls": 12,
