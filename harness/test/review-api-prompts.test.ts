@@ -2,21 +2,20 @@
 // Reviewer の messages だけに入れ Risk には入れないこと、材料を <untrusted_…> の囲みに入れ、材料の中の閉じタグを潰すこと、
 // 出力の JSON Schema の enum が verdict.ts の語彙と同じで、すべての object（ツールの input_schema も）に additionalProperties: false と
 // required があること、秘密の恐れがあるパス（isSecretPath）の変更ファイルの中身と diff の節を両方の messages から省き、ほかの節は残すこと、
-// system prompt の先頭のブロックが共通で cache_control を持つこと、prompts.ts が ./ の相対 import だけで
-// @anthropic-ai/sdk・cloudflare:workers などを import しないことを、外部 API を呼ばずに確かめる（Issue #909）
+// system は共通の前置き（COMMON_SYSTEM）だけで cache_control を持ち、役の基準は材料の後ろの user ブロックに置くこと（Issue #960）、
+// prompts.ts が ./ の相対 import だけで @anthropic-ai/sdk・cloudflare:workers などを import しないことを、外部 API を呼ばずに確かめる（Issue #909）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { Material } from '../../review-api/src/collect.ts';
 import {
+  COMMON_SYSTEM,
   LIST_FILES_TOOL,
   READ_FILE_TOOL,
   REVIEWER_OUTPUT_SCHEMA,
-  REVIEWER_SYSTEM,
   REVIEW_TOOLS,
   RISK_OUTPUT_SCHEMA,
-  RISK_SYSTEM,
   buildReviewerMessages,
   buildRiskMessages,
   isSecretPath,
@@ -272,14 +271,34 @@ test('Issue・計画・前回の記録が無くても組め、それらの囲み
   assert.ok(reviewer.includes('DIFF_MARK') && reviewer.includes('FILE_CONTENT_MARK'));
 });
 
-test('system prompt の先頭のブロックは Reviewer と Risk で同じで ephemeral の cache_control を持ち、2つ目以降は持たない', () => {
-  assert.ok(REVIEWER_SYSTEM.length >= 2 && RISK_SYSTEM.length >= 2);
-  assert.equal(REVIEWER_SYSTEM[0]!.text, RISK_SYSTEM[0]!.text);
-  for (const system of [REVIEWER_SYSTEM, RISK_SYSTEM]) {
-    assert.deepEqual(system[0]!.cache_control, { type: 'ephemeral' });
-    for (const block of system.slice(1)) assert.equal(block.cache_control, undefined);
-  }
-  assert.notEqual(REVIEWER_SYSTEM[1]!.text, RISK_SYSTEM[1]!.text);
+test('COMMON_SYSTEM は 1 ブロックで ephemeral の cache_control を持つ', () => {
+  assert.equal(COMMON_SYSTEM.length, 1);
+  assert.equal(COMMON_SYSTEM[0]!.type, 'text');
+  assert.ok(COMMON_SYSTEM[0]!.text.length > 0);
+  assert.deepEqual(COMMON_SYSTEM[0]!.cache_control, { type: 'ephemeral' });
+});
+
+test('両方の messages は先頭から材料の最後のブロックまで同じで、材料の最後のブロックだけに cache_control があり、その直後が役の基準', () => {
+  const m = material();
+  const reviewer = buildReviewerMessages(m)[0]!.content;
+  const risk = buildRiskMessages(m)[0]!.content;
+  const cachedIndexes = (blocks: typeof reviewer) => blocks.flatMap((b, i) => (b.cache_control === undefined ? [] : [i]));
+
+  const [last] = cachedIndexes(risk);
+  assert.ok(last !== undefined, 'Risk に cache_control のブロックがない');
+  assert.deepEqual(cachedIndexes(reviewer), [last], 'Reviewer の cache_control は材料の最後のブロックだけ');
+  assert.deepEqual(cachedIndexes(risk), [last], 'Risk の cache_control は材料の最後のブロックだけ');
+  assert.deepEqual(risk[last]!.cache_control, { type: 'ephemeral' });
+  assert.ok(risk[last]!.text.includes('FILE_CONTENT_MARK'), 'cache_control のブロックが材料の最後（変更ファイル）ではない');
+  assert.deepEqual(reviewer.slice(0, last + 1), risk.slice(0, last + 1), '先頭から材料の最後までが Reviewer と Risk で同じでない');
+
+  const reviewerCriteria = reviewer[last + 1];
+  const riskCriteria = risk[last + 1];
+  assert.ok(reviewerCriteria !== undefined && reviewerCriteria.text.includes('ac-unmet'), '材料の直後に Reviewer の基準がない');
+  assert.ok(riskCriteria !== undefined && riskCriteria.text.includes('q2_revertible'), '材料の直後に Risk の基準がない');
+  // 役の基準は材料のブロック（先頭から材料の最後まで）には無い
+  const shared = textOf([{ role: 'user', content: risk.slice(0, last + 1) }]);
+  assert.ok(!shared.includes('ac-unmet') && !shared.includes('q2_revertible'), '役の基準が材料の前にある');
 });
 
 test('prompts.ts の import は ./ の相対だけで、SDK・Workers・node:・harness/lib を読み込まない', () => {

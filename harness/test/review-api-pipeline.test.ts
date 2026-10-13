@@ -3,6 +3,7 @@
 // Claude を呼ばない（か投稿しない）こと、App 以外の名義の目印では duplicate にならないこと、JSON の取り出しと検査で落ちた出力が verdict-invalid になり
 // 使った分が月の累計に足されること、投稿が1件で目印を含むこと、鍵と token が戻り値・ログ・コメント・KV に出ないこと、
 // ツール（createToolRunner）が秘密の恐れがあるパスと外に出るパスを GitHub に問わず一覧からも除くこと、
+// 1 レビューの見積もり（estimateLoopUsd）がツールのループと prompt caching を織り込んだ式で、budget の段階がそれで too-large を決めること（Issue #960）、
 // pipeline.ts が @anthropic-ai/sdk・cloudflare:workers・node:・harness/lib を import しないことを確かめる（Issue #911）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -11,7 +12,7 @@ import { fileURLToPath } from 'node:url';
 import type { ContentBlock, Message, MessagesClient, MessagesParams } from '../../review-api/src/claude.ts';
 import type { ReviewConfig } from '../../review-api/src/config.ts';
 import { createGitHubClient } from '../../review-api/src/github.ts';
-import { createToolRunner, runReview, type ReviewOutcome, type ReviewParams } from '../../review-api/src/pipeline.ts';
+import { createToolRunner, estimateLoopUsd, runReview, type ReviewOutcome, type ReviewParams } from '../../review-api/src/pipeline.ts';
 import { parseShadowComment, renderShadowComment, type ShadowRecord } from '../../review-api/src/record.ts';
 import { composeShadowVerdict, RISK_QUESTIONS, type Noul, type RiskOutput, type RiskQuestionKey } from '../../review-api/src/verdict.ts';
 
@@ -138,11 +139,45 @@ async function run(opts: {
   return { result, calls, posted, kv, claudeCalls, logs, record };
 }
 
+test('estimateLoopUsd はツールのループと prompt caching を織り込んだ式で見積もり、単価の無いモデルは null', () => {
+  // JSON.stringify({ system, tools, messages }) は 68 文字 → m = 34。maxFileChars 100 → t = 50、output は毎回 2000
+  const params: MessagesParams = { model: 'm', system: 'S', tools: [], messages: [{ role: 'user', content: 'x' }] };
+  const pricing = { m: { input: 1, output: 2, cacheWrite5m: 3, cacheWrite1h: 4, cacheRead: 5 } };
+  const cases: [string, MessagesParams, { maxToolCalls: number; maxFileChars: number }, number | null][] = [
+    // 1 回目だけ：cacheWrite5m 34・output 2000 → (34*3 + 2000*2) / 1e6
+    ['maxToolCalls 0', params, { maxToolCalls: 0, maxFileChars: 100 }, 0.004102],
+    // 1 回目 + k=1（cacheRead 34・cacheWrite5m 50・output 2000）+ k=2（cacheRead 84・cacheWrite5m 50・output 2000）
+    // → cacheWrite5m 134*3 + cacheRead 118*5 + output 6000*2 = 402 + 590 + 12000
+    ['maxToolCalls 2', params, { maxToolCalls: 2, maxFileChars: 100 }, 0.012992],
+    // t は 4000 で頭打ち：1 回目 + k=1（cacheRead 34・cacheWrite5m 4000）→ 4034*3 + 34*5 + 4000*2 = 12102 + 170 + 8000
+    ['maxFileChars が大きくても t は 4000', params, { maxToolCalls: 1, maxFileChars: 100000 }, 0.020272],
+    ['単価の無いモデル', { ...params, model: 'unknown' }, { maxToolCalls: 2, maxFileChars: 100 }, null],
+    ['model が文字列でない', { ...params, model: 1 }, { maxToolCalls: 2, maxFileChars: 100 }, null],
+  ];
+  for (const [name, p, limits, expected] of cases) {
+    assert.equal(estimateLoopUsd(p, limits, pricing), expected, name);
+  }
+  // input の単価は使わない（input は 0）
+  assert.equal(estimateLoopUsd(params, { maxToolCalls: 2, maxFileChars: 100 }, { m: { ...pricing.m, input: 1000 } }), 0.012992);
+});
+
 test('outcome ごとに Claude の呼び出しの数・投稿・KV の review: の記録が決まる', async () => {
   const withConfig = (f: (c: ReviewConfig) => void) => {
     const c = baseConfig();
     f(c);
     return c;
+  };
+  // budget の段階がループを含む見積もりを使うことを、run() が組む材料の大きさに依らずに確かめる。
+  // 見積もりは材料の大きさ m に単調なので、Reviewer＋Risk の和は「maxToolCalls 0 で m を大きめに取った値の 2 倍」以下、
+  // 「ループを含み m を最小に取った値の 2 倍」以上になる。perReviewUsd をその間に置けば、maxToolCalls 0 の式なら通り、ループの式なら too-large になる
+  const loopBounds = () => {
+    const { claude, pricing } = baseConfig();
+    const big: MessagesParams = { model: MODEL, messages: [{ role: 'user', content: 'x'.repeat(100_000) }] };
+    const small: MessagesParams = { model: MODEL, messages: [] };
+    const zeroUpper = 2 * estimateLoopUsd(big, { maxToolCalls: 0, maxFileChars: claude.maxFileChars }, pricing)!;
+    const loopLower = 2 * estimateLoopUsd(small, { maxToolCalls: claude.maxToolCalls, maxFileChars: claude.maxFileChars }, pricing)!;
+    assert.ok(zeroUpper < loopLower, `境が逆: ${zeroUpper} ${loopLower}`);
+    return (zeroUpper + loopLower) / 2;
   };
   const cases: [string, Parameters<typeof run>[0], ReviewOutcome, number][] = [
     ['head のずれ', { pr: { state: 'open', head: OTHER } }, 'superseded', 0],
@@ -154,6 +189,7 @@ test('outcome ごとに Claude の呼び出しの数・投稿・KV の review: �
     ['月の累計が数として読めない', { kv: { [COST_KEY]: 'abc' } }, 'budget-exceeded', 0],
     ['単価の無いモデル', { config: withConfig((c) => (c.claude.riskModel = 'unknown-model')) }, 'budget-exceeded', 0],
     ['1レビューの上限を超える（材料の大きさ）', { config: withConfig((c) => (c.budget.perReviewUsd = 0.001)) }, 'too-large', 0],
+    ['1レビューの上限を超える（ツールのループの見積もり）', { config: withConfig((c) => (c.budget.perReviewUsd = loopBounds())) }, 'too-large', 0],
     ['投稿の直前に head がずれた', { afterClaude: (s) => (s.pr = { state: 'open', head: OTHER }) }, 'superseded', 2],
     ['投稿の直前に closed', { afterClaude: (s) => (s.pr = { state: 'closed', head: HEAD }) }, 'closed', 2],
     ['投稿の直前に同じ head の自分の記録', { afterClaude: (s) => s.comments.push(shadowComment(2, REVIEWER, HEAD)) }, 'duplicate', 2],
