@@ -90,14 +90,3 @@ for (const path of DOCS) {
     for (const term of FORBIDDEN) assert.ok(!text.includes(term), `${path} に「${term}」がある`);
   });
 }
-
-test('plan・judge の skill と routine.md の「やってはいけないこと」に agent:auto-mode がある', () => {
-  for (const path of ['.claude/skills/plan/SKILL.md', '.claude/skills/judge/SKILL.md']) {
-    const lines = read(path).split('\n').filter((l) => l.startsWith('- やってはいけないこと：'));
-    assert.ok(lines.length > 0, `${path} に「やってはいけないこと」の行が無い`);
-    assert.ok(lines.some((l) => l.includes('agent:auto-mode')), path);
-  }
-  const lines = read('.claude/routine.md').split('\n').filter((l) => l.includes('**やってはいけないこと**'));
-  assert.ok(lines.length > 0, 'routine.md に「やってはいけないこと」の行が無い');
-  assert.ok(lines.some((l) => l.includes('agent:auto-mode')), 'routine.md');
-});

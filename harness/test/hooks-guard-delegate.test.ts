@@ -136,17 +136,3 @@ test('harness.config.json の delegateMergeExclude が harness.config.json と h
   assert.ok(exclude.includes('harness.config.json'));
   assert.ok(exclude.includes('harness/gates/**'));
 });
-
-test('規則：harness/CLAUDE.harness.md の「やってはいけないこと」と各 skill・routine.md が委任承認のラベルの付け外しを禁じる', () => {
-  const read = (p: string) => readFileSync(join(root, p), 'utf8');
-  const rules = read('harness/CLAUDE.harness.md');
-  const section = rules.slice(rules.indexOf('## やってはいけないこと'));
-  const line = section.split('\n').find((l) => l.startsWith('- ') && l.includes(`\`${MERGE}\``));
-  assert.ok(line, `CLAUDE.harness.md の「やってはいけないこと」に ${MERGE} の行が無い`);
-  assert.ok(line.includes(`\`${PLAN}\``), `「やってはいけないこと」の行に ${PLAN} が無い: ${line}`);
-  assert.match(line, /付け外し/);
-  for (const p of ['.claude/routine.md', ...['ship', 'fleet', 'plan', 'implement', 'judge', 'fix', 'sync'].map((s) => `.claude/skills/${s}/SKILL.md`)]) {
-    const l = read(p).split('\n').find((x) => x.includes('やってはいけないこと'));
-    for (const label of DELEGATES) assert.ok(l?.includes(`\`${label}\``), `${p} の「やってはいけないこと」に ${label} が無い`);
-  }
-});

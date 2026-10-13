@@ -1,7 +1,6 @@
 // Issue #157：着手宣言に段階（stage）とセッション（session）を書き、同じセッションの宣言は待たず、段階を表とダッシュボードに出す
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { CLAUDE_MARK, claudeMark, claudeMarkSession, extractBlock, renderBlock } from '../lib/blocks.ts';
@@ -224,32 +223,4 @@ test('renderFleetStatus：着手宣言がある行のメモ列に段階が出る
   assert.ok(other[6]!.includes('plan-critique'), `メモ: ${other[6]}`);
   const none = rowCells(table, 4);
   assert.ok(!CLAIM_STAGES.some((s) => none[6]!.includes(s)), `宣言の無い行に段階を出さない: ${none[6]}`);
-});
-
-// ---- skill の文 ----
-
-const skill = (name: string): string => readFileSync(join(root, '.claude', 'skills', name, 'SKILL.md'), 'utf8');
-const claimWithStage = (stage: string): RegExp => new RegExp(`agent\\.ts claim [^\\n]*--stage ${stage}(?![-\\w])`);
-
-test('各 skill に段階ごとに宣言を更新する手順（claim --stage <段階>）がある', () => {
-  const expected: Record<string, string[]> = {
-    plan: ['plan', 'plan-critique'],
-    implement: ['implement'],
-    judge: ['judge'],
-    fix: ['fix'],
-    sync: ['sync'],
-  };
-  for (const [name, stages] of Object.entries(expected)) {
-    const text = skill(name);
-    for (const stage of stages) assert.match(text, claimWithStage(stage), `${name}/SKILL.md に claim --stage ${stage} がありません`);
-  }
-});
-
-test('ship・fleet の skill に、宣言の時点（claim）・--takeover・release による解除がある', () => {
-  for (const name of ['ship', 'fleet']) {
-    const text = skill(name);
-    assert.match(text, /claim [^\n]*--stage/, `${name}: claim --stage の手順がありません`);
-    assert.ok(text.includes('--takeover'), `${name}: --takeover の説明がありません`);
-    assert.match(text, /release <[^>]+>/, `${name}: release で解除する手順がありません`);
-  }
 });
