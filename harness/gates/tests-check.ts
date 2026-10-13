@@ -3,12 +3,12 @@ import { renderAutoModeTests, type AutoModeTestsOutcome } from '../lib/auto-mode
 import { TEST_EXEMPT_LABEL } from '../lib/config.ts';
 import type { DelegateState } from '../lib/delegate.ts';
 import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
-import { testsHumanMergeReasons, type Acceptance } from '../lib/merge-route.ts';
+import { autoModeHolds, testsHumanMergeReasons, type Acceptance } from '../lib/merge-route.ts';
 import { renderTamperForHumanMerge, renderTamperSummary, type TamperFinding } from '../lib/test-tamper.ts';
 import { renderTamperJev, type TamperJevOutcome } from '../lib/test-tamper-jev.ts';
 import { renderTestMove, type TestMoveOutcome } from '../lib/test-move-jev.ts';
 import { changedFiles, isAgentPr, type PullRequest } from '../lib/state.ts';
-import { autoModeFor, autoModeRoute } from './auto-mode.ts';
+import { autoModeFor, autoModeHoldReason, autoModeRoute } from './auto-mode.ts';
 import { bypassFor, bypassRoute, type BypassState } from './bypass.ts';
 import type { GateContext } from './context.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
@@ -33,17 +33,19 @@ export interface TestsOutcome {
  * delegation を渡さなければ、委任で乗りうる受け付け（合格・自動 Merge の対象外・delegate.eligible）のときだけ今の状態を読む。
  * auto mode で自動経路に乗る（auto-mode.ts の autoModeRoute）なら空。auto mode も、渡さなければ autoMode.eligible の受け付けのときだけ今の状態を読む。
  * bypass モードで自動経路に乗る（bypass.ts の bypassRoute）なら空。bypass も、渡さなければ bypass.eligible の受け付けのときだけ今の状態を読む。
+ * auto mode が有効で受け付けが Jev の危険の判定で保留（autoModeHolds）なら、委任・bypass でも自動経路に乗らないので空にしない（Issue #942）。
  */
 export async function testsHumanMerge(ctx: GateContext, pr: PullRequest, acceptance: Acceptance | null, delegation?: DelegateState, bypass?: BypassState, autoMode?: AutoModeState): Promise<string[]> {
   if (!isAgentPr(ctx.config, pr, ctx.repository)) return [];
-  if (acceptance?.reviewPass && !acceptance.autoEligible && acceptance.delegate?.eligible) {
+  const held = acceptance?.reviewPass === true && !acceptance.autoEligible && autoModeHolds(acceptance) && autoModeHoldReason(autoMode ?? (await autoModeFor(ctx)), acceptance) !== null;
+  if (!held && acceptance?.reviewPass && !acceptance.autoEligible && acceptance.delegate?.eligible) {
     const now = new Date();
     if (delegatedRoute(delegation ?? (await delegationFor(ctx, now)), acceptance).ok) return [];
   }
   if (acceptance?.reviewPass && !acceptance.autoEligible && acceptance.autoMode?.eligible) {
     if (autoModeRoute(autoMode ?? (await autoModeFor(ctx)), acceptance).ok) return [];
   }
-  if (acceptance?.reviewPass && !acceptance.autoEligible && acceptance.bypass?.eligible) {
+  if (!held && acceptance?.reviewPass && !acceptance.autoEligible && acceptance.bypass?.eligible) {
     if (bypassRoute(bypass ?? (await bypassFor(ctx)), acceptance).ok) return [];
   }
   const files = await changedFiles(ctx.gh, pr.number);

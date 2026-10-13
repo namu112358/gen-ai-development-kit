@@ -13,7 +13,7 @@ import type { HarnessConfig } from '../lib/config.ts';
 import { delegatePlanExclude } from '../lib/delegate.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { askJev } from '../lib/jev.ts';
-import type { Acceptance, AutoModeRecord } from '../lib/merge-route.ts';
+import { AUTO_MODE_HOLD_REASON_PREFIX, autoModeHolds, type Acceptance, type AutoModeRecord } from '../lib/merge-route.ts';
 import type { GateResult, Plan } from '../lib/plan.ts';
 import type { BaseKind } from '../lib/stack.ts';
 import { appRecords, findDashboard, hasLabel, timeline, type DashboardIssue, type PlanGateRecord } from '../lib/state.ts';
@@ -165,14 +165,14 @@ export function autoModeEligibility(parts: {
 }): AutoModeRecord {
   const reasons = [...parts.required];
   if (parts.danger === null && reasons.length === 0) reasons.push('auto mode の危険の判定をしていません（自動 Merge の対象）');
-  if (parts.danger?.hold) reasons.push(`auto mode の危険の判定で保留: ${parts.danger.reasons.join('／')}`);
+  if (parts.danger?.hold) reasons.push(`${AUTO_MODE_HOLD_REASON_PREFIX}: ${parts.danger.reasons.join('／')}`);
   const skipped: string[] = [];
   if (!parts.risk.ok) skipped.push(...parts.risk.reasons);
   if (parts.guardrail.length > 0) skipped.push(`ガードレールに触れます: ${parts.guardrail.join(', ')}`);
   if (parts.humanMerge.length > 0) skipped.push(`人が Merge するパスに触れます（humanMergePaths）: ${parts.humanMerge.join(', ')}`);
   if (parts.exclude.length > 0) skipped.push(`委任しないパスに触れます（delegateMergeExclude）: ${parts.exclude.join(', ')}`);
   if (parts.jevGate && !parts.jevGate.ok) skipped.push(parts.jevGate.reason);
-  return { eligible: reasons.length === 0 && parts.danger !== null && !parts.danger.hold, reasons, skipped, ...(parts.jev ? { jev: parts.jev } : {}) };
+  return { eligible: reasons.length === 0 && parts.danger !== null && !parts.danger.hold, ...(parts.danger?.hold === true ? { hold: true } : {}), reasons, skipped, ...(parts.jev ? { jev: parts.jev } : {}) };
 }
 
 /** auto mode で auto-merge を付けた記録の kind */
@@ -223,6 +223,15 @@ export function autoModeRoute(state: AutoModeState, acceptance: Acceptance | nul
   if (!acceptance.autoMode) return no('auto mode の可否の記録がありません（古い受け付け）');
   if (!acceptance.autoMode.eligible) return no(`auto mode でも不可: ${acceptance.autoMode.reasons.join('／')}`);
   return { ok: true };
+}
+
+/**
+ * auto mode が有効で、受け付けが Jev の危険の判定で保留なら、委任承認・bypass でも自動経路に乗せない理由の1行。そうでなければ null。
+ * 状態が無い（読んでいない）ときは null。
+ */
+export function autoModeHoldReason(state: AutoModeState | null | undefined, acceptance: Acceptance | null): string | null {
+  if (!state?.active || !autoModeHolds(acceptance)) return null;
+  return `${AUTO_MODE_HOLD_REASON_PREFIX}のため、委任承認・bypass でも自動経路に乗せません`;
 }
 
 /** App の auto-mode-merge／auto-mode-merge-end の記録のうち最新のもの */

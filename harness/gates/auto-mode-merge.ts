@@ -6,13 +6,14 @@
  */
 import { autoModeConfig, type AutoModeState } from '../lib/auto-mode.ts';
 import { appLogin } from '../lib/config.ts';
+import { autoModeHolds } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { acceptanceForPatch, findDashboard, isAgentPr, isSameRepoPr, prDiff, type PullRequest } from '../lib/state.ts';
 import { applyAcceptance, refreshMergeRoute, renderHumanReview, rewriteTestsCheck, writeAutoModeEnd } from './apply.ts';
 import { AUTO_MODE_MERGE_END_TEXT, AUTO_MODE_SWITCH_KIND, autoModeArm, autoModeFor, type AutoModeMergeEndReason } from './auto-mode.ts';
-import { bypassFor, bypassRoute } from './bypass.ts';
+import { bypassArm, bypassFor, bypassRoute } from './bypass.ts';
 import { appComment, disableAutoMerge, getPr, type GateContext } from './context.ts';
-import { delegatedRoute, delegationFor } from './delegation.ts';
+import { delegatedArm, delegatedRoute, delegationFor } from './delegation.ts';
 import { reviewAutoModePlans } from './on-comment.ts';
 
 /** auto mode を終えた後の状態（merge-route と agent/tests を Human Merge として書き直すために渡す） */
@@ -87,8 +88,12 @@ export async function onAutoModeSwitch(ctx: GateContext, number: number, labeled
       const pr = await getPr(ctx, item.number);
       if (!isAgentPr(ctx.config, pr, ctx.repository)) continue;
       const diff = await prDiff(ctx.gh, pr);
-      const acceptance = acceptanceForPatch(ctx.config, await ctx.gh.listComments(pr.number), patchId(diff));
-      if (acceptance?.reviewPass && !acceptance.autoEligible && acceptance.autoMode?.eligible) {
+      const comments = await ctx.gh.listComments(pr.number);
+      const acceptance = acceptanceForPatch(ctx.config, comments, patchId(diff));
+      if (!acceptance?.reviewPass || acceptance.autoEligible) continue;
+      // 保留の PR は、委任・bypass で付けた auto-merge が残っていれば外して human-review にする（applyAcceptance。Issue #942）
+      const heldArmed = autoModeHolds(acceptance) && (delegatedArm(ctx.config, comments) !== null || bypassArm(ctx.config, comments) !== null);
+      if (acceptance.autoMode?.eligible || heldArmed) {
         await applyAcceptance(ctx, pr, acceptance, { fresh: false, diff, autoMode: state });
       }
     }

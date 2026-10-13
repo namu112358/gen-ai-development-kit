@@ -9,7 +9,7 @@ import type { IssueComment } from '../lib/github.ts';
 import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
 import { askJev, callJev } from '../lib/jev.ts';
 import { reusableModelRouting, routeModel } from '../lib/model-routing.ts';
-import { AUTO_ROUTE_NAME, autoRouteReason, eligibility, planStopLead, planStopRoute, type Acceptance, type AutoRoute } from '../lib/merge-route.ts';
+import { AUTO_ROUTE_NAME, autoModeHolds, autoRouteReason, eligibility, planStopLead, planStopRoute, type Acceptance, type AutoRoute } from '../lib/merge-route.ts';
 import { applyOverbuildJev, renderOverbuildJevRow } from '../lib/overbuild-jev.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { critiqueClaimedBefore } from '../lib/facts.ts';
@@ -44,7 +44,7 @@ import { writePlanLink } from './plan-link.ts';
 import { applyAcceptance } from './apply.ts';
 import { delegatedRoute, delegationFor } from './delegation.ts';
 import { bypassEligibility, bypassFor, bypassRoute, type BypassState } from './bypass.ts';
-import { askPlanJev, askPrJev, autoModeEligibility, autoModeFor, autoModePlanSkips, autoModeRoute, autoModeRequired, inheritedPlanJev, reusablePlanJev, reusablePrJev } from './auto-mode.ts';
+import { askPlanJev, askPrJev, autoModeEligibility, autoModeFor, autoModeHoldReason, autoModePlanSkips, autoModeRoute, autoModeRequired, inheritedPlanJev, reusablePlanJev, reusablePrJev } from './auto-mode.ts';
 import { overbuildJevFor } from './overbuild-jev.ts';
 import { onDecision } from './plan-decision.ts';
 import { planAreaLabels, riskLabelChanges, singleAreaLabel } from './label-apply.ts';
@@ -581,14 +581,19 @@ type RideResult = { ride: Ride | null; delegation?: DelegateState; autoMode?: Au
 /** 自動 Merge の対象外で、委任 → auto mode → bypass の順に乗れるものを決める（apply.ts の applyAcceptance の冒頭と同じ条件・順番）。読んだ状態は返して applyAcceptance に渡す */
 async function rideFor(ctx: GateContext, acceptance: Acceptance, now: Date): Promise<RideResult> {
   if (!acceptance.reviewPass || acceptance.autoEligible) return { ride: null };
+  // auto mode が有効で Jev の危険の判定で保留なら、委任・bypass でも乗せない（apply.ts の applyAcceptance と同じ。Issue #942）
+  let autoMode: AutoModeState | undefined;
+  if (acceptance.autoMode !== undefined && autoModeHolds(acceptance)) {
+    autoMode = await autoModeFor(ctx);
+    if (autoModeHoldReason(autoMode, acceptance) !== null) return { ride: null, autoMode };
+  }
   let delegation: DelegateState | undefined;
   if (acceptance.delegate !== undefined) {
     delegation = await delegationFor(ctx, now);
     if (delegatedRoute(delegation, acceptance).ok) return { ride: 'delegate', delegation };
   }
-  let autoMode: AutoModeState | undefined;
   if (acceptance.autoMode !== undefined) {
-    autoMode = await autoModeFor(ctx);
+    autoMode ??= await autoModeFor(ctx);
     if (autoModeRoute(autoMode, acceptance).ok) return { ride: 'autoMode', delegation, autoMode };
   }
   let bypass: BypassState | undefined;
