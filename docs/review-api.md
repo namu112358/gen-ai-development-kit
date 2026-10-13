@@ -140,7 +140,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
   },
   "claude": {
     "reviewModel": "claude-opus-5-5",
-    "riskModel": "claude-opus-5-5",
+    "riskModel": "claude-sonnet-5-5",
     "effort": "high",
     "maxTokens": 16000,
     "maxToolCalls": 12,                // read_file / list_files の上限
@@ -153,16 +153,17 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 ```
 
 - `ready_for_review` は head が変わらないので対象にしない（同じ head は二重に見ない）。
-- モデルは役ごとに変えられる（Sonnet で一次 → Opus へ委譲、のような段階化は Phase 4 の比較で決める）。
+- モデルは役ごとに変えられる（Sonnet で一次 → Opus へ委譲、のような段階化は Phase 4 の比較で決める）。今の既定は Reviewer が Opus 5.5、Risk が Sonnet 5.5（人の決定 2026-10-13。Risk は diff の分類で軽く、半額）。
 - `pricing` は `harness.config.json` の `pricing` と同じ形（モデル ID の完全一致か、最も長い前方一致）。`harness.config.json` の鍵は `claude-opus-5-5`・`claude-sonnet-5`（`claude-sonnet-5-5` は前方一致で当たる）なので、`review.config.json` には `claude-opus-5-5`・`claude-sonnet-5-5`・`claude-haiku-5-5` を明示して持つ。`review.config.json` の `pricing` は `harness.config.json` とは別に持ち、公式の値（下の「費用」）で書くので、`harness.config.json` の推定値（2026-09 時点）とは違うことがある。`harness.config.json` は変えない。
 
 ## 7. 費用
 
 **見積もり（1 レビュー = Reviewer + Risk の 2 問い）**。材料を 40k トークン（diff 10k・変更ファイル 20k・前置き 5k・ツールで読んだ関連コード 5k）、出力を 5k（thinking を含む）と置く。
 
-| 構成 | Reviewer | Risk（前置きと diff はキャッシュ読み） | 合計の目安 |
+| 構成 | Reviewer | Risk（同じモデルのときは前置きと diff がキャッシュ読み） | 合計の目安 |
 | --- | --- | --- | --- |
 | Opus 5.5（$4 / $20、キャッシュ読み $0.20） | 40k×4 + 5k×20 = $0.26 | 30k×0.2 + 10k×4 + 4k×20 = $0.13 | **約 $0.4**（大きな PR で $0.8） |
+| Reviewer Opus 5.5 ＋ Risk Sonnet 5.5（今の既定） | $0.26 | 30k×2.5 + 10k×2 + 4k×10 = $0.14（材料は Sonnet のキャッシュ書き込みの単価） | **約 $0.4**（1 回目は同じ。節約はツールのループの出力と読み直しに出る：下の $1.9 → $1.4） |
 | Sonnet 5.5（$2 / $10、$0.10） | $0.13 | $0.06 | **約 $0.2** |
 | Sonnet 一次 → 必要なら Opus | — | — | $0.2〜0.6 |
 | Batches API | 50% 引き | 50% 引き | 上の半分（最長 24 時間後） |
@@ -173,7 +174,7 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 
 **上限**：`budget.monthlyUsd` を超えたら Claude を呼ばず `outcome: budget-exceeded` を記録する。`budget.perReviewUsd` は材料とツールの呼び出しの見込み（下の「キャッシュの置き方」の式）で事前に確かめる（超えたら `outcome: too-large`）。KV は結果整合なので月の上限は目安（数件の超過はあり得る）。
 
-**キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置きだけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。これで Risk の問いは Reviewer が書いた system＋材料のキャッシュを読み、ツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。今の設定では材料 20k で Reviewer＋Risk 約 $1.9、60k で約 $2.6。
+**キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置きだけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。Reviewer と Risk が同じモデルのときは Risk の問いが Reviewer の書いた system＋材料のキャッシュを読み（今の既定は別モデルなので Risk は自分の材料を書き込む）、ツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。今の設定（Reviewer Opus 5.5・Risk Sonnet 5.5）では材料 20k で Reviewer＋Risk 約 $1.4、60k で約 $1.9（Reviewer の分は変わらず、Risk の分が半額）。Risk のキャッシュは Reviewer（Opus）と共有できない（キャッシュはモデルごと）。Risk の材料は Sonnet の単価で書き込む。
 
 **実測**：
 
@@ -182,7 +183,7 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 | 2026-10-13 | #959（7 ファイル +68/−16） | 930k / 6.5k / 4.7k | $3.83 | 89 | キャッシュ無し（system の前置きだけ）。ツール 12 回で会話全体を送り直した |
 | | | | | | 直した後の最初のレビューを人が記入する |
 
-**比較の計画（Phase 4）**：同じ PR を (1) 既存の判定（`agent-verdict`）、(2) Opus 全部、(3) Sonnet 全部、(4) Sonnet → Opus、(5) Batches で評価し、指摘の一致（同じ問題を見つけたか・重大な見逃し・無いバグの指摘）、Risk の level と 8問の一致、所要時間、USD を表にする。モデルの切り替えは `review.config.json` だけで行う。
+**比較の計画（Phase 4）**：同じ PR を (1) 既存の判定（`agent-verdict`）、(2) Opus 全部、(3) Sonnet 全部、(4) Sonnet → Opus、(5) Batches で評価し、指摘の一致（同じ問題を見つけたか・重大な見逃し・無いバグの指摘）、Risk の level と 8問の一致、所要時間、USD を表にする。モデルの切り替えは `review.config.json` だけで行う。Risk の level と 8 問の一致は Risk のモデル（記録の `models.risk`）ごとに分けて数え、Sonnet で一致率が下がっていれば `riskModel` を Opus に戻す。
 
 ## 8. セットアップ手順
 
@@ -280,3 +281,4 @@ main への Merge で Cloudflare の Workers Builds がビルドしてデプロ�
 | レビュー専用の GitHub App を作る | 新しい名義と Webhook の作成（セキュリティ） | 作る（権限は節8.1） |
 | Cloudflare の plan | 課金の発生 | Free で始め、CPU の制限に当たったら Paid（$5/月） |
 | Claude API のキー | 課金の発生。Console のワークスペースで上限（月の spend limit）を切れる | 専用のワークスペースを作り、月の上限を `budget.monthlyUsd` と同じにする |
+| Risk を Sonnet 5.5 のままにするか | 精度と費用の取り引き | 比較で一致率が下がらなければ Sonnet のまま |

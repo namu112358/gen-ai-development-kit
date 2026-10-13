@@ -305,7 +305,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
   - 変更ファイル（リネームは旧パスも）がガードレールか `humanMergePaths` に当たる（判定の前から分かる。どの判定でも自動 Merge しない）
   - 現在の差分（patch-id）に対する最新の受け付けの記録が、Reviewer 合格かつ自動 Merge の対象外（critical・Risk の答え・範囲外・Jev の enforce など。App が Human Merge の依頼を出す条件と同じ）
 - 書き直すのは、PR の作成・push・`test:exempt` の付け外しと、判定の受け付け（新しい判定、push での引き継ぎ、hold を外したときの付け直し）のとき。受け付けでは Ready 化と auto-merge の設定より前に書くので、判定のやり直しで経路が自動 Merge に変わると、auto-merge を付ける前に failure に戻る。
-- neutral の要約には「人の確認が要る変更あり」と Human Merge とみなした理由、平易な説明（何を見張っているか、なぜ止めていないか、人が確かめること）、検出の一覧を載せる。Human Merge の依頼のコメント（`kind=human-review`）にも、懸念点より前に見つけた行を目立つ形で載せる。
+- neutral の要約には「人の確認が要る変更あり」と Human Merge とみなした理由、平易な説明（何を見張っているか、なぜ止めていないか、人が確かめること）、検出の一覧を載せる。Human Merge の依頼のコメント（`kind=human-review`）にも、先頭（宛先・人が Merge する理由・Merge の前に確かめること）の後に件数と止めているかの枠を載せ、説明と見つけた行は詳細（折りたたみ）の中に載せる。
 - 次のときは緩めず、今までどおり failure（`test:exempt` が要る）：`agent:hold` や自動 Merge モードの停止だけが理由のとき（外すと判定のやり直し無しに自動 Merge に戻るため）、人の PR・fork の PR、PR に auto-merge が付いているとき、Reviewer が不合格の判定だけのとき。
 - 誤検出や、Issue 本文にテストを変える理由がある変更は、人が PR に `test:exempt` を付けて通す（付け外しを App が記録し、外すと検査し直す）。自動 Merge の対象の PR で使う（Human Merge の PR では要らない）。例外は付けた時点の差分にだけ効く（次節）。
 - 結論の優先順は「検出0件 → success」「`test:exempt` が効く → success（Jev に問わない）」「Human Merge → neutral」「削除があれば、削除が `test-move-jev` で通り（`enforce`・問えた・通す）、削除以外の検出が0件か `jev.testTamper` の Jev が通す → success」「削除が無く、`jev.testTamper` が `enforce` で Jev が通す → success」「auto mode の経路で、自動 Merge モードが有効なときに Jev が妥当と答える → success（下記「auto mode の間（Jev が妥当か）」）」「それ以外 → failure」（`harness/gates/tests-check.ts` の `testsOutcome`）。
@@ -473,7 +473,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 | ほかのセッションの着手宣言がある（`claim` が止まった） | 宣言の段階とセッションを見て、そのセッションが続けるか、こちらが引き継ぐかを人が決める。引き継ぐと決めたら `claim <番号> --manual --stage <段階> --takeover` |
 | 同時に宣言して後の側になった（`claim` が自分の宣言を取り下げて止まった） | セッションはその Issue を進めず（fleet は飛ばして次へ）、一覧に「#番号 は session … が着手中」と書く。先の側がそのまま進む。引き継ぐかは人が決め、引き継ぐなら `--takeover` |
 | Agent PR に直してほしい点がある | PR の Review を **Comment として Submit** する（同じ名義の PR には Request changes を付けられない）。最後の push 以降のレビューを fix が修正依頼として扱う |
-| Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を、依頼のコメントにテストの変更（`agent/tests` が neutral のとき）があれば、その行も確かめて確認して Merge する |
+| Human Merge の依頼 | App のコメント（`kind=human-review`）が付いた PR を、依頼のコメントの先頭の確かめることと、詳細の中のテストの変更（`agent/tests` が neutral のとき）の行を確かめて確認して Merge する |
 | 人の PR（`claude/` 以外のブランチから人が自分で書いた PR） | 計画のある Issue に紐付いていれば judge の skill で判定する。判定が出るまで `agent/review` は通らない。ブロッキング指摘は App の変更要求レビューで返るので、人が直す。急ぐときは `review:exempt` |
 | `agent:blocked` | 理由のコメントを読み、直してからラベルを外す |
 | 委任承認を始める | 見ていられる間だけ、ダッシュボードに付ける。計画の承認だけを委ねるなら `agent:delegate-plan`、Merge の判断も委ねるなら `agent:delegate-merge`。期限は無いので、終えるときは外す。ガードレール・想定 Risk だけで止まる計画は App が通し（止まっている Issue も判定し直す）、`agent:delegate-merge` なら条件を満たす Agent PR は、ガードレール・Risk が理由でも自動 Merge される（[risk-policy.md](risk-policy.md#委任承認)） |

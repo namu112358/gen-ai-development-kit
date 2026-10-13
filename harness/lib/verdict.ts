@@ -53,6 +53,8 @@ export interface HumanNotes {
   concerns: string[];
   /** 見てほしい箇所：ファイル・関数・観点 */
   checkPoints: string[];
+  /** AC の照合の帳簿：どちらの AC で照らしたか、受け入れた変更で外した・緩めた項目、⑧に任せた項目（任意。古い判定には無い） */
+  acNotes?: string[];
 }
 
 export interface Verdict {
@@ -136,6 +138,7 @@ export function parseVerdict(raw: unknown): Parsed<Verdict> {
       concerns: c.stringArray(h.concerns ?? [], 'verdict.review.humanNotes.concerns'),
       checkPoints: c.stringArray(h.checkPoints ?? [], 'verdict.review.humanNotes.checkPoints'),
     };
+    if (h.acNotes !== undefined) verdict.review.humanNotes.acNotes = c.stringArray(h.acNotes, 'verdict.review.humanNotes.acNotes');
   }
   if (risk.probabilities !== undefined) {
     const probs = c.object(risk.probabilities, 'verdict.risk.probabilities') ?? {};

@@ -166,23 +166,25 @@ test('renderHumanReview：検出が無ければ今と同じ出力', () => {
   assert.doesNotMatch(renderHumanReview('me', a, why), /\[!IMPORTANT\]/);
 });
 
-test('renderHumanReview：検出があれば1行目の直後（懸念点より前）に枠を出し、relaxed で文を書き分ける', () => {
+test('renderHumanReview：検出があれば先頭の後（<details> の前）に枠を出し、一覧は <details> の中に全件載せ、relaxed で文を書き分ける', () => {
   const a = acceptance(ASSERT_DIFF);
   const relaxed = renderHumanReview('me', a, ['Risk レベルが critical'], { findings, relaxed: true });
   const lines = relaxed.split('\n');
   assert.match(lines[0]!, /^@me レビューをお願いします（Human Merge）/);
   const box = relaxed.indexOf('> [!IMPORTANT]');
-  assert.ok(box > lines[0]!.length && box < relaxed.indexOf('### 懸念点'), '1行目の直後、懸念点より前');
+  const details = relaxed.indexOf('<details>');
+  assert.ok(box > relaxed.indexOf('Merge の前に確かめること') && box < details, '先頭の後、<details> の前');
   assert.match(relaxed, /テストの行を変える変更が 1 件あります。/);
   assert.match(relaxed, /`agent\/tests` は Human Merge のため止めていません。/);
-  assert.match(relaxed, /### テストの変更（Merge の前に確かめる）/);
-  assert.ok(relaxed.includes(renderTamperForHumanMerge(findings, 30)));
+  assert.ok(relaxed.indexOf('### テストの変更（Merge の前に確かめる）') > details, 'テストの変更の節は <details> の中');
+  assert.ok(relaxed.indexOf(renderTamperForHumanMerge(findings, 30)) > details, '一覧は <details> の中');
   assert.doesNotMatch(relaxed, /を付けてください/);
 
   const strict = renderHumanReview('me', a, ['自動 Merge モードが無効です'], { findings, relaxed: false });
-  assert.match(strict, /> \[!IMPORTANT\]/);
+  assert.ok(strict.indexOf('> [!IMPORTANT]') < strict.indexOf('<details>'), '枠は <details> の前');
   assert.match(strict, /`agent\/tests` は止めています（自動 Merge に戻りうるため）。/);
   assert.match(strict, /`test:exempt` を付けてください。/);
+  assert.ok(strict.indexOf(renderTamperSummary(findings, 30, 'test:exempt')) > strict.indexOf('<details>'), '一覧は <details> の中');
 });
 
 // ---- AC1：Human Merge の PR では agent/tests が失敗しない（push の時点） ----
@@ -233,10 +235,12 @@ test('AC2：critical の判定を受け付けると、agent/tests=neutral を Re
   assert.ok(!w.includes('enablePullRequestAutoMerge'));
 
   const body = humanReviewBody(fake);
-  const concerns = body.indexOf('### 懸念点');
-  assert.ok(concerns > 0);
+  const details = body.indexOf('<details>');
+  assert.ok(details > 0);
   const box = body.indexOf('[!IMPORTANT]');
-  assert.ok(box > 0 && box < concerns, '枠は懸念点より前');
+  assert.ok(box > 0 && box < details, '枠は <details> より前');
+  assert.ok(body.indexOf('### 懸念点') > details, '懸念点は <details> の中');
+  assert.ok(body.indexOf('`harness/test/a.test.ts:5（変更前）`') > details, '見つけた行は <details> の中');
   assert.match(body, /テストの行を変える変更が 1 件あります。/);
   assert.match(body, /Human Merge のため止めていません/);
   assert.match(body, /何を見張っているか/, '平易な説明');

@@ -30,7 +30,16 @@ Claude Code のステータスラインを作ってください。`~/.claude/set
 - Orca の一覧は、組織名と使用量だけを控えのファイル `~/.cache/claude-statusline/orca-accounts.json` に書く。
 - 控えが1分より古ければ、裏で取り直す。取りに行く前に控えの時刻を更新して、同時に何度も取らない。書くときは一時ファイルに書いてから置き換える。
 - 表示は控えだけを読む。Orca の CLI を表示の流れの中で呼ばない。
-- Orca の statusline の hook（`~/.orca/agent-hooks/claude-statusline.sh`、Windows は `claude-statusline.cmd`）があれば、同じ stdin を裏で渡す。出力は待たない。
+- Orca の statusline の hook（`~/.orca/agent-hooks/claude-statusline.sh`、Windows は `claude-statusline.cmd`）があり、`CLAUDE_CONFIG_DIR` が付いていないセッションなら、同じ stdin を裏で渡す。出力は待たない。`CLAUDE_CONFIG_DIR` が付いたセッションは渡さない（Orca はそれを今の使用中のアカウントの値として控え、別のアカウントの値になるため）。
+
+## 使用量の控え
+アカウントの振り分け（`harness/scripts/accounts/pick.ts`）が読む控え `~/.config/agent-harness/usage/<組織の ID>.json` を書く。組織の ID は、そのセッションの設定ディレクトリの `.claude.json` の `oauthAccount.organizationUuid`。
+- 書くのは `CLAUDE_CONFIG_DIR` が付いたセッションだけ。`~/.claude` で動くセッションは書かない（Orca がアカウントを切り替えると `.claude.json` の組織が変わり、前のアカウントで動き続けるセッションの値が別の組織の控えに入るため）。
+- 書く項目は `at`（ミリ秒）・`source`（`"statusline"`）・`configDir`（`CLAUDE_CONFIG_DIR` を `pwd -P` で実パスにしたもの）・`session`（5h の `usedPercent`・`resetsAt`（ミリ秒））・`weekly`（7d の同じ項目）。`configDir` が無い・対応表と違う控えは振り分けに使われない。
+- そのセッションの値が前回から変わったときだけ書く。
+- 同じ枠（`session.resetsAt` の差が 120 秒以内）の中では高い方を残す。古い枠の値で新しい枠の控えを上書きしない。
+- 書くときは一時ファイルに書いてから置き換える。
+- stdin から読んだ項目を区切るときは、空白（タブを含む）を区切りに使わない（`\037` など）。タブは空の項目をまとめてしまい、文脈の使用率などが空のときに後ろの値がずれて控えに書かれる。
 
 ## Orca が無いとき
 Orca の CLI が無い、または控えがまだ無いときは、stdin の `rate_limits` だけで、ログイン中のアカウント（`~/.claude.json` の `oauthAccount.emailAddress`。「個人」の判定にだけ使う）の使用量を1行で出す。

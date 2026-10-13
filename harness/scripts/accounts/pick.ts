@@ -4,10 +4,11 @@
  *   node harness/scripts/accounts/pick.ts（引数なし。場所は homedir() から決める。標準出力に JSON を1つ、終了コードは常に 0）
  *
  * 入力（どれも読むだけ。書くのは launches.json だけ）
- * - 対応表 ~/.config/agent-harness/accounts.json：{ threshold5h?（既定 80）, threshold7d?（既定 90）, accounts: [{ orcaId, name, configDir }] }
- * - 使用量の控え ~/.config/agent-harness/usage/<組織の ID>.json（ステータスラインが書く形。任意の source・status も読む）
+ * - 対応表 ~/.config/agent-harness/accounts.json：{ threshold5h?（既定 80）, threshold7d?（既定 90）, accounts: [{ orcaId, name, configDir }] }（configDir の先頭の `~/` はホームに展開する）
+ * - 使用量の控え ~/.config/agent-harness/usage/<組織の ID>.json（ステータスラインが書く形。任意の source・status・configDir も読む）。
+ *   使うのは source が probe の控えと、configDir の実パスが対応表のそのアカウントの configDir の実パスと同じ控えだけ（Issue #976。cacheMatches）
  * - 起こした数の控え ~/.config/agent-harness/usage/launches.json：[{ name, at }]（選んだら { name, at } を足す）
- * - Orca の `account list --json`（使用量と組織の ID）。メールアドレス・組織名は読んでも出さない。
+ * - Orca の `account list --json`（アカウントの一覧と組織の ID だけ。使用量は取り違えうるので選ぶのに使わない）。メールアドレス・組織名は読んでも出さない。
  *
  * 結果（JSON）
  * - picked：{ result, prefix（`CLAUDE_CONFIG_DIR='<dir>' `）, name, orcaId, usage, excluded }
@@ -15,10 +16,12 @@
  * - default：{ result, prefix: '', reason, excluded }（対応表・Orca が読めない、候補が無い）
  * excluded は { name, reason } の一覧。reason は outside-config-root・unreadable-claude-json・onboarding・trust・auto-mode-prompt・org-mismatch・no-usage。
  *
+ * 順番は 5h（＋直近 15 分に起こした数 × 10）で決め、7d は外す条件と同点の順番（低い方が先、null は後ろ）にだけ使う（Issue #979）。
+ *
  * 判定は純粋関数で、ファイルの読み書きと Orca の呼び出しは deps で差し替える。CLI は import.meta.main の中だけで動く。
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { writeLocalJson } from '../../lib/local-state.ts';
@@ -37,9 +40,9 @@ export type PickResult =
 const MIN = 60_000;
 export const PROBE_MAX_AGE_MS = 10 * MIN;
 export const CACHE_MAX_AGE_MS = 5 * MIN;
-export const ORCA_MAX_AGE_MS = 30 * MIN;
 export const MIXUP_RESET_GAP_MS = 120_000;
 export const LAUNCH_PENALTY = 10;
+export const LAUNCH_WINDOW_MS = 15 * MIN;
 export const DEFAULT_THRESHOLD_5H = 80;
 export const DEFAULT_THRESHOLD_7D = 90;
 const ORCA_TIMEOUT_MS = 15_000;
@@ -84,10 +87,36 @@ export function parseOrcaAccounts(json: unknown): OrcaAccounts {
   return out;
 }
 
+/** 先頭の `~`（それだけ・`~/` で始まる）をホームに展開する。`~user/…` と相対パスは変えない */
+export function expandHome(dir: string, home: string): string {
+  if (dir === '~') return home;
+  return dir.startsWith('~/') ? join(home, dir.slice(2)) : dir;
+}
+
+/** 実パス（無い・読めなければ null） */
+export function realPathOrNull(p: string): string | null {
+  try {
+    return realpathSync(p);
+  } catch {
+    return null;
+  }
+}
+
+/** 控えを使ってよいか：source が probe なら真。ほかは configDir の実パスが対応表のそのアカウントの configDir の実パスと同じときだけ（どの設定ディレクトリで書いたか分からない控えは別のアカウントの値でありうる） */
+export function cacheMatches(cache: Record<string, unknown>, entry: AccountEntry, opts: { home: string; realPath: (p: string) => string | null }): boolean {
+  if (cache.source === 'probe') return true;
+  const dir = str(cache.configDir);
+  if (dir === null) return false;
+  const got = opts.realPath(expandHome(dir, opts.home));
+  const want = opts.realPath(expandHome(entry.configDir, opts.home));
+  return got !== null && want !== null && got === want;
+}
+
 /** 候補から外す確かめ。外す理由のコードか null（読むだけ。メールアドレス・トークンは扱わない） */
 export function checkConfigDir(entry: AccountEntry, opts: { home: string; repoRoot: string; orgUuid: string | null; readText: (p: string) => string | null }): string | null {
   const configRoot = resolve(opts.home, '.config', 'agent-harness', 'claude');
-  const dir = isAbsolute(entry.configDir) ? resolve(entry.configDir) : null;
+  const expanded = expandHome(entry.configDir, opts.home);
+  const dir = isAbsolute(expanded) ? resolve(expanded) : null;
   const rel = dir === null ? null : relative(configRoot, dir);
   if (dir === null || rel === null || rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return 'outside-config-root';
   let claude: unknown;
@@ -108,24 +137,29 @@ export function checkConfigDir(entry: AccountEntry, opts: { home: string; repoRo
   return null;
 }
 
-/** 取り違えの疑い：問い合わせでない2つの値で 5h が同じ・5h のリセットの差が 120 秒以内・7d が同じ（null 同士を含む） */
+/** 控えの JSON から使ってよい値を読む（cacheMatches が偽・読めなければ null）。pick.ts と probe.ts で同じ読み方にする */
+export function readCacheUsage(c: unknown, entry: AccountEntry, opts: { home: string; realPath: (p: string) => string | null }): UsageValue | null {
+  if (!isObj(c) || !cacheMatches(c, entry, opts)) return null;
+  return usageFrom(c, num(c.at), c.source === 'probe' ? 'probe' : 'cache', c.status);
+}
+
+/** 新しい値か：5h があり、probe の控えは 10 分・ほかの控えは 5 分以内。pick.ts が使うかと probe.ts が問い合わせを省くかを同じ規則で決める */
+export function isFreshUsage(v: UsageValue | null | undefined, now: number): v is UsageValue {
+  return !!v && v.fiveHour !== null && now - v.at <= (v.source === 'probe' ? PROBE_MAX_AGE_MS : CACHE_MAX_AGE_MS);
+}
+
+/** 取り違えの疑い：問い合わせでない2つの控えで 5h が同じ・5h のリセットの差が 120 秒以内・7d が同じ（null 同士を含む） */
 const sameLooking = (a: UsageValue, b: UsageValue): boolean =>
   a.fiveHour === b.fiveHour &&
   a.sevenDay === b.sevenDay &&
   (a.fiveHourResetsAt === null || b.fiveHourResetsAt === null ? a.fiveHourResetsAt === b.fiveHourResetsAt : Math.abs(a.fiveHourResetsAt - b.fiveHourResetsAt) <= MIXUP_RESET_GAP_MS);
 
-/** アカウントごとに使う値を選ぶ。取り元の順は 10 分以内の probe の控え → 5 分以内のほかの控え → 30 分以内の Orca。取り違えの値は飛ばす */
-export function chooseUsage(input: { accounts: AccountEntry[]; cache: Map<string, UsageValue | null>; orca: Map<string, UsageValue | null>; now: number }): Map<string, UsageValue | null> {
-  const fresh = (v: UsageValue | null | undefined, max: number): UsageValue | null => (v && v.fiveHour !== null && input.now - v.at <= max ? v : null);
+/** アカウントごとに使う値を選ぶ。取り元の順は 10 分以内の probe の控え → 5 分以内のほかの控え（Orca の値は使わない）。取り違えの値は飛ばす */
+export function chooseUsage(input: { accounts: AccountEntry[]; cache: Map<string, UsageValue | null>; now: number }): Map<string, UsageValue | null> {
   const cands = new Map<string, UsageValue[]>();
   for (const a of input.accounts) {
     const c = input.cache.get(a.orcaId);
-    const list: (UsageValue | null)[] = [
-      c?.source === 'probe' ? fresh(c, PROBE_MAX_AGE_MS) : null,
-      c && c.source !== 'probe' ? fresh(c, CACHE_MAX_AGE_MS) : null,
-      fresh(input.orca.get(a.orcaId), ORCA_MAX_AGE_MS),
-    ];
-    cands.set(a.orcaId, list.filter((v): v is UsageValue => v !== null));
+    cands.set(a.orcaId, isFreshUsage(c, input.now) ? [c] : []);
   }
   const out = new Map<string, UsageValue | null>();
   for (const a of input.accounts) {
@@ -149,7 +183,8 @@ export function effectiveUsage(u: UsageValue, now: number): { fiveHour: number; 
   return { fiveHour, sevenDay };
 }
 
-/** 候補から選ぶ。使える値が無いアカウントは no-usage で外す。リセット済みの枠は 0% として、5h・7d のしきい値と順番を決める */
+/** 候補から選ぶ。使える値が無いアカウントは no-usage で外す。リセット済みの枠は 0% として、5h・7d のしきい値と順番を決める。
+ *  順番は 5h ＋ LAUNCH_PENALTY × 直近 LAUNCH_WINDOW_MS に起こした数、同点なら 7d が低い方（null は後ろ）、次に対応表の順 */
 export function pickAccount(input: { accounts: AccountEntry[]; threshold5h: number; threshold7d: number; usage: Map<string, UsageValue | null>; launches: Launch[]; excluded: Excluded[]; now: number }): PickResult {
   const excluded = [...input.excluded];
   const cands: { a: AccountEntry; u: UsageValue; e: { fiveHour: number; sevenDay: number | null }; index: number }[] = [];
@@ -174,9 +209,12 @@ export function pickAccount(input: { accounts: AccountEntry[]; threshold5h: numb
     }
     return { result: 'wait', prefix: '', resetAt: times.length === 0 ? null : new Date(Math.min(...times)).toISOString(), excluded };
   }
+  // 起こした分は値の時刻にかかわらず直近 LAUNCH_WINDOW_MS の数で数える（取り直した値にはまだ入っていないため。Issue #979）
   const score = (c: (typeof cands)[number]): number =>
-    Math.max(c.e.fiveHour, c.e.sevenDay ?? c.e.fiveHour) + LAUNCH_PENALTY * input.launches.filter((l) => l.name === c.a.name && l.at > c.u.at).length;
-  open.sort((x, y) => score(x) - score(y) || (x.e.sevenDay ?? 0) - (y.e.sevenDay ?? 0) || x.index - y.index);
+    c.e.fiveHour + LAUNCH_PENALTY * input.launches.filter((l) => l.name === c.a.name && input.now - l.at < LAUNCH_WINDOW_MS).length;
+  // 同点なら 7d が低い方、7d が null は後ろ
+  const seven = (c: (typeof cands)[number]): number => c.e.sevenDay ?? Number.POSITIVE_INFINITY;
+  open.sort((x, y) => score(x) - score(y) || (seven(x) - seven(y) || 0) || x.index - y.index);
   const best = open[0]!;
   return { result: 'picked', prefix: shellPrefix(resolve(best.a.configDir)), name: best.a.name, orcaId: best.a.orcaId, usage: best.u, excluded };
 }
@@ -189,6 +227,8 @@ export interface PickDeps {
   readText: (p: string) => string | null;
   runOrca: () => string | null;
   writeJson: (p: string, value: unknown) => void;
+  /** 実パス（無ければ null）。既定は realpathSync */
+  realPath?: (p: string) => string | null;
 }
 
 const parseJson = (text: string | null): unknown => {
@@ -218,8 +258,11 @@ export function parseAccountsTable(json: unknown): { accounts: AccountEntry[]; t
 export function runPick(deps: PickDeps): PickResult {
   const base = join(deps.home, '.config', 'agent-harness');
   const table = parseJson(deps.readText(join(base, 'accounts.json')));
-  const { accounts, threshold5h, threshold7d } = parseAccountsTable(table);
-  if (accounts.length === 0) return dflt('no-accounts-table');
+  const parsed = parseAccountsTable(table);
+  if (parsed.accounts.length === 0) return dflt('no-accounts-table');
+  const { threshold5h, threshold7d } = parsed;
+  const accounts = parsed.accounts.map((a) => ({ ...a, configDir: expandHome(a.configDir, deps.home) }));
+  const realPath = deps.realPath ?? realPathOrNull;
 
   let repoRoot: string;
   try {
@@ -243,12 +286,10 @@ export function runPick(deps: PickDeps): PickResult {
     }
     usable.push(a);
     if (org !== null && /^[\w.-]+$/.test(org)) {
-      const c = parseJson(deps.readText(join(base, 'usage', `${org}.json`)));
-      const src = isObj(c) && c.source === 'probe' ? 'probe' : 'cache';
-      cache.set(a.orcaId, isObj(c) ? usageFrom(c, num(c.at), src, c.status) : null);
+      cache.set(a.orcaId, readCacheUsage(parseJson(deps.readText(join(base, 'usage', `${org}.json`))), a, { home: deps.home, realPath }));
     }
   }
-  const usage = chooseUsage({ accounts: usable, cache, orca: new Map([...orca].map(([id, v]) => [id, v.usage])), now: deps.now });
+  const usage = chooseUsage({ accounts: usable, cache, now: deps.now });
   const launchesPath = join(base, 'usage', 'launches.json');
   const rawLaunches = parseJson(deps.readText(launchesPath));
   const launches: Launch[] = [];

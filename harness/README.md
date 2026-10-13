@@ -9,7 +9,7 @@
 | `docs/` | ハーネスの規則の文書。 | 一部 |
 | `gates/` | 専用 GitHub App として動く「ゲート」。 | ○ |
 | `lib/` | ゲート（`harness/gates/`）とコマンド（`harness/scripts/`）が共通で使うロジック。 | 一部 |
-| `managed.json` | 導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。settingsAllow は permissions.allow に足す行（導入先の行を残す和集合） |  |
+| `managed.json` | 導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。notDistributed はこのリポジトリのファイルのうち配らないもの（導入先が sync に触らせないものは導入先の managed.local.json に書く）。settingsAllow は permissions.allow に足す行（導入先の行を残す和集合） |  |
 | `scripts/` | 手元（人や Claude のセッション）で動かすコマンド。 | 一部 |
 | `templates/` | 導入先にコピーして使う設定の見本。 | ○ |
 | `test/` | `node:test` のテスト。 |  |

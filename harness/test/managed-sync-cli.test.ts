@@ -66,6 +66,8 @@ function sandbox() {
     'harness/managed.json',
     'harness/templates/harness.config.json',
     'harness/templates/CLAUDE.template.md',
+    'harness/templates/harness-sync.yml',
+    'harness/templates/ci.yml',
     TEMPLATE,
   ]) {
     put(kit, p, read(root, p));

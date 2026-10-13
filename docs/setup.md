@@ -5,7 +5,7 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 
 ## 1. ファイルを持ち込む
 
-配るファイルは [harness/managed.json](../harness/managed.json) に一覧がある。導入先には次のように持ち込む（今は手で写す。版を固定して写す sync は別の Issue で用意する）。
+配るファイルは [harness/managed.json](../harness/managed.json) に一覧がある。導入先には `harness/scripts/sync.ts` で持ち込む。初回は kit のタグを指定する（`node harness/scripts/sync.ts <タグ> --from <owner/repo>`。先に `--dry-run` で上書き・新規・除外の一覧を見られる）。`harness/managed.json` 自身も managed なので、sync のたびに kit の一覧に更新される。導入先が sync に触らせないファイルは、導入先の `harness/managed.local.json`（`{ "exclude": [...] }`）に書く。
 
 | 区分 | パス | 扱い |
 | --- | --- | --- |
@@ -13,8 +13,14 @@ GitHub の設定は、リポジトリ管理者が手元の `gh` 認証で行う�
 | kit が持つが配らない（`exclude`） | 観測系（observe・test-prune・mutate・patrol・qa-retro・arch-review）の scripts・lib・commands・skill・agent（一覧は `harness/managed.json` の `exclude`） | `managed` に当たっても写さない。このリポジトリの `harness/test/`・README の表・CI を前提にするため。配られる README の表には除外したファイルの行が残り、hq の skill の patrol の下書きの手順はこのリポジトリだけ |
 | 初回だけ雛形から作る（`projectOwned`） | `harness.config.json`（← `harness/templates/harness.config.json`）、`CLAUDE.md`（← `harness/templates/CLAUDE.template.md`） | 写した後は導入先が持つ。CLAUDE.md の `@harness/CLAUDE.harness.md` の行は消さない（ハーネスの規則を読み込む） |
 | 両方が混ざる | `.claude/settings.json` | ハーネスのキー（`settingsKeys`）だけを導入先の設定に入れる。`permissions.deny`・`permissions.disableBypassPermissionsMode`・`hooks` は kit の値で置き換え（`permissions.deny` の既定ブランチへの push の3行は、導入先の `harness.config.json` の `defaultBranch`（無ければ雛形の値）から sync が作る。`defaultBranch` を変えたら sync をやり直す）、`permissions.allow` は `settingsAllow` の4行（`node harness/scripts/agent.ts *`・`gh issue view *`・`gh pr view *`・`gh pr diff *`）を導入先の行に足す（和集合） |
-| 持ち込まない | `harness/test/`・`package.json`・`tsconfig.json`・`.node-version`・`overview.html`・このリポジトリの docs（setup・plan・migration・upstream） | ゲートは依存なしで Node 24 だけで動く（`gate.yml` は `node-version: 24` を直接指定する）。ハーネスの検査（`npm run check`）はこのリポジトリの CI で行う |
-| 持ち込まない（導入先が持つ） | `.gitattributes` | 導入先が自分のバイナリや CRLF の要るファイルの例外を書くため、配らない（sync で上書きすると例外を書けない）。同じ `* text=auto eol=lf` の行を導入先にも置くとよい（[10. 改行コード](#10-改行コードgitattributes)） |
+| 配らない（`notDistributed`） | `harness/test/**`・`package.json`・`package-lock.json`・`tsconfig.json`・`.node-version`・`.gitignore`・`NOTICE`・`README.md`・`overview.html`・`docs/**`・`mods/**`・`.claude-plugin/**`・`review-api/**`・`harness/README.md`・`.claude/README.md`・`.github/workflows/ci.yml`・`.github/workflows/README.md`・`.github/ISSUE_TEMPLATE/config.yml`・`.claude/settings.json`（ファイルとしては配らず、`settingsKeys` のキーだけが入る） | このリポジトリのものなので写さない。ゲートは依存なしで Node 24 だけで動く（`gate.yml` は `node-version: 24` を直接指定する）。ハーネスの検査（`npm run check`）はこのリポジトリの CI で行う |
+| 配らない（導入先が持つ） | `.gitattributes` | 導入先が自分のバイナリや CRLF の要るファイルの例外を書くため、配らない（sync で上書きすると例外を書けない）。同じ `* text=auto eol=lf` の行を導入先にも置くとよい（[10. 改行コード](#10-改行コードgitattributes)） |
+
+`git ls-files` の全ファイルは `managed`・`projectOwned`・`notDistributed` のどれかに入る（`harness/test/managed-coverage.test.ts` が確かめる）。`settingsKeys` のキーは kit の値で丸ごと置き換える（配列は merge しない）ので、導入先の hook は `settingsKeys` の外のキーに置く。
+
+更新は `.github/workflows/harness-sync.yml`（雛形から初回に写す）が週1で同期 PR を出す。リポジトリ変数 `HARNESS_KIT_REPO`（kit の `<owner>/<repo>`）・`HARNESS_KIT_REF`（取り込むタグ）を設定し、kit が Private なら Secret `HARNESS_KIT_TOKEN` も置く。Settings > Actions > General で「Allow GitHub Actions to create and approve pull requests」を有効にする。`github.token` で作った PR では `pull_request` の workflow（`ci.yml`）が起動せず必須チェック `ci` が付かないので、PR を閉じて開き直すか、PAT・App のトークンで PR を作るように変える。手動で更新するときは同じ `sync.ts` を実行する。
+
+`ci.yml` の雛形（`.github/workflows/ci.yml` に初回に写す）は `ci` ジョブで、ハーネスの .ts の構文（`node --check`）と `render-claim` の起動を確かめる。導入先の検証コマンドはそのジョブに足す。ジョブ名を変えるなら `projectChecks` も変える。Node 24 の `node --check` は、いちばん近い `package.json` に `type` が無い（または `package.json` が無い）と .ts の型注釈を剥がさないので、雛形は CI の中だけで `harness/package.json` と `.claude/hooks/package.json` が無ければ `{"type":"module"}` を書いてから流す（root の `package.json` に type が無い導入先でも通すため。commit しない）。
 
 `permissions.allow` の和集合は足すだけで、kit が配る行を後で外しても導入先の allow からは自動では消えない（外すには導入先で手で消す）。この変更より前の `harness/lib/sync.ts` は `permissions.allow` を kit の値で丸ごと置き換えるので、導入先の `harness/lib/sync.ts` がこの変更より前なら、先にこの版の `harness/lib/sync.ts` を写してから sync する（古い sync が新しい `managed.json` を読むと、kit の `npm run` の行を含む allow で導入先の allow を上書きするため）。
 
@@ -209,9 +215,11 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 ```
 
 - `threshold5h`（既定 80）：5h の使用量（%）がこの値以上のアカウントは選ばない。全部が以上なら fleet はその Issue を起こさず待つ。
-- `threshold7d`（既定 90）：7d の使用量（%）がこの値以上のアカウントも選ばない。7d が分からない（null の）アカウントは 7d では外さない。リセット時刻を過ぎた 5h・7d の値は 0% とみなし、順番は 5h と 7d の高い方で決める。
+- `threshold7d`（既定 90）：7d の使用量（%）がこの値以上のアカウントも選ばない。7d が分からない（null の）アカウントは 7d では外さない。リセット時刻を過ぎた 5h・7d の値は 0% とみなす。順番は 5h ＋ 直近 15 分に起こした数 × 10 で決め（値を取り直しても起こした分は残る）、同点なら 7d が低い方（7d が null のアカウントは後ろ）、それも同じなら対応表の順。7d は外す条件と同点の順番にだけ使う。
 - 設定ディレクトリ（`configDir`）の準備は人が手でする。`~/.config/agent-harness/claude/` の下に置き、その設定ディレクトリで一度 `CLAUDE_CONFIG_DIR=<configDir> claude` を起動して、ログインと初回の案内、本体（main の checkout）のパスの信頼、auto mode の確認を済ませる。済んでいないと pick が `onboarding`・`trust`・`auto-mode-prompt` で外す。信頼は本体のパスで済ませる（表記が違うと `trust` で外れ、残りの候補か `default` になる）。ハーネスは設定ディレクトリを作らず、書き換えない。
-- 問い合わせ（`probe.ts`）はアカウントごとに haiku を1回呼ぶ（使用量を少し使う。10 分以内の控えがあれば呼ばない）。
+- `configDir` の先頭の `~/` はホームに展開する（候補の確かめ・前置き・問い合わせのすべて）。
+- 問い合わせ（`probe.ts`）はアカウントごとに haiku を1回呼ぶ（使用量を少し使う。pick が使える控え（問い合わせの控えは 10 分、対応表の設定ディレクトリで書いた控えは 5 分以内）があれば呼ばない）。
+- 使用量の控えのうち使われるのは、問い合わせ（`source: probe`）の控えと、`configDir` の実パスが対応表のそのアカウントの `configDir` と同じ控え（`CLAUDE_CONFIG_DIR` を付けたセッションのステータスラインが書いたもの。書き方は [statusline.md](statusline.md) の「使用量の控え」）だけ。Orca の使用量は選ぶのに使わない（`~/.claude` で動くセッションが Orca のアカウントの切り替えの後に別のアカウントの値を書くことがあるため。Issue #976）。
 - 環境変数 `ANTHROPIC_API_KEY`・`CLAUDE_CODE_OAUTH_TOKEN` が worker の端末にあると、`CLAUDE_CONFIG_DIR` のアカウントでなくその資格情報で動くので、振り分けを使うときは置かない（端末の環境はハーネスが変えない。問い合わせの子プロセスには渡さない）。
 - 前置き（`CLAUDE_CONFIG_DIR='<dir>' `）は POSIX のシェル（bash など）の書き方。worker の画面の `auto mode` が確かめられなければ、今の手順どおりその worker を閉じて人に返す。
 

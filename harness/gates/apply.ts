@@ -3,7 +3,7 @@ import { appLogin, CHECKS, LABELS, reasonMark, reasonOf, TEST_EXEMPT_LABEL } fro
 import type { DelegateState } from '../lib/delegate.ts';
 import { exemptRecords, exemptState } from '../lib/exempt.ts';
 import type { IssueComment } from '../lib/github.ts';
-import { autoModeHolds, evaluateMergeRoute, type Acceptance } from '../lib/merge-route.ts';
+import { AUTO_MODE_HOLD_REASON_PREFIX, autoModeHolds, evaluateMergeRoute, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { checkScope } from '../lib/scope.ts';
 import { classifyBase, type BaseKind } from '../lib/stack.ts';
@@ -540,22 +540,81 @@ async function dismissFixRequests(ctx: GateContext, number: number): Promise<voi
   }
 }
 
-/** 人へのレビュー依頼。何が懸念で、どこを見てほしいかを先に書く */
+const HUMAN_MERGE_PREFIXES = ['委任承認', 'auto mode', 'bypass'] as const;
+
+/**
+ * 自動 Merge しない理由（why）の重複を除く。「委任承認でも不可: 」「auto mode でも不可: 」「bypass でも不可: 」を外して「／」で分け、理由ごとにまとめる。
+ * 接頭辞なしで現れた理由は接頭辞なしの1回、接頭辞つきでしか現れない理由は、接頭辞が1つなら元の行のまま、2つ以上なら名前を現れた順につなぐ。順は最初に現れた順。
+ * auto mode の保留の理由（AUTO_MODE_HOLD_REASON_PREFIX）は Jev の理由が「／」でつながっているため、その断片から後ろは分けずに1つに戻す。
+ */
+export function dedupeHumanMergeReasons(why: string[]): string[] {
+  const found = new Map<string, { plain: boolean; names: string[] }>();
+  for (const line of why) {
+    const prefixOf = (n: string) => `${n}${/[A-Za-z]$/.test(n) ? ' ' : ''}でも不可: `;
+    const name = HUMAN_MERGE_PREFIXES.find((n) => line.startsWith(prefixOf(n))) ?? null;
+    const body = name === null ? line : line.slice(prefixOf(name).length);
+    const parts = body.split('／').map((p) => p.trim()).filter((p) => p !== '');
+    const hold = parts.findIndex((p) => p.startsWith(AUTO_MODE_HOLD_REASON_PREFIX));
+    const reasons = hold < 0 ? parts : [...parts.slice(0, hold), parts.slice(hold).join('／')];
+    for (const r of reasons) {
+      const e = found.get(r) ?? { plain: false, names: [] };
+      if (name === null) e.plain = true;
+      else if (!e.names.includes(name)) e.names.push(name);
+      found.set(r, e);
+    }
+  }
+  return [...found].map(([r, e]) => {
+    if (e.plain || e.names.length === 0) return r;
+    const joined = e.names.join('・');
+    return `${joined}${/[A-Za-z]$/.test(joined) ? ' ' : ''}でも不可: ${r}`;
+  });
+}
+
+/** 人が Merge する理由として先頭に出す1件。ガードレール → humanMergePaths → Risk の答え → Risk レベル → 計画の範囲外 → 先頭の順 */
+export function primaryHumanMergeReason(reasons: string[]): string {
+  const rules: Array<(r: string) => boolean> = [
+    (r) => r.includes('ガードレールに触れます'),
+    (r) => r.includes('humanMergePaths'),
+    (r) => r.startsWith('「') && r.includes('の答えが'),
+    (r) => r.startsWith('Risk レベルが'),
+    (r) => r.includes('計画の範囲外のファイル'),
+  ];
+  for (const rule of rules) {
+    const hit = reasons.find(rule);
+    if (hit !== undefined) return hit;
+  }
+  return reasons[0] ?? '（記録なし）';
+}
+
+/**
+ * 人へのレビュー依頼。先頭は宛先・人が Merge する理由1行・Merge の前に確かめること3件まで。
+ * テストの行を変える変更があれば枠（件数と止めているか）を先頭の後に置き、ほかは <details> の中に全件載せる
+ */
 export function renderHumanReview(owner: string, a: Acceptance, why: string[], tests?: { findings: TamperFinding[]; relaxed: boolean; autoMode?: AutoModeTestsOutcome; move?: TestMoveOutcome }): string {
-  const list = (items: string[] | undefined, empty: string) => (items && items.length > 0 ? items.map((x) => `- ${x}`) : [`- ${empty}`]);
-  // テストの行を変える変更は、懸念点より前に目立つ形で載せる（人は Merge の前にこれを読む）
-  const testLines = tests && tests.findings.length > 0
+  const list = (items: string[], empty: string) => (items.length > 0 ? items.map((x) => `- ${x}`) : [`- ${empty}`]);
+  const concerns = a.humanNotes?.concerns ?? [];
+  const checkPoints = a.humanNotes?.checkPoints ?? [];
+  const acNotes = a.humanNotes?.acNotes ?? [];
+  const reasons = dedupeHumanMergeReasons(why);
+  const findings = tests?.findings ?? [];
+  const head = checkPoints.slice(0, 3);
+  const rest = checkPoints.slice(3);
+  const box = tests && findings.length > 0
     ? [
-        '> [!IMPORTANT]',
-        `> テストの行を変える変更が ${tests.findings.length} 件あります。`,
-        tests.relaxed
-          ? `> \`${CHECKS.tests}\` は Human Merge のため止めていません。Merge の前に下の行を確かめてください（\`${TEST_EXEMPT_LABEL}\` は要りません）。`
-          : `> \`${CHECKS.tests}\` は止めています（自動 Merge に戻りうるため）。確かめて問題が無ければ \`${TEST_EXEMPT_LABEL}\` を付けてください。`,
         '',
+        '> [!IMPORTANT]',
+        `> テストの行を変える変更が ${findings.length} 件あります。`,
+        tests.relaxed
+          ? `> \`${CHECKS.tests}\` は Human Merge のため止めていません。Merge の前に下の詳細の「テストの変更」を確かめてください（\`${TEST_EXEMPT_LABEL}\` は要りません）。`
+          : `> \`${CHECKS.tests}\` は止めています（自動 Merge に戻りうるため）。確かめて問題が無ければ \`${TEST_EXEMPT_LABEL}\` を付けてください。`,
+      ]
+    : [];
+  const testLines = tests && findings.length > 0
+    ? [
         '### テストの変更（Merge の前に確かめる）',
         '',
         // 止めているとき（hold・自動 Merge モードの停止だけが理由）は、例外ラベルでの通し方も含む説明にする
-        tests.relaxed ? renderTamperForHumanMerge(tests.findings, 30) : renderTamperSummary(tests.findings, 30, TEST_EXEMPT_LABEL),
+        tests.relaxed ? renderTamperForHumanMerge(findings, 30) : renderTamperSummary(findings, 30, TEST_EXEMPT_LABEL),
         '',
         // auto mode の経路で Jev に問うた（問えなかった）なら、検出ごとの確率と理由を載せる（止めたときの人への材料）
         ...(renderAutoModeTests(tests.autoMode) ? [renderAutoModeTests(tests.autoMode), ''] : []),
@@ -565,20 +624,25 @@ export function renderHumanReview(owner: string, a: Acceptance, why: string[], t
     : [];
   return [
     `@${owner} レビューをお願いします（Human Merge）。Reviewer は合格、Risk は ${a.riskLevel} です。`,
+    `- **人が Merge する理由**：${primaryHumanMergeReason(reasons)}`,
+    ...(head.length > 0
+      ? ['- **Merge の前に確かめること**：', ...head.map((x, i) => `  ${i + 1}. ${x}`)]
+      : ['- **Merge の前に確かめること**：（Reviewer から特になし）']),
+    ...box,
+    '',
+    `<details><summary>詳細（懸念点 ${concerns.length} 件・見てほしい箇所の残り ${rest.length} 件・AC の照合 ${acNotes.length} 件・自動 Merge しない理由 ${reasons.length} 件・テストの変更 ${findings.length} 件）</summary>`,
     '',
     ...testLines,
     '### 懸念点',
-    ...list(a.humanNotes?.concerns, '（Reviewer から特になし）'),
+    ...list(concerns, '（Reviewer から特になし）'),
     '',
-    '### 見てほしい箇所',
-    ...list(a.humanNotes?.checkPoints, '（Reviewer から特になし）'),
-    '',
+    ...(rest.length > 0 ? ['### 見てほしい箇所（4件目以降）', ...list(rest, ''), ''] : []),
+    ...(acNotes.length > 0 ? ['### AC の照合', ...list(acNotes, ''), ''] : []),
     '### Risk の根拠',
     a.riskRationale ?? '（記録なし）',
     '',
-    '<details><summary>自動 Merge しない理由</summary>',
-    '',
-    ...why.map((r) => `- ${r}`),
+    '### 自動 Merge しない理由',
+    ...list(reasons, '（記録なし）'),
     '',
     '</details>',
   ].join('\n');
