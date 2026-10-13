@@ -1,11 +1,11 @@
 ---
 name: judge
-description: "人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。「PR #番号 を判定して」「レビューして判定を出して」と頼まれたとき、実装・修正の後の段階で使う。"
+description: "人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。「PR #番号 を判定して」「レビューして判定を出して」と頼まれたとき、またはクラウドの Routine の `/judge --routine`（PR 1件の判定を1回分行う。節「Routine の1回分」）で、実装・修正の後の段階で使う。"
 ---
 
 # judge（判定）
 
-Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添いのセッションで行う手順。Agent PR も人の PR も同じ手順で判定する。人の PR は修正しない。
+Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添いのセッションで行う手順。Agent PR も人の PR も同じ手順で判定する。人の PR は修正しない。クラウドの Routine で PR を1件指定して判定するときは、下の節「Routine の1回分（`/judge --routine`）」に従う。
 
 ## 入力
 
@@ -42,6 +42,20 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 合体版も同じ決まりで、review-panel の compose が組み立てのときに行う（前回の head から変わった行への指摘、⑥⑦の直っていない前回の指摘、⑧だけをブロッキングにする）。
 
 judge-input の「再レビューの範囲（補足）」には、前回の head の後に既定ブランチの取り込みがあったかが入る。取り込みがあれば、前回の head からの差分には既定ブランチから来た変更も入る。PR 自身の変更は、それぞれの head で `git diff origin/<PR の base>...<head>` を取って比べると分かる（差分の取り方は reviewer.md のまま）。最新の判定コメントのブロックが壊れていれば、それを飛ばした前の正しい判定が「前回の判定」に入り、そのことが注記される。
+
+## Routine の1回分（`/judge --routine`）
+
+クラウドの Routine で、App が選んだ PR 1件の判定を人のいないまま1回分行う。判定の中身（judge-input → `reviewPanel.mode` に従う担当 → compose-verdict → post-verdict）は上の手順1〜8のとおりで、ここには Routine で変わるところだけを書く。作り方は kit の `docs/judge-routine.md`。この節は `.claude/routine.md` の queue の手順とは別（queue は読まない）。GitHub は MCP ではなく `harness/scripts/agent.ts` の REST で読み書きする。
+
+1. 指示を読んだ時点では結果を出さず、入力（PR 番号・head・base・dryRun の JSON）のメッセージが届くまで待つ。入力の形は `{ "pr": 799, "head": "<40桁の SHA>", "base": "main", "dryRun": true }`（`dryRun` は任意。無ければ偽）。
+2. `node --version` が v24 か確かめる。`git fetch --unshallow origin` で浅い clone を解く（patch-id と diff に履歴が要る）。
+3. 入力を scratchpad のファイルに書き、`node harness/scripts/agent.ts judge-routine-check <ファイル>` を流す。出力の `action` が `skip` なら何もせず、`reason` を出力して終える。`judge` なら出力の `head`（今の head）を判定する。
+4. `dryRun` が偽なら `node harness/scripts/agent.ts claim <PR番号> --stage judge` で着手を宣言する（Routine の宣言。`--manual` は付けない）。`dryRun` が真なら宣言しない。
+5. 手順1〜7を行う。ただし手順1の `claim --manual --stage judge` は流さず（宣言はこの節の4だけ）、judge-input だけを流す。PR の head は checkout せず、テストは `node harness/scripts/review-panel.ts check`（detach の worktree）に任せる。モデル名は Routine に指定したもの。
+   - 人に聞かない。「人に返す条件」に当たったら、判定せず理由を出力して終える（`dryRun` が偽なら `node harness/scripts/agent.ts release <PR番号>`）。手順2（今の head にコラボレーターのレビューがある）も fix をせず、理由を出して終える。
+   - `dryRun` が真なら、`node harness/scripts/review-panel.ts post` を流さず記録のファイルの中身を出力に出し、`node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル> --dry-run` で組み立てた判定を出す。手順8（App の受け付けの確かめ）と9はしない。
+   - `dryRun` が偽なら、手順8は `rest pr-view` で行い、数分待っても受け付けられなければ理由を出力して終える（判定コメントで宣言は終わるので release は要らない）。手順9は下書きのパスと要約を出力に出すだけにする（人に報告しない）。
+6. 最後に要約（PR・判定した head・入力の head との違い・合否・Risk・dry-run か・止めた理由）を出力する。
 
 ## 終わりの状態
 
