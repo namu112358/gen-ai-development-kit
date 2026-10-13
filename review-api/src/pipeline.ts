@@ -1,4 +1,4 @@
-// レビューの段階 fetch-pr → collect → budget → review → risk → validate → record → post を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
+// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ）fetch-pr → collect → budget → review → risk → validate → record → post を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
 // GitHub・Claude・KV・時計・ログは deps から受け取り、token は deps の作り方（reader・writer）の中に閉じる（ここでは見ない）。
 // 段階は runStep に包んで呼ぶ（Workflow が step.do を渡す）。KV の書き込みと投稿は、その段階の中で行う。
 // import は review-api/src の中だけで、Node と Workers の両方で動く。
@@ -39,6 +39,8 @@ export interface ReviewDeps {
   kv: ReviewKv;
   now(): number;
   log(line: string): void;
+  /** push が続くあいだ待つ（Workflow は step.sleep）。無ければ待たない */
+  sleep?(ms: number): Promise<void>;
   /** ログと投稿の本文から伏せる文字列（API キー・Webhook の秘密など） */
   secrets?: string[];
 }
@@ -177,6 +179,12 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     log(`${name} ${outcome}`);
     return result(outcome);
   };
+
+  // 0. settle（待っている間に head が変われば、次の fetch-pr で superseded になる）
+  if (config.trigger.settleSeconds > 0 && deps.sleep !== undefined) {
+    await deps.sleep(config.trigger.settleSeconds * 1000);
+    log(`settle ${config.trigger.settleSeconds}s`);
+  }
 
   // 1. fetch-pr
   const fetched = await step('fetch-pr', async (): Promise<{ startedAt: number; stop: ReviewOutcome | null }> => {

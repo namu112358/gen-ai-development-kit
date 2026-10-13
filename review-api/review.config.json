@@ -3,7 +3,8 @@
     "actions": ["opened", "synchronize", "reopened", "converted_to_draft"],
     "skipBotSenders": true,
     "branchPrefix": "claude/",
-    "requireClosesIssue": true
+    "requireClosesIssue": true,
+    "settleSeconds": 120
   },
   "claude": {
     "reviewModel": "claude-opus-5-5",
