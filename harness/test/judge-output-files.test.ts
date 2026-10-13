@@ -94,10 +94,10 @@ test('呼び出し元：routine.md から judge の節を切り出せる', () =>
   assert.ok(!judge.includes('### fix（修正）'), 'judge の節に次の節が混ざっています');
 });
 
-test('呼び出し元：担当の出力を呼び出し元がファイルに保存する文が無い（review-panel の⑧の check.json の文だけ除く）', () => {
+test('呼び出し元：担当の出力を呼び出し元がファイルに保存する文が無い', () => {
+  assert.ok(!read(PANEL_SKILL).includes('check.json'), 'review-panel の skill に check.json（⑧）の文が残っています（#974）');
   for (const [name, text] of Object.entries(callers())) {
     for (const s of sentences(text)) {
-      if (name === PANEL_SKILL && s.includes('check.json')) continue;
       assert.ok(!/書き換えずに[^。]*保存/.test(s), `${name}: 書き換えずに保存する文が残っています：${s}`);
       assert.ok(!/ファイル[^。]*に保存/.test(s), `${name}: ファイルに保存する文が残っています：${s}`);
     }

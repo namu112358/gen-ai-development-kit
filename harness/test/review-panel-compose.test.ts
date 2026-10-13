@@ -28,7 +28,7 @@ function finding(source: PanelSource, index: number, kind: BlockingKind, patch: 
 const scores = (map: Record<string, number>): unknown[] => Object.entries(map).map(([id, score]) => ({ id, score, reason: `${id} の理由` }));
 
 function compose(findings: PanelFinding[], map: Record<string, number>, patch: Partial<Parameters<typeof composePanel>[0]> = {}) {
-  return composePanel({ findings, scores: scores(map), check: CHECK_OK, previous: null, changedLines: null, ...patch });
+  return composePanel({ findings, scores: scores(map), check: null, previous: null, changedLines: null, ...patch });
 }
 
 function ok<T>(r: { ok: true; value: T } | { ok: false; errors: string[] }): T {
@@ -189,16 +189,18 @@ test('compose：overbuildMissing: true のときだけ humanNotes.concerns に�
 
 // ---- ⑧ ----
 
-test('compose：⑧は終了コードが 0 でなければ採点なしで必ず typecheck-test-failure のブロッキング（findings には入らない）', () => {
-  const v = ok(compose([], {}, { check: CHECK_NG }));
-  assert.equal(v.review.pass, false);
-  assert.equal(v.review.blocking.length, 1);
-  assert.equal(v.review.blocking[0]!.kind, 'typecheck-test-failure');
-  assert.ok(v.review.blocking[0]!.detail.includes(CHECK_NG.outputTail));
-  assert.deepEqual(v.findings, []);
-  const passing = ok(compose([], {}));
-  assert.equal(passing.review.pass, true);
-  assert.deepEqual(passing.review.blocking, []);
+test('compose：⑧は check あり（古い dir）で終了コードが 0 でなければ採点なしで必ず typecheck-test-failure のブロッキング（findings には入らない）、0 なら合格。check が null（判定では回していない）ならブロッキングを出さず合格（Issue #974）', () => {
+  const ng = ok(compose([], {}, { check: CHECK_NG }));
+  assert.equal(ng.review.pass, false);
+  assert.equal(ng.review.blocking.length, 1);
+  assert.equal(ng.review.blocking[0]!.kind, 'typecheck-test-failure');
+  assert.ok(ng.review.blocking[0]!.detail.includes(CHECK_NG.outputTail));
+  assert.deepEqual(ng.findings, []);
+  for (const [name, check] of [['CHECK_OK', CHECK_OK], ['null', null], ['渡さない', undefined]] as const) {
+    const v = ok(composePanel({ findings: [], scores: [], previous: null, changedLines: null, ...(check === undefined ? {} : { check }) }));
+    assert.equal(v.review.pass, true, name);
+    assert.deepEqual(v.review.blocking, [], `${name}: typecheck-test-failure を出さない`);
+  }
 });
 
 // ---- pass と blocking ----
@@ -240,7 +242,7 @@ test('compose：⑨の指摘にも採点が要り、欠け・余りは拒否す�
 
 // ---- 再レビュー ----
 
-test('compose：再レビューでは変わった行に当たる指摘・unfixedPrevious・⑧だけブロッキングにし、ほかの 75 以上は nonBlocking', () => {
+test('compose：再レビューでは変わった行に当たる指摘・unfixedPrevious・⑧（check があるときだけ）だけブロッキングにし、ほかの 75 以上は nonBlocking', () => {
   const previous: { headSha: string; blocking: BlockingFinding[] } = { headSha: OLD_HEAD, blocking: [{ kind: 'ac-unmet', file: 'c.ts', detail: '前回の指摘' }] };
   const changedLines: ChangedLines = { 'a.ts': [3, 4], 'b.ts': [] };
   const findings = [
@@ -266,7 +268,7 @@ test('compose：再レビューでは変わった行に当たる指摘・unfixed
   const details = v.review.blocking.map((b) => b.detail).join('\n');
   for (const d of ['変わった行の指摘', '行の無い指摘（変わったファイル）', '前回から直っていない', '前回から直っていない退行']) assert.ok(details.includes(d), d);
   assert.ok(!details.includes('変わっていない行の指摘') && !details.includes('新しく見つけた範囲外'));
-  assert.ok(v.review.blocking.some((b) => b.kind === 'typecheck-test-failure'), '⑧は再レビューでも必ずブロッキング');
+  assert.ok(v.review.blocking.some((b) => b.kind === 'typecheck-test-failure'), '⑧は check があるときだけ、再レビューでも必ずブロッキング');
   assert.equal(v.review.blocking.length, 5);
   const nonBlocking = v.review.nonBlocking.join('\n');
   for (const d of ['変わっていない行の指摘', '行の無い指摘（変わっていないファイル）', '新しく見つけた範囲外']) assert.ok(nonBlocking.includes(d), d);
@@ -275,13 +277,16 @@ test('compose：再レビューでは変わった行に当たる指摘・unfixed
   assert.equal(v.review.pass, false);
 });
 
-test('compose：再レビューで当たる指摘が無く⑧も通れば合格（nonBlocking は残る）', () => {
-  const v = ok(composePanel({
-    findings: [finding('lens2', 0, 'bug', { file: 'a.ts', line: 10 })], scores: scores({ 'lens2-0': 99 }), check: CHECK_OK,
-    previous: { headSha: OLD_HEAD, blocking: [] }, changedLines: { 'a.ts': [3] },
-  }));
-  assert.equal(v.review.pass, true);
-  assert.equal(v.review.nonBlocking.length, 1);
+test('compose：再レビューで当たる指摘が無ければ、check が無くても（null）・check が通っていても合格（nonBlocking は残る。Issue #974）', () => {
+  for (const [name, check] of [['null', null], ['CHECK_OK', CHECK_OK]] as const) {
+    const v = ok(composePanel({
+      findings: [finding('lens2', 0, 'bug', { file: 'a.ts', line: 10 })], scores: scores({ 'lens2-0': 99 }), check,
+      previous: { headSha: OLD_HEAD, blocking: [] }, changedLines: { 'a.ts': [3] },
+    }));
+    assert.equal(v.review.pass, true, name);
+    assert.deepEqual(v.review.blocking, [], name);
+    assert.equal(v.review.nonBlocking.length, 1, name);
+  }
 });
 
 test('compose：再レビューでは、75 以上の⑨は変わった行（line の無いものは変わったファイル）に当たるときだけブロッキングで、当たらなければ nonBlocking で concerns に入らない（Issue #386）', () => {

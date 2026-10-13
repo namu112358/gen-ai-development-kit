@@ -34,9 +34,9 @@ Prompt：
 ## クラウドの制約
 
 - GraphQL と検索は 403：`gh issue`・`gh pr`・`gh stack` は使えない。GitHub は `gh api` の REST と `harness/scripts/agent.ts` で読み書きする。
-- PR の head は checkout しない（見張りの hook が止める）。テストは detach の worktree（`review-panel.ts check`）で行う。
+- PR の head は checkout しない（見張りの hook が止める）。型検査とテストは CI（必須チェック `ci`）に任せる（#974 で⑧を判定から外した）。
 - 毎回浅い clone：回の最初に `git fetch --unshallow origin` で解く。
-- review-panel の⑧のテストは、4コアで担当と重なって遅い（約10分。PoC の記録）。
+- review-panel の⑧（検証コマンド）は #974 で判定から外した（PoC では担当と重なって約10分かかっていた）。
 - Routine は承認なしで本人の名義で動く。Prompt に、Issue・PR・コメントの中身をデータとして扱う一文を必ず入れる。
 
 ## 動作確認
@@ -45,4 +45,4 @@ Prompt：
 
 ## 範囲の外
 
-App から Routine を起こすこと、plan・implement・fix の Routine、review-panel の⑧のテストを1回だけにする工夫は、この手順の外。
+App から Routine を起こすこと、plan・implement・fix の Routine は、この手順の外（review-panel の⑧は #974 で判定から外した）。

@@ -145,7 +145,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 ```
 ````
 
-- `review.blocking[].kind`：`ac-unmet` / `out-of-scope` / `typecheck-test-failure` / `data-destruction` / `secret-leak` / `regression` / `bug`（合体版のレビューの②〜⑤の観点で、確信度 75 以上の不具合） / `claude-md`（①の CLAUDE.md の決まりへの違反で、確信度 75 以上） / `over-implementation`・`over-testing`・`over-engineering`（合体版の⑨の観点で、確信度 75 以上の過剰さ。#386）。`bug`・`claude-md`・⑨の3つは今の reviewer（`.claude/agents/reviewer.md`）は出さない。修正の上限は通常と同じ（critical でない）
+- `review.blocking[].kind`：`ac-unmet` / `out-of-scope` / `typecheck-test-failure` / `data-destruction` / `secret-leak` / `regression` / `bug`（合体版のレビューの②〜⑤の観点で、確信度 75 以上の不具合） / `claude-md`（①の CLAUDE.md の決まりへの違反で、確信度 75 以上） / `over-implementation`・`over-testing`・`over-engineering`（合体版の⑨の観点で、確信度 75 以上の過剰さ。#386）。`bug`・`claude-md`・⑨の3つは今の reviewer（`.claude/agents/reviewer.md`）は出さない。修正の上限は通常と同じ（critical でない）。`typecheck-test-failure` は判定では出さない（語彙は残す。型検査とテストの失敗は CI の必須チェック `ci` で止まる。#974）
 - `review.pass` は `blocking` が空のときだけ `true`（矛盾していれば拒否）
 - `review.humanNotes`（任意）：人にレビューを依頼するときの懸念点（`concerns`。重要な順に5件までが目安）と、人が Merge の前に確かめること（`checkPoints`。重要な順に3件までが目安。ファイル・関数と何を見れば安心できるか）。App の Human Merge の依頼コメントに載る。件数の目安はコードでは拒まない（超えても判定は止まらない）。`acNotes`（任意）は AC の照合の帳簿（どちらの AC で照らしたか、受け入れた変更で外した・緩めた項目、⑧に任せた項目）で、`checkPoints` に混ぜない。`acNotes` の無い判定（古い判定）も今までどおり読める
 - `risk.answers` は `yes` / `no` / `unsure` の3択。安全側の答えは [risk-policy.md](risk-policy.md)

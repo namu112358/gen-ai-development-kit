@@ -23,15 +23,15 @@ import { resolveRepository } from '../lib/repository.ts';
  *   node harness/scripts/review-panel.ts mode
  *       harness.config.json の reviewPanel.mode（off / shadow / enforce。無ければ off）を出力
  *   node harness/scripts/review-panel.ts check <judge-input>
- *       ⑧：judge-input の headSha を detached の worktree（リポジトリの外）に取り出し、設定の取り込みのコマンド（project.installCommand。既定 npm ci）の後に検証コマンド（project.checkCommand。既定 npm run check。null なら動かさない）を動かして
+ *       ⑧（skill の手順からは外した（#974）。人が手で確かめるとき用）：judge-input の headSha を detached の worktree（リポジトリの外）に取り出し、設定の取り込みのコマンド（project.installCommand。既定 npm ci）の後に検証コマンド（project.checkCommand。既定 npm run check。null なら動かさない）を動かして
  *       { headSha, exitCode, outputTail, command }（出力の末尾 60 行）を JSON のファイルに書き、パスを出力。worktree は必ず消す。
  *       取り込みのコマンドが失敗したら⑧の指摘にせず止まる
  *   node harness/scripts/review-panel.ts findings <dir>
  *       <dir> の担当の出力（intake.json・lens1.json〜lens5.json・ac-scope.json・safety.json、あれば overbuild.json）を検査し、採点に渡す指摘の一覧（ID 付き）を出力
  *   node harness/scripts/review-panel.ts compose <pr> <dir> --judge-input <file> [--session <jsonl>]
- *       <dir> の担当の出力・score-<id>.json・check.json と、judge-input の前回の判定（あれば git diff -U0 <前回の head> <headSha> の変わった行）から組み立て、
+ *       <dir> の担当の出力・score-<id>.json・（あれば）check.json と、judge-input の前回の判定（あれば git diff -U0 <前回の head> <headSha> の変わった行）から組み立て、
  *       組み立ての出力（review-<PR>-<head7>.json。reviewer の出力と同じ形）と記録のコメント（panel-<PR>-<head7>.md）を書いてパスを出力。
- *       judge-input の PR 番号が <pr> と違う、check.json の headSha が judge-input の headSha と違えば止まる。
+ *       judge-input の PR 番号が <pr> と違う、check.json があってその headSha が judge-input の headSha と違えば止まる。
  *       今の PR の head が judge-input の headSha と違っても PR 自身の差分（patch-id）が同じなら判定した head のまま。違えば止まる。
  *       費用は --session（無ければこのセッション）のサブエージェントの記録から数える
  *   node harness/scripts/review-panel.ts post <pr> <記録のファイル>
@@ -170,9 +170,13 @@ async function compose(gh: GitHub, args: string[]): Promise<string> {
   const outputs = readOutputs(dir);
   if (!outputs.intake.eligible) fail([`review-intake が対象外と答えています（${outputs.intake.reason}）。組み立てません`]);
   const scores = readdirSync(dir).filter((f) => /^score-.+\.json$/.test(f)).sort().map((f) => readJson(join(dir, f)));
-  const checkRaw = readJson(join(dir, 'check.json')) as Partial<CheckResult>;
-  if (checkRaw.headSha !== head) fail([`check.json の headSha（${String(checkRaw.headSha)}）が judge-input の head（${head}）と違います。⑧をやり直す`]);
-  if (typeof checkRaw.exitCode !== 'number' || typeof checkRaw.outputTail !== 'string') fail(['check.json は { headSha, exitCode, outputTail } ではありません']);
+  // ⑧は judge の手順からは外した（#974）。check.json があれば（人が手で check を流した dir）今までどおり読む。無ければ判定では回していない
+  const checkPath = join(dir, 'check.json');
+  const checkRaw = existsSync(checkPath) ? (readJson(checkPath) as Partial<CheckResult>) : null;
+  if (checkRaw !== null) {
+    if (checkRaw.headSha !== head) fail([`check.json の headSha（${String(checkRaw.headSha)}）が judge-input の head（${head}）と違います。⑧をやり直す`]);
+    if (typeof checkRaw.exitCode !== 'number' || typeof checkRaw.outputTail !== 'string') fail(['check.json は { headSha, exitCode, outputTail } ではありません']);
+  }
 
   const previous = previousFromJudgeInput(text);
   if (!previous.ok) fail(previous.errors);
@@ -191,7 +195,7 @@ async function compose(gh: GitHub, args: string[]): Promise<string> {
   const composeHeadError = headError(head, current);
   if (composeHeadError !== null) fail([composeHeadError]);
 
-  const composed = composePanel({ findings: outputs.findings, notes: outputs.notes, suggestions: outputs.suggestions, overbuildMissing: outputs.overbuildMissing, scores, check: checkRaw as CheckResult, previous: previous.value, changedLines });
+  const composed = composePanel({ findings: outputs.findings, notes: outputs.notes, suggestions: outputs.suggestions, overbuildMissing: outputs.overbuildMissing, scores, check: checkRaw as CheckResult | null, previous: previous.value, changedLines });
   if (!composed.ok) fail(composed.errors);
   const head7 = head.slice(0, 7);
   const record: PanelRecord = {
@@ -201,7 +205,7 @@ async function compose(gh: GitHub, args: string[]): Promise<string> {
     mode,
     review: composed.value.review,
     findings: composed.value.findings,
-    check: { exitCode: checkRaw.exitCode },
+    check: { exitCode: checkRaw?.exitCode ?? null },
     material: pastPrMaterial(text),
     cost: subagentCost(subagentEntries(options['--session']), pr, head7, config.pricing ?? {}),
   };

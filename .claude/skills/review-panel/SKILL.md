@@ -7,7 +7,7 @@ description: 人が付き添うセッションの judge の中で、公式の co
 
 judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mode` が `shadow` か `enforce` のときに呼ぶ手順。流れ・担当・公式との違いは [harness/docs/review-panel.md](../../../harness/docs/review-panel.md)。
 
-元：公式の code-review（`docs/upstream/claude-plugins-official/code-review.md`、`fa59bc9`）の手順1〜8。変えたこと：Draft・自動の PR・簡単な PR を対象から外さない、PR にコメントせず reviewer と同じ形の JSON と記録のコメントにする、観点⑥（AC・範囲）・⑦（秘密・データ破壊・退行）・⑧（検証コマンド。`project.checkCommand`、既定 `npm run check`）を足す、誤検知の例は①〜⑤にだけ当てる、④の材料は judge-input の節を使う、組み立て（閾値・再レビューの決まり）はスクリプトで行う。
+元：公式の code-review（`docs/upstream/claude-plugins-official/code-review.md`、`fa59bc9`）の手順1〜8。変えたこと：Draft・自動の PR・簡単な PR を対象から外さない、PR にコメントせず reviewer と同じ形の JSON と記録のコメントにする、観点⑥（AC・範囲）・⑦（秘密・データ破壊・退行）を足す、⑧（検証コマンド）は回さない（型検査とテストの失敗は CI に任せる。#974）、誤検知の例は①〜⑤にだけ当てる、④の材料は judge-input の節を使う、組み立て（閾値・再レビューの決まり）はスクリプトで行う。
 
 ## 入力
 
@@ -29,13 +29,13 @@ judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mo
    - **review-lens** を観点 1〜5 で5回（それぞれ観点の番号・PR 番号・head・intake の `summary`、PR の base と、出力のパス `<dir>/lens1.json`〜`<dir>/lens5.json` のうち観点の番号のものを渡す。①には intake の `claudeMd` のパス、④には judge-input の「=== 過去の PR のコメント」の節をそのまま渡す）
    - **review-ac-scope**・**review-safety**（judge-input のファイルの中身と、出力のパス `<dir>/ac-scope.json`・`<dir>/safety.json` を渡す）
    - **review-overbuild**（⑨。judge-input のファイルの中身と、出力のパス `<dir>/overbuild.json` を渡す。確信度 75 以上はブロッキング、未満は提案）
-   - ⑧：`node harness/scripts/review-panel.ts check <judge-input のファイル>`（出力はファイルのパス。その中身を `<dir>/check.json` に写す。担当の答えではなくスクリプトの出力なので、ここだけは呼び出し元が写す）。取り込みのコマンド（`project.installCommand`。既定 `npm ci`）の失敗で止まったら、1回だけやり直し、それでも失敗なら合体版を失敗として judge に返す。検証コマンド（`project.checkCommand`。既定 `npm run check`）の失敗（`check.json` の `exitCode` が 0 でない）は、PC の混み具合で落ちたように見えても、落ちたテストだけ・全体のどちらもやり直さず、そのまま⑧の指摘（ブロッキング）にする（1回目の失敗を `check.json` と判定の記録に残し、PR 由来の不安定な不具合を2回目の合格で通さないため。Issue #730）。PR に原因が無いという見立ては fix の段階で扱い、合体版の中ではやり直さない
+   - ⑧（検証コマンド）は判定では回さない。型検査とテストの失敗は CI（必須チェック `ci`）で止まる（#974）
 3. 担当が書いた `<dir>/lens1.json`〜`<dir>/lens5.json`・`<dir>/ac-scope.json`・`<dir>/safety.json` を確かめる（上の確かめ方）。`<dir>/overbuild.json` も同じく確かめるが、2回目も無ければ合体版を止めずに続ける。2回目も読めなければ、壊れたファイルを消して止めずに続ける（`compose` が `humanNotes.concerns` に「⑨の記録なし」を残す）。
 4. 段階4：`node harness/scripts/review-panel.ts findings <dir>` で採点に渡す指摘の一覧を出す。指摘ごとに **review-scorer** を並行に呼ぶ（指摘の ID・観点・種類・ファイル・行・内容・根拠、PR 番号、head、PR の base、intake の `claudeMd` のパス、`falsePositiveExamples`〔①〜⑤の指摘なら true〕と、出力のパス `<dir>/score-<id>.json` を渡す。⑥⑦⑨の指摘には judge-input の Issue 本文と計画の節に加えて、「受け入れた AC の変更」の節があればそれも渡す）。⑨（overbuild）の指摘は定義のまま haiku で採点する（75 以上はブロッキングになる）。⑥⑦（ac-scope・safety）の指摘の review-scorer は、Agent の model を opus にして呼ぶ（見つけた担当より弱いモデルの採点で落とさないため。①〜⑤は定義のまま haiku）。返ったら担当が書いた `<dir>/score-<id>.json` を確かめる。指摘が無ければ採点は飛ばす。
 5. 段階5・6：`node harness/scripts/review-panel.ts compose <PR番号> <dir> --judge-input <judge-input のファイル>` で組み立てる（出力は、組み立ての出力 `review-<PR番号>-<head7>.json` と記録のコメント `panel-<PR番号>-<head7>.md` のパス）。今の head が judge-input の head と違っても、PR 自身の差分（patch-id）が同じなら（既定ブランチの取り込みだけなら）判定した head のまま組み立てる。patch-id が違って止まったら judge の手順1からやり直す。
 6. `node harness/scripts/review-panel.ts post <PR番号> <記録のコメントのファイル>` で記録を投稿する。今の head が記録の head と違っても、PR 自身の差分（patch-id）が同じなら判定した head のまま投稿する。patch-id が違って止まったら judge の手順1からやり直す。
 
-再レビュー（judge-input に「前回の判定」がある）の決まり（前回の head から変わった行への指摘と、⑥⑦の直っていない前回の指摘と、⑧だけをブロッキングにする）は、compose が組み立てで行う。担当は絞らずに指摘する。
+再レビュー（judge-input に「前回の判定」がある）の決まり（前回の head から変わった行への指摘と、⑥⑦の直っていない前回の指摘だけをブロッキングにする）は、compose が組み立てで行う。担当は絞らずに指摘する。
 
 ## 終わりの状態
 
@@ -48,7 +48,6 @@ judge（[.claude/skills/judge/SKILL.md](../judge/SKILL.md)）が `reviewPanel.mo
 - 担当が入力の不足を報告した、担当が出力のパスにファイルを書かなかった（同じパスで呼び直しても無い）、書いたファイルが同じパスで呼び直しても JSON として読めない
 - 単独で呼んだときに、担当を呼んだ後の作業ツリーに呼ぶ前と比べて増えた行・変わった行がある
 - `findings`・`compose`・`post` が書式の誤り・採点の欠けで止まった（担当の出力を書き換えて通さない。担当を呼び直すか、judge に失敗として返す）
-- ⑧の取り込みのコマンド（`project.installCommand`。既定 `npm ci`）が2回とも失敗した
 - hook（`.claude/hooks/guard.ts`）が操作を止めた、操作が拒否された（別の方法で試さない）
 - やってはいけないこと：担当の出力や採点の書き換え、担当の出力のファイルを書く・直すこと（読めないファイルを呼び直しの前に消すことは除く）、記録のコメントの手での編集
 - 単独で呼んだときに、担当を呼んだ後の `git rev-parse HEAD` か `git branch --show-current` が呼ぶ前と違う（戻さない）

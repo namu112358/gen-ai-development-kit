@@ -91,6 +91,31 @@ test('記録：ブロックの無い本文・版の違い・off のモードは�
   assert.ok(!parsePanelRecord(`${CLAUDE_MARK}\n\`\`\`agent-review-panel\n{壊れた\n\`\`\`\n`).ok, '壊れた JSON');
 });
 
+// ---- ⑧（判定では回していない。Issue #974） ----
+
+test('記録：check.exitCode が null なら要約は「判定では回していない」で「終了コード」の行が無く、読み戻すと null。整数（古い記録）は今までどおり読み戻せ、文字列は拒否する（Issue #974）', () => {
+  const notRun = record({ check: { exitCode: null } });
+  const body = renderPanelRecord(notRun);
+  const summary = outsideBlock(body);
+  assert.ok(summary.includes('- npm run check：判定では回していない（CI に任せる）'), summary);
+  assert.ok(!summary.includes('終了コード'), summary);
+  const back = ok(parsePanelRecord(body));
+  assert.equal(back.check.exitCode, null);
+  assert.deepEqual(back, notRun);
+
+  for (const exitCode of [0, 1]) {
+    const old = record({ check: { exitCode } });
+    const oldBody = renderPanelRecord(old);
+    assert.ok(outsideBlock(oldBody).includes(`- npm run check の終了コード：${exitCode}`), `exitCode ${exitCode} の要約`);
+    assert.ok(!outsideBlock(oldBody).includes('判定では回していない'), `exitCode ${exitCode} に「判定では回していない」は出ない`);
+    assert.deepEqual(ok(parsePanelRecord(oldBody)), old, `exitCode ${exitCode}`);
+  }
+
+  const str = parsePanelRecord(`${CLAUDE_MARK}\n${renderBlock('agent-review-panel', { ...record(), check: { exitCode: '0' } })}`);
+  assert.ok(!str.ok, 'check.exitCode が文字列');
+  assert.ok(str.errors.some((e) => e.includes('check.exitCode')), str.errors.join('\n'));
+});
+
 // ---- ⑨（過剰さ。Issue #325） ----
 
 /** parsePanelOutputs → composePanel で⑨の指摘を組み立てた記録 */

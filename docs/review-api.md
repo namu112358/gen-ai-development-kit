@@ -111,6 +111,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 - **再レビュー**：同じ PR の前回の shadow 記録（head とブロッキング指摘）を Reviewer に渡し、前回からの差分と直っていない指摘だけをブロッキングにするよう指示する（reviewer.md の「再レビュー」と同じ）。
 - **受理できるか**：`compose-verdict` は2つの JSON ファイルを受け取るので、API の出力をそのまま渡せる（`facts` は risk の中に置く）。ただし判定コメントは本人名義で投稿する決まりで、Cloudflare が投稿するものを App が判定として受け付けることは**しない**（信頼の投稿者・形式・権限は変えない）。正式な置き換えは、judge の skill が「サブエージェントの代わりに API の結果を取りに行く」形で行う（下の「本運用への移行条件」）。
 - **影響しない根拠**：新 App は `author_association` がコラボレーターでないので `on-comment.ts` が無視する。コメントの本文に `gate.yml` の起動条件のフェンスを含めない。Check Run・ラベル・レビュー（approve / request changes）・Draft の切り替え・Merge は呼ばない（token の `permissions` でも `pull_requests: write` 以外を渡さない）。
+- **検証コマンド**：判定の `typecheck-test-failure` はローカルも API も出さない。型検査とテストの失敗は CI（必須チェック `ci`）で止まる（#974）。
 
 ## 5. 安全
 
