@@ -80,7 +80,7 @@ node harness/scripts/setup.ts all <owner>/<repo> <app-id>
 
 ## 6. Routine
 
-定期実行は将来の構想。patrol の Routine だけは [patrol-routine.md](patrol-routine.md) のとおり回せる。Issue は付き添いのセッションで ship を使って進める。Routine を使うときは次のとおり。
+定期実行は将来の構想。patrol の Routine だけは [patrol-routine.md](patrol-routine.md) のとおり、判定の Routine（PR を1件指定して判定する）は [judge-routine.md](judge-routine.md) のとおり回せる。Issue は付き添いのセッションで ship を使って進める。Routine を使うときは次のとおり。
 
 [claude.ai/code/routines](https://claude.ai/code/routines)（CLI では `/schedule`）で作る。
 
