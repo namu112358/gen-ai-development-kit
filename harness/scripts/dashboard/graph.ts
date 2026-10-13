@@ -8,6 +8,7 @@ import { LABELS, PRIORITY_LABELS } from '../../lib/config.ts';
 import { parseChildMarker } from '../../lib/epic.ts';
 import { fleetStatus, type FleetIssue, type FleetPr, type FleetRow, type FleetStage } from '../../lib/fleet.ts';
 import type { Claim, IssueFacts } from '../../lib/queue.ts';
+import type { ConfirmInfo } from './confirm.ts';
 import type { DecisionInfo } from './decision.ts';
 import type { SessionInfo } from './sessions.ts';
 
@@ -49,6 +50,8 @@ export interface DashIssue {
   plan: PlanCopy | null;
   /** 計画ゲートで止まったときの答える欄の材料（止まっていなければキーが無い） */
   decision?: DecisionInfo;
+  /** 答えの無い確認事項（古い順。無ければキーが無い） */
+  confirms?: ConfirmInfo[];
 }
 
 export interface DashPr {
@@ -61,6 +64,8 @@ export interface DashPr {
   issue: number | null;
   /** GitHub の紐付けが無く、本文の Closes #N で結んだ（紐付けの抜け）。補ったときだけ入る */
   linkGap?: true;
+  /** 答えの無い確認事項（古い順。無ければキーが無い） */
+  confirms?: ConfirmInfo[];
   fleet: FleetPr;
 }
 
@@ -96,7 +101,7 @@ export interface SessionNode {
 }
 
 /** 人がすることの1行（Merge・人の判断・止まる印・priority の不足） */
-export interface Todo { id: string; kind: 'issue' | 'pr'; number: number; url: string; title: string; reason: string; decision?: DecisionInfo }
+export interface Todo { id: string; kind: 'issue' | 'pr'; number: number; url: string; title: string; reason: string; decision?: DecisionInfo; confirm?: ConfirmInfo }
 
 /** 進みの帯の材料（GitHub から読んだもの。harness/scripts/dashboard/github.ts の progressFacts が組む）。merged は今日より前のものも含みうる */
 export interface ProgressFacts {
@@ -149,8 +154,13 @@ export function issueWarnings(plan: PlanCopy | null): string[] {
 
 const PRIORITIES: string[] = Object.values(PRIORITY_LABELS);
 
+const confirmTodo = (c: ConfirmInfo, title: string): Todo => ({
+  id: `confirm-${c.kind}-${c.target}-${c.confirmCommentId}`, kind: c.kind, number: c.target, url: c.url, title,
+  reason: `確認事項に答える（段階 ${c.stage}・${c.questions.length} 問）`, confirm: c,
+});
+
 /**
- * 人がすることの一覧。Human Merge の PR → 計画ゲートで止まった Issue → 止まる印の Issue → priority の無い Issue の順。
+ * 人がすることの一覧。Human Merge の PR → 計画ゲートで止まった Issue → 答えの無い確認事項（古い順）→ 止まる印の Issue → priority の無い Issue の順。
  * priority を見るのは label-audit と同じ範囲（agent:* か epic の付いた Issue）。自動 Merge 待ちは人の操作が要らないので出さない
  */
 export function buildTodos(issues: DashIssue[], prs: DashPr[], rows: FleetRow[]): Todo[] {
@@ -168,6 +178,10 @@ export function buildTodos(issues: DashIssue[], prs: DashPr[], rows: FleetRow[])
       const t = issueTodo(i, 'review', '計画ゲートで止まった。進めるか決める');
       return i.decision ? { ...t, decision: i.decision } : t;
     });
+  const confirm: Todo[] = [
+    ...issues.flatMap((i) => (i.confirms ?? []).map((c) => confirmTodo(c, i.fleet.facts.title))),
+    ...prs.flatMap((p) => (p.confirms ?? []).map((c) => confirmTodo(c, p.title))),
+  ].sort((a, b) => Date.parse(a.confirm!.createdAt) - Date.parse(b.confirm!.createdAt) || a.confirm!.confirmCommentId - b.confirm!.confirmCommentId);
   const stop = issues.flatMap((i) => {
     const on = STOP_LABELS.filter((l) => i.fleet.facts.labels.includes(l));
     return on.length > 0 ? [issueTodo(i, 'stop', `止まる印（${on.join('・')}）の対応`)] : [];
@@ -176,7 +190,7 @@ export function buildTodos(issues: DashIssue[], prs: DashPr[], rows: FleetRow[])
     const labels = i.fleet.facts.labels;
     return labels.some((l) => l.startsWith('agent:') || l === LABELS.epic) && !labels.some((l) => PRIORITIES.includes(l));
   }).map((i) => issueTodo(i, 'priority', 'priority のラベルが無い'));
-  return [merge, review, stop, priority].flatMap((g) => g.sort(byNumber));
+  return [...[merge, review].flatMap((g) => g.sort(byNumber)), ...confirm, ...[stop, priority].flatMap((g) => g.sort(byNumber))];
 }
 
 const issueId = (n: number) => `issue-${n}`;

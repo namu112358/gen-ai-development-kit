@@ -540,6 +540,119 @@ function renderDecision(info) {
   return box;
 }
 
+/** 確認事項の答える欄の入力・選択・結果。target と確認事項のコメントの ID ごとに持ち、描き直しても消さない */
+const confirmDrafts = new Map();
+function confirmKey(info) { return info.target + ':' + info.confirmCommentId; }
+function confirmDraft(info) {
+  const k = confirmKey(info);
+  if (!confirmDrafts.has(k)) confirmDrafts.set(k, { text: '', answers: {}, sending: false, result: null });
+  return confirmDrafts.get(k);
+}
+
+/** 送る本文を組む（DOM に触れない）。答えのそろわない質問があれば null */
+function confirmRequest(info, draft) {
+  const answers = [];
+  for (let i = 0; i < info.questions.length; i++) {
+    const id = 'question:' + i;
+    const a = (draft.answers && draft.answers[id]) || {};
+    const choice = a.choice ? String(a.choice) : '';
+    const text = String(a.text || '').trim();
+    if (choice === '' && text === '') return null;
+    const one = { to: id };
+    if (choice !== '') one.choice = choice;
+    if (text !== '') one.text = text;
+    answers.push(one);
+  }
+  if (!answers.length) return null;
+  return { target: info.target, confirmCommentId: info.confirmCommentId, answers };
+}
+
+function confirmConfirmText(info, request) {
+  const lines = ['#' + info.target + ' に、人の名義で確認事項への答えのコメントを1件投稿します'];
+  for (const a of request.answers) lines.push(a.to + '：' + (a.choice || '') + (a.choice && a.text ? ' ／ ' : '') + (a.text || ''));
+  return lines.join('\n');
+}
+
+/** 確かめてから送る。送らなかった（答えがそろわない・取り消した）ときは null */
+async function submitConfirm(info, draft, env) {
+  const request = confirmRequest(info, draft);
+  if (request === null) return null;
+  if (!env.confirm(confirmConfirmText(info, request))) return null;
+  try {
+    const r = await env.fetch('/confirm-answers', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-dashboard-token': env.token },
+      body: JSON.stringify(request),
+    });
+    let body = {};
+    try { body = await r.json(); } catch (e) { body = {}; }
+    return decisionResult(r.status, body);
+  } catch (e) {
+    return { ok: false, text: '送れませんでした（通信の失敗）' };
+  }
+}
+
+async function sendConfirm(info) {
+  const draft = confirmDraft(info);
+  if (draft.sending) return;
+  draft.sending = true;
+  renderTodos();
+  try {
+    const result = await submitConfirm(info, draft, { confirm: (m) => window.confirm(m), fetch: (u, i) => fetch(u, i), token: dashboardToken() });
+    if (result !== null) draft.result = result;
+  } finally {
+    draft.sending = false;
+    renderTodos();
+  }
+}
+
+/** 答えの無い確認事項の行の答える欄（外から入る文は textContent で描く） */
+function renderConfirm(info) {
+  const key = 'confirm:' + confirmKey(info);
+  const draft = confirmDraft(info);
+  const box = el('div', 'decision');
+  const send = el('button', null, '答える');
+  send.type = 'button';
+  const refresh = () => { send.disabled = draft.sending || confirmRequest(info, draft) === null; };
+  info.questions.forEach((q, i) => {
+    const id = 'question:' + i;
+    const a = draft.answers[id] || (draft.answers[id] = { choice: '', text: '' });
+    const wrap = el('div', 'item');
+    wrap.append(el('div', null, '質問 ' + (i + 1) + '：' + q.text));
+    wrap.append(el('div', 'note', 'なぜ人が要るか：' + q.why));
+    if (q.choices.length) {
+      const row = el('div', 'choices');
+      for (const c of q.choices) {
+        const b = el('button', null, c);
+        b.type = 'button';
+        b.disabled = draft.sending;
+        b.setAttribute('aria-pressed', a.choice === c ? 'true' : 'false');
+        b.addEventListener('click', () => {
+          a.choice = a.choice === c ? '' : c;
+          for (const x of row.children) x.setAttribute('aria-pressed', x.textContent === a.choice ? 'true' : 'false');
+          refresh();
+        });
+        row.append(b);
+      }
+      wrap.append(row);
+    }
+    wrap.append(decisionField(key, id, a.text, id + ' への答え', (v) => { a.text = v; refresh(); }));
+    box.append(wrap);
+  });
+  refresh();
+  send.addEventListener('click', () => sendConfirm(info));
+  const row = el('div', 'choices');
+  row.append(send);
+  const r = draft.sending ? { text: '送っています…' } : draft.result;
+  if (r && r.ok && r.url) {
+    const a = el('a', null, '投稿したコメント');
+    a.href = r.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    row.append(a);
+  } else if (r) row.append(el('span', 'result', r.ok ? '投稿しました' : r.text));
+  box.append(row);
+  return box;
+}
+
 function renderTodos() {
   document.getElementById('todosTitle').textContent = '人がすること（' + todos.length + '）';
   const body = document.getElementById('todosBody');
@@ -556,6 +669,7 @@ function renderTodos() {
     a.href = t.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
     li.append(a, el('span', 'reason', ' — ' + t.reason));
     if (t.decision) li.append(renderDecision(t.decision));
+    if (t.confirm) li.append(renderConfirm(t.confirm));
     ul.append(li);
   }
   body.append(ul);
