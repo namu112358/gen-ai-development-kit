@@ -14,6 +14,7 @@
 | `hq-compact.ts` | hq が fleet と hq 自身の端末へ `/compact` を送る判定と送り方（Issue #737）。 |  |
 | `hq-decide.ts` | hq の判定（空いた枠の割り当て・交代の判定・便りの振り分け・引き継ぎの判定）を、hq（モデル）が数えずに済むように、純粋な関数にしたもの（Issue #780）。 |  |
 | `hq-state.ts` | hq の控え（hq-fleets.json）と、hq がいない間の fleet の質問の控えを、git の共通ディレクトリの下に置く（Issue #409）。 |  |
+| `hq-takeover-ask.ts` | Issue #771：止まった宣言・担当のいない PR の引き継ぎの問いを、hq が hq.takeoverAskHours（既定 24 時間）に1回まとめて聞く判定と記録。 |  |
 | `hq-watch.ts` | hq の見張り（Issue #559）。 |  |
 | `intel-watch.ts` | intel の見張り（Issue #854）。 |  |
 | `jev-context.ts` | auto mode の危険の問い（autoModePrJevRequest）を、4通りの材料（今の材料・＋Issue・＋ファイル全体・＋両方）で Jev に問い直し、PR ごとの危険の確率を Markdown の表で標準出力に出す、手で実行する実験用スクリプト（Issue #596）。 |  |
