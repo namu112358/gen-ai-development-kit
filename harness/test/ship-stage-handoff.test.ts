@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { HANDOFF_STAGES, HANDOFF_STATUSES, parseHandoff } from '../lib/handoff.ts';
-import { ROOT, skillProblems } from './support/skill-text.ts';
+import { ROOT } from './support/skill-text.ts';
 
 const valid = (): Record<string, unknown> => ({
   version: 1,
@@ -100,24 +100,4 @@ test('agent.ts check：agent-handoff ブロックを handoff として検査す�
   const bad = check({ ...valid(), next: null });
   assert.equal(bad.status, 2, bad.stdout);
   assert.match(bad.stderr, /書式エラー/);
-});
-
-test('ship の SKILL.md：サブエージェントの ship は1段階だけ進めて引き継ぎを確かめて返す', () => {
-  assert.deepEqual(
-    skillProblems({
-      path: '.claude/skills/ship/SKILL.md',
-      parts: [{ section: '## サブエージェントの ship として動くとき', words: ['1段階', 'agent-handoff', 'agent.ts check', '推測'] }],
-    }),
-    [],
-  );
-});
-
-test('fleet の SKILL.md：入れ子の方式は段階ごとに新しい ship を呼び、引き継ぎを渡す', () => {
-  assert.deepEqual(
-    skillProblems({
-      path: '.claude/skills/fleet/SKILL.md',
-      parts: [{ section: '## 入れ子の方式（orca）', words: ['段階ごと', '新しい', 'fleet-status', '引き継ぎ', 'merged'] }],
-    }),
-    [],
-  );
 });

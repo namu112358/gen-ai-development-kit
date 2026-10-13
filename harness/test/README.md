@@ -8,8 +8,8 @@
 | `gate-*.test.ts`・`workflow-*.test.ts` | ワークフローの YAML（`.github/workflows/`）の検査：gate.yml の起動条件（`if:` の項）と、ci.yml の `on`・concurrency |
 | `guardrail*.test.ts`・`*-guardrail.test.ts` | ガードレールの範囲と、それに触れる計画・PR の扱い（止めるか通すか）のテスト |
 | `hooks-*.test.ts` | hook（`.claude/hooks/`）：見張りの hook（`guard.ts`）が止めるべき操作を止めるか、SessionStart の hook（`session-env.ts`）がセッションの ID を書き残すか、Orca の CLI が無いときの知らせ方、入口（`run.mjs`）の Node の版の確かめ、書き換えの場所の見張り（`workspace-guard.ts`）が main の checkout と fleet のワークスペースの書き換えを止めるか |
-| `skills*.test.ts`・`*-skill.test.ts`・`qa-retro*.test.ts`・`hq-*.test.ts` | skill の手順書（`.claude/skills/`）の書き方と、各 skill（ship・qa-retro・hq・patrol など）の手順・関わるロジック（qa-retro の期間のつなぎ方、進んでいない fleet の判定、ship と fleet の受け渡し、ship・fleet の振り分けの手順と「改善の候補」の文など）の検査 |
-| `arch-review-skill.test.ts`・`arch-review.test.ts`・`arch-review-loop.test.ts` | arch-review の skill の手順と arch-reviewer の定義、記録の書式と下書きの採用、`/loop` から回すときの検査（ほかのテストが README にこのファイル名があることを確かめるので、パターンにせずファイル名で書く） |
+| `skills*.test.ts`・`qa-retro*.test.ts`・`hq-*.test.ts` | skill の手順書（`.claude/skills/`）が実行時に読まれる形（frontmatter・書いたコマンドとサブコマンドの実在・コードが名前で指す見出しと語）と、各 skill（qa-retro・hq・patrol など）に関わるロジック（qa-retro の期間のつなぎ方、進んでいない fleet の判定、ship と fleet の受け渡しなど）の検査。手順書の地の文の語の有無は固定しない |
+| `arch-review.test.ts`・`arch-review-loop.test.ts` | arch-review の記録の書式と下書きの採用、`/loop` から回すときの検査（ほかのテストが README にこのファイル名があることを確かめるので、パターンにせずファイル名で書く） |
 | `plan*.test.ts`・`decision-*.test.ts` | 計画の書式・批評・計画ゲートの記録・出し直し・投稿の前に人に聞く手順と、決定の記録（`agent-decision`。`proceed` の書式と対象の条件） |
 | `confirm-*.test.ts` | 確認事項（`agent-confirm`）と答え（`agent-confirm-answer`・短い答えの `/answer`）の書式・答えとして読む条件・再開の判定（`confirmFacts`）と、`agent.ts post-confirm` の投稿 |
 | `delegate-*.test.ts`・`bypass*.test.ts`・`auto-mode-*.test.ts` | 委任承認・bypass・auto mode の設定と状態、Jev の記録だけから保留するかの判断、Claude の危険の判定を外したこと（欄のある古い計画・判定コメントも読める。#382） |
@@ -29,9 +29,9 @@
 | `test-*.test.ts`・`mutate*.test.ts`・`related-tests*.test.ts`・`observe*.test.ts`・`hotspot*.test.ts`・`patrol*.test.ts` | テストの改ざんの検査と Jev への問い方、テストの健康・減らせるテスト、ミュータントの検査、変更したファイルから流すテストを選ぶ、保守の観測（docs の照合・ホットスポット）、見直しのまとめ役 patrol |
 | `dashboard-*.test.ts` | 手元のダッシュボード（`harness/scripts/dashboard.ts`・`harness/scripts/dashboard/`）：グラフ・カード・サーバー・画面、GitHub の見張りと API の上限の扱い |
 | `intel-watch*.test.ts` | intel の見張り（`harness/scripts/intel-watch.ts`）：まとめの時刻の決め方（止まっていた間に過ぎた時刻を含む）と、新しく出た人の Merge 待ち・計画ゲートで止まった Issue の見分け方 |
-| `ship-stage-*.test.ts` | fleet の入れ子の ship が段階ごとに返す引き継ぎ（`agent-handoff`）の書式の検査と、ship・fleet の skill の文 |
+| `ship-stage-*.test.ts` | fleet の入れ子の ship が段階ごとに返す引き継ぎ（`agent-handoff`）の書式の検査 |
 | `usage*.test.ts`・`api-*.test.ts`・`gh-*.test.ts`・`graphql-*.test.ts` | usage の集計、API の呼び出しの数え方、`gh` の呼び出し方と GraphQL の読み取りを REST の形にそろえる変換 |
-| `agent-*.test.ts`・`config-*.test.ts`・`settings-*.test.ts`・`managed*.test.ts`・`setup-*.test.ts`・`ruleset*.test.ts`・`gitattributes*.test.ts` | `agent.ts` の入口、設定（`harness.config.json`・`.claude/settings.json`）のキーと上限、導入先に配るファイルの一覧、setup・Ruleset、改行コードの設定 |
+| `agent-*.test.ts`・`config-*.test.ts`・`settings-*.test.ts`・`managed*.test.ts`・`ruleset*.test.ts`・`gitattributes*.test.ts` | `agent.ts` の入口、設定（`harness.config.json`・`.claude/settings.json`）のキーと上限、導入先に配るファイルの一覧、setup・Ruleset、改行コードの設定 |
 | `harness-drift*.test.ts` | 読み込みの記録（`harness/lib/harness-drift.ts`）：版の比べ方、記録の読み書き、`fleet-status`・`step`・`claim` の配線 |
 | `local-state*.test.ts` | 手元の状態のファイルの補助（`harness/lib/local-state*.ts`）：一時ファイル経由の書き込み（名前の変更のやり直しと一時ファイルの後始末）と、段階・見張り・loaded・hq の控え・panes の書き込みと git の共通ディレクトリの探し方がこの補助を通ることと、SessionStart の hook（`session-env.ts` の `pruneSessionFiles`）が古いセッションのファイルと一時ファイルを片付けること |
 | `mod-*.test.ts` | mod（`mods/agent-harness/`）：変えたら `plugin.json` の version を main より上げているか（上げないと `claude plugin update` で届かない） |

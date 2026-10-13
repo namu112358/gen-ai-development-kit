@@ -3,7 +3,7 @@
 // 照合は App の範囲照合と同じ関数（issuePlannedFiles・issueDelegateFiles と checkScope）で行い、
 // 手元の変更の集め方（localChangedFiles）は merge-base からの差分と未追跡のファイルを拾う。
 import assert from 'node:assert/strict';
-import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { appMark, renderBlock } from '../lib/blocks.ts';
@@ -337,56 +337,4 @@ test('scope-check: サブディレクトリで集めた変更でも、計画の 
   } finally {
     sb.cleanup();
   }
-});
-
-// --- implement の skill ---
-
-test('implement の skill: PR を作る前に scope-check を走らせ、外れていれば AskUserQuestion で聞く', () => {
-  const root = join(import.meta.dirname, '..', '..');
-  const text = readFileSync(join(root, '.claude/skills/implement/SKILL.md'), 'utf8').replace(/\r\n/g, '\n');
-  const lines = text.split('\n');
-  const checkLine = lines.findIndex((l) => l.includes('scope-check'));
-  const createLine = lines.findIndex((l) => l.includes('rest-create draft-pr'));
-  assert.ok(checkLine >= 0, 'scope-check の手順がある');
-  assert.ok(createLine >= 0, 'rest-create draft-pr の手順がある');
-  assert.ok(checkLine < createLine, 'scope-check の手順が rest-create draft-pr の手順より前にある');
-  // scope-check の手順（番号付きの行から、次の番号付きの行の前まで。下の箇条書きも含む）
-  const next = lines.findIndex((l, i) => i > checkLine && /^\d+\.\s/.test(l));
-  const step = lines.slice(checkLine, next < 0 ? undefined : next).join('\n');
-  assert.match(step, /AskUserQuestion/, 'scope-check の手順に、外れたら AskUserQuestion で聞くことが書いてある');
-});
-
-/** implement の skill の scope-check の手順（番号付きの行から次の番号付きの行の前まで）の行 */
-function scopeCheckStepLines(): string[] {
-  const root = join(import.meta.dirname, '..', '..');
-  const lines = readFileSync(join(root, '.claude/skills/implement/SKILL.md'), 'utf8').replace(/\r\n/g, '\n').split('\n');
-  const start = lines.findIndex((l) => /^\d+\.\s/.test(l) && l.includes('scope-check'));
-  assert.ok(start >= 0, 'scope-check の番号付きの手順がある');
-  const next = lines.findIndex((l, i) => i > start && /^\d+\.\s/.test(l));
-  return lines.slice(start, next < 0 ? undefined : next);
-}
-
-/** 終了コード n に触れている行（「終了コード 1」「終了コード `1`」「終了コードが 1」など） */
-function exitCodeLines(lines: string[], n: number): string[] {
-  const re = new RegExp(`終了コード[がはの]?\\s*\`?${n}\`?(?!\\d)`);
-  return lines.filter((l) => re.test(l));
-}
-
-test('implement の skill: scope-check の手順に、終了コード 0・1・3 のそれぞれの扱いが書いてある', () => {
-  const lines = scopeCheckStepLines();
-  const step = lines.join('\n');
-  assert.doesNotMatch(step, /終了コードではなく/, '終了コードで分けないという古い書き方は残さない');
-  assert.ok(exitCodeLines(lines, 0).length > 0, '終了コード 0 の扱いが書いてある');
-  const one = exitCodeLines(lines, 1);
-  assert.ok(one.some((l) => l.includes('AskUserQuestion')), '終了コード 1 は AskUserQuestion で聞く');
-  assert.ok(one.some((l) => /PR を作らず/.test(l)), '終了コード 1 は PR を作らない');
-  const three = exitCodeLines(lines, 3);
-  assert.ok(three.some((l) => l.includes('あなたに確かめてほしいこと')), '終了コード 3 は PR 本文の「あなたに確かめてほしいこと」に書く');
-  assert.ok(three.some((l) => /聞かずに進め/.test(l)), '終了コード 3 は聞かずに進める');
-});
-
-test('implement の skill: scope-check が JSON を出さずに終わったら、PR を作らずに人に返すことが書いてある', () => {
-  const lines = scopeCheckStepLines();
-  const line = lines.find((l) => l.includes('JSON') && /PR を作らず/.test(l) && /人に返す/.test(l));
-  assert.ok(line, 'JSON が出ずに終わったら PR を作らずに人に返す行がある');
 });
