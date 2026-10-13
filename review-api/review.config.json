@@ -14,7 +14,8 @@
     "maxToolCalls": 12,
     "maxDiffChars": 200000,
     "maxFileChars": 60000,
-    "diffOnlyExtensions": [".md", ".html"]
+    "diffOnlyExtensions": [".md", ".html"],
+    "docsOnly": { "extensions": [".md"], "model": "claude-sonnet-5-5" }
   },
   "budget": {
     "monthlyUsd": 50,

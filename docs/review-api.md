@@ -148,7 +148,8 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
     "maxToolCalls": 12,                // read_file / list_files の上限
     "maxDiffChars": 200000,
     "maxFileChars": 60000,
-    "diffOnlyExtensions": [".md", ".html"] // 全文を添えず diff だけを渡す拡張子（Issue #990）。大文字小文字は区別しない
+    "diffOnlyExtensions": [".md", ".html"], // 全文を添えず diff だけを渡す拡張子（Issue #990）。大文字小文字は区別しない
+    "docsOnly": { "extensions": [".md"], "model": "claude-sonnet-5-5" } // 変更ファイルが全部この拡張子の PR は Reviewer・Risk をこのモデルで問う（Issue #993）。鍵が無ければ使わない
   },
   "budget": { "monthlyUsd": 50, "perReviewUsd": 3 },
   "pricing": { "claude-opus-5-5": { "input": 4, "output": 20, "cacheWrite5m": 5, "cacheWrite1h": 8, "cacheRead": 0.2 }, "claude-sonnet-5-5": { ... } }
@@ -158,6 +159,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 - `settleSeconds` は push が続くあいだの古い head に Claude の費用を払わないための待ち（Issue #991）。DRY_RUN で手元で試すときは 0 にできる。
 - `ready_for_review` は head が変わらないので対象にしない（同じ head は二重に見ない）。
 - モデルは役ごとに変えられる（Sonnet で一次 → Opus へ委譲、のような段階化は Phase 4 の比較で決める）。今の既定は Reviewer が Opus 5.5、Risk が Sonnet 5.5（人の決定 2026-10-13。Risk は diff の分類で軽く、半額）。
+- 変更ファイルが全部 `docsOnly.extensions` のどれかで終わる PR は、Reviewer と Risk を `docsOnly.model` で問う。diff が切れている・読めないパスがある・削除を含むコードの変更はコード扱い。`docsOnly` が無ければ今と同じ。`docsOnly.model` は `pricing` にも置く（無ければ `budget-exceeded`）。
 - `pricing` は `harness.config.json` の `pricing` と同じ形（モデル ID の完全一致か、最も長い前方一致）。`harness.config.json` の鍵は `claude-opus-5-5`・`claude-sonnet-5`（`claude-sonnet-5-5` は前方一致で当たる）なので、`review.config.json` には `claude-opus-5-5`・`claude-sonnet-5-5`・`claude-haiku-5-5` を明示して持つ。`review.config.json` の `pricing` は `harness.config.json` とは別に持ち、公式の値（下の「費用」）で書くので、`harness.config.json` の推定値（2026-09 時点）とは違うことがある。`harness.config.json` は変えない。
 
 ## 7. 費用
@@ -189,7 +191,7 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 | 2026-10-13 | #959（7 ファイル +68/−16） | 930k / 6.5k / 4.7k | $3.83 | 89 | キャッシュ無し（system の前置きだけ）。ツール 12 回で会話全体を送り直した |
 | | | | | | 直した後の最初のレビューを人が記入する |
 
-**比較の計画（Phase 4）**：同じ PR を (1) 既存の判定（`agent-verdict`）、(2) Opus 全部、(3) Sonnet 全部、(4) Sonnet → Opus、(5) Batches で評価し、指摘の一致（同じ問題を見つけたか・重大な見逃し・無いバグの指摘）、Risk の level と 8問の一致、所要時間、USD を表にする。モデルの切り替えは `review.config.json` だけで行う。Risk の level と 8 問の一致は Risk のモデル（記録の `models.risk`）ごとに分けて数え、Sonnet で一致率が下がっていれば `riskModel` を Opus に戻す。
+**比較の計画（Phase 4）**：同じ PR を (1) 既存の判定（`agent-verdict`）、(2) Opus 全部、(3) Sonnet 全部、(4) Sonnet → Opus、(5) Batches で評価し、指摘の一致（同じ問題を見つけたか・重大な見逃し・無いバグの指摘）、Risk の level と 8問の一致、所要時間、USD を表にする。モデルの切り替えは `review.config.json` だけで行う。Risk の level と 8 問の一致は Risk のモデル（記録の `models.risk`）ごとに分けて数え、Sonnet で一致率が下がっていれば `riskModel` を Opus に戻す。文書だけの PR は記録の `models` で分けて数える。
 
 ## 8. セットアップ手順
 
