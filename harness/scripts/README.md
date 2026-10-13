@@ -9,7 +9,7 @@
 | `actions-usage.ts` | Actions の使用分（ジョブごとに分単位で切り上げた分）を、ワークフロー・ジョブ・ci のきっかけごとに数える（読むだけ、Issue #624）。 |  |
 | `agent.ts` | Routine と人のセッションが使う CLI。 | ○ |
 | `agent/` | `harness/scripts/agent.ts` のサブコマンドの実装（`commands/`）と、コマンドが共有する補助（`cli.ts`）。 | ○ |
-| `dashboard.ts` | エージェントの状態をグラフで見る、手元のダッシュボード（GitHub に書くのは POST /decisions の決定の記録のコメントだけで、気づきは手元の受け箱に書く）。 |  |
+| `dashboard.ts` | エージェントの状態をグラフで見る、手元のダッシュボード（GitHub に書くのは POST /decisions の決定の記録と POST /confirm-answers の確認事項への答えのコメントだけで、気づきは手元の受け箱に書く）。 |  |
 | `dashboard/` | エージェントの状態をグラフで見る手元のダッシュボード（`harness/scripts/dashboard.ts`）の部品。 |  |
 | `hq-compact.ts` | hq が fleet と hq 自身の端末へ `/compact` を送る判定と送り方（Issue #737）。 |  |
 | `hq-decide.ts` | hq の判定（空いた枠の割り当て・交代の判定・便りの振り分け・引き継ぎの判定）を、hq（モデル）が数えずに済むように、純粋な関数にしたもの（Issue #780）。 |  |

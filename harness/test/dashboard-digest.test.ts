@@ -24,6 +24,9 @@ const todo = (id: string): Todo => {
   const url = `https://github.com/o/r/${kind === 'pr' ? 'pull' : 'issues'}/${number}`;
   return { id, kind, number, url, title: `t${number}`, reason: `reason ${id}` };
 };
+/** 確認事項の行（id は confirm-<issue|pr>-<番号>-<確認事項のコメントID>。Issue #964） */
+const confirmTodo = (number: number, confirmCommentId: number): Todo =>
+  ({ id: `confirm-issue-${number}-${confirmCommentId}`, kind: 'issue', number, url: `https://github.com/o/r/issues/${number}#c${confirmCommentId}`, title: `t${number}`, reason: `reason confirm ${number}` });
 const staleTask = (kind: 'issue' | 'pr', number: number, status: Task['status'] = 'stale'): Task => ({
   id: `${kind}-${number}`, kind, number, title: `t${number}`, url: `https://github.com/o/r/issues/${number}`,
   column: 'implement', status, note: null, claim: { by: 'manual', stage: 'implement', session: 's-1', at: at(12, 9) },
@@ -47,9 +50,9 @@ test('buildDigest：Merge を App と人に分けて新しい順に並べ、sinc
   assert.deepEqual(d.closed.filter((c) => c.epic).map((c) => c.number), [11], '閉じた Epic');
 });
 
-test('buildDigest：人がすることは merge → review → stop → stale の順に3件まで、rest は残りの件数、priority の todo は出さない', () => {
+test('buildDigest：人がすることは merge → review → confirm → stop → stale の順に3件まで、rest は残りの件数、priority の todo は出さない', () => {
   const d = digest({
-    todos: [todo('priority-issue-5'), todo('stop-issue-7'), todo('review-issue-6'), todo('review-issue-8'), todo('merge-pr-9')],
+    todos: [todo('priority-issue-5'), todo('stop-issue-7'), confirmTodo(12, 900), todo('review-issue-6'), todo('review-issue-8'), todo('merge-pr-9')],
     tasks: [
       staleTask('issue', 20),
       staleTask('issue', 8), // review の群に同じ Issue があるので stale では数えない
@@ -58,27 +61,30 @@ test('buildDigest：人がすることは merge → review → stop → stale �
     ],
   });
   assert.deepEqual(d.todo.map((t) => [t.group, t.kind, t.number]), [['merge', 'pr', 9], ['review', 'issue', 6], ['review', 'issue', 8]]);
-  assert.equal(d.rest, 2, 'stop の #7 と stale の #20');
-  assert.deepEqual(d.counts, { merge: 1, review: 2, stop: 1, stale: 1 });
+  assert.equal(d.rest, 3, 'confirm の #12、stop の #7 と stale の #20');
+  assert.deepEqual(d.counts, { merge: 1, review: 2, confirm: 1, stop: 1, stale: 1 });
   assert.ok(!d.todo.some((t) => t.number === 5), 'priority の todo は出さない');
+  // 確認事項の群は計画ゲートの後、止まる印の前
+  const later = digest({ todos: [todo('stop-issue-7'), confirmTodo(12, 900), todo('review-issue-6')] });
+  assert.deepEqual(later.todo.map((t) => [t.group, t.number]), [['review', 6], ['confirm', 12], ['stop', 7]]);
 });
 
 test('renderDigest：1行目が結論（前回の時刻・件数と内訳）、人がすることが4件以上なら「ほか N 件」とダッシュボードの案内の行があり、3件以下なら無い', () => {
   const f = facts({ merged: [merged(1, at(12, 10), true), merged(2, at(12, 11), false)], closed: [closed(10, at(12, 9), false), closed(11, at(12, 12), true)] });
-  const todos = [todo('merge-pr-9'), todo('review-issue-6'), todo('review-issue-8'), todo('stop-issue-7')];
+  const todos = [todo('merge-pr-9'), todo('review-issue-6'), todo('review-issue-8'), todo('stop-issue-7'), confirmTodo(12, 900)];
   const text = renderDigest(digest({ facts: f, todos, tasks: [staleTask('issue', 20)] }));
   const lines = text.trim().split('\n');
   const first = lines[0]!;
   assert.ok(first.includes('10/11 17:30'), first);
-  for (const re of [/Merge\s*2\s*件/, /App\s*1/, /人\s*1/, /閉じた Issue\s*2\s*件/, /Epic\s*1/, /人がすること\s*5\s*件/,
-    /人の Merge 待ち\s*1/, /計画ゲート\s*2/, /止まる印\s*1/, /止まっていそうな宣言\s*1/]) {
+  for (const re of [/Merge\s*2\s*件/, /App\s*1/, /人\s*1/, /閉じた Issue\s*2\s*件/, /Epic\s*1/, /人がすること\s*6\s*件/,
+    /人の Merge 待ち\s*1/, /計画ゲート\s*2/, /確認事項\s*1/, /止まる印\s*1/, /止まっていそうな宣言\s*1/]) {
     assert.match(first, re);
   }
-  const guide = lines.filter((l) => /ほか\s*2\s*件/.test(l));
+  const guide = lines.filter((l) => /ほか\s*3\s*件/.test(l));
   assert.equal(guide.length, 1, text);
   assert.ok(guide[0]!.includes('node harness/scripts/dashboard.ts'), guide[0]);
   assert.equal(lines.filter((l) => l.startsWith('- #9 ') || l.startsWith('- #6 ') || l.startsWith('- #8 ')).length, 3, text);
-  assert.ok(!lines.some((l) => l.startsWith('- #7 ') || l.startsWith('- #20 ')), '4件目からは出さない');
+  assert.ok(!lines.some((l) => l.startsWith('- #7 ') || l.startsWith('- #12 ') || l.startsWith('- #20 ')), '4件目からは出さない');
 
   const three = renderDigest(digest({ facts: f, todos: todos.slice(0, 3) }));
   assert.ok(!three.includes('ほか'), three);

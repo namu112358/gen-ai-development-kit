@@ -1,5 +1,6 @@
 // ダッシュボードの読み直しのテスト用の見本：1つの見本（Issue・PR・コメント・レビュー・ラベルの付け外し・チェック・依存・Stacked PR の層）から、
 // REST の応答（今の読み方）と、まとめた GraphQL の問い合わせの応答（harness/scripts/dashboard/github.ts の DashBatch・DashMore・DashMoreNode）を返す偽の GitHub
+// acceptComments（Issue #964）：その偽の GitHub に、コメントの POST を見本の Issue / PR のコメントに足す書き込みの経路を足す
 import { GRAPHQL_PAGE } from '../../scripts/dashboard/github.ts';
 import { config, FakeGitHub, HEAD } from './gate-fixtures.ts';
 
@@ -294,5 +295,21 @@ export function callNames(fake: FakeGitHub, from = 0): string[] {
   return fake.calls.slice(from).map((c) => {
     if (c.path === '/graphql') return `graphql:${String(c.body?.query).match(/^query (\w+)/)?.[1] ?? 'anonymous'}`;
     return `${c.method} ${c.path.replace(/^\/repos\/o\/r/, '').replace(/[?].*$/, '')}`;
+  });
+}
+
+/**
+ * 偽の GitHub に POST /repos/o/r/issues/<n>/comments の経路を足す（Issue #964）。本文を見本の Issue か PR の comments に、
+ * 見本のコメントの最大の ID + 1・コラボレーター（OWNER）・作者 me・at() の時刻（書き込みごとに呼ぶ）で足し、restComment の形を返す
+ */
+export function acceptComments(fake: FakeGitHub, world: World, at: () => string): FakeGitHub {
+  return fake.on('POST', /^\/repos\/o\/r\/issues\/(\d+)\/comments$/, (m, body) => {
+    const n = Number(m[1]);
+    const target = world.issues.find((x) => x.number === n) ?? world.prs.find((x) => x.number === n);
+    if (!target) throw new Error(`404 issues/${n}`);
+    const ids = [...world.issues, ...world.prs].flatMap((x) => (x.comments ?? []).map((c) => c.id));
+    const c: WComment = { id: Math.max(0, ...ids) + 1, body: String(body?.body), created_at: at(), author: { login: 'me' }, association: 'OWNER' };
+    (target.comments ??= []).push(c);
+    return restComment(c);
   });
 }
