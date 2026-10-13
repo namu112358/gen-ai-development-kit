@@ -19,6 +19,8 @@ const MAX_BUFFER = 256 * 1024 * 1024;
 const MANAGED_PATH = 'harness/managed.json';
 const LOCAL_PATH = 'harness/managed.local.json';
 const SETTINGS_PATH = '.claude/settings.json';
+const CONFIG_PATH = 'harness.config.json';
+const CONFIG_TEMPLATE_PATH = 'harness/templates/harness.config.json';
 const VERSION_PATH = 'harness/kit-version.json';
 
 const USAGE = 'usage: node harness/scripts/sync.ts <ref> [--from <owner/repo|URL|パス>] [--dry-run] [--prune]';
@@ -93,9 +95,10 @@ const list = (title: string, paths: string[], note = ''): void => {
   for (const p of paths) console.log(`  ${p}`);
 };
 
-function show(plan: SyncPlan, prune: boolean): void {
+function show(plan: SyncPlan, prune: boolean, branch: { name: string; source: string }): void {
   const kv = plan.kitVersion;
   console.log(`kit: ${kv.repository} ${kv.ref} (${kv.sha})`);
+  console.log(`既定ブランチ（deny の push の3行）: ${branch.name}（${branch.source}）`);
   list('上書き', plan.overwrite);
   list('新規', plan.create);
   console.log(`変更なし (${plan.unchanged.length})`);
@@ -104,6 +107,13 @@ function show(plan: SyncPlan, prune: boolean): void {
   list('削除', plan.remove);
   list('settings.json の merge', plan.settings.changedKeys);
 }
+
+/** config（harness.config.json の中身）の defaultBranch。空でない文字列でなければ Stop */
+const defaultBranchOf = (config: unknown, what: string): string => {
+  const v = typeof config === 'object' && config !== null ? (config as { defaultBranch?: unknown }).defaultBranch : undefined;
+  if (typeof v !== 'string' || v.trim() === '') throw new Stop(`${what} の defaultBranch が空でない文字列ではありません`);
+  return v;
+};
 
 const writeIfChanged = (root: string, path: string, content: string | Uint8Array): void => {
   const abs = join(root, path);
@@ -140,6 +150,10 @@ export function main(argv: string[]): number {
     }
     if (!from) throw new Stop(`--from が無く、${VERSION_PATH} にも repository がありません`);
 
+    // 導入先の harness.config.json の読み取りと検査は kit の取り込みより前（不正なら何も取り込まず書かない）
+    const targetConfig = readOptionalJson(join(root, CONFIG_PATH), CONFIG_PATH);
+    const targetBranch = targetConfig === null ? null : defaultBranchOf(targetConfig, CONFIG_PATH);
+
     const sha = fetchKit(root, kitUrl(from), ref);
     const managedBlob = run(root, ['cat-file', 'blob', `${sha}:${MANAGED_PATH}`]);
     if (managedBlob.status !== 0) throw new Stop(`kit に ${MANAGED_PATH} がありません`);
@@ -150,6 +164,20 @@ export function main(argv: string[]): number {
       throw new Stop(`kit の ${MANAGED_PATH} を JSON として読めません: ${(e as Error).message}`);
     }
     const kitFiles = readKitTree(root, sha, managed);
+
+    let branch: { name: string; source: string };
+    if (targetBranch !== null) branch = { name: targetBranch, source: CONFIG_PATH };
+    else {
+      const raw = kitFiles.get(CONFIG_TEMPLATE_PATH);
+      if (raw === undefined) throw new Stop(`${CONFIG_PATH} が無く、kit に ${CONFIG_TEMPLATE_PATH} もありません`);
+      let tpl: unknown;
+      try {
+        tpl = JSON.parse(Buffer.from(raw).toString('utf8'));
+      } catch (e) {
+        throw new Stop(`kit の ${CONFIG_TEMPLATE_PATH} を JSON として読めません: ${(e as Error).message}`);
+      }
+      branch = { name: defaultBranchOf(tpl, `kit の ${CONFIG_TEMPLATE_PATH}`), source: `雛形 ${CONFIG_TEMPLATE_PATH}` };
+    }
 
     const lsFiles = run(root, ['ls-files', '-z']);
     if (lsFiles.status !== 0) throw new Stop(`git ls-files に失敗しました: ${lsFiles.stderr}`);
@@ -165,9 +193,10 @@ export function main(argv: string[]): number {
       kit: { repository: from, ref, sha },
       now: new Date(),
       prune,
+      targetDefaultBranch: branch.name,
     };
     const plan = planSync(input);
-    show(plan, prune);
+    show(plan, prune, branch);
     if (dryRun) return 0;
 
     const templates = new Map(managed.projectOwned.map((p) => [p.path, p.template]));

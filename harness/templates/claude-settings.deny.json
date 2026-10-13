@@ -1,5 +1,5 @@
 {
-  "$comment": ".claude/settings.json の permissions.deny と同じ内容（Phase 2 で反映済み）。deny を変えるときは両方を更新する。",
+  "$comment": "既定ブランチへの push の3行は {{defaultBranch}} の置き場所で、sync が導入先の defaultBranch で埋める。.claude/settings.json の permissions.deny は、この雛形をこのリポジトリの defaultBranch で埋めたものと同じ。deny を変えるときは両方を更新する。",
   "permissions": {
     "deny": [
       "Bash(gh pr merge)",
@@ -114,9 +114,9 @@
       "Bash(* gh label *:exempt*)",
       "Bash(gh api *:exempt*)",
       "Bash(* gh api *:exempt*)",
-      "Bash(git push * main)",
-      "Bash(git push * *:main)",
-      "Bash(git push * HEAD:main)",
+      "Bash(git push * {{defaultBranch}})",
+      "Bash(git push * *:{{defaultBranch}})",
+      "Bash(git push * HEAD:{{defaultBranch}})",
       "Bash(git push --force*)",
       "Bash(git push -f*)",
       "mcp__github__merge_pull_request",

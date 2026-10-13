@@ -5,6 +5,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import { contentVersion } from './harness-drift.ts';
 import { globToRegExp } from './scope.ts';
+import { hasDefaultBranchPlaceholder, renderDeny } from './settings-deny.ts';
 
 /** harness/managed.json の中身 */
 export interface ManagedJson {
@@ -35,6 +36,8 @@ export interface SyncInput {
   now: Date;
   /** 真のときだけ、kit に無い managed のファイルを remove に入れる */
   prune: boolean;
+  /** 導入先の既定ブランチ。deny の雛形の {{defaultBranch}} を埋める */
+  targetDefaultBranch: string;
 }
 
 export interface SyncPlan {
@@ -52,6 +55,7 @@ export interface SyncPlan {
 }
 
 const KIT_SETTINGS_PATH = '.claude/settings.json';
+const DENY_TEMPLATE_PATH = 'harness/templates/claude-settings.deny.json';
 
 const matcher = (patterns: string[]): ((path: string) => boolean) => {
   const res = patterns.map(globToRegExp);
@@ -121,6 +125,23 @@ export function mergeSettings(target: unknown, kit: unknown, keys: string[], all
 
 const sorted = (paths: Iterable<string>): string[] => [...new Set(paths)].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
 
+/** deny の雛形が {{defaultBranch}} の行を持つなら、kit の settings の permissions.deny を雛形を導入先の既定ブランチで埋めたものに置き換えた複製を返す。無ければそのまま */
+const withRenderedDeny = (kitSettings: unknown, input: SyncInput): unknown => {
+  const rawTemplate = input.kitFiles.get(DENY_TEMPLATE_PATH);
+  if (rawTemplate === undefined || !isObject(kitSettings)) return kitSettings;
+  let template: unknown;
+  try {
+    template = JSON.parse(Buffer.from(rawTemplate).toString('utf8'));
+  } catch (e) {
+    throw new Error(`kit の ${DENY_TEMPLATE_PATH} を JSON として読めない: ${(e as Error).message}`);
+  }
+  const deny = isObject(template) && isObject(template.permissions) ? template.permissions.deny : undefined;
+  if (!Array.isArray(deny) || !deny.every((r) => typeof r === 'string') || !hasDefaultBranchPlaceholder(deny)) return kitSettings;
+  const clone = structuredClone(kitSettings);
+  setPath(clone, ['permissions', 'deny'], renderDeny(deny, input.targetDefaultBranch));
+  return clone;
+};
+
 const planSettings = (input: SyncInput): SyncPlan['settings'] => {
   const { targetSettings } = input;
   if (targetSettings !== null && !isObject(targetSettings)) throw new Error('導入先の .claude/settings.json がオブジェクトではない');
@@ -132,9 +153,10 @@ const planSettings = (input: SyncInput): SyncPlan['settings'] => {
   } catch (e) {
     throw new Error(`kit の ${KIT_SETTINGS_PATH} を JSON として読めない: ${(e as Error).message}`);
   }
+  const kitForMerge = withRenderedDeny(kitSettings, input);
   const allowRows = input.managed.settingsAllow ?? [];
   if (!Array.isArray(allowRows) || !allowRows.every((r) => typeof r === 'string')) throw new Error('managed.json の settingsAllow が文字列の配列ではない');
-  return mergeSettings(targetSettings ?? {}, kitSettings, input.managed.settingsKeys, allowRows);
+  return mergeSettings(targetSettings ?? {}, kitForMerge, input.managed.settingsKeys, allowRows);
 };
 
 /** sync で何をするかを決める */
