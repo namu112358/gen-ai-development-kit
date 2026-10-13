@@ -9,7 +9,7 @@
  * `harness/lib/auto-mode.ts` の `autoModePrJevRequest`・`autoModeJevRecord`・`autoModeConfig` などを import するだけで、中身は変えない。
  * 本番の問いの文・criteria・model・保留の線は変えず、state の欄だけを足す。足した欄を Jev がどれだけ使うかも実験の結果のうち。
  *
- * CLI 部分は `import.meta.main` の中だけで動く（jev-language.ts と同じ形。テストが import しても何も動かない）。
+ * CLI 部分は `import.meta.main` の中だけで動く（テストが import しても何も動かない）。
  */
 import { autoModeConfig, autoModeJevRecord, autoModePrJevRequest, type AutoModeJevRecord } from '../lib/auto-mode.ts';
 import { loadConfig, type HarnessConfig } from '../lib/config.ts';

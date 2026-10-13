@@ -3,7 +3,7 @@
 // stop で解除するのは自分の宣言だけで（ほかのセッションの宣言は解除しない）、解除しない理由では release が空になることも確かめる。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { fixRequestFindings } from '../lib/report.ts';
+import { fixRequestFindings } from '../lib/review-panel.ts';
 import { CRITIQUE_LIMIT, decideStep, type StepDecision, type StepStopResult } from '../lib/step.ts';
 import {
   finding,

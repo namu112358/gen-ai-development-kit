@@ -583,3 +583,16 @@ export function parsePanelRecord(body: string): Parsed<PanelRecord> {
   if (record.review.pass !== (blocking.length === 0)) c.errors.push('record.review.pass とブロッキング指摘の有無が合いません');
   return c.errors.length > 0 ? { ok: false, errors: c.errors } : { ok: true, value: record };
 }
+
+const FIX_REQUEST_LINE = /^- \*\*([\w-]+)\*\*(?: `([^`]+)`)?: (.*)$/;
+
+/** fix-request の本文の行（harness/gates/on-comment.ts の renderBlockingReview の形）からブロッキング指摘を読む */
+export function fixRequestFindings(body: string): BlockingFinding[] {
+  const out: BlockingFinding[] = [];
+  for (const line of body.replace(/\r\n/g, '\n').split('\n')) {
+    const m = line.match(FIX_REQUEST_LINE);
+    if (!m || !(BLOCKING_KINDS as readonly string[]).includes(m[1]!)) continue;
+    out.push({ kind: m[1] as BlockingKind, ...(m[2] ? { file: m[2] } : {}), detail: m[3]! });
+  }
+  return out;
+}

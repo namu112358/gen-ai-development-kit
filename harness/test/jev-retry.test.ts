@@ -1,8 +1,7 @@
 // #714：Jev のやり直しの待ち（full jitter・Retry-After・10 秒の上限）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { askJev, type JevRetryOptions } from '../lib/jev.ts';
-import { askJevWithUsage } from '../scripts/jev-language.ts';
+import { askJev, askJevWithUsage, type JevRetryOptions } from '../lib/jev.ts';
 
 type Ask = (apiKey: string, request: { model: string; state: unknown; questions: Record<string, unknown> }, fetchImpl: typeof fetch, opts: JevRetryOptions) => Promise<{ status: string }>;
 

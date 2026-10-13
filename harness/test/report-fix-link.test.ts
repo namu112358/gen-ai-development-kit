@@ -1,15 +1,10 @@
 // 判定の集計で fix の PR を元の PR に結び付ける条件（変えた行の一致か参照）と、その根拠の表示のテスト（Issue #267）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { appMark, CLAUDE_MARK, renderBlock } from '../lib/blocks.ts';
 import { loadConfig } from '../lib/config.ts';
-import type { IssueComment } from '../lib/github.ts';
 import type { Acceptance } from '../lib/merge-route.ts';
-import { fixLinksFor, fixPrFilesOf, fixPrsFor, panelPairs, patchLines, references, renderReport, summarize } from '../lib/report.ts';
+import { fixLinksFor, fixPrsFor, patchLines, references, renderReport, summarize } from '../lib/report.ts';
 import type { FixLink, MergedPr, ReportRow } from '../lib/report.ts';
-import { renderPanelRecord, type PanelRecord } from '../lib/review-panel.ts';
-import type { BlockingFinding } from '../lib/verdict.ts';
-import { APP, verdict } from './support/gate-fixtures.ts';
 
 const config = loadConfig();
 const HOUR = 3600 * 1000;
@@ -185,69 +180,6 @@ test('fixLinksFor：mergedPrs の順に返し、fixPrsFor はその番号', () =
   const all = [13, 11, 12].map((n) => mpr({ number: n, title: 'fix: 直す', mergedAt: at(DAY), files: ['a.ts'], body: '#10' }));
   assert.deepEqual(fixLinksFor(base, all).map((l) => l.pr), [13, 11, 12]);
   assert.deepEqual(fixPrsFor(base, all), [13, 11, 12]);
-});
-
-// ---- fixPrFilesOf ----
-
-test('fixPrFilesOf：fix の PR 番号ごとの根拠のファイル', () => {
-  const links: FixLink[] = [
-    { pr: 11, basis: ['lines'], files: ['a.ts'] },
-    { pr: 12, basis: ['ref'], files: ['a.ts', 'b.ts'] },
-  ];
-  assert.deepEqual(fixPrFilesOf(links), { 11: ['a.ts'], 12: ['a.ts', 'b.ts'] });
-  assert.deepEqual(fixPrFilesOf([]), {});
-});
-
-test('合体版の比較：fixPrFilesOf の値を渡すと、根拠のファイルの指摘だけに fix-pr の裏付けが付く', () => {
-  const head = 'a'.repeat(40);
-  const pr = 30;
-  const T = Date.parse('2026-09-01T00:00:00Z');
-  const t = (min: number, sec = 0) => new Date(T + min * 60_000 + sec * 1000).toISOString();
-  let id = 5000;
-  const comment = (body: string, when: string, login = 'me', association = 'OWNER'): IssueComment => {
-    const cid = id++;
-    return { id: cid, body, html_url: `u${cid}`, created_at: when, updated_at: when, author_association: association, user: { login, type: login === APP ? 'Bot' : 'User' } };
-  };
-  const f = (file: string): BlockingFinding => ({ kind: 'bug', file, detail: `${file} の指摘` });
-  const record: PanelRecord = {
-    version: 1,
-    pr,
-    headSha: head,
-    mode: 'shadow',
-    review: { pass: false, blocking: [f('a.ts'), f('b.ts')], nonBlocking: [], humanNotes: { concerns: [], checkPoints: [] } },
-    findings: [],
-    check: { exitCode: 0 },
-    material: { pastPrs: 0, pastPrsWithoutComments: 0 },
-    cost: { panel: null, reviewer: null },
-  };
-  const rec = comment(renderPanelRecord(record), t(0));
-  const v = verdict({ pr, headSha: head, review: { pass: true, blocking: [], nonBlocking: [] } });
-  const vc = comment(`${CLAUDE_MARK}\n判定\n${renderBlock('agent-verdict', v)}`, t(1));
-  const value: Acceptance = {
-    version: 1, verdictCommentId: vc.id, verdictHeadSha: head, patchId: 'p'.repeat(40), reviewPass: true,
-    riskLevel: 'critical', riskOk: false, scopeOk: true, outside: [], guardrail: [], autoEligible: false, reasons: ['理由'],
-  };
-  const ac = comment(`${appMark('acceptance')}\n受け付け\n${renderBlock('agent-app', value)}`, t(1, 1), APP, 'NONE');
-
-  // fix の PR #31 は a.ts と b.ts を触ったが、根拠は a.ts の行だけ
-  const links: FixLink[] = [{ pr: 31, basis: ['lines'], files: ['a.ts'] }];
-  const { rows } = panelPairs(config, {
-    pr,
-    mergedAt: t(10),
-    reverted: false,
-    fixedBy: links.map((l) => l.pr),
-    fixRequests: 0,
-    comments: [rec, vc, ac],
-    acceptances: [{ comment: ac, value }],
-    fixRequestReviews: [],
-    reviewComments: [],
-    fixPrFiles: fixPrFilesOf(links),
-  });
-  assert.equal(rows.length, 1);
-  assert.deepEqual(rows[0]!.panelOnly.map((x) => [x.file, x.backing, x.evidence]), [
-    ['a.ts', 'backed', ['fix-pr']],
-    ['b.ts', 'suspected', []],
-  ]);
 });
 
 // ---- AC3：集計の表に根拠を出す ----
