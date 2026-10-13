@@ -15,6 +15,13 @@ import { type AgentCommand, config } from '../cli.ts';
  *
  * 関係するテストが分からない変更（土台のファイル・読めないファイル・関係するテストが無いファイル）は全体を流す。
  * project.checkCommand が null なら流さずに終える。既定（npm run check）でないときは、絞らずにそのコマンドを流す。
+ *
+ * 導入先に配る CI の雛形（harness/templates/ci.yml）の ci ジョブが呼ぶ project-check もこのファイルにある（Issue #983）。
+ *
+ *   node harness/scripts/agent.ts project-check [--dry-run]
+ *                                                           project の installCommand → checkCommand を（null を除いて）絞らずに順に流す。
+ *                                                           取り込みが落ちたらその終了コードで終え、検証は流さない。checkCommand が null なら何も流さず 0 で終える。
+ *                                                           --dry-run は流すコマンドを1行ずつ出すだけ。
  */
 
 /** 子プロセスを端末に繋いで流し、終了コードを返す（Windows でも npx・npm が動くよう shell を通す） */
@@ -26,6 +33,35 @@ function run(command: string, args: string[]): number {
 function lines(args: string[]): string[] | null {
   const r = spawnSync('git', args, { encoding: 'utf8' });
   return r.status === 0 ? r.stdout.split('\n').filter(Boolean) : null;
+}
+
+/**
+ * project-check が流すコマンドの並び（取り込み→検証。null は除く）。
+ * review-panel の runProjectCheck と違い、checkCommand が null なら installCommand があっても取り込みも流さない（CI では検証が無いのに依存を入れる意味が無い）。
+ */
+export function projectCheckCommands(commands: { checkCommand: string | null; installCommand: string | null }): string[] {
+  if (commands.checkCommand === null) return [];
+  return commands.installCommand === null ? [commands.checkCommand] : [commands.installCommand, commands.checkCommand];
+}
+
+function projectCheck(args: string[]): void {
+  const list = projectCheckCommands(projectCommands(config));
+  if (list.length === 0) {
+    console.log('検証コマンドは設定されていません（project.checkCommand が null）');
+    return;
+  }
+  if (args.includes('--dry-run')) {
+    for (const c of list) console.log(c);
+    return;
+  }
+  for (const c of list) {
+    console.log(`$ ${c}`);
+    const status = run(c, []);
+    if (status !== 0) {
+      process.exitCode = status;
+      return;
+    }
+  }
 }
 
 function checkChanged(args: string[]): void {
@@ -78,4 +114,7 @@ function checkChanged(args: string[]): void {
   process.exitCode = plan.mode === 'subset' ? run('node', ['--test', ...plan.tests]) : run('npm', ['test']);
 }
 
-export const commands: AgentCommand[] = [{ name: 'check-changed', run: (args) => checkChanged(args) }];
+export const commands: AgentCommand[] = [
+  { name: 'check-changed', run: (args) => checkChanged(args) },
+  { name: 'project-check', run: (args) => projectCheck(args) },
+];
