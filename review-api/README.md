@@ -9,8 +9,8 @@ PR レビューの試作の Worker（Cloudflare Workers・Workflows・KV）。�
 - `src/`：Worker（`worker.ts`）・Workflow（`workflow.ts`）と、Node でも動く純粋なロジック
 - `scripts/`：手元の確かめ用（`send-webhook.ts`）
 - `review.config.json`：モデル・レビューの条件・上限・単価
-- `wrangler.jsonc`：Worker・Workflow・KV の束ね方（値は KV の id だけ。秘密・識別子は Cloudflare の Secret に入れる）
-- `.dev.vars.example`：`wrangler dev` 用の秘密と識別子の値の雛形（`.dev.vars` にコピーして使う。commit しない）
+- `wrangler.jsonc`：Worker・Workflow・KV の束ね方と、秘密でない設定（`vars`。App の識別子・受け付けるリポジトリ・bot の login）。`name`・KV の id・`vars` は導入先ごとの値。秘密は Cloudflare の Secret に入れる
+- `.dev.vars.example`：`wrangler dev` 用の秘密と、`scripts/send-webhook.ts` が読む installation id の雛形（`.dev.vars` にコピーして使う。commit しない）
 
 ## コマンド
 

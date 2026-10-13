@@ -9,5 +9,13 @@
   "kv_namespaces": [
     // 人が 2026-10-12 に作った KV（docs/review-api.md の節8.2）
     { "binding": "REVIEW_KV", "id": "03092b8601b34de8800ff563881df28e" }
-  ]
+  ],
+  // 秘密でない設定（導入先ごとの値）。秘密（GITHUB_WEBHOOK_SECRET・GITHUB_APP_PRIVATE_KEY・ANTHROPIC_API_KEY）はここに書かず Cloudflare の Secret に置く（docs/review-api.md の節8.3）
+  "vars": {
+    "GITHUB_APP_CLIENT_ID": "Iv23liUPDeIwdfJkJddW",
+    "GITHUB_INSTALLATION_ID": "170641202",
+    "ALLOWED_REPOS": "namu112358/gen-ai-development-kit",
+    "REVIEW_APP_LOGIN": "harness-review-agent[bot]",
+    "GATE_APP_LOGIN": "namu112358-agent-gate[bot]"
+  }
 }
