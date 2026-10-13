@@ -2,8 +2,8 @@
 // 前回の shadow 記録は、レビュー用の App の名義（reviewLogin）のコメントだけを読む。previous: false なら PR のコメントを読まず、previous は null（replay.ts の流し直し）。
 // harness/lib は写すだけで import せず、Node と Workers の両方で動く。GitHub に書く操作はしない（読むだけ）。
 import type { GitHubClient, IssueComment } from './github.ts';
-import type { ReviewConfig } from './config.ts';
-import { closingIssueNumbers } from './webhook.ts';
+import type { IssueLink, ReviewConfig } from './config.ts';
+import { linkedIssueNumbers } from './webhook.ts';
 import { parseShadowComment, type ShadowRecord } from './record.ts';
 import { collectRules, type RepositoryRules } from './rules.ts';
 
@@ -78,7 +78,7 @@ function changedPaths(diff: string): string[] {
 export async function collectMaterial(
   gh: Pick<GitHubClient, 'getPr' | 'getIssue' | 'listComments' | 'compareDiff' | 'getFileContent'>,
   config: Pick<ReviewConfig, 'claude'>,
-  input: { owner: string; repo: string; pr: number; headSha: string; appLogin: string } & (
+  input: { owner: string; repo: string; pr: number; headSha: string; appLogin: string; issueLink?: IssueLink } & (
     | { previous?: true; reviewLogin: string }
     | { previous: false; reviewLogin?: string }
   ),
@@ -88,7 +88,7 @@ export async function collectMaterial(
 
   let issue: Material['issue'] = null;
   let plan: unknown = null;
-  const closing = closingIssueNumbers(pr.body);
+  const closing = linkedIssueNumbers(pr.body, input.issueLink ?? 'closes');
   if (closing.length === 1) {
     const found = await gh.getIssue(closing[0]!);
     issue = { number: found.number, title: found.title, body: found.body ?? '' };
