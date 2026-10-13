@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { onMainPush } from '../gates/on-main-push.ts';
-import { FakeGitHub, HEAD, ctxFor, pr } from './support/gate-fixtures.ts';
+import { FakeGitHub, HEAD, ctxFor, pr, pushEvent } from './support/gate-fixtures.ts';
 import { STACK, appRecordComment, countCalls, postedBodies } from './support/stack-fixtures.ts';
 
 /**
@@ -38,7 +38,7 @@ function pushFake(state: { pulls: Record<string, unknown[] | Error>; issues?: Re
     .on('GET', /\/pulls\?state=open/, () => state.open ?? []);
   return fake;
 }
-const push = (fake: FakeGitHub, shas = ['s1']) => onMainPush(ctxFor(fake, 'push', { commits: shas.map((id) => ({ id, message: `feat: 層 (#5)` })) }));
+const push = (fake: FakeGitHub, shas = ['s1']) => onMainPush(ctxFor(fake, 'push', pushEvent(shas.map((id) => ({ id, message: `feat: 層 (#5)` })))));
 const closes = (fake: FakeGitHub) => fake.calls.filter((c) => c.method === 'PATCH' && /\/issues\/\d+$/.test(c.path));
 const closedIssues = (fake: FakeGitHub) => closes(fake).map((c) => Number(c.path.split('/').at(-1)));
 

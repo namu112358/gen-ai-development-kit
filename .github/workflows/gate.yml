@@ -1,7 +1,8 @@
 # 専用 GitHub App で動く決定論的ゲート。Claude は動かさない（数秒で終わるジョブのみ）。
 #
 # 安全の前提（harness/docs/security.md）:
-# - 既定ブランチの YAML だけが動くトリガー（issue_comment / issues / pull_request_target / push:main / schedule）で起動する
+# - 既定ブランチの YAML だけが動くトリガー（issue_comment / issues / pull_request_target / schedule）で起動する
+# - push は既定ブランチへのものだけ処理する（どのブランチへの push もそのブランチの YAML が評価され、ジョブ gate の if で既定ブランチ以外は skipped になる）
 # - PR の head は checkout しない。PR の中身は API で読むだけ
 # - App の鍵と Jev の鍵は Environment `gate`（既定ブランチからの実行に限定）の Secret に置く
 # - イベントの中身（コメント本文など）を ${{ }} で run に埋め込まない。スクリプトが GITHUB_EVENT_PATH から読む
@@ -16,7 +17,6 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize, edited, labeled, unlabeled, auto_merge_enabled, auto_merge_disabled, ready_for_review, stacked]
   push:
-    branches: [main]
   schedule:
     - cron: '17 * * * *'
   workflow_dispatch:
@@ -31,6 +31,7 @@ jobs:
     # - コメント：計画・判定・決定の記録のブロックを含むものだけ。着手宣言（agent-claim）では起動しない（ゲートの判定は何もしないため。宣言の変化は定期実行か手動の起動で queue に出る）
     # - Issue：作成、タイトルの編集（本文の編集では動かない。type:* を付け直す。Sub-issue の追加は定期実行の label-apply で拾う）、Close と、意味のあるラベル（plan-ok はこの App 以外が付けたときだけ）
     # - PR：ラベルは hold と例外ラベル（plan / review / test:exempt）だけ。auto-merge の変化はこの App 以外によるものだけ
+    # - push：既定ブランチへのものだけ（それ以外のブランチへの push は skipped）
     # - PR：Ready への切り替え（ready_for_review）はこの App 以外によるものだけ（App 自身が Ready にしたときは起動しない）。スタックへの組み込み（stacked）でも起動する
     # 「この App」はリポジトリ変数 AGENT_APP_SLUG で判定する（他の Bot の操作は起動する）。
     # queue（次に Routine がやること）は、定期実行（1時間ごと）と手動の起動のときだけダッシュボードに公開し直す（イベントのたびに計算すると App の API の上限を超えるため。#379）。定期実行が harness.config.json の periodicCatchUpMinutes 分以上来なければ、イベントで動いた gate が定期の仕事と queue の公開を1回補う（#418）。
@@ -64,7 +65,8 @@ jobs:
         github.event.label.name == 'review:exempt' ||
         github.event.label.name == 'test:exempt' ||
         (startsWith(github.event.action, 'auto_merge_') && github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG))) &&
-      (github.event_name != 'pull_request_target' || github.event.action != 'ready_for_review' || github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG))
+      (github.event_name != 'pull_request_target' || github.event.action != 'ready_for_review' || github.event.sender.login != format('{0}[bot]', vars.AGENT_APP_SLUG)) &&
+      (github.event_name != 'push' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     runs-on: ubuntu-latest
     environment: gate
     timeout-minutes: 5
