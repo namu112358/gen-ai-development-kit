@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { onMainPush } from '../gates/on-main-push.ts';
-import { acceptanceFake, claimComment, ctxFor, hoursAgo, pr, verdictComment, type FakeGitHub } from './support/gate-fixtures.ts';
+import { acceptanceFake, claimComment, ctxFor, hoursAgo, pr, pushEvent, verdictComment, type FakeGitHub } from './support/gate-fixtures.ts';
 import { appRecordComment, countCalls } from './support/stack-fixtures.ts';
 
 const OTHER_SHA = 'e'.repeat(40);
@@ -13,7 +13,7 @@ async function pushWith(state: { prComments: unknown[]; patch?: Record<string, u
   const fake = acceptanceFake({ pr: pr({ draft: false, ...state.patch }), dashboardLabels: [], behindBy: state.behindBy ?? 2, prComments: state.prComments });
   fake.on('GET', /\/pulls\?state=open/, () => [pr(state.patch)]);
   const logs: string[] = [];
-  await onMainPush(ctxFor(fake, 'push', { commits: [{ id: 'x', message: 'docs: 何か' }] }, { log: (m: string) => logs.push(m) }));
+  await onMainPush(ctxFor(fake, 'push', pushEvent([{ id: 'x', message: 'docs: 何か' }]), { log: (m: string) => logs.push(m) }));
   return { fake, logs };
 }
 const updated = (fake: FakeGitHub, n = 5) => fake.calls.some((c) => c.method === 'PUT' && c.path.endsWith(`/pulls/${n}/update-branch`));
@@ -76,7 +76,7 @@ function twoPrFake(opts: { compareFails?: string } = {}): FakeGitHub {
 
 test('main への push：同じ push で、判定中の PR は飛ばし、ほかの Agent PR は追従させる', async () => {
   const fake = twoPrFake();
-  await onMainPush(ctxFor(fake, 'push', { commits: [] }));
+  await onMainPush(ctxFor(fake, 'push', pushEvent([])));
   assert.equal(updated(fake, 5), false, '判定中の #5 は飛ばす');
   assert.equal(updated(fake, 6), true, '#6 は追従する');
 });
@@ -89,7 +89,7 @@ test('main への push：1本目の PR の compare が失敗しても、2本目�
     .on('GET', /\/issues\/3$/, () => ({ number: 3, state: 'open' }))
     .on('PATCH', /\/issues\/3$/, () => ({}));
   const logs: string[] = [];
-  await onMainPush(ctxFor(fake, 'push', { commits: [{ id: 'x', message: 'feat: 層 (#7)' }] }, { log: (m: string) => logs.push(m) }));
+  await onMainPush(ctxFor(fake, 'push', pushEvent([{ id: 'x', message: 'feat: 層 (#7)' }]), { log: (m: string) => logs.push(m) }));
   assert.equal(updated(fake, 5), false);
   assert.equal(updated(fake, 6), true, '2本目の追従は止めない');
   assert.ok(fake.calls.some((c) => c.method === 'PATCH' && c.path.endsWith('/issues/3')), 'Stacked PR の Issue の Close は止めない');

@@ -116,6 +116,21 @@ export const verdictEvent = (body: string, association = 'OWNER') => ({
   comment: { id: 70, body, html_url: 'v', author_association: association, created_at: '', updated_at: '', user: { login: 'me', type: 'User' } },
 });
 
+/**
+ * push のイベント。既定は既定ブランチ（config.defaultBranch）への push で、ref と repository.default_branch を持つ。
+ * opts.defaultBranch でイベントの既定ブランチを替え（null なら repository を付けない）、opts.ref で ref を替える（null なら ref を付けない）。
+ * ref の既定は、イベントの既定ブランチ（opts.defaultBranch ?? config.defaultBranch）の refs/heads/…
+ */
+export function pushEvent(commits: { id: string; message: string }[], opts: { ref?: string | null; defaultBranch?: string | null } = {}) {
+  const branch = opts.defaultBranch === undefined ? config.defaultBranch : opts.defaultBranch;
+  const ref = opts.ref === undefined ? `refs/heads/${branch ?? config.defaultBranch}` : opts.ref;
+  return {
+    ...(ref === null ? {} : { ref }),
+    ...(branch === null ? {} : { repository: { default_branch: branch } }),
+    commits,
+  };
+}
+
 let claudeCommentId = 200;
 
 /**
