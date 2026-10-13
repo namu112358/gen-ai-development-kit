@@ -1,4 +1,4 @@
-// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ）fetch-pr → collect → budget → review → risk → validate → risk-compare → record → post を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
+// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ）fetch-pr → collect → budget → review → risk → validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
 // GitHub・Claude・KV・時計・ログは deps から受け取り、token は deps の作り方（reader・writer）の中に閉じる（ここでは見ない）。
 // 段階は runStep に包んで呼ぶ（Workflow が step.do を渡す）。KV の書き込みと投稿は、その段階の中で行う。
 // risk-compare は Reviewer と Risk のモデルが違うとき、Risk を Reviewer のモデルでも問う（記録だけで判定には使わない。失敗しても verdict と outcome は変えない）。
@@ -17,12 +17,12 @@ import {
   buildRiskMessages,
   isSecretPath,
 } from './prompts.ts';
-import { parseShadowComment, renderShadowComment, type RiskCompareRecord, type RoleUsage, type ShadowRecord } from './record.ts';
+import { parseApiReviewComment, renderShadowComment, renderStoppedComment, type RiskCompareRecord, type RoleUsage, type ShadowRecord, type StoppedOutcome } from './record.ts';
 import { redact } from './redact.ts';
 import { wrapUntrusted } from './untrusted.ts';
 import { checkReviewerOutput, checkRiskOutput, composeShadowVerdict, type ReviewerOutput, type RiskOutput } from './verdict.ts';
 
-export type StepName = 'fetch-pr' | 'collect' | 'budget' | 'review' | 'risk' | 'validate' | 'risk-compare' | 'record' | 'post';
+export type StepName = 'fetch-pr' | 'collect' | 'budget' | 'review' | 'risk' | 'validate' | 'risk-compare' | 'record' | 'post' | 'post-stopped';
 export type RunStep = <T>(name: StepName, fn: () => Promise<T>) => Promise<T>;
 export type ReviewOutcome = 'superseded' | 'closed' | 'duplicate' | 'budget-exceeded' | 'too-large' | 'verdict-invalid' | 'posted';
 
@@ -163,7 +163,7 @@ export function createToolRunner(gh: GitHubReader, headSha: string, maxFileChars
 }
 
 function hasOwnRecord(comments: { body: string; user: { login: string } | null }[], login: string, headSha: string): boolean {
-  return comments.some((c) => c.user?.login === login && parseShadowComment(c.body)?.headSha === headSha);
+  return comments.some((c) => c.user?.login === login && parseApiReviewComment(c.body)?.headSha === headSha);
 }
 
 function sumUsage(...parts: Record<string, Usage>[]): Record<string, Usage> {
@@ -199,6 +199,34 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   const stopStep = async (name: StepName, outcome: ReviewOutcome): Promise<ReviewResult> => {
     log(`${name} ${outcome}`);
     return result(outcome);
+  };
+
+  // 止めた記録（post-stopped）：head が同じ・open・同じ head の自分の記録が無いときだけ1件投稿する。失敗しても outcome・KV・戻り値は変えない
+  const postStopped = async (outcome: StoppedOutcome, fields: { usd: number | null; estimatedUsd?: number }): Promise<void> => {
+    try {
+      const done = await step('post-stopped', async (): Promise<boolean> => {
+        const gh = await deps.github.reader();
+        const found = await gh.getPr(pr);
+        if (found.head.sha !== headSha || found.state !== 'open') return false;
+        if (hasOwnRecord(await gh.listComments(pr), params.reviewAppLogin, headSha)) return false;
+        const body = redact(
+          renderStoppedComment({
+            version: 1,
+            pr,
+            headSha,
+            outcome,
+            usd: fields.usd,
+            ...(fields.estimatedUsd === undefined ? {} : { estimatedUsd: fields.estimatedUsd }),
+          }),
+          secrets,
+        );
+        await (await deps.github.writer()).createComment(pr, body);
+        return true;
+      });
+      log(done ? `post-stopped ${outcome}` : 'post-stopped skipped');
+    } catch {
+      log('post-stopped error');
+    }
   };
 
   // 0. settle（待っている間に head が変われば、次の fetch-pr で superseded になる）
@@ -258,7 +286,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   const roleUsage = (u: Record<string, Usage>): RoleUsage => ({ usage: u, usd: usdOf(u) });
 
   // 3. budget
-  const budget = await step('budget', async (): Promise<{ stop: ReviewOutcome | null; compare: 'run' | 'budget' | null }> => {
+  const budget = await step('budget', async (): Promise<{ stop: ReviewOutcome | null; compare: 'run' | 'budget' | null; estimatedUsd?: number }> => {
     log(`budget limits monthlyUsd=${config.budget.monthlyUsd} perReviewUsd=${config.budget.perReviewUsd}`);
     // 上限が有限の正の数でない（ダッシュボードの変数が読めなかった）と checkBudget の比べが偽になって通るので、先に止める
     const badLimits = (['monthlyUsd', 'perReviewUsd'] as const).filter((k) => !(Number.isFinite(config.budget[k]) && config.budget[k] > 0));
@@ -280,7 +308,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     }
     if (outcome !== null) {
       await writeRecord(outcome, {});
-      return { stop: outcome, compare: null };
+      return { stop: outcome, compare: null, ...(a === null || b === null ? {} : { estimatedUsd: a + b }) };
     }
     if (!compareEnabled) return { stop: null, compare: null };
     // 比べる分を足しても上限に収まるときだけ比べる（収まらなければ比べる問いだけ飛ばす）
@@ -288,7 +316,13 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     const withCompare = c === null ? null : checkBudget({ monthUsd, estimatedUsd: a! + b! + c, budget: config.budget });
     return { stop: null, compare: withCompare !== null && withCompare.ok ? 'run' : 'budget' };
   });
-  if (budget.stop !== null) return stopStep('budget', budget.stop);
+  if (budget.stop !== null) {
+    const stopped = await stopStep('budget', budget.stop);
+    if (budget.stop === 'budget-exceeded' || budget.stop === 'too-large') {
+      await postStopped(budget.stop, { usd: null, ...(budget.estimatedUsd === undefined ? {} : { estimatedUsd: budget.estimatedUsd }) });
+    }
+    return stopped;
+  }
   log(`budget ok${budget.compare === null ? '' : ` compare=${budget.compare}`}`);
 
   const toolRunner = async (): Promise<ToolRunner> => createToolRunner(await deps.github.reader(), headSha, config.claude.maxFileChars);
@@ -385,7 +419,10 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     return { usd, body: redact(renderShadowComment(record), secrets), durationSec };
   });
   log(`record ${validated.ok ? 'ok' : 'verdict-invalid'} usd=${recorded.usd}`);
-  if (!validated.ok || recorded.body === null) return result('verdict-invalid', recorded.usd);
+  if (!validated.ok || recorded.body === null) {
+    await postStopped('verdict-invalid', { usd: recorded.usd });
+    return result('verdict-invalid', recorded.usd);
+  }
 
   // 8. post
   const body = recorded.body;
