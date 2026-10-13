@@ -113,7 +113,7 @@ fleet と hq の設定（`harness.config.json`。無いキーは既定値）：
 
 `hq.staleSnapshotMinutes`・`hq.stuckMinutes`・`hq.humanWaitMinutes`・`hq.compactMinutes`・`hq.takeoverAskHours`・`hq.model` は既定値で動くので、`harness.config.json` と雛形には書いていない。変えるときは `"hq": { "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }` のように書き足す。
 
-`fleet.implementModel` を戻す目安：数日分の PR で、実装のモデルごとの判定に1回で合格した割合（`report.ts` の「実装のモデルごとの品質」の節）を比べ、`sonnet` が `opus` のときより大きく落ちたら、`opus` に戻すかを人が決める。戻すときは `"implementModel": "opus"` と書く。
+`fleet.implementModel` を戻す目安：数日分の PR で、実装のモデルごとの判定に1回で合格した割合（このリポジトリだけ（導入先には配らない）の `report.ts` の「実装のモデルごとの品質」の節）を比べ、`sonnet` が `opus` のときより大きく落ちたら、`opus` に戻すかを人が決める。戻すときは `"implementModel": "opus"` と書く。
 
 Merge 済みの変更をまとめて見直すときは arch-review の skill（[.claude/skills/arch-review/SKILL.md](../../.claude/skills/arch-review/SKILL.md)）を使う（「設計を見直して」「最近の変更をまとめて見て」と頼む）。PR ごとの判定は1つの PR の diff しか見ないため、Issue をまたいで積み重なったずれ（同じ役割の関数の重複、`harness/lib/`・`harness/gates/`・`harness/scripts/` の置き場所の崩れ、docs と実装の食い違い、コードの書き方の規則の外れ）を、観点ごとに arch-reviewer が読む。範囲は前回の arch-review の記録（ダッシュボード Issue へのコメント。書式は [formats.md](formats.md) の「arch-review の記録」）から既定ブランチの先頭までで、前回が無ければ Merge 済みの直近 10 本（`--since`・`--until`・`--last` で変える）。結果は直す Issue の下書きとして人に示し、どれを作るかは人が決める（作った Issue にラベルは付けず、`agent:ready` も付けない）。人が呼んだときか、人が付き添うセッションで始めた `/loop` の各回（`/loop 6h /arch-review --loop`。下の「見直しを /loop で回す」）か、patrol の `--routine` から呼ばれるループの回に動き、結果は PR ごとの判定（reviewer・risk-agent・review-panel）の材料にしない。ループの回は下書きを記録に残すまでで、Issue にするのは人が「arch-review の下書きを選ぶ」と頼んだときに選んだものだけ。
 
@@ -284,7 +284,7 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `harnessDrift.graceHours` | （書かない。既定 6） | origin で変わったハーネスのファイルを「読み込みが古い」とするまでの時間（規則・settings・判定の担当には置かない。0 で猶予なし。#812） | セッションだけ（`harness-drift`・`claim`・`fleet-status`・`step`） |
 | `fleet.maxParallelShips` | 3 | fleet ごとに、`--max` が無いときに同時に動かす ship の数（全体の上限は `hq.maxParallelShips`） | セッションだけ |
 | `fleet.watch.intervalMinutes`・`appStallMinutes` | （書かない。既定 3・20） | fleet の待つ間の読み直しの間隔と、App が止まったとみなす時間（分。#199）。書かなければ既定値。誤りは `fleet-status --watch` の実行時に止まる（`loadConfig` では検査しない） | セッションだけ（`fleet-status --watch`） |
-| `observe.opsHealth.*`（`scheduleGapMinutes`・`rateLimitFailures`・`failedGateMinutes`・`gateRunsPerDay`・`ciJobMinutes`・`readyHours`・`prOpenHours`・`requeueCount`・`claimIdleMinutes`・`planReviewCount`・`unplannedIssueCount`・`epicDrift`・`linkMismatch`・`staleWorktrees`・`areaFullMinutes`・`reviewPanelFailures`・`maxGets`） | 90・1・60・600・10・2・24・2・60・5・10・1・1・1・60・1・200 | 保守の観測の運用の健康（節「保守の観測」）のしきい値。…Minutes・…Hours は分・時間、ほかは件数・回数で、`maxGets` は1回の観測で GitHub を読む数の上限。書かなければ `ops-health.ts` の既定（`OPS_HEALTH_DEFAULTS`）で動く。誤りは `observe` の実行時に運用の健康の節が読めない旨で出す（ほかの節は出る。`loadConfig` では検査しない） | セッションだけ（`observe`） |
+| `observe.opsHealth.*`（`scheduleGapMinutes`・`rateLimitFailures`・`failedGateMinutes`・`gateRunsPerDay`・`ciJobMinutes`・`readyHours`・`prOpenHours`・`requeueCount`・`claimIdleMinutes`・`planReviewCount`・`unplannedIssueCount`・`epicDrift`・`linkMismatch`・`staleWorktrees`・`areaFullMinutes`・`reviewPanelFailures`・`maxGets`） | 90・1・60・600・10・2・24・2・60・5・10・1・1・1・60・1・200 | 保守の観測の運用の健康（節「保守の観測」）のしきい値。…Minutes・…Hours は分・時間、ほかは件数・回数で、`maxGets` は1回の観測で GitHub を読む数の上限。書かなければ `ops-health.ts`（このリポジトリだけ。導入先には配らない）の既定（`OPS_HEALTH_DEFAULTS`）で動く。誤りは `observe` の実行時に運用の健康の節が読めない旨で出す（ほかの節は出る。`loadConfig` では検査しない） | セッションだけ（`observe`） |
 | `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
 
 - `routine.gateReplyTimeoutMinutes`・`routine.stalledClaimMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`patrolAutoSupply`・`delegateMerge` も省略できる。
@@ -322,7 +322,7 @@ App は PR の差分（`base...head`）から、テストを弱める変更を�
   - `enforce`：対ごとの確率の最小値が `jev.thresholds.testTamperProbability` 以上なら success にする（下限が無ければ通さない）。auto-merge が付いていて Human Merge として緩めない PR でも、Jev が通せば success。委任 Merge・bypass モードで自動経路に乗る PR も、Jev が通せば止めずに進む。
   - `off`：問わない（今までどおり）。
 - Human Merge の PR にも問って記録する（一致率の材料を増やすため。結論は neutral のまま）。経路の判断（Human Merge か、委任・bypass か）は変えない。
-- enforce への切り替えは、`node harness/scripts/report.ts` の「テストの改ざん：Jev と人の判断」の行（一致率と、Jev は通す・人は直させた件数）を見て人が決める（[security.md](security.md#テストの改ざん)）。
+- enforce への切り替えは、`node harness/scripts/report.ts`（このリポジトリだけ。導入先には配らず、導入先では App の `test-tamper-jev` の記録を読んで人が決める）の「テストの改ざん：Jev と人の判断」の行（一致率と、Jev は通す・人は直させた件数）を見て人が決める（[security.md](security.md#テストの改ざん)）。
 - このリポジトリは 2026-09-30 に `enforce` にした（持ち主の決定、#364。docs/plan.md の Q104）。上の一般の手順と違い、一致率は見ずに切り替えた（`report.ts` が5分で終わらず読めなかった）。auto mode の間に Jev で妥当かを確かめる仕組み（#349、Epic #339。下記「auto mode の間（Jev が妥当か）」）より先に、`test:exempt` を付ける手間を早く減らすため。`report.ts` は enforce で Jev が通した記録を一致率に数えないので、切り替えの後は一致率の材料が減る。導入先の雛形（`harness/templates/harness.config.json`）の既定は `shadow` のまま。
 
 ### テストファイルの削除（移し先の確かめ）
@@ -351,7 +351,7 @@ auto mode（Epic #339）の間、auto mode の経路に乗る PR でテストを
 - 1つの差分（patch-id）に1回だけ問う。問うたら、通したときも止めたときも、検出ごとの確率の表を PR にコメントし、記録（`kind=auto-mode-tests`）を残す。同じ patch-id・同じ問いの版の記録があれば問い直さず、記録の確率と**今の下限**で決め直す。記録は付けた時点の差分にだけ効く（`test:exempt` と同じく、push で差分が変わると前の記録は使わずに問い直す）。Jev のエラーは記録せず、次のイベント（判定のやり直し・push）で問い直す。
 - 問うのは主に判定の受け付けのとき（PR の作成・push の直後は受け付けが無いので問わない）。auto-merge を付けた後の書き直しでも、通した差分は success のまま。
 - 止めたとき：`agent/tests` の failure の要約と、Human Merge の依頼（`kind=human-review`）のテストの節に、検出ごとの確率と「妥当でない・答えが無い」の理由を載せる。人は確かめて `test:exempt` を付けるか、直させる。通したものも、人は後から `agent:hold` や変更要求で止められる（通した差分にだけ効くので、直した push には効かない）。
-- 集計：`node harness/scripts/report.ts` の「テストの改ざん：auto mode で通した」と「auto mode で通した・人が後から直させた」の行（[security.md](security.md#テストの改ざん)）。
+- 集計：`node harness/scripts/report.ts`（このリポジトリだけ。導入先には配らない）の「テストの改ざん：auto mode で通した」と「auto mode で通した・人が後から直させた」の行（[security.md](security.md#テストの改ざん)）。
 
 ### 分かっている限界
 
@@ -429,7 +429,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 - 計画（`change-plan`）：出し直した計画の計画ゲートの記録の `autoMode.hold` が偽なら「Jev が通した」、真なら「また保留」。
 - PR：Merge 済みで最後の受け付けの `patchId` が記録の `patchId` と同じなら「そのまま Merge」、違えば「直させた」。Merge されずに閉じたら「閉じた」。
 
-限界：PR の「直させた」は、保留の後の関係の無い push でも patch-id が変わると数えるので、多めに出る（`report.ts` と同じ限界）。`report.ts` の「auto mode で保留した計画・PR のその後」は確率の帯ごとの数で、結論ごとの数ではない。
+限界：PR の「直させた」は、保留の後の関係の無い push でも patch-id が変わると数えるので、多めに出る（`report.ts` と同じ限界）。`report.ts`（このリポジトリだけ。導入先には配らない）の「auto mode で保留した計画・PR のその後」は確率の帯ごとの数で、結論ごとの数ではない。
 
 ## 例外ラベルの効く範囲
 
@@ -511,7 +511,7 @@ auto mode で Jev の危険の判定が計画か PR を保留にしたとき、f
 | GitHub API の上限 | `RateLimitError`（HTTP 403・429。メッセージにリセットか次に送れる時刻） | 短時間の上限（secondary）と 502・503・504 の読み取りは自動で待ってやり直す。core の上限の間は、付き添いのセッションのコメントの投稿とラベルの付け外しだけ GraphQL で続く（標準エラーに1行出る）。書き込みの前に REST で読むコマンド（着手宣言の読み直し・判定の入力など）は、メッセージのリセットの時刻まで待ってからやり直す |
 | ゲートの失敗 | Actions の失敗 | ログを確認。`gate` の手動実行でダッシュボードと queue を更新できる。計画・判定・決定の記録のコメントで起動して失敗した実行は、次の定期実行（1時間ごと）か手動の起動でジョブ `rerun-failed` が1回だけやり直す（直近6時間・1回目の実行・まだ処理されていないものだけ。やり直した実行と飛ばした理由はそのジョブのログにある）。2回目も失敗した実行と、「acceptance の後で失敗」で飛ばした実行（受け付けは書かれたが Ready・auto-merge などの続きが済んでいない。定期照合は auto-merge の付いた PR しか見ないので直らない）は、人が `gh run rerun` するか判定し直す。定期実行が来ないときにイベントの gate が定期の仕事を補う仕組み（`periodicCatchUpMinutes`）は、`rerun-failed` を行わない（`actions: write` を定期実行・手動の起動のジョブだけに持たせるため） |
 
-判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`。集計のしかたと切り替えの基準は [security.md](security.md#jev) を見る。同じ集計に「auto mode で保留した計画・PR のその後」の節が、保留した計画・PR を危険の確率の帯ごとに、そのまま Merge・直させた・閉じたで数える（PR の「直させた」は保留の後の関係の無い push でも patch-id が変わると数えるので、多めに出る）。
+判定の集計（Jev の切り替え判断用）は `node harness/scripts/report.ts <owner>/<repo> [日数]`（このリポジトリだけ。導入先には配らない）。集計のしかたと切り替えの基準は [security.md](security.md#jev) を見る。同じ集計に「auto mode で保留した計画・PR のその後」の節が、保留した計画・PR を危険の確率の帯ごとに、そのまま Merge・直させた・閉じたで数える（PR の「直させた」は保留の後の関係の無い push でも patch-id が変わると数えるので、多めに出る）。
 
 PR に残る実行メトリクスのトークン数と推定料金（`harness.config.json` の `pricing` で計算）はセッションの累計による目安で、実際の請求額ではない。手元では `node harness/scripts/agent.ts usage` で確認できる。
 
@@ -554,7 +554,7 @@ node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run
 
 - 標準出力に人が読む要約を出し、最後の行に JSON のパスを出す。JSON は OS の一時ディレクトリに書く。リポジトリにも GitHub にも書かない（GitHub は gh の認証で読むだけ）。
 - 各節は `--top`（既定 20）件までで、切った数を出す。GitHub が読めない（`--offline`、認証が無い）ときは、不安定なテスト・生き残ったミュータント・運用の健康の節を読めない旨にして、ほかの節は出す。
-- `--previous` に前回の JSON を渡すと、節ごとに「新しく出たもの」「消えたもの」（上位の中での比較）を足す。運用の健康は、超えた項目の増減と値が増えた項目を足す（前回に運用の健康が無い・読めないときは比べない）。前回の JSON をどこに置くかは呼び出す側が決める（JSON は OS の一時ディレクトリにあり、回をまたいで残る保証は無い）。arch-review の `/loop` の回は `--previous` を付けずに呼び、その回の JSON を arch-reviewer の材料に渡す（前回の位置は arch-review の記録で持つ）。集計のロジックは `harness/lib/observe.ts`・`observe-docs.ts`・`hotspot.ts`・`test-health.ts`・`observe-ops.ts`・`ops-health.ts`。
+- `--previous` に前回の JSON を渡すと、節ごとに「新しく出たもの」「消えたもの」（上位の中での比較）を足す。運用の健康は、超えた項目の増減と値が増えた項目を足す（前回に運用の健康が無い・読めないときは比べない）。前回の JSON をどこに置くかは呼び出す側が決める（JSON は OS の一時ディレクトリにあり、回をまたいで残る保証は無い）。arch-review の `/loop` の回は `--previous` を付けずに呼び、その回の JSON を arch-reviewer の材料に渡す（前回の位置は arch-review の記録で持つ）。集計のロジックは `harness/lib/observe.ts`・`observe-docs.ts`・`hotspot.ts`・`test-health.ts`・`observe-ops.ts`・`ops-health.ts`（観測系のロジックは `harness/managed.json` の `exclude` で、このリポジトリだけ。導入先には配らない）。
 
 ## 見直しを /loop で回す
 

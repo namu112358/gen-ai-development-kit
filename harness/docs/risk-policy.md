@@ -145,7 +145,7 @@ auto mode（Epic #339）の間の `agent/tests` の扱い（Issue #349）。
 
 ガードレールは Agent が自分を縛る仕組み（App が機械的に強制している部分）で、既定ブランチの `harness.config.json` の `guardrailPaths` に並べる（範囲パターンの書式。`guardrailExclude` に当たるものは除く）。一覧自身（`harness.config.json`）は除外できない。一覧が無い設定では、すべてのファイルをガードレールとして扱う。
 
-判定の連鎖もガードレールに入る。判定の入力の作り方（`harness/lib/**` の事実集め・`harness/scripts/agent.ts` とそのサブコマンドの `harness/scripts/agent/**`）、組み立て（Risk Agent・Reviewer・plan-critic・test-designer の定義）、手順（`.claude/routine.md`、`CLAUDE.md` とそれが読み込む `harness/CLAUDE.harness.md`、judge・plan・sync・fix・ship の skill）、Jev の切り替えの集計（`harness/scripts/report.ts`）を変える変更は、判定そのものを緩められるので、人が Merge する。判定の材料を作らないもの（使用量の集計、分類ラベル、worktree、Issue の分類、同時実行の上限）は `guardrailExclude` で外す。queue も外す：次にやることを決めるだけで、Merge の条件は App が確かめる（判定は `agent/review` と patch-id、範囲は計画ゲートを通った計画、修正回数は App が数える）。
+判定の連鎖もガードレールに入る。判定の入力の作り方（`harness/lib/**` の事実集め・`harness/scripts/agent.ts` とそのサブコマンドの `harness/scripts/agent/**`）、組み立て（Risk Agent・Reviewer・plan-critic・test-designer の定義）、手順（`.claude/routine.md`、`CLAUDE.md` とそれが読み込む `harness/CLAUDE.harness.md`、judge・plan・sync・fix・ship の skill）、Jev の切り替えの集計（`harness/scripts/report.ts`。このリポジトリだけ）を変える変更は、判定そのものを緩められるので、人が Merge する。判定の材料を作らないもの（使用量の集計、分類ラベル、worktree、Issue の分類、同時実行の上限）は `guardrailExclude` で外す。queue も外す：次にやることを決めるだけで、Merge の条件は App が確かめる（判定は `agent/review` と patch-id、範囲は計画ゲートを通った計画、修正回数は App が数える）。
 
 - ガードレールに触れる PR は、Risk Agent の答えに関わらず自動 Merge の対象外にする（Human Merge）。App が PR の変更ファイル（リネームは旧パスも）から判定し、理由を受け付けのコメントに書く。委任承認（計画＋Merge）の間の例外は[委任承認](#委任承認)。
 - 計画の `files` がガードレールに触れると、想定 Risk に関わらず計画ゲートで止める（委任承認の間の例外は[委任承認](#委任承認)）。Epic に分ける計画（`split`）では子課題の `files` は見ない。子課題はそれぞれの計画でゲートが判定する。
@@ -169,4 +169,4 @@ auto mode（Epic #339）の間の `agent/tests` の扱い（Issue #349）。
 
 ## Jev
 
-`jev.mode` が `shadow` の間は、Actions から Jev に同じ8問を1回で問い、結果を記録するだけにする。Jev には同じ8問を、Jev 向けの英文と境界の例（`criteria`）で問う（文は `harness/lib/jev.ts`）。Jev に渡すのは App が集めたもの（diff・変更ファイル・ガードレールの一覧）だけで、Risk Agent の `facts` や Claude の判定などセッションが書いたものは渡さない。切り替え（`enforce`）の判断は `harness/scripts/report.ts` の集計で行い、基準は [security.md](security.md#jev) に置く。
+`jev.mode` が `shadow` の間は、Actions から Jev に同じ8問を1回で問い、結果を記録するだけにする。Jev には同じ8問を、Jev 向けの英文と境界の例（`criteria`）で問う（文は `harness/lib/jev.ts`）。Jev に渡すのは App が集めたもの（diff・変更ファイル・ガードレールの一覧）だけで、Risk Agent の `facts` や Claude の判定などセッションが書いたものは渡さない。切り替え（`enforce`）の判断は、このリポジトリでは `harness/scripts/report.ts`（導入先には配らない）の集計で、導入先では App の記録を読んで行い、基準は [security.md](security.md#jev) に置く。
