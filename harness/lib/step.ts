@@ -4,7 +4,8 @@
  * 宣言の投稿・解除と段階のファイルの書き込みは、呼び出し元（harness/scripts/agent.ts）がこの結果の claim・release・critique に従って行う。
  * 流れと止まる理由の一覧は harness/docs/formats.md の「agent.ts step の出力」。
  */
-import { issueNode, type FleetIssue } from './fleet.ts';
+import type { ConfirmFact } from './confirm.ts';
+import { confirmState, issueNode, resumeAllowed, type FleetIssue } from './fleet.ts';
 import type { FlowNodeId, FlowStep, FlowStopReason } from './flow.ts';
 import { postClaim, writeClaim, type ClaimIo } from './claim.ts';
 import { claimBlocker, isOwnClaim, type Claim, type ClaimStage, type StoredClaim } from './queue.ts';
@@ -91,7 +92,7 @@ export interface StepNodeResult extends StepBase {
 
 export interface StepWaitResult extends StepBase {
   kind: 'wait';
-  /** app＝App の結果待ち、human＝人（Merge・人の PR の修正）待ち、area-limit＝領域の上限、done＝Merge 済み（終わり） */
+  /** app＝App の結果待ち、human＝人（Merge・人の PR の修正・確認事項の答え）待ち、area-limit＝領域の上限、done＝Merge 済み（終わり） */
   waitingFor: 'app' | 'human' | 'area-limit' | 'done';
   detail: string;
 }
@@ -108,7 +109,7 @@ export type StepResult = StepNodeResult | StepWaitResult | StepStopResult;
 
 export interface StepDecision {
   result: StepResult;
-  /** 投稿する宣言（node で、同じ段階の自分の宣言が無いときだけ） */
+  /** 投稿する宣言（node で、同じ段階の自分の宣言が無いときだけ。確認事項の答えで再開するときは同じ段階の自分の宣言があっても出し直す） */
   claim: { target: number; stage: ClaimStage } | null;
   /** 解除する自分の宣言の番号（stop のときだけ） */
   release: number[];
@@ -221,7 +222,7 @@ export function decideStep(input: StepInput): StepDecision {
   };
 
   /** 前提を確かめて node を返す（担当 → 宣言の持ち主 → 投稿する宣言） */
-  const run = (node: StepNodeId, extra: { postPlan?: boolean; inputs?: string[]; preconditions?: string[] } = {}): StepDecision => {
+  const run = (node: StepNodeId, extra: { postPlan?: boolean; inputs?: string[]; preconditions?: string[]; reclaim?: boolean } = {}): StepDecision => {
     const onPr = node === 'judge' || node === 'fix' || node === 'sync';
     const target = onPr ? at.pr! : n;
     const stage: ClaimStage = node;
@@ -249,7 +250,7 @@ export function decideStep(input: StepInput): StepDecision {
       branchPrefix,
       files: i.planFiles,
     };
-    const already = isOwnClaim(current, session) && current?.stage === stage;
+    const already = extra.reclaim !== true && isOwnClaim(current, session) && current?.stage === stage;
     return { result, claim: already ? null : { target, stage }, release: [], critique };
   };
 
@@ -279,7 +280,46 @@ export function decideStep(input: StepInput): StepDecision {
     return run('plan');
   };
 
+  /** 答えのそろった確認事項で、resume の段階から再開する。今の止まり方（領域の上限・古い読み込み・取り込みの上限・同じ指摘）は通し、宣言は出し直す */
+  const resumeNode = (fact: ConfirmFact): StepDecision => {
+    const answer = fact.answer!;
+    const inputs = answer.answers.map((a) => `人の答え（${answer.url}）：${a.to}${a.choice !== undefined ? ` ${a.choice}` : ''}：${a.quote}`);
+    const preconditions = [`確認事項（${fact.url}）に人が答えた`];
+    switch (fact.confirm.resume) {
+      case 'plan':
+        return run('plan', { inputs, preconditions, reclaim: true });
+      case 'plan-critique':
+        return run('plan-critique', { inputs, preconditions, reclaim: true });
+      case 'implement':
+        if (input.areaFull) return wait('plan-ok', 'area-limit', input.areaFull);
+        return run('implement', { inputs, preconditions, reclaim: true });
+      case 'judge':
+        if (input.harnessStale) return stop('judge', 'harness-stale', input.harnessStale);
+        return run('judge', { inputs, preconditions, reclaim: true });
+      case 'fix': {
+        const [prev, latest] = input.fixRequests.slice(-2);
+        if (prev && latest) {
+          const same = repeatedFindings(prev, latest);
+          if (same.length > 0) return stop('fix', 'repeated-finding', `直近2つの変更要求レビューに同じ指摘がある：${same.map(describeFinding).join(' / ')}`);
+        }
+        return run('fix', { inputs, preconditions, reclaim: true });
+      }
+      case 'sync':
+        if (input.mergeCommits >= input.syncLimit) {
+          return stop('sync', 'sync-limit', `PR の main からの取り込みが ${input.mergeCommits} 回（上限 ${input.syncLimit}、harness.config.json の syncLoop.limit）に達した後に、もう一度 sync が要る`);
+        }
+        return run('sync', { inputs, preconditions, reclaim: true });
+    }
+  };
+
   if (at.humanPr) return wait(at.node, 'human', at.note ?? '人の PR（修正・取り込みは人が行う）');
+  if (at.node !== 'merged' && at.node !== 'stopped') {
+    const state = confirmState(i);
+    if (state.kind === 'pending') return wait(at.node, 'human', `確認事項の答え待ち（${state.fact.url}）`);
+    if (state.kind === 'answered' && resumeAllowed(state.fact.confirm.resume, at)) return resumeNode(state.fact);
+  }
+  // 再開の plan・plan-critique の宣言を出し直した後の step --plan・--critique は、計画ゲートを通った後のノードでも計画の遷移に進む
+  if (input.local.kind !== 'none' && (at.node === 'plan-gate' || at.node === 'plan-ok') && isOwnClaim(issueClaim, session) && (issueClaim?.stage === 'plan' || issueClaim?.stage === 'plan-critique')) return planning();
   if (at.sync) {
     if (input.mergeCommits >= input.syncLimit) {
       return stop('sync', 'sync-limit', `PR の main からの取り込みが ${input.mergeCommits} 回（上限 ${input.syncLimit}、harness.config.json の syncLoop.limit）に達した後に、もう一度 sync が要る（${at.note ?? ''}）`);

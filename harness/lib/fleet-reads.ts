@@ -7,10 +7,11 @@
 import { appMarkKind } from './blocks.ts';
 import { areaLimitLabels } from './concurrency.ts';
 import type { HarnessConfig } from './config.ts';
-import { issueFacts, prFacts } from './facts.ts';
+import { confirmFacts } from './confirm.ts';
+import { claimTimeline, issueFacts, prFacts } from './facts.ts';
 import type { FleetIssue, FleetPr } from './fleet.ts';
 import { prsReferencing } from './gh-rest.ts';
-import { GitHub, type Transport } from './github.ts';
+import { GitHub, type IssueComment, type Transport } from './github.ts';
 import { PrefetchTransport, readBatch, Snapshot } from './graphql-prefetch.ts';
 import { bodyIssueRefs, isAppComment, isSameRepoPr, latestPlanGate, linkedIssuesWithSource, type PlanGateRecord, type PullRequest, withStack } from './state.ts';
 
@@ -130,7 +131,12 @@ export async function collectFleetIssues(gh: GitHub, config: HarnessConfig, item
 
   const issues: FleetIssue[] = [];
   for (const [idx, item] of items.entries()) {
-    const gate = latestPlanGate(config, await gh.listComments(item.number)) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
+    const issueComments = await gh.listComments(item.number);
+    // コメントの ID → コメントを読んだ Issue / PR の番号（html_url の形に依らず、確認事項の target と突き合わせる）
+    const where = new Map<number, number>(issueComments.map((c) => [c.id, item.number]));
+    const confirmComments: IssueComment[] = [...issueComments];
+    const confirmClaims = [...claimTimeline(issueComments)];
+    const gate = latestPlanGate(config, issueComments) as { value: PlanGateRecord & { plan?: { files: string[] } } } | null;
     const prs: FleetPr[] = [];
     for (const ref of prsOf.get(item.number) ?? []) {
       if (ref.state === 'MERGED') {
@@ -143,6 +149,9 @@ export async function collectFleetIssues(gh: GitHub, config: HarnessConfig, item
         gh.listComments(pr.number),
         behindMain(gh, config, pr, snap),
       ]);
+      for (const c of comments) where.set(c.id, pr.number);
+      confirmComments.push(...comments);
+      confirmClaims.push(...claimTimeline(comments));
       prs.push({
         number: pr.number,
         merged: false,
@@ -153,7 +162,8 @@ export async function collectFleetIssues(gh: GitHub, config: HarnessConfig, item
         facts,
       });
     }
-    issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs, assignees: (item.assignees ?? []).map((u) => u.login), ...(linkGaps.has(item.number) ? { linkGapPrs: linkGaps.get(item.number)! } : {}) });
+    const confirms = confirmFacts(confirmComments, confirmClaims, (c) => where.get(c.id) ?? null);
+    issues.push({ facts: iFacts[idx]!, closed: item.state === 'closed', planFiles: gate?.value.plan?.files ?? null, prs, ...(confirms.length > 0 ? { confirms } : {}), assignees: (item.assignees ?? []).map((u) => u.login), ...(linkGaps.has(item.number) ? { linkGapPrs: linkGaps.get(item.number)! } : {}) });
   }
 
   return { issues, openPrs, openPrLabels };

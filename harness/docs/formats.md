@@ -9,6 +9,8 @@ Claude（Routine・付き添いのセッション）と App は、コメント�
 | ```` ```agent-verdict ```` | Claude | PR コメント | `harness/lib/verdict.ts` |
 | ```` ```agent-claim ```` | Claude | Issue / PR コメント | `harness/lib/queue.ts` |
 | ```` ```agent-decision ```` | 付き添いのセッション（Routine は書かない） | Issue コメント | `harness/lib/decision.ts` |
+| ```` ```agent-confirm ```` | 付き添いのセッション（Routine は書かない） | Issue / PR コメント | `harness/lib/confirm.ts` |
+| ```` ```agent-confirm-answer ```` | 人（手元のダッシュボードか、GitHub の短い答え） | Issue / PR コメント | `harness/lib/confirm.ts` |
 | ```` ```agent-session-judgment ```` | 付き添いのセッション（Routine は書かない） | Issue / PR コメント | `harness/lib/session-judgment.ts`（表示だけで信頼しない） |
 | ```` ```agent-handoff ```` | fleet の入れ子の ship | ship が fleet に返す本文とファイル（GitHub には書かない） | `harness/lib/handoff.ts` |
 | ```` ```agent-app ```` | App のみ | Issue / PR コメント | App の名義のものだけ信頼する |
@@ -193,8 +195,8 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 | `kind` | 中身 |
 | --- | --- |
-| `node` | `node`（`plan`・`plan-critique`・`implement`・`judge`・`fix`・`sync`）と使う `skill`、宣言する番号と段階 `claim`（judge・fix・sync は PR 番号）、確かめ済みの前提 `preconditions`、使ってよい操作 `allowed`、読むもの `inputs`、出すものの書式 `output`、ブランチ `branch`（PR の head。無ければ null）と接頭辞 `branchPrefix`、計画ゲートの記録の計画の `files`（計画の前は null）。`step` がこの宣言を出す（同じ段階の自分の宣言があれば出さない） |
-| `wait` | `waitingFor`：`app`（計画ゲート・判定の受け付け・Merge の経路・auto-merge）、`human`（人の Merge 待ち、人の PR の修正・取り込み）、`area-limit`（`areaConcurrency` の上限。`--force`・`--fleet` は付けず人・fleet が決める）、`done`（Merge 済み）と `detail`。宣言は変えない |
+| `node` | `node`（`plan`・`plan-critique`・`implement`・`judge`・`fix`・`sync`）と使う `skill`、宣言する番号と段階 `claim`（judge・fix・sync は PR 番号）、確かめ済みの前提 `preconditions`、使ってよい操作 `allowed`、読むもの `inputs`、出すものの書式 `output`、ブランチ `branch`（PR の head。無ければ null）と接頭辞 `branchPrefix`、計画ゲートの記録の計画の `files`（計画の前は null）。`step` がこの宣言を出す（同じ段階の自分の宣言があれば出さない。確認事項の答えで再開するときは、同じ段階の自分の宣言があっても出し直す） |
+| `wait` | `waitingFor`：`app`（計画ゲート・判定の受け付け・Merge の経路・auto-merge）、`human`（人の Merge 待ち、人の PR の修正・取り込み、確認事項の答え待ち）、`area-limit`（`areaConcurrency` の上限。`--force`・`--fleet` は付けず人・fleet が決める）、`done`（Merge 済み）と `detail`。宣言は変えない |
 | `stop` | 理由コード `reason`、`detail`、このセッションの宣言を解除したか `released` |
 
 `stop` の理由コード：
@@ -348,6 +350,43 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 - judge-input は、`acChangeAccepted` のある記録と、その記録より後に App 以外のコラボレーターが `agent:plan-review` を外して付け直されていない事実の両方があるときだけ、計画コメントの提案を判定の AC にする節「受け入れた AC の変更」を入れる（`harness/lib/accepted-ac-change.ts`。記録が編集された・計画コメントがゲートの後に編集された・見出しが無いときは入れない）。
 - `post-decision` は、`acChangeProposed` の計画ではこの欄がある記録だけ投稿する。`acChangeProposed` でない計画にこの欄を書くと拒む。App の `plan-proceed` は今どおり `ineligible`（理由「要件・AC の変更提案があります」）で、App はこの記録で `agent:plan-review` を外さない。Issue 本文の書き換えと `agent:plan-review` の付け外しは人がする。
 - 委任承認の Merge と bypass の範囲照合（`harness/lib/state.ts` の `issueDelegateFiles`）は、`status: ok` の `plan-proceed` の記録の `planCommentId` と `planBodySha256` が最新の計画ゲートの記録と一致し、今の計画コメントの本文の sha256 も一致するときだけ、その計画を使う。`agent/scope` は今までどおりゲートを通った計画だけ。
+
+## 確認事項（agent-confirm）
+
+付き添いのセッションは、人の判断が要る場面で止まって待たずに、確認事項を対象の Issue か PR にコメントで書き（`node harness/scripts/agent.ts post-confirm`）、ほかの作業を続ける。人がコメントで答える（Issue #949・#953・#954）。
+
+```agent-confirm
+{
+  "version": 1,
+  "target": 954,
+  "stage": "implement",
+  "resume": "implement",
+  "questions": [
+    { "text": "既定を shadow にするか", "why": "設定の既定は人の決定", "choices": ["はい", "いいえ"] }
+  ],
+  "holds": "答えがそろうまで実装を止める"
+}
+```
+
+- `target` はコメント先の Issue か PR の番号。`stage` は止めた段階、`resume` は答えの後に再開する段階（`plan`・`plan-critique`・`implement`・`judge`・`fix`・`sync`。`resume` は `stage` と同じか手前）。
+- `questions` は 1〜10 件。`text`・`why`（なぜ人が要るか）は空でなく 2000 文字まで、`choices` は 2〜4 個の空でない重複の無い文字列（任意）。`holds`（答えが無い間に止める範囲）は空でなく 2000 文字まで。
+- 確認事項として読むのは、コラボレーターのコメントで Claude の目印があり、`target` がコメントを書いた Issue か PR の番号と同じもの。
+
+答えの形は2つ。どちらも、確認事項のあるコメント先の Issue / PR へのコメント。
+
+- ```` ```agent-confirm-answer ````：`{ "version": 1, "target": 954, "confirmCommentId": <確認事項のコメントの ID>, "answers": [{ "to": "question:0", "choice": "はい", "quote": "はい", "at": "2026-09-30T10:00:00+09:00" }] }`（手元のダッシュボードが書く。目印はセッションの ID の無い `CLAUDE_MARK`）。
+- 短い形：最初の空でない行が `/answer <確認事項のコメントの ID>`、続く空でない行が `<質問の番号（1 から）>: <答え>`（人が GitHub で書く）。答えが選択肢とちょうど同じなら `choice` にも入れ、`at` はコメントの `created_at`。
+
+答えとして読むのは、次をすべて満たすコメントだけ（`harness/lib/confirm.ts` の `confirmAnswerOf`）。コラボレーター（OWNER・MEMBER・COLLABORATOR）が書き、セッションの ID のある Claude の目印が無く、`confirmCommentId` が確認事項のコメントと同じで、確認事項より後（コメントの ID の大小）に書かれ、すべての質問に答えがあり、存在しない添字・同じ添字の重複が無い。最初に条件を満たしたコメントを答えとする。
+
+答えの名義は `agent-decision` と同じく人の名義で、目印を付けずにセッションが書けば人の答えと見分けられない（セッションが答えを書かない規則は #952）。
+
+`step` と `fleet-status` の扱い（`harness/lib/fleet.ts` の `confirmState`・`resumeAllowed`）：
+
+- 答えの無い確認事項があれば、`step` は `wait`（`waitingFor: human`、`detail` に確認事項の URL）を返し、宣言は出さない。`fleet-status` の行は次にやることが `none`、メモが「確認事項の答え待ち」で、`--json` の `humanWait` は確認事項のコメントの時刻から数える。`selectFleet` は選ばず、重なりの相手にもしない。
+- 答えがそろい、答えの後に段階が `resume` と同じか先の着手宣言（宣言の値の `at` が答えの `created_at` より後）が無ければ、`resume` の段階のノードを返す（`fleet-status` の次にやることも `resume`）。`inputs` の先頭に人の答えを人の言葉のまま入れ、同じ段階の自分の宣言があっても宣言を出し直す。
+- 再開してよい今のノード：`plan`・`plan-critique` は PR が無く、ノードが `issue`・`plan-gate`・`plan-review`・`plan-ok`。`implement` は `plan-ok` だけ（`plan-review` の計画は答えがあっても `--proceed` が要る）。`judge`・`fix`・`sync` は人の PR でない開いた PR があり、ノードが `judge`・`fix`。`implement` は `areaFull` で `area-limit`、`judge` は `harness-stale`、`sync` は `sync-limit`、`fix` は `repeated-finding` の止まり方を通る。
+- `merged`・`stopped`・人の PR の Issue は、確認事項を見ずに今までどおり。
 
 ## セッションの判定（agent-session-judgment）
 
