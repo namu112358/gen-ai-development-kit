@@ -223,6 +223,14 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
 
   // 3. budget
   const budget = await step('budget', async (): Promise<Stop | null> => {
+    log(`budget limits monthlyUsd=${config.budget.monthlyUsd} perReviewUsd=${config.budget.perReviewUsd}`);
+    // 上限が有限の正の数でない（ダッシュボードの変数が読めなかった）と checkBudget の比べが偽になって通るので、先に止める
+    const badLimits = (['monthlyUsd', 'perReviewUsd'] as const).filter((k) => !(Number.isFinite(config.budget[k]) && config.budget[k] > 0));
+    if (badLimits.length > 0) {
+      log(`budget invalid ${badLimits.join(',')}`);
+      await writeRecord('budget-exceeded', { budgetInvalid: true });
+      return { outcome: 'budget-exceeded' };
+    }
     const raw = await deps.kv.get(month);
     const monthUsd = raw === null ? 0 : raw.trim() === '' ? NaN : Number(raw);
     const limits = { maxToolCalls: config.claude.maxToolCalls, maxFileChars: config.claude.maxFileChars };

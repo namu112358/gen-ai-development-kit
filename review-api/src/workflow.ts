@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError as WorkflowNonRetryableError } from 'cloudflare:workflows';
 import { NonRetryableError, type Message, type MessagesClient, type MessagesParams } from './claude.ts';
-import { loadReviewConfig } from './config.ts';
+import { applyBudgetEnv, loadReviewConfig } from './config.ts';
 import { appJwt, installationToken, READ_PERMISSIONS, WRITE_PERMISSIONS } from './github-app.ts';
 import { createGitHubClient } from './github.ts';
 import { runReview, type ReviewDeps, type ReviewParams, type ReviewResult, type RunStep, type StepName } from './pipeline.ts';
@@ -30,13 +30,16 @@ export interface Env {
   GITHUB_WEBHOOK_SECRET?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
   ANTHROPIC_API_KEY?: string;
-  // 識別子も Secret として入れる（wrangler.jsonc に vars を置かない。docs/review-api.md の節8.3）ので、入れる前は無い
+  // 識別子は wrangler.jsonc の vars から入る（docs/review-api.md の節8.3）。無ければ空として扱う
   GITHUB_APP_CLIENT_ID?: string;
   GITHUB_INSTALLATION_ID?: string;
   ALLOWED_REPOS?: string;
   REVIEW_APP_LOGIN?: string;
   GATE_APP_LOGIN?: string;
   DRY_RUN?: string;
+  // 費用の上限の上書き（ダッシュボードの変数。keep_vars でデプロイの後も残る。docs/review-api.md の節7）
+  BUDGET_MONTHLY_USD?: string;
+  BUDGET_PER_REVIEW_USD?: string;
 }
 
 const RETRY_CONFIG = { retries: { limit: 1, delay: '30 seconds', backoff: 'constant' } } as const;
@@ -123,6 +126,9 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
       sleep: (ms) => step.sleep('settle', ms),
       secrets,
     };
+    const budgeted = applyBudgetEnv(loadReviewConfig(reviewConfigJson), env);
+    // 名前だけを出す（値は budget の段階のログに出る）
+    if (budgeted.invalid.length > 0) console.log(`budget env invalid ${budgeted.invalid.join(',')}`);
     const params: ReviewParams = {
       owner,
       repo,
@@ -130,7 +136,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
       headSha,
       gateAppLogin,
       reviewAppLogin,
-      config: loadReviewConfig(reviewConfigJson),
+      config: budgeted.config,
     };
     return runReview(deps, params, makeRunStep(step));
   }

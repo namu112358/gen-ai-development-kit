@@ -54,7 +54,7 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     return finish(400, 'invalid-json');
   }
   if (typeof event !== 'object' || event === null || Array.isArray(event)) return finish(400, 'invalid-json');
-  // ALLOWED_REPOS・GITHUB_INSTALLATION_ID は Secret で、入れる前は無い。空として扱い、対象外にする
+  // ALLOWED_REPOS・GITHUB_INSTALLATION_ID は wrangler.jsonc の vars から入る。無ければ空として扱い、対象外にする
   const decision = decideReview(event as PullRequestEvent, config, {
     ALLOWED_REPOS: env.ALLOWED_REPOS ?? '',
     GITHUB_INSTALLATION_ID: env.GITHUB_INSTALLATION_ID ?? '',
