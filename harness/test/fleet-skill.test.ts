@@ -5,11 +5,14 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { documentedAgentCommands } from './support/agent-source.ts';
-import { readText, section, skillProblems, type SkillSpec } from './support/skill-text.ts';
+import { readText, section, skillProblems, skillText, type SkillSpec } from './support/skill-text.ts';
 
 const FLEET_SKILL = '.claude/skills/fleet/SKILL.md';
 const SHIP_SKILL = '.claude/skills/ship/SKILL.md';
 const HQ_SKILL = '.claude/skills/hq/SKILL.md';
+const SHIP_WORKER_FILE = '.claude/skills/fleet/references/orca-ship-worker.md';
+const AS_WORKER_FILE = '.claude/skills/fleet/references/as-worker.md';
+const HANDOVER_FILE = '.claude/skills/fleet/references/handover.md';
 const SHIP_WORKER = '## Orca の worker で ship を動かすとき';
 const AS_WORKER = '## Orca の worker として動くとき';
 const WATCH = '## 待つ間の読み直し';
@@ -42,6 +45,28 @@ const FLEET_SPEC: SkillSpec = {
     { section: '## 手順', step: 5, words: ['待つ間の読み直し'] },
     { section: '## 入れ子の方式（orca）', absent: ['orchestration ask', 'worker_done'] },
     { section: '## 入れ子の方式（orca）', step: 3, words: ['待つ間の読み直し'] },
+    // 待つ間の読み直し（#199）
+    {
+      section: WATCH,
+      words: [
+        'node harness/scripts/agent.ts fleet-status --watch', 'human-merge', 'auto-merge', '手順9', '間隔',
+        'run_in_background', 'Monitor', 'schedule', 'Actions', 'Routine', '使わない',
+        'このセッションの読み込みは古い', 'ハーネスが更新されたときの交代',
+        'plan-ok', 'Merge 後の見届けが済んでいない', '呼び直', 'sync', 'fleet 自身は衝突を直さない', 'ほかのセッション',
+        'Close されていない', '見張りの記録には残さない', '最初の1回だけ', '人の判断待ちに数える', '呼び直さない',
+        'App が動いていない', 'escalation', '1回だけ',
+        'node harness/scripts/agent.ts rest issue-view <Epic番号>', 'Merge 済み', '人の判断待ちだけが残',
+      ],
+    },
+    { section: '## 終わりの状態', words: ['受け持つ Epic', 'Close', '人の判断待ちだけが残'] },
+    { section: '## 人に返す条件', words: ['人の判断待ちだけが残', '読み直し」を続ける'], absent: ['- 選んだ Issue が全部待つ状態になった\n'] },
+  ],
+};
+
+/** ship を worker で動かす節（references/orca-ship-worker.md に分けた。Issue #999）の表 */
+const SHIP_WORKER_SPEC: SkillSpec = {
+  path: SHIP_WORKER_FILE,
+  parts: [
     // ship を worker で動かす節（#197）
     {
       section: SHIP_WORKER,
@@ -73,6 +98,13 @@ const FLEET_SPEC: SkillSpec = {
       step: 7,
       words: ['worker-start', '0 以外', '今の手順', '出し直さ', 'hq に起こされた fleet', '入れ子の方式に戻る', '入れ子にできなければ', 'escalation', '止める'],
     },
+  ],
+};
+
+/** worker として動く節（references/as-worker.md に分けた）の表 */
+const AS_WORKER_SPEC: SkillSpec = {
+  path: AS_WORKER_FILE,
+  parts: [
     // worker として動く節（#285・#415・#430・#395・#199）
     {
       section: AS_WORKER,
@@ -121,22 +153,14 @@ const FLEET_SPEC: SkillSpec = {
       step: 8,
       words: ['ORCA orchestration send', '--type status', '--subject', '送る時機', 'ship が返ったとき', 'fleet-status', '相談', '`ask`', 'fleet-hq-sent.json', '人の判断が要るものは `status` で送らない'],
     },
-    // 待つ間の読み直し（#199）
-    {
-      section: WATCH,
-      words: [
-        'node harness/scripts/agent.ts fleet-status --watch', 'human-merge', 'auto-merge', '手順9', '間隔',
-        'run_in_background', 'Monitor', 'schedule', 'Actions', 'Routine', '使わない',
-        'このセッションの読み込みは古い', 'ハーネスが更新されたときの交代',
-        'plan-ok', 'Merge 後の見届けが済んでいない', '呼び直', 'sync', 'fleet 自身は衝突を直さない', 'ほかのセッション',
-        'Close されていない', '見張りの記録には残さない', '最初の1回だけ', '人の判断待ちに数える', '呼び直さない',
-        'App が動いていない', 'escalation', '1回だけ',
-        'node harness/scripts/agent.ts rest issue-view <Epic番号>', 'Merge 済み', '人の判断待ちだけが残',
-      ],
-    },
+  ],
+};
+
+/** 交代の節（references/handover.md に分けた）の表 */
+const HANDOVER_SPEC: SkillSpec = {
+  path: HANDOVER_FILE,
+  parts: [
     { section: '## ハーネスが更新されたときの交代', words: ['/fleet --epic <Epic番号> <番号…>'] },
-    { section: '## 終わりの状態', words: ['受け持つ Epic', 'Close', '人の判断待ちだけが残'] },
-    { section: '## 人に返す条件', words: ['人の判断待ちだけが残', '読み直し」を続ける'], absent: ['- 選んだ Issue が全部待つ状態になった\n'] },
   ],
 };
 
@@ -185,7 +209,7 @@ const SHIP_FOR_FLEET_SPEC: SkillSpec = {
 // ---- 構造の表 ----
 
 test('fleet の skill の構造の表', () => {
-  assert.deepEqual(skillProblems(FLEET_SPEC), []);
+  for (const spec of [FLEET_SPEC, SHIP_WORKER_SPEC, AS_WORKER_SPEC, HANDOVER_SPEC]) assert.deepEqual(skillProblems(spec), []);
 });
 
 test('fleet と関わる hq の skill の表（手順7の status の待ちと手順6のペインの向き）', () => {
@@ -203,7 +227,7 @@ test('fleet の skill：コードが出す・名前で読む語がある', () =>
   // Merge 後の見届けが済んでいない・App が動いていない・待つ間の読み直し：harness/lib/fleet-watch.ts・harness/scripts/agent/commands/fleet-status.ts
   // 同時に動かす ship は：harness/lib/fleet.ts
   // parseChildMarker：harness/lib/epic.ts
-  const text = readText(FLEET_SKILL);
+  const text = skillText(FLEET_SKILL);
   const words = ['このセッションの読み込みは古い', 'Merge 後の見届けが済んでいない', 'App が動いていない', '待つ間の読み直し', '同時に動かす ship は', 'parseChildMarker'];
   const missing = words.filter((w) => !text.includes(w));
   assert.deepEqual(missing, [], `fleet の skill に次の語句がありません：${missing.join('、')}`);
@@ -214,14 +238,14 @@ test('fleet の skill：コードが出す・名前で読む語がある', () =>
 test('fleet の skill：agent.ts のコマンドは使い方のコメントに実在し完全な形で書かれ、ship を worker で動かす節では引数つきのコマンドも node harness/scripts/agent.ts で始まる', () => {
   const known = documentedAgentCommands();
   assert.ok(known.has('claim') && known.has('fleet-status'), '使い方のコメントからコマンドを読めていません');
-  const text = readText(FLEET_SKILL);
+  const text = skillText(FLEET_SKILL);
   const used = [...text.matchAll(/node harness\/scripts\/agent\.ts ([^\s`]+)/g)].map((m) => m[1]!);
   assert.ok(used.length > 0, 'agent.ts のコマンドがありません');
   for (const cmd of used) assert.ok(known.has(cmd), `agent.ts ${cmd} は使い方のコメントにありません`);
   assert.equal(text.split('agent.ts ').length - 1, used.length, 'agent.ts のコマンドは完全な形（node harness/scripts/agent.ts <コマンド>）で書く');
   // check は Orca の orchestration のサブコマンドと同じ名前なので除く
   const names = new Set([...known].filter((c) => c !== 'check'));
-  const bare = codeSpans(section(text, SHIP_WORKER)).filter((s) => {
+  const bare = codeSpans(section(readText(SHIP_WORKER_FILE), SHIP_WORKER)).filter((s) => {
     const [first, ...args] = s.split(/\s+/);
     return names.has(first!) && args.length > 0;
   });
@@ -229,17 +253,16 @@ test('fleet の skill：agent.ts のコマンドは使い方のコメントに�
 });
 
 test('fleet の skill：素の orca で始まるコードが無く、ship を worker で動かす節と worker として動く節に ORCA で始まる形がある', () => {
-  const text = readText(FLEET_SKILL);
-  const bare = codeSpans(text).filter((s) => /^orca\s/.test(s));
+  const bare = codeSpans(skillText(FLEET_SKILL)).filter((s) => /^orca\s/.test(s));
   assert.deepEqual(bare, [], `素の「orca 」で始まるコードがあります：${bare.join('、')}`);
-  for (const heading of [SHIP_WORKER, AS_WORKER]) {
-    assert.ok(codeSpans(section(text, heading)).some((s) => s.startsWith('ORCA ')), `「${heading}」の節に「ORCA 」で始まるコードがありません`);
+  for (const [file, heading] of [[SHIP_WORKER_FILE, SHIP_WORKER], [AS_WORKER_FILE, AS_WORKER]] as const) {
+    assert.ok(codeSpans(section(readText(file), heading)).some((s) => s.startsWith('ORCA ')), `「${heading}」の節に「ORCA 」で始まるコードがありません`);
   }
 });
 
 // スクリプトが Run で数えるため、書き方そのものを確かめる（#197）
 test('fleet の skill：ship の worker の worker-start・worker-list・check のコマンドには fleet の Run の --run を付ける', () => {
-  const cmds = codeSpans(section(readText(FLEET_SKILL), SHIP_WORKER)).filter((s) => /^ORCA orchestration (worker-start|worker-list|check)\b/.test(s));
+  const cmds = codeSpans(section(readText(SHIP_WORKER_FILE), SHIP_WORKER)).filter((s) => /^ORCA orchestration (worker-start|worker-list|check)\b/.test(s));
   assert.ok(cmds.some((s) => s.startsWith('ORCA orchestration worker-start')), 'worker-start のコマンドがありません');
   const noRun = cmds.filter((s) => !s.includes('--run '));
   assert.deepEqual(noRun, [], `--run の無いコマンドがあります：${noRun.join('、')}`);

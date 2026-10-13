@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { documentedAgentCommands } from './support/agent-source.ts';
 import { NO_OVERWRITE_RULE, WRITE_RULES } from './support/output-file-rules.ts';
-import { frontmatter, readText, section, skillProblems, type SkillSpec } from './support/skill-text.ts';
+import { frontmatter, readText, section, skillProblems, skillText, type SkillSpec } from './support/skill-text.ts';
 
 const SKILLS = ['ship', 'plan', 'implement', 'judge', 'fix', 'sync', 'fleet'];
 const HEADINGS = ['## 入力', '## 手順', '## 終わりの状態', '## 人に返す条件'];
@@ -104,6 +104,20 @@ const FLEET_FOR_SHIP_SPEC: SkillSpec = {
   path: skillPath('fleet'),
   headings: HEADINGS,
   parts: [
+    // 入れ子の ship の投稿の前の質問（#299）
+    { section: '## 入れ子の方式', words: ['投稿の前', 'AskUserQuestion', '呼び直す', 'release <番号>'] },
+    // 出来事の控えの振り分けと人がすること（#186・#209）
+    { section: '## 手順', step: 8, words: TRIAGE_WORDS },
+    { section: '## 手順', step: 9, words: ['**人がすること**', '改善の候補'], absent: ['ラベルの不足'] },
+    { section: '## 人に返す条件', words: ['振り分け', '改善の候補', '交代できない', 'auto mode'], absent: ['交代を拒まれた'] },
+    { absent: ['申告を残して投稿して質問を返す', 'agent.ts incident render-comment', 'agent.ts label-audit'] },
+  ],
+};
+
+/** 交代の節（fleet の references/handover.md に分けた。Issue #999）の表。SKILL.md には見出しと案内の1行だけが残る */
+const FLEET_HANDOVER_SPEC: SkillSpec = {
+  path: '.claude/skills/fleet/references/handover.md',
+  parts: [
     // ハーネスが更新されたときの交代（#199）。人に交代の承認を求めない（#806）
     {
       section: HANDOFF,
@@ -116,17 +130,10 @@ const FLEET_FOR_SHIP_SPEC: SkillSpec = {
       ],
     },
     { section: HANDOFF, step: 3, words: ['聞かない', 'hq に `ask`'], absent: ['AskUserQuestion'] },
-    // 入れ子の ship の投稿の前の質問（#299）
-    { section: '## 入れ子の方式', words: ['投稿の前', 'AskUserQuestion', '呼び直す', 'release <番号>'] },
-    // 出来事の控えの振り分けと人がすること（#186・#209）
-    { section: '## 手順', step: 8, words: TRIAGE_WORDS },
-    { section: '## 手順', step: 9, words: ['**人がすること**', '改善の候補'], absent: ['ラベルの不足'] },
-    { section: '## 人に返す条件', words: ['振り分け', '改善の候補', '交代できない', 'auto mode'], absent: ['交代を拒まれた'] },
-    { absent: ['申告を残して投稿して質問を返す', 'agent.ts incident render-comment', 'agent.ts label-audit'] },
   ],
 };
 
-for (const [name, spec] of Object.entries({ SHIP_SPEC, PLAN_SPEC, IMPLEMENT_SPEC, JUDGE_SPEC, FIX_SPEC, SYNC_SPEC, FLEET_FOR_SHIP_SPEC })) {
+for (const [name, spec] of Object.entries({ SHIP_SPEC, PLAN_SPEC, IMPLEMENT_SPEC, JUDGE_SPEC, FIX_SPEC, SYNC_SPEC, FLEET_FOR_SHIP_SPEC, FLEET_HANDOVER_SPEC })) {
   test(`${name} の構造の表`, () => assert.deepEqual(skillProblems(spec), []));
 }
 
@@ -142,7 +149,7 @@ test('skill が使う agent.ts のコマンドは、使い方のコメントに�
   const known = documentedAgentCommands();
   for (const c of ['judge-input', 'post-plan', 'show-plan', 'worktree-remove']) assert.ok(known.has(c), `使い方のコメントからコマンド ${c} を読めていません`);
   for (const name of SKILLS) {
-    const text = readText(skillPath(name));
+    const text = skillText(skillPath(name));
     const used = [...text.matchAll(/node harness\/scripts\/agent\.ts ([^\s`]+)/g)].map((m) => m[1]!);
     assert.ok(used.length > 0, `${name}: agent.ts のコマンドがありません`);
     for (const cmd of used) assert.ok(known.has(cmd), `${name}: agent.ts ${cmd} は使い方のコメントにありません`);
@@ -162,7 +169,7 @@ test('ハーネスが更新されたときの交代：harness-drift が名前で
 test('fleet・ship の SKILL.md に、素の orca で始まるコマンドが無い', () => {
   for (const name of ['fleet', 'ship']) {
     // orca-skills.test.ts の bareOrcaUses と同じ見方：`orca …` はコマンド、`orca` 単独は語として許す
-    const bare = codeSpans(readText(skillPath(name))).filter((c) => /^orca\s/.test(c));
+    const bare = codeSpans(skillText(skillPath(name))).filter((c) => /^orca\s/.test(c));
     assert.deepEqual(bare, [], `${name} に素の orca のコマンドがあります`);
   }
 });

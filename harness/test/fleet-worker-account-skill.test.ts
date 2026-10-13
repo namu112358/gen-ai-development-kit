@@ -10,7 +10,7 @@ const SHIP_WORKER = '## Orca の worker で ship を動かすとき';
 
 /** fleet の skill の、worker を起こすアカウントの表 */
 const FLEET_ACCOUNT_SPEC: SkillSpec = {
-  path: '.claude/skills/fleet/SKILL.md',
+  path: '.claude/skills/fleet/references/orca-ship-worker.md',
   parts: [
     {
       section: SHIP_WORKER,

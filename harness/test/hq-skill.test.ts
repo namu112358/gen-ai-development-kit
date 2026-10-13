@@ -8,7 +8,7 @@ import { documentedAgentCommands } from './support/agent-source.ts';
 import { frontmatter, readText, section, skillProblems, type SkillSpec } from './support/skill-text.ts';
 
 const HQ_SKILL = '.claude/skills/hq/SKILL.md';
-const FLEET_SKILL = '.claude/skills/fleet/SKILL.md';
+const FLEET_AS_WORKER = '.claude/skills/fleet/references/as-worker.md';
 const AS_WORKER = '## Orca の worker として動くとき';
 const DIRECT = '## ship を直接起こす進め方（`--direct`）';
 const skill = (): string => readText(HQ_SKILL);
@@ -94,7 +94,7 @@ const HQ_SPEC: SkillSpec = {
 
 /** hq と関わる fleet の skill の表（Orca の worker として動くとき） */
 const FLEET_FOR_HQ_SPEC: SkillSpec = {
-  path: FLEET_SKILL,
+  path: FLEET_AS_WORKER,
   parts: [
     // 4：intel への送信（#396）
     { section: AS_WORKER, step: 4, words: ['intel への送信'] },
