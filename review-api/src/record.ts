@@ -24,6 +24,19 @@ export interface ShadowRecord {
   riskCompare?: RiskCompareRecord;
 }
 
+/** 投稿しなかった記録の outcome（shadow のコメントを付けずに止めた理由） */
+export type StoppedOutcome = 'budget-exceeded' | 'too-large' | 'verdict-invalid';
+const STOPPED_OUTCOMES: readonly string[] = ['budget-exceeded', 'too-large', 'verdict-invalid'];
+/** 投稿しなかった記録。材料（diff・ファイル・Issue・PR 本文）・detail・budgetInvalid は入れない。usd は使った分の推定（budget で止めたときは null）、estimatedUsd は budget の段階の見込み */
+export interface StoppedRecord {
+  version: 1;
+  pr: number;
+  headSha: string;
+  outcome: StoppedOutcome;
+  usd: number | null;
+  estimatedUsd?: number;
+}
+
 const SHA = /^[0-9a-f]{40}$/;
 const MARK = /<!-- api-review-shadow head=([0-9a-f]{40}) -->/g;
 const FENCE = /^```api-review-shadow[ \t]*\n([\s\S]*?)\n```/gm;
@@ -73,8 +86,43 @@ export function renderShadowComment(record: ShadowRecord): string {
   ].join('\n');
 }
 
-/** コメントから記録を読み戻す。目印・フェンスがちょうど1つで、JSON と version と head が合わなければ null（投げない） */
-export function parseShadowComment(body: string): { headSha: string; record: ShadowRecord } | null {
+const STOPPED_REASON: Record<StoppedOutcome, string> = {
+  'budget-exceeded': '予算の上限（または上限・月の累計・単価が読めない）のため、レビューを行いませんでした。',
+  'too-large': '1 回のレビューの見込みが上限を超えるため、レビューを行いませんでした。',
+  'verdict-invalid': 'Claude の出力が判定の形に合わず、レビューを投稿しませんでした。',
+};
+
+/** 投稿しなかった記録のコメントの本文。目印・フェンス・エスケープは renderShadowComment と同じ。headSha が40桁の小文字16進でなければ投げる */
+export function renderStoppedComment(record: StoppedRecord): string {
+  if (!SHA.test(record.headSha)) throw new Error('headSha は40桁の小文字16進です');
+  const json = JSON.stringify(record, null, 2).replace(/`/g, '\\u0060').replace(/</g, '\\u003c');
+  return [
+    `<!-- api-review-shadow head=${record.headSha} -->`,
+    '## API レビュー（shadow・投稿なし）',
+    '',
+    `- 止めた理由：${record.outcome}（${STOPPED_REASON[record.outcome]}）`,
+    `- 推定料金：${record.usd === null ? '不明' : `$${record.usd}`}`,
+    ...(record.estimatedUsd === undefined ? [] : [`- 見込み：$${record.estimatedUsd}`]),
+    '',
+    '判定には使っていません（記録だけ）。',
+    '',
+    '<details><summary>記録（機械可読）</summary>',
+    '',
+    '```api-review-shadow',
+    json,
+    '```',
+    '',
+    '</details>',
+    '',
+  ].join('\n');
+}
+
+export type ParsedApiReviewComment =
+  | { headSha: string; outcome: 'posted'; record: ShadowRecord }
+  | { headSha: string; outcome: StoppedOutcome; record: StoppedRecord };
+
+/** コメントから記録を読み戻す。目印・フェンスがちょうど1つで、JSON と version と head が合わなければ null（投げない）。outcome 欄が無く verdict があれば posted、outcome が語彙内で verdict が無ければ止めた記録 */
+export function parseApiReviewComment(body: string): ParsedApiReviewComment | null {
   const marks = [...body.matchAll(MARK)];
   const fences = [...body.matchAll(FENCE)];
   if (marks.length !== 1 || fences.length !== 1) return null;
@@ -86,7 +134,18 @@ export function parseShadowComment(body: string): { headSha: string; record: Sha
     return null;
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  const record = value as ShadowRecord;
-  if (record.version !== 1 || record.headSha !== headSha) return null;
-  return { headSha, record };
+  const obj = value as Record<string, unknown>;
+  if (obj['version'] !== 1 || obj['headSha'] !== headSha) return null;
+  const hasVerdict = 'verdict' in obj;
+  if (!('outcome' in obj)) return hasVerdict ? { headSha, outcome: 'posted', record: value as unknown as ShadowRecord } : null;
+  const outcome = obj['outcome'];
+  if (hasVerdict || typeof outcome !== 'string' || !STOPPED_OUTCOMES.includes(outcome)) return null;
+  return { headSha, outcome: outcome as StoppedOutcome, record: value as unknown as StoppedRecord };
+}
+
+/** コメントから posted の記録を読み戻す（投稿しなかった記録には null）。 */
+export function parseShadowComment(body: string): { headSha: string; record: ShadowRecord } | null {
+  const parsed = parseApiReviewComment(body);
+  if (parsed === null || parsed.outcome !== 'posted') return null;
+  return { headSha: parsed.headSha, record: parsed.record };
 }
