@@ -146,6 +146,10 @@ Reviewer のブロッキング指摘を受けて Routine が直すこと。通�
 
 人が Issue や PR に付ける個別停止のラベル。PR なら merge-route が failure になり、Issue なら Routine が処理しない。詳細：[operations.md](operations.md#止める仕組み)
 
+### 確認事項
+
+人の判断が要る場面で、付き添いのセッションが止まって待たずに Issue / PR へコメントで書く質問（```` ```agent-confirm ````）。人が手元のダッシュボードか `/answer` のコメントで答えると、`step` と `fleet-status` が答えで止めた段階を返す。セッションは答えを書かない。詳細：[formats.md](formats.md#確認事項agent-confirm)
+
 ### ダッシュボード
 
 App が作る「Agent ダッシュボード」Issue。人の対応待ち、コンフリクト、停滞している Issue・PR、必須ラベルが足りない（または規則に反する）Issue・PR を1時間ごとに一覧にする。queue の節の後ろの「改善の候補」の節には、Routine がダッシュボードに書いたセッションの問題の記録（コラボレーターの `agent-incident` のコメント）のうち直近 7 日のものを新しい順に最大 20 件並べる（API の呼び出しを抑えるため、古いコメントは読まない）（表示だけで、ゲートの判断には使わない）。`gate.yml` は `agent-incident` のコメントでは起動しないので、この節はコメントの時点では変わらず、queue と同じく定期実行（1時間ごと）か手動の起動のときに更新される（定期実行が `periodicCatchUpMinutes` 分以上来なければ、イベントで動いた gate が補う）。詳細：[operations.md](operations.md#止める仕組み)

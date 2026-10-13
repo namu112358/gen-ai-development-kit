@@ -23,6 +23,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - 着手宣言：Issue に手を付ける最初に、その段階の skill の手順どおり `claim <番号> --manual --stage <段階>` で宣言する（計画・批評の前も）。宣言にはこのセッションの ID が入り、ほかのセッションとダッシュボードに段階が見える。ほかのセッションの宣言があれば `claim` は止まるので、引き継ぐかを AskUserQuestion で人に聞く（引き継ぐのは人が決めたときだけ `--takeover`）。
    - 最初の宣言が持ち主。`claim` が「先に宣言したセッションがある」で止まったら（同時に宣言して後の側になった。自分の宣言は取り下げ済み）、その Issue は進めず、作業を始めずに、手順10の一覧に「#番号 は session …（エラーに出た短い ID）が着手中」と書いて終える。引き継ぐかは人が決める（この場では聞かない）。
    - 人の判断待ちで止めてセッションを終えるときは `node harness/scripts/agent.ts release <番号>` で解除する（宣言が残ると、ほかのセッションを待たせ、期限切れとして報告される）。`post-plan` はゲートを通らない見込みなら自分で解除する。`/clear` などでセッション ID が変わったら、前のセッションの宣言を1件ずつ聞かずに、「前のセッション（session <短い ID>）の宣言 #…（N 件）をこのセッションに引き継ぐか」を AskUserQuestion の1問でまとめて聞き、引き継ぐなら全部を `claim --takeover` で出し直す（拒まれたら出し直さない）。
+   - 確認事項：人に上げる場面で、[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方の確認事項の (a)(b) に当たるときは、AskUserQuestion の代わりに確認事項を書いて `release <番号>` し、手順10の一覧の「確認事項の答え待ち」に載せる（`node harness/scripts/agent.ts check <ファイル>` の後に `node harness/scripts/agent.ts post-confirm <番号> <ファイル>`）。`step <番号>` が確認事項の答えで `run` のノード（`preconditions` に「確認事項（URL）に人が答えた」）を出したら、その `claim` で宣言し直し、`inputs` の先頭の人の答え（人の言葉のまま）で続きから進める。答えのコメントは書かない。
    - `claim` が Assignee で止まった（`harness.config.json` の `requireAssignee` が有効で、誰もアサインされていない・ほかの人・2人以上）：自分をアサインせずに進めず、人に返す（質問にはせず、止まった理由を手順10の一覧に書いて終える。アサインするかは人が決める。[harness/docs/operations.md](../../../harness/docs/operations.md) の担当）。途中の段階の確かめ（`critic-input`・`post-plan`・`worktree`・`ensure-claim`）で止まったときも同じ。
    - `agent:hold`・`agent:blocked`・`agent:waiting` が付いている：進めずに人に返す。ただし Stacked PR の上の層が `gh stack link` の前に付いた orphan-base（App の `kind=orphan-base`）は例外で、[gh-stack](../gh-stack/SKILL.md) の skill で組めば App が戻す。
    - `epic`：App の記録（`kind=epic-split`）の子課題を、依存の順に1つずつこの手順で進める。1つが人の Merge 待ちか人の判断待ちになったら、そこで人に返す（次の子課題は、その Merge の後）。
@@ -54,6 +55,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
    - `node harness/scripts/setup.ts` の実行が要る変更か（ラベル・Ruleset・Environment・App の設定を変えた）
    - Merge 後の確かめ（Issue の Validation Requirements、AC のうち Merge 後に確かめるもの）
    - 宣言で負けて進めなかった Issue：「#番号 は session … が着手中」（引き継ぐなら人が決めて `--takeover`）
+   - 確認事項の答え待ち：「#番号（PR #番号）確認事項の答え待ち（確認事項の URL）：聞いたこと」。答えは手元のダッシュボードか、確認事項のコメントへの `/answer`（セッションは代わりに書かない）
    - Assignee で止まった Issue：「#番号 は Assignee が自分1人ではない（理由）」（アサインは人が決める）
    - 改善の候補：手順9の Issue の候補（題と下書きの本文のファイルのパス）と、開いた Issue へのコメントの案。docs の候補もここに並べる。起票・コメントは人が選んだものだけ（自動で起票しない）。候補が無ければ「改善の候補はありません」と書く
 
@@ -89,6 +91,7 @@ fleet の入れ子の方式（[.claude/skills/fleet/SKILL.md](../fleet/SKILL.md)
 - 最初に、自分が Agent ツールを使えるかを確かめる。使えなければ何もせず（着手宣言もしない）「入れ子不可」と返す。
 - 入れ子のサブエージェントの ship として動くときは、各 skill が呼ぶ担当（reviewer・risk-agent・合体版のレビューの担当（review-intake・review-lens・review-ac-scope・review-safety・review-overbuild）・review-scorer、plan-critic・test-designer など ship が Agent ツールで呼ぶサブエージェントすべて）を `run_in_background` にせず、前で呼んで返りを待つ。裏で起こすと担当の報告（SubagentHandback）が ship ではなく fleet に届き、ship は報告を受け取れずに段階の途中で返る（#844・#857）。並行に動かすときは、1つのメッセージに複数の Agent 呼び出しを並べ、全部が返ってから次に進む。入れ子でない（人が直接動かす fleet・ship）ときの呼び方は変えない。
 - 各 skill が AskUserQuestion で人に聞くところ（人に上げる場面。plan-critic の止める条件で必須の指摘が残るときの「進める／直す／やめる」、ガードレール・`delegateMergeExclude`・`harness.config.json` に触れる計画の `agent:plan-review`、引き継ぎ（`--takeover`）など）では聞かずに止まり、Issue 番号・段階・聞きたいこと・選択肢（おすすめを先頭）を返す。宣言の扱いは、人の判断待ちで止めるときと同じ（必要なら `release <番号>`）。fleet から答えを渡されて呼び直されたら、その答えを人の答えとして続きから進める。
+- 確認事項（上の人に上げる場面で、規則の (a)(b) に当たるとき）も、ship は `post-confirm` を書かずに同じ形で返す（書くかは fleet が決める）。「確認事項の答えで再開」と渡されて呼ばれたら、渡された答えの文ではなく、`step <番号>` の `inputs` の先頭の人の答え（GitHub の確認事項への答え）を根拠に、続きから進める。
 - plan の投稿の前の質問（plan の skill の手順3の「投稿の前に人に聞く」。計画ブロックに `openQuestions` か `needsHumanReasons` がある）でも、聞かずに止まる。計画を投稿せず、批評（plan の手順5）にも進まずに、Issue 番号・段階（投稿の前の質問）・質問と選択肢（おすすめを先頭）・書きかけの計画のファイルのパス（scratchpad）を fleet に返す。着手宣言は `plan` のまま残す（解除しない。答えの無いまま fleet が終えるときは fleet が `release <番号>` する）。批評の `revise` で直した計画に新しい質問が出たときも、同じように止まって fleet に返す。
 - 投稿の前の質問への答えを渡されて呼び直されたら、先に `claim <番号> --manual --stage plan` で宣言を確かめ直し（fleet が `release` した後なら宣言し直す）、渡されたパスの計画に、答えを人の答えとして plan の skill の手順3どおり書き込み（節「人の決定（投稿の前に聞いたこと）」）、解消したものを `openQuestions`・`needsHumanReasons` から除いてから、批評（plan の手順5）と投稿（plan の手順8）に進む。「答え無し」（人が拒んだ・答えなかった）の質問は申告に残して投稿する（投稿の後は plan の手順9の経路。答えが無いので `post-decision` はしない）。書きかけの計画のファイルが無ければ plan の手順2から書き直し、渡された答えをそのまま書き込む（同じ質問を fleet に返し直さない）。
 - implement の前と sync の前に、fleet から渡された Issue 番号の集合と `--max` で `node harness/scripts/agent.ts fleet-status [--max <n>] <番号>...` を読み、自分の行が「待つ」なら進めずに、その理由を返す（自分の番号だけで読むと、ほかの Issue との重なり・PR 同士の衝突・本数が数えられない）。
@@ -119,7 +122,7 @@ fleet から起こされた ship（節「サブエージェントの ship とし
 
 - 次のどちらか。
   - 人の Merge 待ち：Ready の PR があり、App が auto-merge を付けたか、`kind=human-review` のコメントを付けた。
-  - 人の判断待ち：どの段階の、何を決めてほしいかを AskUserQuestion で聞いた（拒まれた・答えが無いときは文章で示した）。
+  - 人の判断待ち：どの段階の、何を決めてほしいかを AskUserQuestion で聞いた（拒まれた・答えが無いときは文章で示した）。または確認事項を書いて `release <番号>` した（手順10の一覧の「確認事項の答え待ち」に載せた）。
 - 人がすることの一覧を出した。
 - 改善の候補を示した（無ければ無いと書いた）。
 
@@ -131,6 +134,7 @@ fleet から起こされた ship（節「サブエージェントの ship とし
 - `requireAssignee` が有効で、Issue（PR の段階なら PR が Close する Issue）の Assignee が自分1人でない（自分をアサインしない）
 - 計画の批評が止める条件に当たった、または `drop`（「進める／直す／やめる」を AskUserQuestion で聞く）
 - 計画ゲートで止まり（`agent:plan-review`）、ガードレール・`delegateMergeExclude`・`harness.config.json` に触れるなど人に上げる場面で、人が進めてよいと言わない
+- 確認事項を書いて `release <番号>` した（答えが来るまでその Issue は進めず、手順10の一覧の「確認事項の答え待ち」に載せて返す）
 - 判定の不合格が修正の上限を超えた（`fix-limit`）
 - 両方の意図を残して解消できない衝突がある
 - Ready になっても、App が auto-merge も `kind=human-review` も付けない
