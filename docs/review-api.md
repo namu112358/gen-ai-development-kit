@@ -100,6 +100,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `.dev.vars.example` | `wrangler dev` 用の環境変数の例（実際の値は `.dev.vars` に書き、git に入れない） | 設定 |
 | `.gitignore` | `node_modules`・`.dev.vars` などを git に入れない | 設定 |
 | `scripts/send-webhook.ts` | 手元の `wrangler dev` に署名つきの Webhook を送る | Node |
+| `README.md` | 構成・コマンド・docs への案内 | 文書 |
 
 テストは `harness/test/review-api-*.test.ts`（`node:test`。外部 API は呼ばず、`fetch` と Claude のクライアントを偽物にする）。根の CI は根の `npm ci` → `npm run check` だけを行い、根の `tsconfig.json`（include は `harness/**`）が `harness/test` の import を辿って `review-api/src` も型検査する。そのため `review-api/src` のうち `cloudflare:workers`・`@anthropic-ai/sdk` を読み込むのは `worker.ts` と `workflow.ts` だけ（テストは import しない）で、ほかは Node 24 でそのまま動く。`review-api/package.json` は `"type": "module"`（根の tsconfig は `module: nodenext` なので、辿られたファイルを ESM として扱わせる）。Worker・Workflow の型検査は `review-api/tsconfig.json`（`src/**`・`scripts/**`、`@cloudflare/workers-types`）で別に行う。
 
@@ -194,7 +195,7 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
    ```
 2. ダッシュボードの Workers & Pages → Create application → Import a repository でこのリポジトリを選ぶ。Project name は `gen-ai-development-kit-review-api`（`wrangler.jsonc` の `name` と一致させる。別の Worker ができないように。Import の既定の名前は `<リポジトリ名>-review-api`）、Root directory は `review-api`、Build command は空、Deploy command は `npx wrangler deploy`。Deploy を押す（Worker のコードがまだ無ければ初回のビルドは失敗して構わない）。
 3. 作成後、Settings → Builds で、Preview builds（main 以外のブランチのビルド）を無効にし（Agent の PR ブランチの push でビルドが走らないように）、Build watch paths の Include paths を `review-api/**` にし（review-api に関係ない Merge でビルドが走らないように）、API token が「unavailable」なら新しく作るか既存のものを選ぶ（無いとビルドがデプロイできない）。
-4. Settings → Variables and Secrets で、節 8.3 の6つを **Type を Secret** にして入れる（識別子も、デプロイで消えないよう Secret として入れる）。
+4. Settings → Variables and Secrets で、節 8.3 の8つを **Type を Secret** にして入れる（識別子も、デプロイで消えないよう Secret として入れる）。
 
 手元で wrangler を使うのは `wrangler dev`（節 9）だけ。
 
@@ -208,6 +209,8 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 | `GITHUB_APP_CLIENT_ID` | Secret | Cloudflare の Worker | JWT の `iss`（秘密ではないが、デプロイで消えないよう Secret として入れる） |
 | `GITHUB_INSTALLATION_ID` | Secret | Cloudflare の Worker | token の発行先と、イベントの照合（同上） |
 | `ALLOWED_REPOS` | Secret | Cloudflare の Worker | 受け付けるリポジトリ（`owner/repo`。カンマ区切り。同上） |
+| `REVIEW_APP_LOGIN` | Secret | Cloudflare の Worker | レビュー専用 App の bot の login（例 `<slug>[bot]`）。前回の記録・同じ head の記録をこの名義のコメントに絞る（同上） |
+| `GATE_APP_LOGIN` | Secret | Cloudflare の Worker | plan-gate の記録を書く既存 App の bot の login。この名義の計画を読む（同上） |
 
 `wrangler.jsonc` に置くのは KV の id だけ（秘密ではない）。値は `vars` に書かない（書くとデプロイのたびにダッシュボードの値を上書きする）。既存 App（`AGENT_APP_PRIVATE_KEY`・`AGENT_APP_CLIENT_ID`・`JEV_API_KEY`）は触らない。GitHub Actions の Secrets・変数も増やさない。
 
@@ -220,12 +223,12 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 ```bash
 npm run check                                      # 根の型検査とテスト（review-api の純粋なロジックのテストを含む）
 cd review-api && npm install && npm run check      # Worker / Workflow の型検査
-cp .dev.vars.example .dev.vars                     # 値を埋める（gitignore 済み。vars は wrangler.jsonc に無いので、Client ID・installation id・ALLOWED_REPOS もここに書く）
+cp .dev.vars.example .dev.vars                     # 値を埋める（gitignore 済み。vars は wrangler.jsonc に無いので、Client ID・installation id・ALLOWED_REPOS・REVIEW_APP_LOGIN・GATE_APP_LOGIN もここに書く）
 npm run dev                                        # wrangler dev（http://localhost:8787）
 node scripts/send-webhook.ts opened owner/repo 123 <sha>   # 署名つきの Webhook を送る（別の端末）
 ```
 
-`wrangler dev` は Workflow も手元で動く。Claude を呼ばずに流れだけ見るときは `DRY_RUN=1`（Claude の段階を飛ばして固定の JSON を使う）。
+`wrangler dev` は Workflow も手元で動く。Claude を呼ばずに流れだけ見るときは `DRY_RUN=1`（Claude の段階を飛ばして固定の JSON を使う。`.dev.vars` に `DRY_RUN=1` を書く）。
 
 ### 9.1 実 API を使う結合テスト（この Issue では実行しない）
 
