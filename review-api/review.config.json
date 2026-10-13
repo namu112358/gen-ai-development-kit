@@ -12,7 +12,8 @@
     "maxTokens": 16000,
     "maxToolCalls": 12,
     "maxDiffChars": 200000,
-    "maxFileChars": 60000
+    "maxFileChars": 60000,
+    "diffOnlyExtensions": [".md", ".html"]
   },
   "budget": {
     "monthlyUsd": 50,
