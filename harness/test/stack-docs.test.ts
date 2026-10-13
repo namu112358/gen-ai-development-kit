@@ -87,6 +87,17 @@ test('risk-agent・judge・sync は PR の base との差分を見る', () => {
   assert.ok(read('.claude/skills/sync/SKILL.md').includes(`git diff ${BASE_DIFF}`), 'sync/SKILL.md');
 });
 
+test('reviewer の PR の base は呼び出し元が渡す baseRefName で、judge は reviewer にそれを渡す（Issue #866）', () => {
+  const reviewer = read('.claude/agents/reviewer.md');
+  assert.ok(reviewer.includes('baseRefName'), 'reviewer.md に「baseRefName」が無い');
+  assert.ok(!reviewer.includes('節が無ければ `main`'), 'reviewer.md に「節が無ければ `main`」が残っている');
+  const line = read('.claude/skills/judge/SKILL.md')
+    .split('\n')
+    .find((l) => l.includes('**reviewer**'));
+  assert.ok(line, 'judge/SKILL.md に reviewer に渡すものの行が無い');
+  assert.ok(line.includes('baseRefName'), 'judge/SKILL.md の reviewer に渡すものに「baseRefName」が無い');
+});
+
 test('harness/docs/formats.md と docs/plan.md にスタックの記録と計画の書き方がある', () => {
   assertIncludesAll(read('harness/docs/formats.md'), ['stack-link', 'orphan-base', 'base-resolved', 'stack-closed'], 'harness/docs/formats.md');
   assertIncludesAll(read('docs/plan.md'), ['Stacked PR', 'Refs #N', 'App が閉じる'], 'docs/plan.md');

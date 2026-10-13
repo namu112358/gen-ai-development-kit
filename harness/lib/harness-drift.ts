@@ -95,7 +95,7 @@ export function harnessVersionsOnDisk(cwd: string): Record<string, string> | nul
   return out;
 }
 
-/** ref（origin/main・commit など）の中身の版。ref が無い・git が失敗すれば null */
+/** ref（origin/<既定ブランチ>・commit など）の中身の版。ref が無い・git が失敗すれば null */
 export function harnessVersionsAt(cwd: string, ref: string): Record<string, string> | null {
   const ls = git(cwd, ['ls-tree', '-r', '-z', ref, '--', ...HARNESS_PATHS]);
   if (!ls.ok) return null;

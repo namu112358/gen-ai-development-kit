@@ -1,7 +1,11 @@
-// Issue #833：セッションの前提の確かめ（session-doctor）が、git の名義・Orca の CLI・main の古さ・gh の認証の欠けごとに1行を出し、そろえば何も出さないことを確かめる（依存は差し替え、本物の gh・git・ls-remote を呼ばない）。
+// Issue #833：セッションの前提の確かめ（session-doctor）が、git の名義・Orca の CLI・既定ブランチ（harness.config.json の defaultBranch）の古さ・gh の認証の欠けごとに1行を出し、そろえば何も出さないことを確かめる（依存は差し替え、本物の gh・git・ls-remote を呼ばない）。
+// Issue #866：既定ブランチの名前は設定から取り、設定が読めなければ古さの1行を出さない（readDefaultBranch）。
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { sessionDoctor, sessionDoctorDisabled, type SessionDoctorDeps } from '../scripts/session-doctor.ts';
+import { readDefaultBranch, sessionDoctor, sessionDoctorDisabled, type SessionDoctorDeps } from '../scripts/session-doctor.ts';
 
 const LOCAL = 'a'.repeat(40);
 const ORIGIN = 'b'.repeat(40);
@@ -13,14 +17,17 @@ type Over = {
   git?: Record<string, GitReply>;
   env?: Record<string, string | undefined>;
   lsRemote?: () => Promise<string | null>;
+  /** 既定ブランチの名前（省くと 'main'。null は設定が読めないとき） */
+  defaultBranch?: string | null;
   gh?: () => Promise<number | null>;
   orcaFound?: boolean;
   totalTimeoutMs?: number;
 };
 
-/** 全部そろった状態の依存。over で1つずつ崩す。呼ばれた回数を calls に数える */
+/** 全部そろった状態の依存。over で1つずつ崩す。呼ばれた回数を calls に数え、git の引数と ls-remote に渡された branch を seen に控える */
 function deps(over: Over = {}) {
   const calls = { git: 0, lsRemote: 0, gh: 0, isExecutable: 0 };
+  const seen = { git: [] as string[], lsRemoteBranches: [] as string[] };
   const git: Record<string, GitReply> = {
     'config --get user.name': { status: 0, stdout: 'Someone\n' },
     'config --get user.email': { status: 0, stdout: 'someone@example.com\n' },
@@ -32,12 +39,15 @@ function deps(over: Over = {}) {
   const d: SessionDoctorDeps = {
     platform: 'linux',
     env: over.env ?? { AGENT_HARNESS_SESSION_DOCTOR: '1', ORCA_CLI_COMMAND: CLI, PATH: BIN },
+    defaultBranch: 'defaultBranch' in over ? (over.defaultBranch ?? null) : 'main',
     gitSync: (args) => {
       calls.git++;
+      seen.git.push(args.join(' '));
       return git[args.join(' ')] ?? { status: 1, stdout: '' };
     },
-    lsRemoteMain: () => {
+    lsRemoteBranch: (branch) => {
       calls.lsRemote++;
+      seen.lsRemoteBranches.push(branch);
       return over.lsRemote ? over.lsRemote() : Promise.resolve(LOCAL);
     },
     ghAuthStatus: () => {
@@ -50,7 +60,7 @@ function deps(over: Over = {}) {
     },
     totalTimeoutMs: over.totalTimeoutMs ?? 5_000,
   };
-  return { d, calls };
+  return { d, calls, seen };
 }
 
 test('sessionDoctor：前提が全部そろえば何も出さない', async () => {
@@ -94,15 +104,17 @@ test('sessionDoctor：環境変数の読み取りが例外を投げると Orca �
   assert.match(lines[0]!, /Orca/);
 });
 
-test('sessionDoctor：手元の main が origin より古いときだけ main の1行（SHA は入れない）。古くない・決められないときは出さない', async () => {
+test('sessionDoctor：手元の既定ブランチ（main）が origin より古いときだけ既定ブランチの1行（SHA は入れない）。古くない・決められないときは出さない', async () => {
   const stale: [string, Record<string, GitReply>][] = [
     ['origin の SHA が手元に無い', { [`cat-file -e ${ORIGIN}^{commit}`]: { status: 1, stdout: '' } }],
     ['origin の SHA が手元の祖先でない', { [`merge-base --is-ancestor ${ORIGIN} ${LOCAL}`]: { status: 1, stdout: '' } }],
   ];
   for (const [name, git] of stale) {
-    const lines = await sessionDoctor({}, deps({ git, lsRemote: async () => ORIGIN }).d);
-    assert.equal(lines.length, 1, name);
-    assert.match(lines[0]!, /main/, name);
+    const { d, seen } = deps({ git, lsRemote: async () => ORIGIN });
+    const lines = await sessionDoctor({}, d);
+    assert.deepEqual(lines, ['手元の既定ブランチ（main）が origin より古いです（git fetch origin で取り込めます）'], name);
+    assert.ok(seen.git.includes('rev-parse --verify --quiet refs/heads/main'), `${name}：refs/heads/main を rev-parse していない`);
+    assert.deepEqual(seen.lsRemoteBranches, ['main'], `${name}：ls-remote に main が渡っていない`);
     assert.ok(!lines[0]!.includes(LOCAL) && !lines[0]!.includes(ORIGIN), `${name}：SHA を行に入れない`);
     assert.ok(!lines[0]!.includes(LOCAL.slice(0, 7)) && !lines[0]!.includes(ORIGIN.slice(0, 7)), `${name}：短い SHA も入れない`);
   }
@@ -116,6 +128,57 @@ test('sessionDoctor：手元の main が origin より古いときだけ main �
   ];
   for (const [name, over] of silent) {
     assert.deepEqual(await sessionDoctor({}, deps(over).d), [], name);
+  }
+});
+
+test('sessionDoctor：defaultBranch が develop なら refs/heads/develop を rev-parse・ls-remote で見て、古いときだけ develop の1行を出す', async () => {
+  const develop = { 'rev-parse --verify --quiet refs/heads/develop': { status: 0, stdout: `${LOCAL}\n` } };
+  const cases: [string, Record<string, GitReply>, string[]][] = [
+    ['古い（origin の SHA が手元の祖先でない）', { ...develop, [`merge-base --is-ancestor ${ORIGIN} ${LOCAL}`]: { status: 1, stdout: '' } }, ['手元の既定ブランチ（develop）が origin より古いです（git fetch origin で取り込めます）']],
+    ['古くない（origin が祖先）', develop, []],
+  ];
+  for (const [name, git, want] of cases) {
+    const { d, seen } = deps({ defaultBranch: 'develop', git, lsRemote: async () => ORIGIN });
+    assert.deepEqual(await sessionDoctor({}, d), want, name);
+    assert.ok(seen.git.includes('rev-parse --verify --quiet refs/heads/develop'), `${name}：refs/heads/develop を rev-parse していない`);
+    assert.ok(!seen.git.includes('rev-parse --verify --quiet refs/heads/main'), `${name}：refs/heads/main を見た`);
+    assert.deepEqual(seen.lsRemoteBranches, ['develop'], `${name}：ls-remote に develop が渡っていない`);
+  }
+});
+
+test('sessionDoctor：defaultBranch が null（設定が読めない）なら既定ブランチの1行を出さず、ls-remote も refs/heads の rev-parse も呼ばない。ほかの行は出る', async () => {
+  // 手元が古い状態でも出さない
+  const { d, calls, seen } = deps({
+    defaultBranch: null,
+    lsRemote: async () => ORIGIN,
+    gh: async () => 1,
+    git: { [`merge-base --is-ancestor ${ORIGIN} ${LOCAL}`]: { status: 1, stdout: '' } },
+  });
+  const lines = await sessionDoctor({}, d);
+  assert.equal(lines.length, 1, lines.join(' / '));
+  assert.match(lines[0]!, /gh/);
+  assert.ok(!lines.some((l) => l.includes('既定ブランチ')), '既定ブランチの1行を出した');
+  assert.equal(calls.lsRemote, 0, 'ls-remote を呼んだ');
+  assert.deepEqual(seen.git.filter((a) => a.includes('refs/heads/')), [], 'refs/heads を rev-parse した');
+});
+
+test('readDefaultBranch：cwd の harness.config.json の defaultBranch が空でない文字列ならその値、無い・壊れた・空・文字列でないときは null', () => {
+  const cases: [string, string | null, string | null][] = [
+    ['develop', JSON.stringify({ defaultBranch: 'develop' }), 'develop'],
+    ['ファイルが無い', null, null],
+    ['JSON が壊れている', '{"defaultBranch": "develop"', null],
+    ['空文字', JSON.stringify({ defaultBranch: '' }), null],
+    ['文字列でない', JSON.stringify({ defaultBranch: 1 }), null],
+    ['キーが無い', JSON.stringify({}), null],
+  ];
+  for (const [name, content, want] of cases) {
+    const dir = mkdtempSync(join(tmpdir(), 'read-default-branch-'));
+    try {
+      if (content !== null) writeFileSync(join(dir, 'harness.config.json'), content);
+      assert.equal(readDefaultBranch(dir), want, name);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });
 

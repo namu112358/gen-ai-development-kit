@@ -1,4 +1,5 @@
-// Issue #739：合体版のレビューの担当が、Stacked PR の層を PR の base からの差分で読む（既定ブランチ宛ては今と同じ main からの差分）
+// Issue #739：合体版のレビューの担当が、Stacked PR の層を PR の base からの差分で読む（既定ブランチ宛ては既定ブランチからの差分）
+// Issue #866：PR の base は呼び出し元が渡す baseRefName で、main を固定・既定にしない
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -32,7 +33,8 @@ function step(text: string, n: number): string {
 }
 
 const BASE_DIFF = 'git diff origin/<PR の base>...<headSha>';
-const MAIN_DIFF = 'origin/main...<headSha>';
+const MAIN_REF = 'origin/main';
+const MAIN_FALLBACK = '節が無ければ `main`';
 
 const AGENTS = [
   '.claude/agents/review-intake.md',
@@ -43,20 +45,21 @@ const AGENTS = [
   '.claude/agents/review-scorer.md',
 ];
 
-test('合体版の担当6つは diff を PR の base から読み、main 固定の diff を書かない', () => {
+test('合体版の担当6つは diff を PR の base から読み、origin/main を書かない', () => {
   for (const path of AGENTS) {
     const text = read(path);
     assert.ok(text.includes(BASE_DIFF), `${path} に「${BASE_DIFF}」が無い`);
-    assert.ok(!text.includes(MAIN_DIFF), `${path} に「${MAIN_DIFF}」が残っている`);
+    assert.ok(!text.includes(MAIN_REF), `${path} に「${MAIN_REF}」が残っている`);
   }
 });
 
-test('合体版の担当6つは、下の層の変更は下の層の PR で見ることと、base が無いときの main を書く', () => {
+test('合体版の担当6つは、下の層の変更は下の層の PR で見ることと、PR の base が baseRefName であることを書き、節が無いときの main を書かない', () => {
   for (const path of AGENTS) {
     const text = read(path);
-    for (const w of ['下の層の PR', '`main`']) {
+    for (const w of ['下の層の PR', 'baseRefName']) {
       assert.ok(text.includes(w), `${path} に「${w}」が無い`);
     }
+    assert.ok(!text.includes(MAIN_FALLBACK), `${path} に「${MAIN_FALLBACK}」が残っている`);
   }
 });
 
@@ -68,12 +71,14 @@ test('review-lens・review-scorer の入力の節に PR の base がある', () 
   }
 });
 
-test('review-panel の skill は担当に PR の base からの diff を念押しし、review-lens・review-scorer に PR の base を渡す', () => {
+test('review-panel の skill は担当に PR の base（baseRefName）からの diff を念押しし、review-lens・review-scorer に PR の base を渡す', () => {
   const text = read('.claude/skills/review-panel/SKILL.md');
   const steps = section(text, '## 手順');
   assert.ok(steps !== '', 'SKILL.md に ## 手順 の節が無い');
   assert.ok(steps.includes(`origin/<PR の base>...<headSha>`), '## 手順 に「origin/<PR の base>...<headSha>」が無い');
-  assert.ok(!text.includes(MAIN_DIFF), `SKILL.md に「${MAIN_DIFF}」が残っている`);
+  assert.ok(!text.includes(MAIN_REF), `SKILL.md に「${MAIN_REF}」が残っている`);
+  assert.ok(text.includes('baseRefName'), 'SKILL.md に「baseRefName」が無い');
+  assert.ok(!text.includes('なら `main`'), 'SKILL.md に「なら `main`」が残っている');
 
   const step2 = step(steps, 2);
   assert.ok(step2 !== '', '手順2 が無い');

@@ -201,6 +201,7 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 ```json
 {
   "threshold5h": 80,
+  "threshold7d": 90,
   "accounts": [
     { "orcaId": "<Orca のアカウント ID>", "name": "work", "configDir": "~/.config/agent-harness/claude/work" }
   ]
@@ -208,6 +209,7 @@ worktree は作業ツリーがそれぞれ別なので、worktree でも同じ�
 ```
 
 - `threshold5h`（既定 80）：5h の使用量（%）がこの値以上のアカウントは選ばない。全部が以上なら fleet はその Issue を起こさず待つ。
+- `threshold7d`（既定 90）：7d の使用量（%）がこの値以上のアカウントも選ばない。7d が分からない（null の）アカウントは 7d では外さない。リセット時刻を過ぎた 5h・7d の値は 0% とみなし、順番は 5h と 7d の高い方で決める。
 - 設定ディレクトリ（`configDir`）の準備は人が手でする。`~/.config/agent-harness/claude/` の下に置き、その設定ディレクトリで一度 `CLAUDE_CONFIG_DIR=<configDir> claude` を起動して、ログインと初回の案内、本体（main の checkout）のパスの信頼、auto mode の確認を済ませる。済んでいないと pick が `onboarding`・`trust`・`auto-mode-prompt` で外す。信頼は本体のパスで済ませる（表記が違うと `trust` で外れ、残りの候補か `default` になる）。ハーネスは設定ディレクトリを作らず、書き換えない。
 - 問い合わせ（`probe.ts`）はアカウントごとに haiku を1回呼ぶ（使用量を少し使う。10 分以内の控えがあれば呼ばない）。
 - 環境変数 `ANTHROPIC_API_KEY`・`CLAUDE_CODE_OAUTH_TOKEN` が worker の端末にあると、`CLAUDE_CONFIG_DIR` のアカウントでなくその資格情報で動くので、振り分けを使うときは置かない（端末の環境はハーネスが変えない。問い合わせの子プロセスには渡さない）。
