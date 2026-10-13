@@ -541,7 +541,7 @@ export function renderCriticInput(issue: { number: number; title: string; body: 
 const REVIEWER_KEYS = { required: ['pass', 'blocking'], optional: ['nonBlocking', 'humanNotes'] };
 const RISK_KEYS = { required: ['level', 'answers', 'rationale', 'facts'], optional: ['probabilities'] };
 const BLOCKING_KEYS = { required: ['kind', 'detail'], optional: ['file'] };
-const HUMAN_NOTES_KEYS = { required: [], optional: ['concerns', 'checkPoints'] };
+const HUMAN_NOTES_KEYS = { required: [], optional: ['concerns', 'checkPoints', 'acNotes'] };
 
 /** キーの照合。未知のキー（綴りの誤り）と必須のキーの欠けを拒否する */
 function checkKeys(raw: unknown, name: string, keys: { required: string[]; optional: string[] }): string[] {
