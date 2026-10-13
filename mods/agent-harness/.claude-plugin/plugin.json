@@ -1,6 +1,6 @@
 {
   "name": "agent-harness",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "hq・fleet の状況を Claude Code の画面に出す（試し：hq の人待ち）",
   "types": "./types/index.d.ts",
   "userConfig": {
