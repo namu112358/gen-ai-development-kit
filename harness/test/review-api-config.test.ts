@@ -1,5 +1,6 @@
 // review-api の設定（review-api/review.config.json）を読み取る loadReviewConfig（review-api/src/config.ts）が、
-// 設定ファイルをそのまま読めることと、鍵の欠け・型違い・負の数・空の actions・pricing の数でない値を鍵のパスつきの1つの Error にまとめることを確かめる（Issue #877）
+// 設定ファイルをそのまま読めることと、鍵の欠け・型違い・負の数・空の actions・pricing の数でない値を鍵のパスつきの1つの Error にまとめることを確かめる（Issue #877）。
+// あわせて trigger.issueLink の受け付けと誤りを確かめる（Issue #1048）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
@@ -39,6 +40,8 @@ const broken: { name: string; path: string; mutate: (raw: Record<string, any>) =
   { name: 'pricing の数でない値', path: 'pricing.claude-opus-5-5.input', mutate: (r) => { r.pricing['claude-opus-5-5'].input = '4'; } },
   { name: '下のオブジェクトが null', path: 'budget', mutate: (r) => { r.budget = null; } },
   { name: '下のオブジェクトが配列', path: 'trigger', mutate: (r) => { r.trigger = []; } },
+  { name: 'trigger.issueLink が規則外', path: 'trigger.issueLink', mutate: (r) => { r.trigger.issueLink = 'refs'; } },
+  { name: 'trigger.issueLink が文字列でない', path: 'trigger.issueLink', mutate: (r) => { r.trigger.issueLink = true; } },
 ];
 
 for (const { name, path, mutate } of broken) {
@@ -48,6 +51,17 @@ for (const { name, path, mutate } of broken) {
     assert.throws(() => loadReviewConfig(raw), errorWith(path));
   });
 }
+
+test('trigger.issueLink は closes・closes-or-refs を受け付け、無ければ鍵を置かない', () => {
+  for (const link of ['closes', 'closes-or-refs'] as const) {
+    const raw = structuredClone(readRaw());
+    raw.trigger.issueLink = link;
+    assert.equal(loadReviewConfig(raw).trigger.issueLink, link);
+  }
+  const raw = structuredClone(readRaw());
+  delete raw.trigger.issueLink;
+  assert.ok(!Object.hasOwn(loadReviewConfig(raw).trigger, 'issueLink'));
+});
 
 for (const [name, raw] of [['null', null], ['配列', []]] as const) {
   test(`入力が${name}なら誤りになる`, () => {
