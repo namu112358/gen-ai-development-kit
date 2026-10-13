@@ -180,6 +180,8 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 
 **上限**：`budget.monthlyUsd` を超えたら Claude を呼ばず `outcome: budget-exceeded` を記録する。`budget.perReviewUsd` は材料とツールの呼び出しの見込み（下の「キャッシュの置き方」の式）で事前に確かめる（超えたら `outcome: too-large`）。KV は結果整合なので月の上限は目安（数件の超過はあり得る）。
 
+**上限をダッシュボードで変える**：Worker の Settings → Variables and Secrets で、`BUDGET_MONTHLY_USD`（月）・`BUDGET_PER_REVIEW_USD`（1 レビュー）を Type Text で入れると、`review.config.json` の `budget` をその値で上書きする（保存するとその場で新しい版が出る。PR は要らない）。消せば `review.config.json` の値に戻る。`wrangler.jsonc` の `keep_vars: true` でデプロイの後も残る。正の数として読めない値（数でない・0 以下）を入れたときは、既定に戻さず Claude を呼ばずに `budget-exceeded` を記録し（記録に `budgetInvalid: true`）、ログに `budget invalid` を出す。使った上限は毎回ログの `budget limits monthlyUsd=… perReviewUsd=…` の行に出る。
+
 **キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置きだけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。Reviewer と Risk が同じモデルのときは Risk の問いが Reviewer の書いた system＋材料のキャッシュを読み（今の既定は別モデルなので Risk は自分の材料を書き込む）、ツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。今の設定（Reviewer Opus 5.5・Risk Sonnet 5.5）では材料 20k で Reviewer＋Risk 約 $1.4、60k で約 $1.9（Reviewer の分は変わらず、Risk の分が半額）。Risk のキャッシュは Reviewer（Opus）と共有できない（キャッシュはモデルごと）。Risk の材料は Sonnet の単価で書き込む。
 
 **実測**：
@@ -214,6 +216,8 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 3. 作成後、Settings → Builds で、Preview builds（main 以外のブランチのビルド）を無効にし（Agent の PR ブランチの push でビルドが走らないように）、Build watch paths の Include paths を `review-api/**` にし（review-api に関係ない Merge でビルドが走らないように）、API token が「unavailable」なら新しく作るか既存のものを選ぶ（無いとビルドがデプロイできない）。
 4. Settings → Variables and Secrets で、節 8.3 の秘密の3つを **Type を Secret** にして入れる。秘密でない5つはダッシュボードで入れず、`wrangler.jsonc` の `vars` に書く（デプロイで入る）。前の手順で5つをダッシュボードに入れていたら、Secret でも Text でも、`vars` を足す変更の Merge の前に消す（同じ名前の Secret が残っているとデプロイが失敗する）。
 
+Observability（Worker のログ）は `wrangler.jsonc` の `observability` で on にしている。ダッシュボードで切り替えても、次のデプロイで `wrangler.jsonc` の値に戻る。
+
 手元で wrangler を使うのは `wrangler dev`（節 9）だけ。
 
 ### 8.3 必要な Secrets・変数と権限の一覧
@@ -228,8 +232,10 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 | `ALLOWED_REPOS` | var | `review-api/wrangler.jsonc` の `vars` | 受け付けるリポジトリ（`<owner>/<repo>`。カンマ区切り） |
 | `REVIEW_APP_LOGIN` | var | `review-api/wrangler.jsonc` の `vars` | レビュー専用 App の bot の login（例 `<slug>[bot]`）。前回の記録・同じ head の記録をこの名義のコメントに絞る |
 | `GATE_APP_LOGIN` | var | `review-api/wrangler.jsonc` の `vars` | plan-gate の記録を書く既存 App の bot の login。この名義の計画を読む |
+| `BUDGET_MONTHLY_USD` | var（任意） | Cloudflare の Worker（ダッシュボード、Type Text） | 月の上限の上書き（節 7）。無ければ `review.config.json` の値 |
+| `BUDGET_PER_REVIEW_USD` | var（任意） | Cloudflare の Worker（ダッシュボード、Type Text） | 1 レビューの上限の上書き（節 7）。無ければ `review.config.json` の値 |
 
-秘密でない5つは `wrangler.jsonc` の `vars` に書き、ダッシュボードでは入れない。`wrangler deploy`（Workers Builds）は `wrangler.jsonc` に無いダッシュボードの Text の変数を消す（Secret は残る）ので、ダッシュボードに Text で入れた値は次のデプロイで黙って消え、Worker が止まる（2026-10-13 に `ALLOWED_REPOS` が消えて `repo-not-allowed` で止まった。#985）。秘密の3つは `wrangler.jsonc` に書かない。
+識別子の5つは `wrangler.jsonc` の `vars` に書き、ダッシュボードでは入れない（変更はレビューを通す）。運用で変える上限の2つはダッシュボードで入れる。`wrangler deploy`（Workers Builds）は、`wrangler.jsonc` の `keep_vars: true` で `wrangler.jsonc` に無いダッシュボードの変数を残し、`vars` にある名前は `wrangler.jsonc` の値で上書きする（`keep_vars` が無かった 2026-10-13 には、ダッシュボードに Text で入れた `ALLOWED_REPOS` がデプロイで消えて `repo-not-allowed` で止まった。#985）。秘密の3つは `wrangler.jsonc` に書かない。
 
 **ほかのリポジトリへの転用**：導入先ごとに変える値は `wrangler.jsonc` の `name`・KV の id・`vars` の5つで、秘密の3つは導入先の Cloudflare の Secret に入れる。同じ owner の別のリポジトリは、レビュー専用 App をそこにもインストールし（同じ installation になる）、`ALLOWED_REPOS` にカンマ区切りで足せば、1つの Worker で受けられる。
 
@@ -292,5 +298,5 @@ main への Merge で Cloudflare の Workers Builds がビルドしてデプロ�
 | --- | --- | --- |
 | レビュー専用の GitHub App を作る | 新しい名義と Webhook の作成（セキュリティ） | 作る（権限は節8.1） |
 | Cloudflare の plan | 課金の発生 | Free で始め、CPU の制限に当たったら Paid（$5/月） |
-| Claude API のキー | 課金の発生。Console のワークスペースで上限（月の spend limit）を切れる | 専用のワークスペースを作り、月の上限を `budget.monthlyUsd` と同じにする |
+| Claude API のキー | 課金の発生。Console のワークスペースで上限（月の spend limit）を切れる | 専用のワークスペースを作り、月の上限を `budget.monthlyUsd` と同じにする（`BUDGET_MONTHLY_USD` で上書きしたらその値に合わせる） |
 | Risk を Sonnet 5.5 のままにするか | 精度と費用の取り引き | 比較で一致率が下がらなければ Sonnet のまま |

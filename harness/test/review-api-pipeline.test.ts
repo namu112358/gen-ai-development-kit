@@ -206,6 +206,25 @@ test('outcome ごとに Claude の呼び出しの数・投稿・KV の review: �
   }
 });
 
+test('上限が正の有限の数でない（NaN）ときは Claude を呼ばずに budget-exceeded で止まり、KV の記録に budgetInvalid: true を入れる（Issue #989）', async () => {
+  const cases: [string, (c: ReviewConfig) => void][] = [
+    ['monthlyUsd が NaN', (c) => (c.budget.monthlyUsd = NaN)],
+    ['perReviewUsd が NaN', (c) => (c.budget.perReviewUsd = NaN)],
+  ];
+  for (const [name, mutate] of cases) {
+    const config = baseConfig();
+    mutate(config);
+    const r = await run({ config });
+    assert.equal(r.result.outcome, 'budget-exceeded', name);
+    assert.equal(r.claudeCalls.length, 0, `${name}: Claude の呼び出し`);
+    assert.equal(r.posted.length, 0, `${name}: 投稿`);
+    assert.equal(r.record?.outcome, 'budget-exceeded', `${name}: KV の記録`);
+    assert.equal((r.record as { budgetInvalid?: unknown } | null)?.budgetInvalid, true, `${name}: budgetInvalid`);
+    assert.equal(r.kv.get(COST_KEY), undefined, `${name}: 月の累計は変えない`);
+    assert.ok(r.logs.some((l) => l.includes('budget invalid')), `${name}: ログ ${r.logs.join(' | ')}`);
+  }
+});
+
 test('JSON の取り出しと検査で落ちた出力は verdict-invalid で投稿せず、使った分を月の累計に足す', async () => {
   const cases: [string, Message[], number][] = [
     ['JSON が読めない text', [msg([{ type: 'text', text: 'not json' }], 'end_turn')], 1],

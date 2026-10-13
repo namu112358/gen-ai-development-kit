@@ -166,3 +166,31 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
   if (errors.length > 0) throw new Error(`review.config.json の誤り（${errors.length} 件）\n${errors.join('\n')}`);
   return out;
 }
+
+/** 費用の上限を上書きする Worker の環境変数（ダッシュボードの変数。docs/review-api.md の節7） */
+export interface BudgetEnv {
+  BUDGET_MONTHLY_USD?: string;
+  BUDGET_PER_REVIEW_USD?: string;
+}
+
+/**
+ * env の上限で config.budget を上書きした新しい設定を返す（元の config は変えない）。
+ * 無い・空なら review.config.json の値のまま。有限の正の数として読めなければその上限を NaN にし、名前を invalid に入れる
+ * （黙って既定に戻さず、budget の段階で止める）。
+ */
+export function applyBudgetEnv(config: ReviewConfig, env: BudgetEnv): { config: ReviewConfig; invalid: string[] } {
+  const invalid: string[] = [];
+  const pick = (name: keyof BudgetEnv, fallback: number): number => {
+    const raw = env[name]?.trim() ?? '';
+    if (raw === '') return fallback;
+    const v = Number(raw);
+    if (Number.isFinite(v) && v > 0) return v;
+    invalid.push(name);
+    return NaN;
+  };
+  const budget = {
+    monthlyUsd: pick('BUDGET_MONTHLY_USD', config.budget.monthlyUsd),
+    perReviewUsd: pick('BUDGET_PER_REVIEW_USD', config.budget.perReviewUsd),
+  };
+  return { config: { ...config, budget }, invalid };
+}
