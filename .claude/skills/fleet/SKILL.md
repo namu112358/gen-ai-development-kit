@@ -126,7 +126,7 @@ Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の 
    - 「—」（計画ゲート・判定の受け付け・Merge 経路を待つ）の Issue は起こさない。
    - 同時に動かすのは、表の「同時に動かす ship は <n> まで」の数まで。
    - アカウントの使用量で `wait` になった Issue（控えに「待つ（アカウントの使用量）」と `resetAt` がある）は、次の読み直し（`worker_done` を受けたとき・`fleet-status` を読み直すとき）と、`resetAt` を過ぎた後の読み直しで、手順4の問い合わせ → 選ぶからやり直す。
-4. **worker を起こす**：起こす回（同じ読み直しで起こす Issue の束）の最初に1回だけ `node harness/scripts/accounts/probe.ts` を流して、使用量の控えを新しくする（結果の `skipped`・`failed` では止めず、選ぶに進む。10 分以内の控えがあるアカウントは呼ばない）。そのあと Issue ごとに、次の順で1つずつ進める（並行に流さない）。
+4. **worker を起こす**：起こす回（同じ読み直しで起こす Issue の束）の最初に1回だけ `node harness/scripts/accounts/probe.ts` を流して、使用量の控えを新しくする（結果の `skipped`・`failed` では止めず、選ぶに進む。対応表の設定ディレクトリで書いた（または問い合わせの）10 分以内の控えがあるアカウントは呼ばない）。そのあと Issue ごとに、次の順で1つずつ進める（並行に流さない）。
    - `node harness/scripts/agent.ts claim <番号> --manual --stage <次にやることの段階>`（次の `worktree` がこのセッションの宣言を要るため。PR の段階なら `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge|fix|sync`）
    - `node harness/scripts/agent.ts worktree claude/issue-<番号>-<短い名前>`（PR があれば、その head のブランチ）
    - `node harness/scripts/accounts/pick.ts` を流し、標準出力の JSON の `result` で分ける（Issue ごとに順に流す。`launches.json` に起こした数が足され、続けて起こす Issue が同じアカウントに偏らない）。

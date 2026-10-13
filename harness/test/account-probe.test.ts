@@ -102,6 +102,7 @@ function setup(accounts: AccountSpec[], opts: { noTable?: boolean } = {}) {
         session: { usedPercent: a.cache.five, resetsAt: NOW + 90 * MIN },
         weekly: { usedPercent: 1, resetsAt: NOW + 3 * 24 * 60 * MIN },
         ...(a.cache.source ? { source: a.cache.source } : {}),
+        configDir,
       }));
     }
     return { orcaId: idOf(a.name), name: a.name, configDir };
@@ -166,7 +167,7 @@ test('runProbe：古い控え・控えの無いアカウントだけを問い合
     { name: 'stale', orcaFive: 50, cache: { five: 5, ageMin: 11, source: 'probe' }, claude: { stdout: stream(SYSTEM, rlLine(0.3, 0.2), RESULT), error: null } },
     // 控えが無い → 問い合わせる。probe 10 と Orca 29 で差 19 → mismatch にならない
     { name: 'none', orcaFive: 29, claude: { stdout: stream(SYSTEM, rlLine(0.1), RESULT), error: null } },
-    // 控えが 5 分前（取り元は問わない）→ 問い合わせない
+    // 控えが 5 分前で configDir が対応表と同じ（取り元は問わない）→ 問い合わせない
     { name: 'fresh', orcaFive: 90, cache: { five: 90, ageMin: 5 } },
     // 候補から外れる → 問い合わせない
     { name: 'onboard', orcaFive: 0, claudeJson: (b) => ({ ...b, hasCompletedOnboarding: false }) },

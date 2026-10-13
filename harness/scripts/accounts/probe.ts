@@ -6,7 +6,7 @@
  * 入力
  * - 対応表 ~/.config/agent-harness/accounts.json（pick.ts の parseAccountsTable と同じ読み方）
  * - Orca の `account list --json`（組織の ID と、ずれの確かめに使う Orca の 5h）
- * - 使用量の控え ~/.config/agent-harness/usage/<組織の ID>.json（`at` が 10 分以内なら問い合わせない。取り元は問わない）
+ * - 使用量の控え ~/.config/agent-harness/usage/<組織の ID>.json（`at` が 10 分以内で、pick.ts の cacheMatches が真（source が probe か、configDir の実パスが対応表と同じ）なら問い合わせない）
  * - `.claude.json`（候補から外す確かめ pick.ts の checkConfigDir が読むだけ。書かない）
  *
  * 書くファイル：問い合わせたアカウントの usage/<組織の ID>.json だけ
@@ -28,7 +28,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { writeLocalJson } from '../../lib/local-state.ts';
 import { mainRepoRoot } from '../../lib/worktree.ts';
-import { PROBE_MAX_AGE_MS, checkConfigDir, parseAccountsTable, parseOrcaAccounts, runOrcaCli } from './pick.ts';
+import { PROBE_MAX_AGE_MS, cacheMatches, checkConfigDir, expandHome, parseAccountsTable, parseOrcaAccounts, realPathOrNull, runOrcaCli } from './pick.ts';
 
 export const PROBE_TIMEOUT_MS = 90_000;
 export const MISMATCH_POINTS = 20;
@@ -42,6 +42,8 @@ export interface ProbeDeps {
   runOrca: () => string | null;
   runClaude: (configDir: string) => { stdout: string; error: 'timeout' | 'spawn-failed' | null };
   writeJson: (p: string, v: unknown) => void;
+  /** 実パス（無ければ null）。既定は realpathSync */
+  realPath?: (p: string) => string | null;
 }
 export type ProbeResult =
   | { result: 'skipped'; reason: string }
@@ -95,7 +97,8 @@ export function parseProbeOutput(text: string): ProbeUsage | null {
 /** 対応表 → 本体のパス → Orca → アカウントごとに（外れる・新しい控えは飛ばし）1つずつ問い合わせて控えを書く */
 export function runProbe(deps: ProbeDeps): ProbeResult {
   const base = join(deps.home, '.config', 'agent-harness');
-  const { accounts } = parseAccountsTable(parseJson(deps.readText(join(base, 'accounts.json'))));
+  const accounts = parseAccountsTable(parseJson(deps.readText(join(base, 'accounts.json')))).accounts.map((a) => ({ ...a, configDir: expandHome(a.configDir, deps.home) }));
+  const realPath = deps.realPath ?? realPathOrNull;
   if (accounts.length === 0) return { result: 'skipped', reason: 'no-accounts-table' };
   let repoRoot: string;
   try {
@@ -121,7 +124,7 @@ export function runProbe(deps: ProbeDeps): ProbeResult {
     }
     const path = join(base, 'usage', `${org}.json`);
     const cached = parseJson(deps.readText(path));
-    const at = isObj(cached) ? num(cached.at) : null;
+    const at = isObj(cached) && cacheMatches(cached, a, { home: deps.home, realPath }) ? num(cached.at) : null;
     if (at !== null && deps.now - at <= PROBE_MAX_AGE_MS) {
       out.skipped.push({ name: a.name, reason: 'fresh' });
       continue;
