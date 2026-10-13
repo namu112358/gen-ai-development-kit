@@ -168,20 +168,43 @@ const HANDOVER_SPEC: SkillSpec = {
 const HQ_FOR_FLEET_SPEC: SkillSpec = {
   path: HQ_SKILL,
   parts: [
-    // 手順7：status の待ち・heartbeat を先に ack・振り分け（#395）
+    // 手順7：status の待ち・heartbeat を先に ack・振り分け（#395）。手順の1行目。子の項は references/asking.md（HQ_ASKING_FOR_FLEET_SPEC）
     {
       step: 7,
+      words: ['--types "worker_done,escalation,question,status"', 'heartbeat', 'notice', '置かない'],
+      absent: ['届いたものを全部処理してから'],
+    },
+    // 手順6：Orca 1.4.216 の向きと、分けた後の確かめ。向きを決め打ちにせず、逆の向きで2回まで分け直し、直らなければペイン無しで進める（#430・#448）。
+    // 手順の1行目。子の項は references/panes.md（HQ_PANES_FOR_FLEET_SPEC）
+    {
+      step: 6,
+      words: ['分け直す'],
+      absent: ['逆なら', 'ORCA skills get orchestration'],
+    },
+  ],
+};
+
+/** fleet と関わる hq の skill の表：手順7の子の項（references/asking.md。全体の part） */
+const HQ_ASKING_FOR_FLEET_SPEC: SkillSpec = {
+  path: '.claude/skills/hq/references/asking.md',
+  parts: [
+    {
       words: [
-        '--types "worker_done,escalation,question,status"', 'heartbeat', 'すぐ `--ack <delivery_id>`', '後回しにしない',
+        'heartbeat', 'すぐ `--ack <delivery_id>`', '後回しにしない',
         'ready-<PR>', 'notice', 'merged-<PR>', 'verdict-<PR>', 'wait-<Issue>',
         'dispatch_inactive', '人に聞き直さない', '手順12', 'gh pr list', '仮の見張り', '置かない',
       ],
       order: ['すぐ伝える', 'ready-<PR>', '手順12の一覧にためる', 'merged-<PR>'],
       absent: ['届いたものを全部処理してから'],
     },
-    // 手順6：Orca 1.4.216 の向きと、分けた後の確かめ。向きを決め打ちにせず、逆の向きで2回まで分け直し、直らなければペイン無しで進める（#430・#448）
+  ],
+};
+
+/** fleet と関わる hq の skill の表：手順6の子の項（references/panes.md。全体の part） */
+const HQ_PANES_FOR_FLEET_SPEC: SkillSpec = {
+  path: '.claude/skills/hq/references/panes.md',
+  parts: [
     {
-      step: 6,
       words: [
         '1.4.216', '案内', '逆', '`--direction vertical` で左右', '--include-visual-layouts', '違えば', '分け直す',
         '決め打ちにしない', '逆の向き', '2回まで', '表示のペイン無しで進め',
@@ -213,7 +236,7 @@ test('fleet の skill の構造の表', () => {
 });
 
 test('fleet と関わる hq の skill の表（手順7の status の待ちと手順6のペインの向き）', () => {
-  assert.deepEqual(skillProblems(HQ_FOR_FLEET_SPEC), []);
+  for (const spec of [HQ_FOR_FLEET_SPEC, HQ_ASKING_FOR_FLEET_SPEC, HQ_PANES_FOR_FLEET_SPEC]) assert.deepEqual(skillProblems(spec), []);
 });
 
 test('fleet と関わる ship の skill の表（Merge 済みで呼び直されたとき・返すもの・/clear の後の1問）', () => {

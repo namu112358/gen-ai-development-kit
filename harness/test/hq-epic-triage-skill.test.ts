@@ -13,13 +13,22 @@ test('hq の skill：手順8は Epic の案を人に聞かず、App の振り分
         // 手順2：承認した案の Epic の Issue の作成・sub-issues への付け足しをしない
         { step: 2, absent: ['承認した案だけ'] },
         // 手順8：ダッシュボードの節を読み、enforce のときだけ App が足す。hq は聞かず・足さず・作らない
+        { step: 8, absent: ['承認した案だけ', '新しい Epic を」', 'intel に作らせ', 'gh issue create'] },
+        // 手順12：Epic に入っていない Issue を一覧に出し、Epic の案は聞かない
+        { step: 12, words: ['Epic に入っていない Issue'], absent: ['Epic の案'] },
+      ],
+    }),
+    [],
+  );
+  // 手順8の子の項は references/sweep.md にある（本体の手順8と同じ語を掛ける）
+  assert.deepEqual(
+    skillProblems({
+      path: '.claude/skills/hq/references/sweep.md',
+      parts: [
         {
-          step: 8,
           words: ['Epic に入っていない Issue', 'jev.epicTriage', 'enforce', '手順12の一覧に出す'],
           absent: ['承認した案だけ', '新しい Epic を」', 'intel に作らせ', 'gh issue create'],
         },
-        // 手順12：Epic に入っていない Issue を一覧に出し、Epic の案は聞かない
-        { step: 12, words: ['Epic に入っていない Issue'], absent: ['Epic の案'] },
       ],
     }),
     [],

@@ -23,8 +23,8 @@ test('hq の skill：ダッシュボードの節を stale.ts の題で指す', (
   );
   assert.deepEqual(
     skillProblems({
-      path: '.claude/skills/hq/SKILL.md',
-      parts: [{ step: 8, words: ['止まっていそうな着手宣言', '担当のいない判定待ちの PR'] }],
+      path: '.claude/skills/hq/references/sweep.md',
+      parts: [{ words: ['止まっていそうな着手宣言', '担当のいない判定待ちの PR'] }],
     }),
     [],
   );
