@@ -1,4 +1,4 @@
-// Issue #551：起動の失敗の控え（hq-start-failures.json）を確かめる。skill の文は hq-skill.test.ts で確かめる
+// Issue #551：起動の失敗の控え（hq-start-failures.json）を確かめる
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';

@@ -107,8 +107,8 @@ test('checkAll：すべてがパターンに当たれば uncoveredTests は空',
 
 const readmeText = (): string => readFileSync(join(root, 'harness', 'test', 'README.md'), 'utf8');
 
-// ほかのテスト（arch-review-skill.test.ts）が README の本文にファイル名を求めるので、この行だけファイル名で書く（人の決定、PR #393）
-const LITERAL_ROW_NAMES = ['arch-review-skill.test.ts', 'arch-review.test.ts', 'arch-review-loop.test.ts'];
+// ほかのテストが README の本文にファイル名を求めるので、この行だけファイル名で書く（人の決定、PR #393）
+const LITERAL_ROW_NAMES = ['arch-review.test.ts', 'arch-review-loop.test.ts'];
 
 test('実リポジトリ：harness/test のテストファイルはすべて README の表のどれかのパターンに当たる（AC3）', () => {
   assert.deepEqual(checkAll(root).uncoveredTests, []);

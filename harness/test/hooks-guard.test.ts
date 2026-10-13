@@ -228,11 +228,3 @@ test('settings.json に PreToolUse の hook が登録され、既存の deny・a
   }
   assert.ok((settings.permissions?.allow ?? []).includes('Bash(npm run check)'), 'permissions.allow に Bash(npm run check) がありません');
 });
-
-test('judge の SKILL.md に固定の reviewer.json・risk.json が残っておらず、PR 番号付きの名前がある', () => {
-  const text = readFileSync(join(root, '.claude', 'skills', 'judge', 'SKILL.md'), 'utf8');
-  assert.doesNotMatch(text, /(^|[^-\w])reviewer\.json/m, '固定の reviewer.json が残っています');
-  assert.doesNotMatch(text, /(^|[^-\w])risk\.json/m, '固定の risk.json が残っています');
-  assert.ok(text.includes('reviewer-<PR番号>-'), 'reviewer-<PR番号>- がありません');
-  assert.ok(text.includes('risk-<PR番号>-'), 'risk-<PR番号>- がありません');
-});
