@@ -13,7 +13,7 @@
 export const CLAUDE_MARK = '<!-- agent-harness:claude -->';
 export const appMark = (kind: string): string => `<!-- agent-harness:app kind=${kind} -->`;
 
-export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel' | 'agent-decision' | 'agent-incident' | 'agent-session-judgment' | 'arch-review' | 'patrol-state';
+export type BlockKind = 'agent-plan' | 'agent-verdict' | 'agent-claim' | 'agent-app' | 'agent-review-panel' | 'agent-decision' | 'agent-confirm' | 'agent-confirm-answer' | 'agent-incident' | 'agent-session-judgment' | 'arch-review' | 'patrol-state';
 
 /**
  * 書いたセッションの ID を入れた目印（ID が無ければ CLAUDE_MARK）。
