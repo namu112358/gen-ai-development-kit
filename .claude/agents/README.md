@@ -6,6 +6,7 @@
 | 名前 | 内容 | ガードレール |
 | --- | --- | --- |
 | `arch-reviewer.md` | arch-review の観点①〜④（重複・置き場所・docs との食い違い・コードの書き方）のうち、呼び出し元が指定した1つで、Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれを返す。 |  |
+| `hq-judge.md` | hq の判断の要る3つの場面（theme：起こす Epic と順番、split：人に上げるか intel に回すかの分け方、summary：fleet の報告から人に出す要点）を、hq が渡した材料のファイルだけで決めて JSON を返す。 |  |
 | `plan-critic.md` | 投稿前の計画を、Issue 本文と計画だけを見て批評し、go / revise / split / drop を構造化して返す。 | ○ |
 | `review-ac-scope.md` | 合体版のレビューの段階3の観点⑥として、Issue の AC を満たしているか、範囲外の変更がないかを確かめ、指摘を返す。 | ○ |
 | `review-intake.md` | 合体版のレビューの段階0〜2として、PR が対象か、関係する CLAUDE.md のパス、変更の要約を返す。 | ○ |
