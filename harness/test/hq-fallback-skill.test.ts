@@ -75,11 +75,11 @@ test('fleet の skill（Orca の worker として動くとき）の4：fleet が
 // ---- hq：控えの置き場所と引き継ぎ ----
 
 test('hq の skill：控えは git の共通ディレクトリの agent-harness/hq/hq-fleets.json に hq-state.ts で読み書きする', () => {
-  assertWords(hqSkill(), ['agent-harness/hq/hq-fleets.json', 'hq-state.ts ledger', 'hq-state.ts ledger-save'], 'hq の skill ');
+  assertWords(skillText(HQ_SKILL), ['agent-harness/hq/hq-fleets.json', 'hq-state.ts ledger', 'hq-state.ts ledger-save'], 'hq の skill ');
 });
 
 test('hq の skill：新しい hq は最初に前の hq の控えを読んで引き継ぐ（run-use・pending --all・hq-back）', () => {
-  assertWords(hqSkill(), ['前の hq の引き継ぎ', 'run-use', 'hq-state.ts pending --all', 'hq-back'], 'hq の skill ');
+  assertWords(skillText(HQ_SKILL), ['前の hq の引き継ぎ', 'run-use', 'hq-state.ts pending --all', 'hq-back'], 'hq の skill ');
 });
 
 test('hq の skill の手順2：控えは git の共通ディレクトリに書き、書き換えに数えない', () => {
@@ -89,13 +89,13 @@ test('hq の skill の手順2：控えは git の共通ディレクトリに書�
 });
 
 test('hq の skill：入力の控えを scratchpad の hq-fleets.json と言わない', () => {
-  assert.ok(!hqSkill().includes('scratchpad の `hq-fleets.json`'), '控えの置き場所が scratchpad のままです');
+  assert.ok(!skillText(HQ_SKILL).includes('scratchpad の `hq-fleets.json`'), '控えの置き場所が scratchpad のままです');
 });
 
 // ---- hq：閉じる handle が hq 自身の端末でないことの確かめ ----
 
 test('hq の skill：ORCA terminal close の前に、閉じる handle が hqHandle（hq 自身の端末）でないことを確かめる', () => {
-  const text = hqSkill();
+  const text = skillText(HQ_SKILL);
   assertWords(text, ['hqHandle', '--tab', '--all', 'ORCA terminal close'], 'hq の skill ');
   const lines = text.split(/\r?\n/).filter((l) => l.includes('閉じる handle が') && l.includes('hqHandle'));
   assert.ok(lines.length > 0, '「閉じる handle が」と hqHandle を含む文がありません');
