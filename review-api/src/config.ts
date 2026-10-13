@@ -20,6 +20,7 @@ export interface ReviewConfig {
     maxDiffChars: number;
     maxFileChars: number;
     diffOnlyExtensions: string[];
+    docsOnly?: { extensions: string[]; model: string };
   };
   budget: { monthlyUsd: number; perReviewUsd: number };
   pricing: Record<string, ModelPricing>;
@@ -97,6 +98,23 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
     }
   }
 
+  let docsOnly: { extensions: string[]; model: string } | undefined;
+  if (isObject(raw) && isObject(root.claude) && claude.docsOnly !== undefined) {
+    const d = claude.docsOnly;
+    if (!isObject(d)) {
+      fail('claude.docsOnly', 'オブジェクト');
+    } else {
+      const exts = d.extensions;
+      let extensions: string[] = [];
+      if (Array.isArray(exts) && exts.length > 0 && exts.every((e) => typeof e === 'string' && e.startsWith('.') && e !== '.')) {
+        extensions = exts as string[];
+      } else {
+        fail('claude.docsOnly.extensions', "'.' で始まる文字列の空でない配列");
+      }
+      docsOnly = { extensions, model: str(d, 'claude.docsOnly', 'model') };
+    }
+  }
+
   const out: ReviewConfig = {
     trigger: {
       actions,
@@ -114,6 +132,7 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
       maxDiffChars: posInt(claude, 'claude', 'maxDiffChars'),
       maxFileChars: posInt(claude, 'claude', 'maxFileChars'),
       diffOnlyExtensions,
+      ...(docsOnly !== undefined ? { docsOnly } : {}),
     },
     budget: {
       monthlyUsd: posNum(budget, 'budget', 'monthlyUsd'),

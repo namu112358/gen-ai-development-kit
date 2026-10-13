@@ -109,6 +109,27 @@ function safePath(path: unknown): path is string {
   return path.split('/').every((part) => part !== '' && part !== '.' && part !== '..');
 }
 
+// 変更ファイルが全部 docsOnly.extensions に当たる PR だけ文書用のモデルにする。切り詰め・読めないパス・空の diff はコード扱い。
+export function chooseModels(
+  material: Pick<Material, 'diff' | 'diffTruncated'>,
+  claude: ReviewConfig['claude'],
+): { review: string; risk: string; docsOnly: boolean } {
+  const code = { review: claude.reviewModel, risk: claude.riskModel, docsOnly: false };
+  const docs = claude.docsOnly;
+  if (docs === undefined || material.diffTruncated) return code;
+  const paths: string[] = [];
+  for (const line of material.diff.split('\n')) {
+    if (!line.startsWith('diff --git ')) continue;
+    const m = /^diff --git a\/(.+) b\/(.+)$/.exec(line.replace(/\r$/, ''));
+    if (m === null) return code;
+    paths.push(m[1]!, m[2]!);
+  }
+  if (paths.length === 0) return code;
+  const exts = docs.extensions.map((e) => e.toLowerCase());
+  if (!paths.every((p) => exts.some((e) => p.toLowerCase().endsWith(e)))) return code;
+  return { review: docs.model, risk: docs.model, docsOnly: true };
+}
+
 /** read_file・list_files の実行。秘密の恐れがあるパスと外に出るパスは GitHub に問わない */
 export function createToolRunner(gh: GitHubReader, headSha: string, maxFileChars: number): ToolRunner {
   let tree: Awaited<ReturnType<GitHubReader['getTree']>> | null = null;
@@ -208,6 +229,8 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     return collectMaterial(gh, config, { owner, repo, pr, headSha, appLogin: params.gateAppLogin, reviewLogin: params.reviewAppLogin });
   });
   log('collect ok');
+  const models = chooseModels(material, config.claude);
+  log(`models review=${models.review} risk=${models.risk}`);
 
   const request = (model: string, system: MessagesParams['system'], messages: MessagesParams['messages'], schema: unknown): MessagesParams => ({
     model,
@@ -217,8 +240,8 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     messages,
     output_config: { effort: config.claude.effort, format: { type: 'json_schema', schema } },
   });
-  const reviewRequest = (): MessagesParams => request(config.claude.reviewModel, COMMON_SYSTEM, buildReviewerMessages(material), REVIEWER_OUTPUT_SCHEMA);
-  const riskRequest = (): MessagesParams => request(config.claude.riskModel, COMMON_SYSTEM, buildRiskMessages(material), RISK_OUTPUT_SCHEMA);
+  const reviewRequest = (): MessagesParams => request(models.review, COMMON_SYSTEM, buildReviewerMessages(material), REVIEWER_OUTPUT_SCHEMA);
+  const riskRequest = (): MessagesParams => request(models.risk, COMMON_SYSTEM, buildRiskMessages(material), RISK_OUTPUT_SCHEMA);
   const month = costKey(new Date(deps.now()));
 
   // 3. budget
@@ -293,17 +316,16 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     }
     if (usd !== null) usd = Math.round(usd * 1e6) / 1e6;
     const durationSec = Math.round((deps.now() - fetched.startedAt) / 1000);
-    const models = { review: config.claude.reviewModel, risk: config.claude.riskModel };
     if (!validated.ok) {
-      await writeRecord('verdict-invalid', { durationSec, models, usage, usd, detail: validated.detail });
+      await writeRecord('verdict-invalid', { durationSec, models: { review: models.review, risk: models.risk }, usage, usd, detail: validated.detail });
       return { usd, body: null, durationSec };
     }
     const record: ShadowRecord = {
       version: 1,
       pr,
       headSha,
-      verdict: composeShadowVerdict({ pr, headSha, reviewer: validated.reviewer, risk: validated.riskOut, model: config.claude.reviewModel }),
-      models,
+      verdict: composeShadowVerdict({ pr, headSha, reviewer: validated.reviewer, risk: validated.riskOut, model: models.review }),
+      models: { review: models.review, risk: models.risk },
       usage,
       usd,
       durationSec,
@@ -322,7 +344,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     if (found.head.sha !== headSha) outcome = 'superseded';
     else if (found.state !== 'open') outcome = 'closed';
     else if (hasOwnRecord(await gh.listComments(pr), params.reviewAppLogin, headSha)) outcome = 'duplicate';
-    const extra = { durationSec: recorded.durationSec, models: { review: config.claude.reviewModel, risk: config.claude.riskModel }, usage, usd: recorded.usd };
+    const extra = { durationSec: recorded.durationSec, models: { review: models.review, risk: models.risk }, usage, usd: recorded.usd };
     if (outcome !== null) {
       await writeRecord(outcome, extra);
       return outcome;
