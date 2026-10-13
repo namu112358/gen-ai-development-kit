@@ -5,13 +5,15 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { documentedAgentCommands } from './support/agent-source.ts';
-import { frontmatter, readText, section, skillProblems, type SkillSpec } from './support/skill-text.ts';
+import { frontmatter, readText, section, skillProblems, skillText, type SkillSpec } from './support/skill-text.ts';
 
 const HQ_SKILL = '.claude/skills/hq/SKILL.md';
 const FLEET_AS_WORKER = '.claude/skills/fleet/references/as-worker.md';
 const AS_WORKER = '## Orca の worker として動くとき';
 const DIRECT = '## ship を直接起こす進め方（`--direct`）';
-const skill = (): string => readText(HQ_SKILL);
+const HQ_REFS = '.claude/skills/hq/references';
+// 本文全体（SKILL.md と references/*.md）。frontmatter は本体だけを readText で読む
+const skill = (): string => skillText(HQ_SKILL);
 
 /** hq の skill の構造の表 */
 const HQ_SPEC: SkillSpec = {
@@ -29,47 +31,28 @@ const HQ_SPEC: SkillSpec = {
     DIRECT, '--direct <', 'directEpics',
   ],
   parts: [
-    { section: '## 手順', order: ['テーマを決めて知らせる', 'worker-start', 'reply', 'Epic が Close'] },
+    // reply は手順7の子の項（references/asking.md。HQ_ASKING_SPEC）に移ったので、手順7のリンクの位置で順番を見る
+    { section: '## 手順', order: ['テーマを決めて知らせる', 'worker-start', '](references/asking.md)', 'Epic が Close'] },
     // 手順2：するのは…だけ（#407・#396）
     { step: 2, words: ['sub-issues', 'SendMessage', 'terminal create'] },
     // 手順3は人に聞かず hq が決めて知らせる（#662）
     { step: 3, words: ['依存', '重なり', '手順8', '手順12の一覧', '人が指示した'], absent: ['AskUserQuestion', '承認'] },
     // 手順4：fleet を起こす指示に heartbeat の一言（#425）
     { step: 4, words: ['heartbeat の本文に今の状況を一言入れる', 'start-failure-save'] },
-    // 手順6：ペインの並びと開き方。ペインにセッションを渡さない。確かめで閉じてよいのはそのとき分けたペインだけで、
-    // intel を起こした後は分け直さない（#402・#430・#448）
-    {
-      step: 6,
-      words: [
-        'ORCA terminal split', '--direction vertical', '--direction horizontal', '左', '右', 'intel', 'intel のペインを開かずに進める',
-        'そのとき分けたペインだけ', 'intel を起こした後', '分け直さない',
-      ],
-      absent: ['--session'],
-      order: ['node harness/scripts/panes.ts hq board', 'node harness/scripts/panes.ts hq todo', 'node harness/scripts/panes.ts hq log'],
-    },
+    // 手順6：ペインの並びと開き方は references/panes.md（HQ_PANES_SPEC）。本体の1行目はペインにセッションを渡さない（#402・#430・#448）
+    { step: 6, words: ['左', '右', 'intel'], absent: ['--session'] },
     { step: 6, order: ['Epic/Issue', '人待ち', 'ログ'] },
     // 手順7：heartbeat の一言をログのペインに使い、すぐ ack する（#425）
-    { step: 7, words: ['heartbeat の一言', 'すぐ ack', '質問を遅らせない', 'ログのペイン', '#402', 'hq-heartbeat.json'] },
+    { step: 7, words: ['hq-heartbeat.json'] },
     // 手順7：便りの振り分けと交代の判定は hq-decide.ts の結果に従う（#780）
-    { step: 7, words: ['hq-decide.ts route', 'hq-decide.ts handover'] },
+    { step: 7, words: ['hq-decide.ts route'] },
     // 手順8：動いている ship の数と空いた枠の割り当ては hq-decide.ts assign の結果に従う（#780）
-    { step: 8, words: ['hq-decide.ts assign'] },
     // 手順9・10：hq が自分で起こした fleet の宣言は hq-decide.ts takeover の判定に従い、聞かずに引き継いだものは手順12の一覧に出す（#770）
     { step: 9, words: ['手順10の引き継ぎの判定'] },
     { step: 10, words: ['hq-decide.ts takeover'] },
     { step: 12, words: ['決めたこと（覆すなら）'] },
-    // 手順8：止まったタスクの見回し（#407）
-    {
-      step: 8,
-      words: [
-        '進んでいない fleet を見つける', '止まったタスクの見回し', 'ダッシュボード', 'patrol', 'fleet-status',
-        '担当のいない PR', '止まった宣言', 'どの fleet にも入っていない', 'Epic に入っていない', 'sub-issues',
-        'send', 'hq.maxFleets', '手順3のとおり','引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel',
-        'hq.maxParallelShips', '人に聞かずに起こす', '空き待ち',
-        // 長く出力の無いタブと期限切れの着手宣言（#826）
-        'panes.ts idle', '--exclude', '長く出力の無いタブ', '8時間', '期限切れの着手宣言', '閉じない', 'intelHandle', '--include-visual-layouts',
-      ],
-    },
+    // 手順8：止まったタスクの見回し（#407）は references/sweep.md（HQ_SWEEP_SPEC）。本体の1行目
+    { step: 8, words: ['進んでいない fleet を見つける'] },
     // 手順12：人がすることの一覧（#402・#407・#425・#396）
     {
       step: 12,
@@ -79,9 +62,65 @@ const HQ_SPEC: SkillSpec = {
         '長く出力の無いタブ', '期限切れの着手宣言', 'session の短い ID', '引き継がなかった宣言',
       ],
     },
-    // 直接の進め方：ship の worker に、質問（ask）と終わりの知らせ（worker_done）を hq に送らせ、実装のモデルの節に従わせる（#756）
-    { section: DIRECT, words: ['ask', 'worker_done', 'hq', '実装のモデル'] },
-    // 相談・アイデアを intel に回す（#396）
+  ],
+};
+
+/** references/panes.md（手順6のペインの子の項。全体の part で見る） */
+const HQ_PANES_SPEC: SkillSpec = {
+  path: `${HQ_REFS}/panes.md`,
+  parts: [
+    {
+      words: [
+        'ORCA terminal split', '--direction vertical', '--direction horizontal', 'intel', 'intel のペインを開かずに進める',
+        'そのとき分けたペインだけ', 'intel を起こした後', '分け直さない',
+      ],
+      absent: ['--session'],
+      order: ['node harness/scripts/panes.ts hq board', 'node harness/scripts/panes.ts hq todo', 'node harness/scripts/panes.ts hq log'],
+    },
+  ],
+};
+
+/** references/asking.md（手順7の子の項） */
+const HQ_ASKING_SPEC: SkillSpec = {
+  path: `${HQ_REFS}/asking.md`,
+  parts: [
+    // 手順7：heartbeat の一言をログのペインに使い、すぐ ack する（#425）
+    { words: ['heartbeat の一言', 'すぐ ack', '質問を遅らせない', 'ログのペイン', '#402', 'hq-heartbeat.json'] },
+    // 手順7：交代の判定は hq-decide.ts の結果に従う（#780）
+    { words: ['hq-decide.ts handover', 'reply'] },
+  ],
+};
+
+/** references/sweep.md（手順8の子の項） */
+const HQ_SWEEP_SPEC: SkillSpec = {
+  path: `${HQ_REFS}/sweep.md`,
+  parts: [
+    // 手順8：動いている ship の数と空いた枠の割り当ては hq-decide.ts assign の結果に従う（#780）
+    { words: ['hq-decide.ts assign'] },
+    // 手順8：止まったタスクの見回し（#407）
+    {
+      words: [
+        '止まったタスクの見回し', 'ダッシュボード', 'patrol', 'fleet-status',
+        '担当のいない PR', '止まった宣言', 'どの fleet にも入っていない', 'Epic に入っていない', 'sub-issues',
+        'send', 'hq.maxFleets', '手順3のとおり','引き継ぐかは人が決める', 'AskUserQuestion', '1回', 'intel',
+        'hq.maxParallelShips', '人に聞かずに起こす', '空き待ち',
+        // 長く出力の無いタブと期限切れの着手宣言（#826）
+        'panes.ts idle', '--exclude', '長く出力の無いタブ', '8時間', '期限切れの着手宣言', '閉じない', 'intelHandle', '--include-visual-layouts',
+      ],
+    },
+  ],
+};
+
+/** references/direct.md（直接の進め方の節）。ship の worker に、質問（ask）と終わりの知らせ（worker_done）を hq に送らせ、実装のモデルの節に従わせる（#756） */
+const HQ_DIRECT_SPEC: SkillSpec = {
+  path: `${HQ_REFS}/direct.md`,
+  parts: [{ section: DIRECT, words: ['ask', 'worker_done', 'hq', '実装のモデル'] }],
+};
+
+/** references/intel.md（相談・アイデアを intel に回す節。#396） */
+const HQ_INTEL_SPEC: SkillSpec = {
+  path: `${HQ_REFS}/intel.md`,
+  parts: [
     {
       section: '## 相談・アイデアを intel に回す',
       words: [
@@ -116,7 +155,8 @@ const FLEET_FOR_HQ_SPEC: SkillSpec = {
 // ---- 構造の表 ----
 
 test('hq の skill の構造の表', () => {
-  assert.deepEqual(skillProblems(HQ_SPEC), []);
+  const specs = [HQ_SPEC, HQ_PANES_SPEC, HQ_ASKING_SPEC, HQ_SWEEP_SPEC, HQ_DIRECT_SPEC, HQ_INTEL_SPEC];
+  assert.deepEqual(specs.flatMap((spec) => skillProblems(spec)), []);
 });
 
 test('hq と関わる fleet の skill の表（Orca の worker として動くとき）', () => {
@@ -137,7 +177,7 @@ test('hq の skill：コードが名前で読む語（hq-fleets.json・hq.maxFle
 // ---- 形（skills.test.ts の SKILLS に hq は入らないので、同じ検査をここで行う） ----
 
 test('hq の skill：frontmatter の name が hq で、description がある', () => {
-  const fm = frontmatter(skill());
+  const fm = frontmatter(readText(HQ_SKILL));
   assert.equal(fm.name, 'hq');
   assert.ok(fm.description, 'description がありません');
 });

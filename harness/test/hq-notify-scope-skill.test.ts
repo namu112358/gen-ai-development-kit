@@ -6,12 +6,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { skillProblems, type SkillSpec } from './support/skill-text.ts';
 
-/** hq の skill の手順7：すぐ知らせる範囲 */
+/** hq の skill の手順7（references/asking.md）：すぐ知らせる範囲 */
 const HQ_NOTIFY_SPEC: SkillSpec = {
-  path: '.claude/skills/hq/SKILL.md',
+  path: '.claude/skills/hq/references/asking.md',
   parts: [
     {
-      step: 7,
       words: ['Human Merge', '自動 Merge', '人の判断が要る', '人の判断は要らない', 'intel', 'notice-unmarked'],
       order: ['すぐ伝える', 'Human Merge', '手順12の一覧にためる', '自動 Merge'],
     },

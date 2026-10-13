@@ -11,15 +11,24 @@ test('hq の skill：手順8・11で空きの補充を行い、手順12の一覧
       path: '.claude/skills/hq/SKILL.md',
       parts: [
         // 手順8：空きの補充の項があり、人が止めた Epic を控えに置き、人の承認を待たずに起こす。「入らないもの」を案にとどめない
-        {
-          step: 8,
-          words: ['空きの補充', 'hq.maxFleets', 'stoppedEpics', '人の承認を待たずに'],
-          absent: ['今までどおり手順3の人の承認の後', '新しい fleet（テーマ）の案にする'],
-        },
+        { step: 8, absent: ['今までどおり手順3の人の承認の後', '新しい fleet（テーマ）の案にする'] },
         // 手順11：片付けの直後に空きの補充を行う
         { step: 11, words: ['空きの補充'] },
         // 手順12：起こした fleet を一覧で知らせる
         { step: 12, words: ['空きの補充で起こした fleet'] },
+      ],
+    }),
+    [],
+  );
+  // 手順8の子の項は references/sweep.md にある
+  assert.deepEqual(
+    skillProblems({
+      path: '.claude/skills/hq/references/sweep.md',
+      parts: [
+        {
+          words: ['空きの補充', 'hq.maxFleets', 'stoppedEpics', '人の承認を待たずに'],
+          absent: ['今までどおり手順3の人の承認の後', '新しい fleet（テーマ）の案にする'],
+        },
       ],
     }),
     [],
