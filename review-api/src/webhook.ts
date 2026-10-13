@@ -1,7 +1,9 @@
-// Webhook の署名の検証（verifySignature・constantTimeEqual）と、イベントから「レビューするか」を決める decideReview、
-// PR 本文の閉じる Issue の読み取り（closingIssueNumbers）。import は型だけで、Node と Workers の両方で動く。
+// Webhook の署名の検証（verifySignature・constantTimeEqual・複数の秘密で試す verifyWithSecrets）と、
+// リポジトリの表（repos.ts）でイベントから「レビューするか」を決める decideReview、
+// PR 本文の結び付けた Issue の読み取り（linkedIssueNumbers・closingIssueNumbers）。import は ./config.ts の型と ./repos.ts で、Node と Workers の両方で動く。
 
-import type { ReviewConfig } from './config.ts';
+import type { IssueLink, ReviewConfig } from './config.ts';
+import { findRepo, type RepoTable } from './repos.ts';
 
 /** 長さが違えば偽。同じなら全バイトの XOR を OR で積み、途中で抜けない */
 export function constantTimeEqual(a: Uint8Array, b: Uint8Array): boolean {
@@ -32,27 +34,47 @@ export interface PullRequestEvent {
   pull_request?: { head?: { ref?: string }; body?: string | null };
 }
 
-export interface ReviewEnv {
-  ALLOWED_REPOS: string;
-  GITHUB_INSTALLATION_ID: string;
+/** 空でない値の秘密で署名を試し、通った秘密の名前をすべて返す（無ければ空の配列） */
+export async function verifyWithSecrets(
+  candidates: { name: string; value: string }[],
+  rawBody: string | Uint8Array,
+  header: string | null,
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const { name, value } of candidates) {
+    if (value === '') continue;
+    if (await verifySignature(value, rawBody, header)) out.push(name);
+  }
+  return out;
 }
 
-/** レビューするかを決める。止める理由は順に not-pull-request・action・bot-sender・repo-not-allowed・installation-mismatch・branch-prefix・no-closes、通れば ok */
-export function decideReview(event: PullRequestEvent, config: Pick<ReviewConfig, 'trigger'>, env: ReviewEnv): { review: boolean; reason: string } {
+/**
+ * レビューするかを決める。止める理由は順に not-pull-request・action・bot-sender・repo-not-allowed・installation-mismatch・
+ * webhook-secret-mismatch（verifiedSecrets が渡され、行の秘密の名前を含まない）・branch-prefix・no-closes、通れば ok。
+ * branchPrefix・requireClosesIssue・issueLink は、行の trigger の上書きを config.trigger に重ねて使う
+ */
+export function decideReview(
+  event: PullRequestEvent,
+  config: Pick<ReviewConfig, 'trigger'>,
+  table: RepoTable,
+  verifiedSecrets?: string[],
+): { review: boolean; reason: string } {
   const no = (reason: string) => ({ review: false, reason });
-  const { trigger } = config;
   const pr = event.pull_request;
   if (typeof pr !== 'object' || pr === null) return no('not-pull-request');
-  if (typeof event.action !== 'string' || !trigger.actions.includes(event.action)) return no('action');
-  if (trigger.skipBotSenders && (event.sender?.type === 'Bot' || (event.sender?.login ?? '').endsWith('[bot]'))) return no('bot-sender');
-  const allowed = env.ALLOWED_REPOS.split(',')
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => s !== '');
-  if (!allowed.includes((event.repository?.full_name ?? '').toLowerCase())) return no('repo-not-allowed');
-  const installation = env.GITHUB_INSTALLATION_ID.trim();
+  if (typeof event.action !== 'string' || !config.trigger.actions.includes(event.action)) return no('action');
+  if (config.trigger.skipBotSenders && (event.sender?.type === 'Bot' || (event.sender?.login ?? '').endsWith('[bot]'))) return no('bot-sender');
+  const entry = findRepo(table, event.repository?.full_name ?? '');
+  if (entry === null) return no('repo-not-allowed');
+  const installation = entry.installationId.trim();
   if (installation === '' || event.installation?.id === undefined || String(event.installation.id) !== installation) return no('installation-mismatch');
-  if (trigger.branchPrefix !== '' && !(pr.head?.ref ?? '').startsWith(trigger.branchPrefix)) return no('branch-prefix');
-  if (trigger.requireClosesIssue && closingIssueNumbers(pr.body ?? null).length === 0) return no('no-closes');
+  if (verifiedSecrets !== undefined && !verifiedSecrets.includes(entry.app.webhookSecret)) return no('webhook-secret-mismatch');
+  const t = entry.overrides.trigger ?? {};
+  const branchPrefix = t.branchPrefix ?? config.trigger.branchPrefix;
+  const requireClosesIssue = t.requireClosesIssue ?? config.trigger.requireClosesIssue;
+  const issueLink = t.issueLink ?? config.trigger.issueLink ?? 'closes';
+  if (branchPrefix !== '' && !(pr.head?.ref ?? '').startsWith(branchPrefix)) return no('branch-prefix');
+  if (requireClosesIssue && linkedIssueNumbers(pr.body ?? null, issueLink).length === 0) return no('no-closes');
   return { review: true, reason: 'ok' };
 }
 
@@ -75,6 +97,11 @@ function withoutCommentsAndFences(body: string): string {
 
 /** PR 本文の閉じる側（Closes・Fixes・Resolves の別形）の `#N`。Refs は返さない。重複は先のものを残し、出てくる順に返す */
 export function closingIssueNumbers(body: string | null): number[] {
+  return linkedIssueNumbers(body, 'closes');
+}
+
+/** PR 本文の結び付けた Issue の `#N`。closes は閉じる側だけ、closes-or-refs は Refs #N も含む。重複は先のものを残し、出てくる順に返す */
+export function linkedIssueNumbers(body: string | null, issueLink: IssueLink = 'closes'): number[] {
   if (!body) return [];
   // bodyIssueRefs と同じく、同じ番号は最初に出たキーワードで決める（先に Refs #N があれば、後の Closes #N は閉じる側にしない）
   const seen = new Map<number, boolean>();
@@ -84,5 +111,5 @@ export function closingIssueNumbers(body: string | null): number[] {
     if (number <= 0 || seen.has(number)) continue;
     seen.set(number, m[1]!.toLowerCase() !== 'refs');
   }
-  return [...seen].filter(([, closes]) => closes).map(([number]) => number);
+  return [...seen].filter(([, closes]) => closes || issueLink === 'closes-or-refs').map(([number]) => number);
 }
