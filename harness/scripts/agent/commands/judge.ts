@@ -27,6 +27,7 @@ import { type AgentCommand, config, currentSession, fail, type IssueItem, readJs
  *                                                           外した人の権限は GET /collaborators/{login}/permission が admin か write の login だけ〔失敗した login は入れない・
  *                                                           同じ login は1回だけ読む・unlabeled が無ければ API を呼ばない・App の login は呼ばない〕。無いときの理由は標準エラーに1行）
  *   node harness/scripts/agent.ts compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>] [--author-view <file>]
+ *                                                           [--review-source api|local] [--api-record <url>]
  *                                                           サブエージェントの出力から判定コメントを作って検査し、ファイルのパスを出力（投稿は post-verdict）。
  *                                                           オプションの位置は問わない。judge-input のファイルの PR 番号が <pr> と違えば止まる。
  *                                                           判定した head は judge-input のファイルの headSha。現在の head と違っても PR 自身の差分（patch-id）が
@@ -34,6 +35,9 @@ import { type AgentCommand, config, currentSession, fail, type IssueItem, readJs
  *                                                           metrics.judgedBy はセッション URL（無ければ「付き添いのセッション」）。
  *                                                           --author-view は PR を実装したセッションの見解のテキストのファイル（任意。前後の空白を除いて空なら止まる）。
  *                                                           agent-verdict の authorView に入り、auto mode の危険の問いの見解ありの問いにだけ渡る（結論には使わない。#426）
+ *                                                           --review-source は判定に使ったレビューの出どころ（api＝API の記録、local＝ローカルの担当）。
+ *                                                           metrics.reviewSource と本文の1行に入る。api のときは --api-record（記録のコメントの URL）が要り、
+ *                                                           metrics.apiReviewRecord に入る。無ければ今と同じ本文（#1043）
  */
 
 export async function postVerdict(gh: GitHub, n: number, file: string, opts: { dryRun?: boolean } = {}): Promise<void> {
@@ -123,7 +127,7 @@ async function judgeInput(gh: GitHub, n: number): Promise<string> {
 async function composeVerdictFile(gh: GitHub, args: string[]): Promise<string> {
   const a = parseComposeArgs(args);
   if (!a.ok) fail(a.errors);
-  const { pr: n, reviewerFile, riskFile, judgeInput: inputFile, model, authorViewFile } = a.value;
+  const { pr: n, reviewerFile, riskFile, judgeInput: inputFile, model, authorViewFile, reviewSource, apiRecord } = a.value;
   const judged = checkJudgeInput(readFileSync(inputFile, 'utf8'), n);
   if (!judged.ok) fail(judged.errors.map((e) => `${inputFile}: ${e}`));
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
@@ -136,7 +140,12 @@ async function composeVerdictFile(gh: GitHub, args: string[]): Promise<string> {
     ...(samePatch === undefined ? {} : { samePatch }),
     reviewer: readJson(reviewerFile),
     risk: readJson(riskFile),
-    meta: { model, judgedBy: sessionUrl() ?? '付き添いのセッション' },
+    meta: {
+      model,
+      judgedBy: sessionUrl() ?? '付き添いのセッション',
+      ...(reviewSource === undefined ? {} : { reviewSource }),
+      ...(apiRecord === undefined ? {} : { apiRecord }),
+    },
     // 見解はファイルの前後の空白を除いて渡す（空なら parseVerdict が誤りにする）
     ...(authorViewFile === undefined ? {} : { authorView: readAuthorViewFile(authorViewFile) }),
   }, currentSession());
