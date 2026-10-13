@@ -143,13 +143,13 @@ test('低いアカウントが選ばれ、前置きは単一引用符の CLAUDE_
   assert.equal(shellPrefix("/x/it's"), "CLAUDE_CONFIG_DIR='/x/it'\\''s' ");
 });
 
-test('選び方の順：しきい値・rejected・起こした数の +10・5h が同じなら 7d（null は 0）・それも同じなら対応表の順', async () => {
+test('選び方の順：しきい値・rejected・直近 15 分に起こした数の +10・5h が同じなら 7d（null は後ろ）・それも同じなら対応表の順', async () => {
   const cases: { label: string; a: AccountSpec['cache']; b: AccountSpec['cache']; launches?: { name: string; at: number }[]; threshold5h?: number; expect: string }[] = [
     { label: '5h が低いほう', a: { five: 40 }, b: { five: 30 }, expect: 'b' },
     { label: '値の後に起こした1件で +10', a: { five: 30, ageMin: 2 }, b: { five: 25, ageMin: 2 }, launches: [{ name: 'b', at: NOW - 1 * MIN }], expect: 'a' },
-    { label: '値より前に起こした分は数えない', a: { five: 30, ageMin: 2 }, b: { five: 25, ageMin: 2 }, launches: [{ name: 'b', at: NOW - 3 * MIN }], expect: 'b' },
+    { label: '値より前でも 15 分以内に起こした分は +10', a: { five: 30, ageMin: 2 }, b: { five: 25, ageMin: 2 }, launches: [{ name: 'b', at: NOW - 3 * MIN }], expect: 'a' },
     { label: '5h が同じなら 7d が低いほう', a: { five: 30, seven: 50 }, b: { five: 30, seven: 20 }, expect: 'b' },
-    { label: '7d の null は 0', a: { five: 30, seven: 10 }, b: { five: 30, seven: null }, expect: 'b' },
+    { label: '7d の null は 7d のあるほうより後ろ', a: { five: 30, seven: 10 }, b: { five: 30, seven: null }, expect: 'a' },
     { label: '全部同じなら対応表の順', a: { five: 30, seven: 20 }, b: { five: 30, seven: 20, reset: NOW + 200 * MIN }, expect: 'a' },
     { label: 'しきい値ちょうどは外れる（既定 80）', a: { five: 80 }, b: { five: 79 }, expect: 'b' },
     { label: 'threshold5h を読む', a: { five: 10 }, b: { five: 50 }, threshold5h: 40, expect: 'a' },

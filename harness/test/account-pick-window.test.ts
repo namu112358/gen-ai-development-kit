@@ -1,5 +1,5 @@
 // Issue #872：アカウントを選ぶとき（harness/scripts/accounts/pick.ts）の 5h・7d の枠の扱いを確かめる。
-// 7d がしきい値以上なら外す（null は 7d で外さない）・リセット時刻を過ぎた値は 0%・順番は 5h と 7d の高い方・
+// 7d がしきい値以上なら外す（null は 7d で外さない）・リセット時刻を過ぎた値は 0%・
 // 全部外れたときの wait のリセット時刻・対応表の threshold7d・Orca の weekly.resetsAt の読み取り。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -89,23 +89,6 @@ test('pickAccount：リセット時刻を過ぎた値は 0% として外さず�
     // 実効の値に置き換えない
     assert.equal(r.usage.fiveHour, c.fiveHour, c.label);
     assert.deepEqual(r.usage, c.list.find(([n]) => n === c.expect)![1], c.label);
-  }
-});
-
-test('順番は 5h と 7d の高い方（＋起こした数の +10）、同じなら実効の 7d、それも同じなら対応表の順', () => {
-  const cases: { label: string; list: [string, UsageValue][]; launches?: Launch[]; expect: string }[] = [
-    { label: '5h 20・7d 70 より 5h 50・7d 40', list: [['a', usage(20, 70)], ['b', usage(50, 40)]], expect: 'b' },
-    { label: '並びを逆にしても同じ', list: [['b', usage(50, 40)], ['a', usage(20, 70)]], expect: 'b' },
-    { label: '起こした数の +10 は高い方に足す', list: [['a', usage(20, 60)], ['b', usage(65, 10)]], launches: [{ name: 'a', at: NOW }], expect: 'b' },
-    { label: '高い方が同じなら 7d が低いほう', list: [['a', usage(40, 40)], ['b', usage(40, 20)]], expect: 'b' },
-    { label: '同じ比べで 7d の null は 0', list: [['a', usage(40, 10)], ['b', usage(40, null)]], expect: 'b' },
-    { label: '同じ比べでリセット済みの 7d は 0', list: [['a', usage(40, 10)], ['b', usage(40, 30, { r7: NOW - MIN })]], expect: 'b' },
-    { label: '全部同じなら対応表の順', list: [['a', usage(40, 20)], ['b', usage(40, 20)]], expect: 'a' },
-  ];
-  for (const c of cases) {
-    const r = pick(c.list, { launches: c.launches });
-    assert.equal(r.result, 'picked', c.label);
-    assert.equal(r.result === 'picked' ? r.name : null, c.expect, c.label);
   }
 });
 
