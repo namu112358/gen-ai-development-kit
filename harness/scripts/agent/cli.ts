@@ -7,6 +7,7 @@ import { type ApiCounter, CountingTransport } from '../../lib/api-count.ts';
 import { type AssigneeIo, checkAssignee } from '../../lib/assignee.ts';
 import { type BlockKind, claudeMark, extractBlock, renderBlock, withClaudeMark } from '../../lib/blocks.ts';
 import { ensureOwnClaim as ownClaimError } from '../../lib/claim.ts';
+import { parseConfirm } from '../../lib/confirm.ts';
 import { LABELS, loadConfig, REASON_CODES, type ReasonCode, reasonMark, riskLabel } from '../../lib/config.ts';
 import { parseDecision } from '../../lib/decision.ts';
 import { parseHandoff } from '../../lib/handoff.ts';
@@ -196,16 +197,16 @@ export function readBlockFile(file: string): string {
   return withClaudeMark(body, currentSession());
 }
 
-export function checkFile(file: string): { kind: 'plan' | 'verdict' | 'decision' | 'handoff'; errors: string[]; value?: unknown } {
+export function checkFile(file: string): { kind: 'plan' | 'verdict' | 'decision' | 'handoff' | 'confirm'; errors: string[]; value?: unknown } {
   const body = readFileSync(file, 'utf8');
-  for (const kind of ['plan', 'verdict', 'decision', 'handoff'] as const) {
+  for (const kind of ['plan', 'verdict', 'decision', 'handoff', 'confirm'] as const) {
     const b = extractBlock(body, `agent-${kind}` as BlockKind);
     if (!b.found) continue;
     if (!b.ok) return { kind, errors: [b.error] };
-    const parsed = kind === 'plan' ? parsePlan(b.value) : kind === 'verdict' ? parseVerdict(b.value) : kind === 'decision' ? parseDecision(b.value) : parseHandoff(b.value);
+    const parsed = kind === 'plan' ? parsePlan(b.value) : kind === 'verdict' ? parseVerdict(b.value) : kind === 'decision' ? parseDecision(b.value) : kind === 'confirm' ? parseConfirm(b.value) : parseHandoff(b.value);
     return parsed.ok ? { kind, errors: [], value: parsed.value } : { kind, errors: parsed.errors };
   }
-  throw new Error('agent-plan / agent-verdict / agent-decision / agent-handoff ブロックがありません');
+  throw new Error('agent-plan / agent-verdict / agent-decision / agent-handoff / agent-confirm ブロックがありません');
 }
 
 /** 一時ディレクトリにファイルを書き、パスを返す */
