@@ -4,14 +4,14 @@
  *   node harness/scripts/accounts/pick.ts（引数なし。場所は homedir() から決める。標準出力に JSON を1つ、終了コードは常に 0）
  *
  * 入力（どれも読むだけ。書くのは launches.json だけ）
- * - 対応表 ~/.config/agent-harness/accounts.json：{ threshold5h?（既定 80）, accounts: [{ orcaId, name, configDir }] }
+ * - 対応表 ~/.config/agent-harness/accounts.json：{ threshold5h?（既定 80）, threshold7d?（既定 90）, accounts: [{ orcaId, name, configDir }] }
  * - 使用量の控え ~/.config/agent-harness/usage/<組織の ID>.json（ステータスラインが書く形。任意の source・status も読む）
  * - 起こした数の控え ~/.config/agent-harness/usage/launches.json：[{ name, at }]（選んだら { name, at } を足す）
  * - Orca の `account list --json`（使用量と組織の ID）。メールアドレス・組織名は読んでも出さない。
  *
  * 結果（JSON）
  * - picked：{ result, prefix（`CLAUDE_CONFIG_DIR='<dir>' `）, name, orcaId, usage, excluded }
- * - wait：{ result, prefix: '', resetAt（候補の 5h の一番早いリセット、ISO）, excluded }
+ * - wait：{ result, prefix: '', resetAt（アカウントが選べるようになる時刻の一番早いもの、ISO。5h と 7d の両方で外れたアカウントは遅い方）, excluded }
  * - default：{ result, prefix: '', reason, excluded }（対応表・Orca が読めない、候補が無い）
  * excluded は { name, reason } の一覧。reason は outside-config-root・unreadable-claude-json・onboarding・trust・auto-mode-prompt・org-mismatch・no-usage。
  *
@@ -25,7 +25,7 @@ import { writeLocalJson } from '../../lib/local-state.ts';
 import { mainRepoRoot, orcaCliCommand } from '../../lib/worktree.ts';
 
 export interface AccountEntry { orcaId: string; name: string; configDir: string }
-export interface UsageValue { fiveHour: number | null; fiveHourResetsAt: number | null; sevenDay: number | null; status: string | null; at: number; source: 'probe' | 'cache' | 'orca' }
+export interface UsageValue { fiveHour: number | null; fiveHourResetsAt: number | null; sevenDay: number | null; sevenDayResetsAt: number | null; status: string | null; at: number; source: 'probe' | 'cache' | 'orca' }
 export interface Launch { name: string; at: number }
 export interface Excluded { name: string; reason: string }
 export type OrcaAccounts = Map<string, { organizationUuid: string | null; usage: UsageValue | null }>;
@@ -41,6 +41,7 @@ export const ORCA_MAX_AGE_MS = 30 * MIN;
 export const MIXUP_RESET_GAP_MS = 120_000;
 export const LAUNCH_PENALTY = 10;
 export const DEFAULT_THRESHOLD_5H = 80;
+export const DEFAULT_THRESHOLD_7D = 90;
 const ORCA_TIMEOUT_MS = 15_000;
 
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -56,7 +57,7 @@ function usageFrom(rl: unknown, at: number | null, source: UsageValue['source'],
   if (!isObj(rl) || at === null) return null;
   const session = isObj(rl.session) ? rl.session : {};
   const weekly = isObj(rl.weekly) ? rl.weekly : {};
-  return { fiveHour: num(session.usedPercent), fiveHourResetsAt: num(session.resetsAt), sevenDay: num(weekly.usedPercent), status: str(status), at, source };
+  return { fiveHour: num(session.usedPercent), fiveHourResetsAt: num(session.resetsAt), sevenDay: num(weekly.usedPercent), sevenDayResetsAt: num(weekly.resetsAt), status: str(status), at, source };
 }
 
 /** Orca の `account list --json` から、orcaId ごとの組織の ID と使用量を取り出す */
@@ -141,24 +142,41 @@ export function chooseUsage(input: { accounts: AccountEntry[]; cache: Map<string
   return out;
 }
 
-/** 候補から選ぶ。使える値が無いアカウントは no-usage で外す */
-export function pickAccount(input: { accounts: AccountEntry[]; threshold5h: number; usage: Map<string, UsageValue | null>; launches: Launch[]; excluded: Excluded[]; now: number }): PickResult {
+/** リセット時刻（ミリ秒）を過ぎた（ちょうどを含む）5h・7d は 0% とみなした値。リセット時刻が null の値・7d が null はそのまま */
+export function effectiveUsage(u: UsageValue, now: number): { fiveHour: number; sevenDay: number | null } {
+  const fiveHour = u.fiveHourResetsAt !== null && u.fiveHourResetsAt <= now ? 0 : (u.fiveHour ?? 0);
+  const sevenDay = u.sevenDay !== null && u.sevenDayResetsAt !== null && u.sevenDayResetsAt <= now ? 0 : u.sevenDay;
+  return { fiveHour, sevenDay };
+}
+
+/** 候補から選ぶ。使える値が無いアカウントは no-usage で外す。リセット済みの枠は 0% として、5h・7d のしきい値と順番を決める */
+export function pickAccount(input: { accounts: AccountEntry[]; threshold5h: number; threshold7d: number; usage: Map<string, UsageValue | null>; launches: Launch[]; excluded: Excluded[]; now: number }): PickResult {
   const excluded = [...input.excluded];
-  const cands: { a: AccountEntry; u: UsageValue; index: number }[] = [];
+  const cands: { a: AccountEntry; u: UsageValue; e: { fiveHour: number; sevenDay: number | null }; index: number }[] = [];
   input.accounts.forEach((a, index) => {
     const u = input.usage.get(a.orcaId) ?? null;
     if (u === null || u.fiveHour === null) excluded.push({ name: a.name, reason: 'no-usage' });
-    else cands.push({ a, u, index });
+    else cands.push({ a, u, e: effectiveUsage(u, input.now), index });
   });
   if (cands.length === 0) return { result: 'default', prefix: '', reason: 'no-candidates', excluded };
-  const open = cands.filter((c) => c.u.fiveHour! < input.threshold5h && c.u.status !== 'rejected');
+  const over5 = (c: (typeof cands)[number]): boolean => c.e.fiveHour >= input.threshold5h;
+  const over7 = (c: (typeof cands)[number]): boolean => c.e.sevenDay !== null && c.e.sevenDay >= input.threshold7d;
+  const open = cands.filter((c) => !over5(c) && !over7(c) && c.u.status !== 'rejected');
   if (open.length === 0) {
-    const resets = cands.map((c) => c.u.fiveHourResetsAt).filter((v): v is number => v !== null);
-    return { result: 'wait', prefix: '', resetAt: resets.length === 0 ? null : new Date(Math.min(...resets)).toISOString(), excluded };
+    // アカウントごとに、外れた理由の枠のリセット時刻（両方なら遅い方）。null の枠は数えない
+    const times: number[] = [];
+    for (const c of cands) {
+      const t: (number | null)[] = [];
+      if (over5(c)) t.push(c.u.fiveHourResetsAt);
+      if (over7(c)) t.push(c.u.sevenDayResetsAt);
+      if (t.length === 0) t.push(c.u.fiveHourResetsAt);
+      if (t.every((v) => v !== null)) times.push(Math.max(...(t as number[])));
+    }
+    return { result: 'wait', prefix: '', resetAt: times.length === 0 ? null : new Date(Math.min(...times)).toISOString(), excluded };
   }
-  const score = (c: { a: AccountEntry; u: UsageValue }): number =>
-    c.u.fiveHour! + LAUNCH_PENALTY * input.launches.filter((l) => l.name === c.a.name && l.at > c.u.at).length;
-  open.sort((x, y) => score(x) - score(y) || (x.u.sevenDay ?? 0) - (y.u.sevenDay ?? 0) || x.index - y.index);
+  const score = (c: (typeof cands)[number]): number =>
+    Math.max(c.e.fiveHour, c.e.sevenDay ?? c.e.fiveHour) + LAUNCH_PENALTY * input.launches.filter((l) => l.name === c.a.name && l.at > c.u.at).length;
+  open.sort((x, y) => score(x) - score(y) || (x.e.sevenDay ?? 0) - (y.e.sevenDay ?? 0) || x.index - y.index);
   const best = open[0]!;
   return { result: 'picked', prefix: shellPrefix(resolve(best.a.configDir)), name: best.a.name, orcaId: best.a.orcaId, usage: best.u, excluded };
 }
@@ -185,21 +203,22 @@ const parseJson = (text: string | null): unknown => {
 const dflt = (reason: string): PickResult => ({ result: 'default', prefix: '', reason, excluded: [] });
 
 /** 対応表（accounts.json を読んだ JSON）から、アカウントの一覧としきい値を取り出す。pick.ts と probe.ts で同じ読み方にする */
-export function parseAccountsTable(json: unknown): { accounts: AccountEntry[]; threshold5h: number } {
+export function parseAccountsTable(json: unknown): { accounts: AccountEntry[]; threshold5h: number; threshold7d: number } {
   const rawAccounts = isObj(json) && Array.isArray(json.accounts) ? json.accounts : [];
   const accounts: AccountEntry[] = [];
   for (const a of rawAccounts) {
     if (isObj(a) && str(a.orcaId) && str(a.name) && str(a.configDir)) accounts.push({ orcaId: a.orcaId as string, name: a.name as string, configDir: a.configDir as string });
   }
   const threshold5h = isObj(json) && num(json.threshold5h) !== null ? (json.threshold5h as number) : DEFAULT_THRESHOLD_5H;
-  return { accounts, threshold5h };
+  const threshold7d = isObj(json) && num(json.threshold7d) !== null ? (json.threshold7d as number) : DEFAULT_THRESHOLD_7D;
+  return { accounts, threshold5h, threshold7d };
 }
 
 /** 対応表を読む → 無ければ default → 本体のパスと Orca を読む → 選ぶ */
 export function runPick(deps: PickDeps): PickResult {
   const base = join(deps.home, '.config', 'agent-harness');
   const table = parseJson(deps.readText(join(base, 'accounts.json')));
-  const { accounts, threshold5h } = parseAccountsTable(table);
+  const { accounts, threshold5h, threshold7d } = parseAccountsTable(table);
   if (accounts.length === 0) return dflt('no-accounts-table');
 
   let repoRoot: string;
@@ -236,7 +255,7 @@ export function runPick(deps: PickDeps): PickResult {
   for (const l of Array.isArray(rawLaunches) ? rawLaunches : []) {
     if (isObj(l) && typeof l.name === 'string' && num(l.at) !== null) launches.push({ name: l.name, at: l.at as number });
   }
-  const r = pickAccount({ accounts: usable, threshold5h, usage, launches, excluded, now: deps.now });
+  const r = pickAccount({ accounts: usable, threshold5h, threshold7d, usage, launches, excluded, now: deps.now });
   if (r.result === 'picked') deps.writeJson(launchesPath, [...launches, { name: r.name, at: deps.now }]);
   return r;
 }
