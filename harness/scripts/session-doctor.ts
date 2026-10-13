@@ -3,7 +3,7 @@
  *
  *   node harness/scripts/session-doctor.ts
  *
- * - 見るもの：git の名義（user.name・user.email）・Orca の CLI（探すだけで実行しない）・手元の main が origin より古くないか・gh の認証。
+ * - 見るもの：git の名義（user.name・user.email）・Orca の CLI（探すだけで実行しない）・手元の既定ブランチ（harness.config.json の defaultBranch）が origin より古くないか（設定が読めなければ見ない）・gh の認証。
  * - 行に環境変数の値・パス・SHA・トークン・gh の出力を入れない。環境変数は process.env から node の中で読む（printenv・env を使わない）。
  * - 設定を変えない。fetch・pull をしない。引数は取らず、終了コードは 0（引数があれば使い方を標準エラーに出して 2）。
  * - AGENT_HARNESS_SESSION_DOCTOR=0 で止める。NODE_TEST_CONTEXT があり AGENT_HARNESS_SESSION_DOCTOR=1 が無いときも止める。
@@ -18,6 +18,8 @@
  *   時間切れの値を変えたら、この見積もりと docs/setup.md の節11も直す。
  */
 import { spawn, spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { orcaCliInfo } from './orca-cli.ts';
 
 type Env = Record<string, string | undefined>;
@@ -27,8 +29,10 @@ export interface SessionDoctorDeps {
   env: Env;
   /** 同期の短い git。status は終了コード（起動できなければ null） */
   gitSync(args: string[]): { status: number | null; stdout: string };
-  /** origin の refs/heads/main の SHA。失敗・時間切れ・空なら null */
-  lsRemoteMain(): Promise<string | null>;
+  /** 既定ブランチ（harness.config.json の defaultBranch）。設定が読めない・空なら null（古さの1行を出さない） */
+  defaultBranch: string | null;
+  /** origin の refs/heads/<既定ブランチ> の SHA。失敗・時間切れ・空なら null */
+  lsRemoteBranch(branch: string): Promise<string | null>;
   /** gh auth status の終了コード。起動できない・時間切れなら null */
   ghAuthStatus(): Promise<number | null>;
   isExecutable?: (path: string) => boolean;
@@ -82,6 +86,16 @@ function runAsync(command: string, args: string[], opts: { cwd?: string; env?: E
   });
 }
 
+/** cwd の harness.config.json の defaultBranch。ファイルが無い・JSON が壊れている・空・文字列でないなら null */
+export function readDefaultBranch(cwd: string): string | null {
+  try {
+    const v = (JSON.parse(readFileSync(join(cwd, 'harness.config.json'), 'utf8')) as { defaultBranch?: unknown } | null)?.defaultBranch;
+    return typeof v === 'string' && v.trim() !== '' ? v : null;
+  } catch {
+    return null;
+  }
+}
+
 export function defaultSessionDoctorDeps(opts: { cwd?: string; env?: Env } = {}): SessionDoctorDeps {
   const env = opts.env ?? process.env;
   const cwd = opts.cwd;
@@ -94,8 +108,9 @@ export function defaultSessionDoctorDeps(opts: { cwd?: string; env?: Env } = {})
       const r = spawnSync('git', args, { shell: false, cwd, env: syncEnv as NodeJS.ProcessEnv, encoding: 'utf8', timeout: GIT_SYNC_TIMEOUT_MS, stdio: ['ignore', 'pipe', 'ignore'] });
       return { status: r.error ? null : r.status, stdout: r.stdout ?? '' };
     },
-    lsRemoteMain: async () => {
-      const r = await runAsync('git', ['ls-remote', 'origin', 'refs/heads/main'], { cwd, env: lsRemoteEnv, stdout: true, detached: true });
+    defaultBranch: readDefaultBranch(cwd ?? process.cwd()),
+    lsRemoteBranch: async (branch) => {
+      const r = await runAsync('git', ['ls-remote', 'origin', `refs/heads/${branch}`], { cwd, env: lsRemoteEnv, stdout: true, detached: true });
       if (r.status !== 0) return null;
       const sha = r.stdout.trim().split(/\s+/)[0] ?? '';
       return /^[0-9a-f]{40,64}$/.test(sha) ? sha : null;
@@ -121,13 +136,15 @@ function orcaLine(d: SessionDoctorDeps): string | null {
   }
 }
 
-async function mainLine(d: SessionDoctorDeps): Promise<string | null> {
-  const local = d.gitSync(['rev-parse', '--verify', '--quiet', 'refs/heads/main']);
+async function defaultBranchLine(d: SessionDoctorDeps): Promise<string | null> {
+  const branch = d.defaultBranch;
+  if (!branch) return null;
+  const local = d.gitSync(['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
   const localSha = local.stdout.trim();
   if (local.status !== 0 || localSha === '') return null;
-  const origin = await d.lsRemoteMain();
+  const origin = await d.lsRemoteBranch(branch);
   if (!origin || origin === localSha) return null;
-  const stale = '手元の main が origin より古いです（git fetch origin で取り込めます）';
+  const stale = `手元の既定ブランチ（${branch}）が origin より古いです（git fetch origin で取り込めます）`;
   if (d.gitSync(['cat-file', '-e', `${origin}^{commit}`]).status !== 0) return stale;
   const anc = d.gitSync(['merge-base', '--is-ancestor', origin, localSha]).status;
   if (anc === 0) return null;
@@ -156,8 +173,8 @@ export async function sessionDoctor(opts: { orcaNoticeShown?: boolean } = {}, de
   });
   const guarded = (p: Promise<string | null>): Promise<string | null> => Promise.race([p.catch(() => null), limit]);
   try {
-    const [main, gh] = await Promise.all([guarded(mainLine(d)), guarded(ghLine(d))]);
-    if (main) lines.push(main);
+    const [branchLine, gh] = await Promise.all([guarded(defaultBranchLine(d)), guarded(ghLine(d))]);
+    if (branchLine) lines.push(branchLine);
     if (gh) lines.push(gh);
   } finally {
     clearTimeout(timer);
