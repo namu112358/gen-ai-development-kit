@@ -15,8 +15,8 @@ const NOW = Date.parse('2026-10-12T12:00:00.000Z');
 const MIN = 60000;
 const REPO = '/work/repo-main';
 const EMAIL = 'someone@example.com';
-const RESET5 = 1_791_000_000;
-const RESET7 = 1_791_500_000;
+const RESET5 = 1_792_000_000;
+const RESET7 = 1_792_500_000;
 
 const tmp = mkdtempSync(join(tmpdir(), 'account-probe-'));
 after(() => rmSync(tmp, { recursive: true, force: true }));
