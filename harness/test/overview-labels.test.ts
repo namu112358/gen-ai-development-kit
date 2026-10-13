@@ -4,8 +4,42 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 
 // Issue #132：overview.html のラベル表示と harness.config.json のラベル定義の食い違いを検査する（AC3）
-import { labelsInOverview, checkOverviewLabels } from '../scripts/readme.ts';
+import { labelsInOverview } from '../scripts/readme.ts';
 import { loadConfig, allLabelDefs } from '../lib/config.ts';
+
+// ---- 食い違いの検査（このテストだけが使うので、本体ではなくここに置く） ----
+
+interface LabelMismatch {
+  unknownOnPage: string[];
+  missingFromSection: string[];
+}
+
+function labelsSection(html: string): string {
+  const idx = html.indexOf('id="labels"');
+  return idx === -1 ? '' : html.slice(idx);
+}
+
+function coveredBy(defs: { name: string }[], label: string): boolean {
+  if (label.endsWith(':*')) {
+    const prefix = label.slice(0, -1);
+    return defs.some((d) => d.name.startsWith(prefix));
+  }
+  return defs.some((d) => d.name === label);
+}
+
+function checkOverviewLabels(html: string, defs: { name: string }[]): LabelMismatch {
+  const pageLabels = labelsInOverview(html);
+  const unknownOnPage = pageLabels.filter((l) => !coveredBy(defs, l));
+
+  const section = labelsSection(html);
+  const sectionLabels = new Set(labelsInOverview(section));
+  const missingFromSection: string[] = [];
+  for (const def of defs) {
+    const covered = sectionLabels.has(def.name) || [...sectionLabels].some((l) => l.endsWith(':*') && def.name.startsWith(l.slice(0, -1)));
+    if (!covered) missingFromSection.push(def.name);
+  }
+  return { unknownOnPage, missingFromSection };
+}
 
 const root = join(import.meta.dirname, '..', '..');
 

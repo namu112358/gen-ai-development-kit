@@ -85,7 +85,7 @@ export const fleetIssue = (facts: IssueFacts, opts: { prs?: FleetPr[]; planFiles
 /** 確認事項のコメントの ID・時刻と、答えのコメントの ID・時刻の既定値（確認事項は計画ゲートより後、答えは確認事項より後で NOW より前） */
 export const CONFIRM_ID = 900;
 export const CONFIRM_AT = '2026-09-26T09:00:00Z';
-export const ANSWER_ID = 910;
+const ANSWER_ID = 910;
 export const ANSWER_AT = '2026-09-26T10:00:00Z';
 
 /** 確認事項の値（質問1件・選択肢あり。target は Issue、止めた段階も再開も implement） */

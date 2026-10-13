@@ -69,15 +69,6 @@ export function replaceQueueSection(body: string, section: string): string {
   return `${body.trimEnd()}\n\n${section}`;
 }
 
-/** ダッシュボード本文から queue を読む（検証用・人のセッション用） */
-export function readQueueSection(body: string): QueueResult | null {
-  const start = body.indexOf(QUEUE_START);
-  const end = body.indexOf(QUEUE_END);
-  if (start < 0 || end < start) return null;
-  const block = extractBlock(body.slice(start, end), 'agent-app');
-  return block.found && block.ok ? (block.value as QueueResult) : null;
-}
-
 export const IMPROVE_START = '<!-- agent-harness:improve:start -->';
 export const IMPROVE_END = '<!-- agent-harness:improve:end -->';
 

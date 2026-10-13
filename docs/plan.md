@@ -288,7 +288,7 @@ Claude がユーザー本人の名義で動く以上、GitHub 上の印で「人
 | --- | --- | --- |
 | 計画ゲート、判定の受け付け、Merge の経路、修正の回数（`fixLoop`） | App（Actions） | コード |
 | main への push、force push、Merge、保護ラベル | Ruleset、`permissions.deny`、`.claude/hooks/guard.ts` | コード |
-| 次の段階の候補 | 段階のグラフのデータ `harness/lib/flow.ts`（ノード・エッジ・ループの上限・止まる先の理由。#201）から、`harness/lib/queue.ts`・`harness/lib/fleet.ts` が次にやることを引く（計算はコード） | 使うかは AI 次第 |
+| 次の段階の候補 | 段階のノードと止まる理由のデータ `harness/lib/flow.ts`（#201）から、`harness/lib/queue.ts`・`harness/lib/fleet.ts` が次にやることを引き、今やるノードは `harness/lib/step.ts`（`agent.ts step`）が決める（計算はコード） | 使うかは AI 次第 |
 | どの段階を今やるか | ship・fleet の skill の文章 | AI |
 | 着手宣言の出し入れと段階 | 各 skill の文章 | AI（忘れても止まらない） |
 | plan-critic・test-designer を呼ぶ、批評の止める条件 | plan・implement の skill の文章 | AI |

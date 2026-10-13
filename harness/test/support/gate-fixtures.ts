@@ -312,8 +312,8 @@ export function delegateWorldFake(w: DelegateWorld): FakeGitHub {
 
 /** 既定ブランチの先頭の commit（H）と、その第1親（P）。Merge 後の CI の失敗の revert（Issue #802）のテストで使う */
 export const MAIN_HEAD = 'd'.repeat(40);
-export const MAIN_PARENT = 'e'.repeat(40);
-export const MAIN_HEAD_TREE = '1'.repeat(40);
+const MAIN_PARENT = 'e'.repeat(40);
+const MAIN_HEAD_TREE = '1'.repeat(40);
 export const MAIN_PARENT_TREE = '2'.repeat(40);
 
 /** 必須チェック（projectChecks の context）の結果。null はまだ終わっていない、'missing' はチェックが無い */
