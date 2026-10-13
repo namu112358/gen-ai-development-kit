@@ -1,5 +1,6 @@
 /**
- * hq・fleet が env・printenv を使わずに Orca の CLI を得る入口（Issue #757）。
+ * Orca の CLI を env・printenv を使わずに決める関数（orcaCliInfo・onPath）の置き場所（Issue #757）。
+ * hq・fleet は許可済みの `node harness/scripts/agent.ts orca-cli`（Issue #773）から使う。
  *
  *   node harness/scripts/orca-cli.ts
  *

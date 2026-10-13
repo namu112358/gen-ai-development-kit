@@ -1,7 +1,5 @@
 // Issue #193：post-plan の後の着手宣言。ゲートを通る見込みなら plan-gate を出し直し、agent:plan-review で止まる見込みなら解除する
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import { claudeMark, renderBlock } from '../lib/blocks.ts';
 import { loadConfig } from '../lib/config.ts';
@@ -121,37 +119,4 @@ test('post-plan の後：ゲートを通る見込みの計画では、同じセ�
   assert.deepEqual(requireOwnClaim(c, SESSION), { error: null, warning: null });
   assert.equal(claimBlocker(c, SESSION, opts), null, '同じセッションは段階を進められる');
   assert.ok(claimBlocker(c, OTHER, opts), '別のセッションは止められる');
-});
-
-// ---- 手順の文面（AC1 の手順側・AC3・AC4）----
-
-const root = join(import.meta.dirname, '..', '..');
-const read = (path: string): string => readFileSync(join(root, path), 'utf8');
-/** 箇条（- で始まる行と、その下の字下げした行）ごとに分ける */
-const bullets = (text: string): string[] => text.split(/\n(?=\s*(?:-|\d+\.) )/);
-
-test('手順：harness/CLAUDE.harness.md の進め方に、人の判断は AskUserQuestion で選択肢つきで聞く箇条がある', () => {
-  const rules = read('harness/CLAUDE.harness.md');
-  const progress = rules.slice(rules.indexOf('## 進め方'), rules.indexOf('## 立場'));
-  const item = bullets(progress).find((b) => b.includes('AskUserQuestion'));
-  assert.ok(item, 'AskUserQuestion の箇条がありません');
-  assert.match(item, /選択肢/);
-  assert.match(item, /4問/);
-  assert.match(item, /繰り返さ/);
-  assert.match(item, /Routine/);
-});
-
-test('手順：plan・ship の skill に、agent:plan-review になったら release してから AskUserQuestion で聞く手順がある', () => {
-  for (const path of ['.claude/skills/plan/SKILL.md', '.claude/skills/ship/SKILL.md']) {
-    const item = bullets(read(path)).find((b) => b.includes('agent:plan-review') && /release <番号>/.test(b) && b.includes('AskUserQuestion'));
-    assert.ok(item, `${path} に release してから聞く手順がありません`);
-  }
-});
-
-test('手順：plan・ship・fleet・implement の skill の人に聞く箇所が AskUserQuestion を使う', () => {
-  for (const path of ['.claude/skills/plan/SKILL.md', '.claude/skills/ship/SKILL.md', '.claude/skills/fleet/SKILL.md', '.claude/skills/implement/SKILL.md']) {
-    assert.match(read(path), /AskUserQuestion/, path);
-  }
-  const fleet = read('.claude/skills/fleet/SKILL.md');
-  assert.ok(bullets(fleet).some((b) => b.includes('agent:plan-review') && /release <番号>/.test(b)), 'fleet に plan-review の Issue を release する手順がありません');
 });

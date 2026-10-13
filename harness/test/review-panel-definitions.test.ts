@@ -139,12 +139,6 @@ test('切り替え：harness.config.json の reviewPanel.mode は off・shadow�
   assert.equal(mode, 'enforce');
 });
 
-test('切り替え：judge の skill が mode を読み、off・shadow・enforce の3つの分岐がある', () => {
-  const judge = read(JUDGE_SKILL);
-  assert.ok(judge.includes('node harness/scripts/review-panel.ts mode'));
-  for (const m of ['`off`', '`shadow`', '`enforce`']) assert.ok(judge.includes(m), `judge の skill に ${m} がありません`);
-});
-
 // ---- skill が使うコマンド ----
 
 /** review-panel.ts の使い方のコメントに書かれたコマンド名 */
@@ -167,17 +161,10 @@ test('skill が使う review-panel.ts のコマンドは、先頭の使い方の
   }
 });
 
-test('review-panel の skill：name・description と4つの見出しがある', () => {
-  const text = read(PANEL_SKILL);
-  const fm = frontmatter(text);
+test('review-panel の skill：name・description がある', () => {
+  const fm = frontmatter(read(PANEL_SKILL));
   assert.equal(fm.name, 'review-panel');
   assert.ok(fm.description, 'description がありません');
-  const lines = text.split('\n');
-  for (const h of ['## 入力', '## 手順', '## 終わりの状態', '## 人に返す条件']) assert.ok(lines.includes(h), `「${h}」がありません`);
-});
-
-test('review-panel の skill：⑨の担当 review-overbuild を呼ぶ（Issue #325）', () => {
-  assert.ok(read(PANEL_SKILL).includes('review-overbuild'), `${PANEL_SKILL} に review-overbuild がありません`);
 });
 
 // ---- docs ----

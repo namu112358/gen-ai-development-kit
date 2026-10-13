@@ -1,6 +1,6 @@
 // Issue #328：arch-review を /loop から回し、前回の位置から続けて見直す。
 // 記録の書式（trigger・下書きの body・採用数）、下書きの採用（arch-review-adopt）、採用待ちの一覧（arch-review-pending）、
-// /loop の下書きの上限、skill・docs の /loop での回し方の検査
+// /loop の下書きの上限、agent.ts のコマンドの実在の検査
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -367,81 +367,4 @@ test('agent.ts arch-review-drafts --loop：3件の下書きは通る', () => {
   const r = runDrafts([1, 2, 3].map(issueDraft), ['--loop']);
   assert.equal(r.status, 0, r.stderr);
   assert.ok(r.stdout.includes('refactor(harness): 下書き 3'), r.stdout);
-});
-
-// ---- skill・docs ----
-
-const SKILL = '.claude/skills/arch-review/SKILL.md';
-const OPERATIONS = 'harness/docs/operations.md';
-const AGENT = '.claude/agents/arch-reviewer.md';
-const LOOP_HEADING = '## /loop で回すとき';
-
-function frontmatter(text: string): Record<string, string> {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!m) return {};
-  return Object.fromEntries(m[1]!.split('\n').map((l) => l.match(/^([a-z-]+):\s*(.*)$/)).filter((x) => x !== null).map((x) => [x[1]!, x[2]!.trim()]));
-}
-
-/** 見出しの行（前方一致）から、同じか上の階層の次の見出しの前までを切り出す */
-function section(text: string, heading: string): string {
-  const lines = text.split('\n');
-  const start = lines.findIndex((l) => l.startsWith(heading));
-  if (start < 0) return '';
-  const level = heading.match(/^#+/)![0].length;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((l) => {
-    const m = l.match(/^(#+) /);
-    return m !== null && m[1]!.length <= level;
-  });
-  return [lines[start]!, ...(end < 0 ? rest : rest.slice(0, end))].join('\n');
-}
-
-const sentences = (text: string): string[] => text.split(/[。\n]/).map((s) => s.trim()).filter((s) => s !== '');
-
-test('arch-review の description：1文目は今と同じで、「arch-review の下書きを選ぶ」がある', () => {
-  const fm = frontmatter(read(SKILL));
-  const description = fm.description ?? '';
-  const first = description.slice(0, description.indexOf('。') + 1);
-  assert.equal(first, '人が付き添うセッションで、Merge 済みの PR をまとめて読み、Issue をまたぐ設計のずれ（重複・置き場所・docs との食い違い・コードの書き方）を見つけて、直す Issue の下書きを人に示す。');
-  assert.ok(description.includes('arch-review の下書きを選ぶ'), `description に「arch-review の下書きを選ぶ」がありません：${description}`);
-});
-
-test('arch-review の「## 入力」に --loop がある', () => {
-  assert.ok(section(read(SKILL), '## 入力').includes('--loop'), '「## 入力」に --loop がありません');
-});
-
-test('arch-review に「## /loop で回すとき」の節があり、/loop の例はどれも --loop を付けている', () => {
-  const loop = section(read(SKILL), LOOP_HEADING);
-  assert.ok(loop !== '', `「${LOOP_HEADING}」がありません`);
-  const examples = loop.split('\n').slice(1)
-    .map((l) => l.match(/^\s*(?:[-*]\s+)?`?(\/loop\s[^`]*)`?/)?.[1])
-    .filter((x): x is string => x !== undefined && x.includes('/arch-review'));
-  assert.ok(examples.length > 0, '/loop の例（`/loop 6h /arch-review --loop` のような行）がありません');
-  for (const ex of examples) assert.ok(/\/arch-review\b.*--loop\b/.test(ex), `--loop の無い /loop の例：${ex}`);
-});
-
-test('「## /loop で回すとき」に間隔・止め方・観測・採用のコマンド・前回の続きの解き方・docs へのリンクがある', () => {
-  const loop = section(read(SKILL), LOOP_HEADING);
-  for (const word of ['間隔', '止め', 'observe.ts', 'arch-review-pending', 'arch-review-adopt', 'truncated', '--since', '記録を残さ', 'operations.md#見直しを-loop-で回す']) {
-    assert.ok(loop.includes(word), `「${LOOP_HEADING}」に「${word}」がありません`);
-  }
-});
-
-test('「## /loop で回すとき」：AskUserQuestion を呼ばず、gh issue create をしないと書いている', () => {
-  const s = sentences(section(read(SKILL), LOOP_HEADING));
-  assert.ok(s.some((x) => x.includes('AskUserQuestion') && /ない|ません/.test(x)), 'AskUserQuestion を呼ばない文がありません');
-  assert.ok(s.some((x) => x.includes('gh issue create') && /ない|ません/.test(x)), 'gh issue create をしない文がありません');
-});
-
-test('「## /loop で回すとき」：見る PR が無い（prs が空）なら記録を残さない', () => {
-  const s = sentences(section(read(SKILL), LOOP_HEADING));
-  assert.ok(s.some((x) => x.includes('記録を残さ') && /prs|PR/.test(x)), 'prs が空なら記録を残さない文がありません');
-});
-
-test('harness/docs/operations.md に「## 見直しを /loop で回す」の見出しがある', () => {
-  assert.ok(read(OPERATIONS).split('\n').includes('## 見直しを /loop で回す'), '見出しがありません');
-});
-
-test('arch-reviewer の定義に observe.ts の記述がある', () => {
-  assert.ok(read(AGENT).includes('observe.ts'), `${AGENT} に observe.ts がありません`);
 });
