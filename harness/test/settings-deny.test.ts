@@ -1,6 +1,9 @@
 // permissions.deny の保護ラベル・例外ラベルの規則が、ラベルを付け外しする gh のコマンドだけに当たり、読むだけのコマンドには当たらないことを確かめる（Issue #218・#241）
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
+import { renderDeny } from '../lib/settings-deny.ts';
 import { denyOf, hits, matchesRule, SETTINGS, TEMPLATE } from './support/settings-deny.ts';
 
 /** 規則に書く印（保護ラベルと、例外ラベルをまとめる :exempt） */
@@ -99,13 +102,20 @@ function mutating(label: string): string[] {
   ];
 }
 
-test('.claude/settings.json と deny の雛形の permissions.deny が同じ', () => {
-  assert.deepEqual(denyOf(TEMPLATE), denyOf(SETTINGS));
+test('.claude/settings.json の deny は、deny の雛形をこのリポジトリの harness.config.json の defaultBranch で埋めたものと同じ', () => {
+  const { defaultBranch } = JSON.parse(readFileSync(join(import.meta.dirname, '..', '..', 'harness.config.json'), 'utf8')) as { defaultBranch: string };
+  assert.deepEqual(renderDeny(denyOf(TEMPLATE), defaultBranch), denyOf(SETTINGS));
 });
 
-for (const p of [SETTINGS, TEMPLATE]) {
+// 雛形は既定ブランチの3行が {{defaultBranch}} の置き場所なので、main で埋めて読む（OTHER_RULES の main の3行の確かめが雛形にも効く）
+const SOURCES: [string, () => string[]][] = [
+  [SETTINGS, () => denyOf(SETTINGS)],
+  [TEMPLATE, () => renderDeny(denyOf(TEMPLATE), 'main')],
+];
+
+for (const [p, denyOfP] of SOURCES) {
   test(`${p}: ラベルの名前だけで当たる規則（Bash(*<ラベル>*)）が残っていない`, () => {
-    const loose = denyOf(p).filter((r) => {
+    const loose = denyOfP().filter((r) => {
       const m = /^Bash\(\*([^*]*)\*\)$/.exec(r);
       return m !== null && MARKS.some((t) => m[1]!.toLowerCase().includes(t));
     });
@@ -113,7 +123,7 @@ for (const p of [SETTINGS, TEMPLATE]) {
   });
 
   test(`${p}: 印 × gh のコマンドごとに Bash(C *T*) と Bash(* C *T*) がある`, () => {
-    const deny = denyOf(p);
+    const deny = denyOfP();
     const missing: string[] = [];
     for (const t of MARKS) {
       for (const c of COMMANDS) {
@@ -124,26 +134,26 @@ for (const p of [SETTINGS, TEMPLATE]) {
   });
 
   test(`${p}: ラベルの名前を含む読むだけのコマンドはどの規則にも当たらない`, () => {
-    const deny = denyOf(p);
+    const deny = denyOfP();
     for (const cmd of READ_ONLY) assert.deepEqual(hits(deny, cmd), [], `当たるべきでない: ${cmd}`);
   });
 
   test(`${p}: 保護ラベル・例外ラベルを付け外しする gh のコマンドはどれかの規則に当たる`, () => {
-    const deny = denyOf(p);
+    const deny = denyOfP();
     for (const label of LABEL_NAMES) {
       for (const cmd of mutating(label)) assert.ok(hits(deny, cmd).length > 0, `当たるべき: ${cmd}`);
     }
   });
 
   test(`${p}: 関係の無いラベルの付け外しはラベルの規則に当たらない`, () => {
-    const deny = denyOf(p);
+    const deny = denyOfP();
     for (const cmd of ['gh issue edit 1 --add-label priority:high', 'gh pr edit 1 --remove-label area:harness', "gh api repos/o/r/issues/1/labels -f 'labels[]=bug'"]) {
       assert.deepEqual(hits(deny, cmd), [], `当たるべきでない: ${cmd}`);
     }
   });
 
   test(`${p}: Merge・push・Secret・資格情報の規則が残っている`, () => {
-    const deny = denyOf(p);
+    const deny = denyOfP();
     const missing = OTHER_RULES.filter((r) => !deny.includes(r));
     assert.deepEqual(missing, [], `${p} の permissions.deny から消えた規則がある`);
   });

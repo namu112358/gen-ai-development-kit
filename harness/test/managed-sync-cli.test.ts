@@ -1,11 +1,14 @@
 // Issue #651：kit の版を指定して配布物を写す harness/scripts/sync.ts を、git の砂場（注釈付きタグ v1 を持つ kit と、古い版の導入先）で動かし、
 // --dry-run の一覧と何も書かないこと、本番の後の中身・harness/kit-version.json・除外・settings の merge・--prune・止まる場合の終了コードを確かめる。
+// deny は実物の雛形を導入先の defaultBranch（harness.config.json か、無ければ雛形の値）で埋めたものになること（Issue #868）も見る。
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
+import { renderDeny } from '../lib/settings-deny.ts';
+import { denyOf, TEMPLATE } from './support/settings-deny.ts';
 
 const root = realpathSync(join(import.meta.dirname, '..', '..'));
 const syncPath = join(root, 'harness', 'scripts', 'sync.ts');
@@ -48,7 +51,7 @@ const KIT_SETTINGS = {
 const TARGET_SETTINGS = { permissions: { deny: ['Bash(old-deny)'], allow: ['Bash(local-allow)'] } };
 
 /**
- * kit：このリポジトリの harness/managed.json と managed の数ファイル・projectOwned の雛形・.claude/settings.json を写し、
+ * kit：このリポジトリの harness/managed.json と managed の数ファイル・projectOwned の雛形・deny の雛形（実物）・.claude/settings.json を写し、
  * `git tag -a v1` の後にもう1つ commit する（v1 の中身が写ることを確かめるため）。
  * 導入先：古い版の managed・導入先だけの managed・managed.local.json の除外1件・独自の allow を持つ settings を commit する。
  */
@@ -63,6 +66,7 @@ function sandbox() {
     'harness/managed.json',
     'harness/templates/harness.config.json',
     'harness/templates/CLAUDE.template.md',
+    TEMPLATE,
   ]) {
     put(kit, p, read(root, p));
   }
@@ -146,7 +150,8 @@ test('本番は v1 の中身を写し、kit-version.json に commit の SHA を�
   const settingsAllow = (JSON.parse(read(root, 'harness/managed.json')) as { settingsAllow: string[] }).settingsAllow;
   assert.deepEqual(settings.permissions.allow, ['Bash(local-allow)', ...settingsAllow]);
   assert.ok(!settings.permissions.allow.includes('Bash(kit-allow)'));
-  assert.deepEqual(settings.permissions.deny, KIT_SETTINGS.permissions.deny);
+  // 導入先に harness.config.json が無いので、deny は雛形を雛形の harness.config.json の defaultBranch（main）で埋めたもの
+  assert.deepEqual(settings.permissions.deny, renderDeny(denyOf(TEMPLATE), 'main'));
   assert.equal(settings.permissions.disableBypassPermissionsMode, 'disable');
 
   const version = JSON.parse(read(s.target, 'harness/kit-version.json'));
@@ -156,6 +161,17 @@ test('本番は v1 の中身を写し、kit-version.json に commit の SHA を�
   assert.equal(version.sha, s.v1Commit);
   assert.notEqual(version.sha, s.v1TagObject);
   assert.ok(!Number.isNaN(Date.parse(version.syncedAt)), version.syncedAt);
+});
+
+test('導入先の harness.config.json の defaultBranch（develop）で deny の雛形を埋め、使った既定ブランチを出す', () => {
+  const s = sandbox();
+  const config = { ...JSON.parse(read(root, 'harness/templates/harness.config.json')), defaultBranch: 'develop' };
+  put(s.target, 'harness.config.json', `${JSON.stringify(config, null, 2)}\n`);
+  commitAll(s.target, 'config');
+  const r = runSync(s.target, ['v1', '--from', s.kit]);
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /既定ブランチ.*develop/);
+  assert.deepEqual(JSON.parse(read(s.target, '.claude/settings.json')).permissions.deny, renderDeny(denyOf(TEMPLATE), 'develop'));
 });
 
 test('--prune ありは kit に無い managed のファイルを消し、除外したファイルは残す', () => {

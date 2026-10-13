@@ -717,7 +717,12 @@ interface Ctx extends GuardContext {
   strict?: string;
   /** 判定の担当の名前（あれば git は読むだけの操作だけ通す。#637） */
   readOnlyGit?: string;
+  /** 設定が読めず既定ブランチが分からないので、どのブランチも既定ブランチとみなす（decideRaw の ctx が null のとき） */
+  anyBranchIsDefault?: true;
 }
+
+/** name が既定ブランチか（anyBranchIsDefault の印があれば常に真） */
+const isDefaultBranch = (ctx: Ctx, name: string): boolean => ctx.anyBranchIsDefault === true || same(name, ctx.defaultBranch);
 
 /** 常に通す、読むだけの git のサブコマンド */
 const READ_ONLY_GIT = new Set([
@@ -901,7 +906,7 @@ interface StdinSource {
   script: string;
 }
 
-function checkGhApi(args: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
+function checkGhApi(args: Word[], ctx: Ctx, stdin: StdinSource): string | null {
   const main = ctx.defaultBranch;
   let method: string | undefined;
   let hasBody = false;
@@ -968,17 +973,18 @@ function checkGhApi(args: Word[], ctx: GuardContext, stdin: StdinSource): string
   if (mutation) return role(`GraphQL の ${mutation[1]}`);
   const mainToken = new RegExp(`(^|[^\\w./-])(refs/heads/)?${main.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w./-])`, 'i');
   const refMutation = all.match(/\b(createCommitOnBranch|updateRefs?|deleteRef)\b/i);
-  if (refMutation && (mainToken.test(all) || fromFile || args.some((a) => a.dynamic))) return role(`GraphQL の ${refMutation[1]} で ${main} を書き換える`);
+  if (refMutation && (ctx.anyBranchIsDefault === true || mainToken.test(all) || fromFile || args.some((a) => a.dynamic))) return role(`GraphQL の ${refMutation[1]} で ${main} を書き換える`);
   if (m === 'GET') return null;
 
   if (endpoint?.dynamic) return unknown(`gh api -X ${m} の送り先（${endpoint.text}）`);
   const headsMain = new RegExp(`heads/${main.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w./-])`, 'i');
-  if (texts.some((t) => headsMain.test(t))) return role(`gh api -X ${m} で ${main} の ref を書き換える`);
+  const headsAny = /heads\/\S/i;
+  if (texts.some((t) => (ctx.anyBranchIsDefault === true ? headsAny : headsMain).test(t))) return role(`gh api -X ${m} で ${main} の ref を書き換える`);
   const ep = endpoint ? safeDecode(endpoint.text) : '';
   if (/\/(merges|merge-upstream)(?![\w-])/i.test(ep)) return role(`gh api -X ${m} ${ep}（ブランチへの Merge）`);
   if (/\/contents(\/|$|\?)/i.test(ep) && (m === 'PUT' || m === 'DELETE')) {
     const branch = fields.get('branch');
-    if (fromFile || !branch || branch.dynamic || same(branch.text, main)) return role(`contents API（gh api -X ${m} ${ep}）で ${main} に書き込む`);
+    if (fromFile || !branch || branch.dynamic || isDefaultBranch(ctx, branch.text)) return role(`contents API（gh api -X ${m} ${ep}）で ${main} に書き込む`);
   }
   return null;
 }
@@ -1007,7 +1013,7 @@ function checkStack(args: Word[]): string | null {
   return null;
 }
 
-function checkGh(args: Word[], ctx: GuardContext, stdin: StdinSource): string | null {
+function checkGh(args: Word[], ctx: Ctx, stdin: StdinSource): string | null {
   // グループ・サブコマンドの前のフラグ（gh -R o/r issue edit …・gh issue -R o/r edit … など）を読み飛ばす。-R・--repo は次の語が値
   const nextWord = (from: number): number => {
     let i = from;
@@ -1263,7 +1269,10 @@ export function decideRaw(raw: string, ctx: GuardContext | null): Decision {
       const d = fallback(text, labels, 'ハーネスの設定が読めない');
       if (d.deny) return d;
       const reason = checkMcpDraft(toolName, input.tool_input);
-      return reason ? { deny: true, reason } : ALLOW;
+      if (reason) return { deny: true, reason };
+      // 既定ブランチが分からないので、ファイルの書き込みはブランチに関わらず止める
+      if (/github/i.test(toolName) && /push_files|create_or_update_file|delete_file/i.test(toolName)) return { deny: true, reason: role(`${toolName}（設定が読めず既定ブランチが分からない）`) };
+      return ALLOW;
     }
     try {
       const reason = checkMcp(toolName, input.tool_input, ctx);
@@ -1285,7 +1294,7 @@ export function decideRaw(raw: string, ctx: GuardContext | null): Decision {
   }
   const command = input.tool_input !== null && typeof input.tool_input === 'object' ? (input.tool_input as Record<string, unknown>).command : undefined;
   if (typeof command !== 'string') return ALLOW;
-  const strict: Ctx = { defaultBranch: ctx?.defaultBranch ?? 'main', protectedLabels: labels, currentBranch: null, strict: why, readOnlyGit: judgeAgentOf(input) };
+  const strict: Ctx = { defaultBranch: ctx?.defaultBranch ?? '既定ブランチ', ...(ctx ? {} : { anyBranchIsDefault: true as const }), protectedLabels: labels, currentBranch: null, strict: why, readOnlyGit: judgeAgentOf(input) };
   try {
     const reason = analyze(command, { dir: typeof input.cwd === 'string' ? input.cwd : undefined, branch: null }, strict, 0);
     return reason ? { deny: true, reason } : ALLOW;
