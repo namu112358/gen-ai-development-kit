@@ -1,5 +1,6 @@
 // Issue #780：hq の手順7の判定（harness/scripts/hq-decide.ts の routeDelivery・handoverDecision）を、入力と期待の表で確かめる。
-// route は便りの種類・件名・本文ごとの action（交代の質問は印 [交代] と「交代しますか」の両方、notice の「人の判断が要る」の有無、
+// route は便りの種類・件名・本文ごとの action（交代の質問は印 [交代] と「交代しますか」の両方、ready の本文の1行目の印
+// （自動 Merge は list、Human Merge と印なしは tell-now）と notice の3つの場合（人の判断が要る・要らない・印なし。Issue #772）、
 // 知らない種類は ask-human）。handover は decision と failed の5つの値（claims-remain・no-session・epic-differs・issues-differ・unknown-fleet）。
 // CLI は route の1件だけ（--wake のファイルを読んで JSON を標準出力に書く）。
 import assert from 'node:assert/strict';
@@ -25,7 +26,16 @@ const routes: { msg: CheckMessage; action: string; dispatch: string | null }[] =
   { msg: { id: 'm6', type: 'worker_done', from_handle: 'dispatch:d-A' }, action: 'worker-done', dispatch: 'd-A' },
   { msg: { id: 'm7', type: 'status', from_handle: 'dispatch:d-A', subject: 'ready-120' }, action: 'tell-now', dispatch: 'd-A' },
   { msg: { id: 'm8', type: 'status', from_handle: 'dispatch:d-A', subject: 'notice', body: '#10 は人の判断が要る' }, action: 'tell-now', dispatch: 'd-A' },
-  { msg: { id: 'm9', type: 'status', from_handle: 'dispatch:d-A', subject: 'notice', body: '#10 の計画を出し直した' }, action: 'list', dispatch: 'd-A' },
+  { msg: { id: 'm9', type: 'status', from_handle: 'dispatch:d-A', subject: 'notice', body: '#10 の計画を出し直した' }, action: 'notice-unmarked', dispatch: 'd-A' },
+  { msg: { id: 'm7a', type: 'status', from_handle: 'dispatch:d-A', subject: 'ready-121', body: '自動 Merge：#11 は合格\n判定は low' }, action: 'list', dispatch: 'd-A' },
+  { msg: { id: 'm7b', type: 'status', from_handle: 'dispatch:d-A', subject: 'ready-122', body: '  Human Merge：#12 は人の Merge 待ち  \n自動 Merge にはならない' }, action: 'tell-now', dispatch: 'd-A' },
+  { msg: { id: 'm7c', type: 'status', from_handle: 'dispatch:d-A', subject: 'ready-123', body: '  自動 Merge  \n' }, action: 'list', dispatch: 'd-A' },
+  { msg: { id: 'm7d', type: 'status', from_handle: 'dispatch:d-A', subject: 'ready-124', body: '#13 は合格\n自動 Merge' }, action: 'tell-now', dispatch: 'd-A' },
+  { msg: { id: 'm8a', type: 'status', from_handle: 'dispatch:d-A', subject: 'notice', body: '#10 の計画を出し直した。人の判断は要らない' }, action: 'intel', dispatch: 'd-A' },
+  { msg: { id: 'm8b', type: 'status', from_handle: 'dispatch:d-A', subject: 'notice', body: '#10 は人の判断は要らない。#11 は人の判断が要る' }, action: 'tell-now', dispatch: 'd-A' },
+  { msg: { id: 'm8c', type: 'status', from_handle: 'dispatch:d-A', subject: 'notice', payload: { body: '#10 は人の判断が要る' } }, action: 'tell-now', dispatch: 'd-A' },
+  { msg: { id: 'm8d', type: 'status', from_handle: 'dispatch:d-A', subject: 'notice', payload: '#10 は人の判断は要らない' }, action: 'intel', dispatch: 'd-A' },
+  { msg: { id: 'm8e', type: 'status', from_handle: 'dispatch:d-A', subject: 'notice', payload: { text: '#10 の計画を出し直した' } }, action: 'notice-unmarked', dispatch: 'd-A' },
   { msg: { id: 'm10', type: 'status', from_handle: 'dispatch:d-A', subject: 'merged-120' }, action: 'list', dispatch: 'd-A' },
   { msg: { id: 'm11', type: 'status', from_handle: 'dispatch:d-A', subject: 'verdict-120' }, action: 'list', dispatch: 'd-A' },
   { msg: { id: 'm12', type: 'status', from_handle: 'dispatch:d-A', subject: 'wait-10' }, action: 'list', dispatch: 'd-A' },
