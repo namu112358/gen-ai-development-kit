@@ -74,6 +74,7 @@
   #todos .none { color: var(--muted); margin: 0; }
   #todos .decision { margin: 4px 0 8px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-size: 12px; display: grid; gap: 6px; }
   #todos .decision textarea { width: 100%; box-sizing: border-box; min-height: 48px; resize: vertical; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; }
+  #todos > button { font: inherit; margin-left: 8px; padding: 3px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--col); color: var(--ink); cursor: pointer; }
   #todos .decision button { font: inherit; padding: 3px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--col); color: var(--ink); cursor: pointer; }
   #todos .decision button:disabled { cursor: default; opacity: .5; }
   #todos .decision button[aria-pressed="true"] { border-color: var(--active); color: var(--active); font-weight: 650; }
@@ -135,7 +136,7 @@
 </header>
 <p id="pollStatus" role="status" hidden></p>
 <section id="progress" aria-label="進み"><h2>進み</h2><div id="progressBody"></div></section>
-<section id="todos" aria-label="人がすること"><h2 id="todosTitle">人がすること</h2><div id="todosBody"></div></section>
+<section id="todos" aria-label="人がすること"><h2 id="todosTitle">人がすること</h2><button type="button" id="notifyAllow" hidden>通知を許可</button><div id="todosBody"></div></section>
 <section id="notes" aria-label="気づきを送る">
   <h2>気づきを送る</h2>
   <textarea id="noteText" rows="2" aria-label="気づきの文" placeholder="気づき・改善案を書いて送ると、intel が受け箱から拾います"></textarea>
@@ -805,6 +806,34 @@ function drawEdges() {
   }
 }
 
+let lastTodoCount = null;
+
+/** 「人がすること」の件数の変化から通知の中身を決める。開いた直後（prevCount が null）・同じ・減ったは null */
+function todoNotice(prevCount, nextCount) {
+  if (prevCount === null || nextCount <= prevCount) return null;
+  return { title: '人がすることが増えました', body: '人がすること：' + prevCount + ' → ' + nextCount + ' 件', tag: 'agent-harness-todos' };
+}
+
+/** 件数が前回より増え、通知が許可されているときだけ Notification を1回作る（ページを開いている間だけ） */
+function noticeTodos(list) {
+  const n = todoNotice(lastTodoCount, list.length);
+  lastTodoCount = list.length;
+  if (!n || typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+  try { new Notification(n.title, { body: n.body, tag: n.tag }); } catch (e) { /* 通知が作れなくても描画は続ける */ }
+}
+
+/** 「通知を許可」のボタンは、まだ許可を聞いていない（permission が default）ときだけ見せる */
+function updateNotifyButton() {
+  const btn = document.getElementById('notifyAllow');
+  btn.hidden = !(typeof Notification !== 'undefined' && Notification.permission === 'default');
+}
+
+function askNotifyPermission() {
+  if (typeof Notification === 'undefined') return;
+  const r = Notification.requestPermission(updateNotifyButton);
+  if (r && typeof r.then === 'function') r.then(updateNotifyButton, updateNotifyButton);
+}
+
 let pending = false;
 function schedule() {
   if (pending) return;
@@ -819,6 +848,7 @@ function applySnapshot(g) {
   for (const e of g.edges) { if (!edgesByFrom.has(e.from)) edgesByFrom.set(e.from, []); edgesByFrom.get(e.from).push(e); }
   sessions = g.sessions;
   todos = g.todos || [];
+  noticeTodos(todos);
   progress = g.progress || null;
   schedule();
 }
@@ -842,7 +872,7 @@ function connect() {
     schedule();
   });
   es.addEventListener('sessions', (m) => { sessions = JSON.parse(m.data).sessions; schedule(); });
-  es.addEventListener('todos', (m) => { todos = JSON.parse(m.data).todos; schedule(); });
+  es.addEventListener('todos', (m) => { todos = JSON.parse(m.data).todos; noticeTodos(todos); schedule(); });
   es.addEventListener('progress', (m) => { progress = JSON.parse(m.data).progress; schedule(); });
   es.addEventListener('inbox', (m) => {
     document.getElementById('noteUnread').textContent = 'intel の受け箱：未読 ' + JSON.parse(m.data).unread + ' 件';
@@ -888,6 +918,8 @@ if (typeof document !== 'undefined') {
   buildLegends();
   connect();
   document.getElementById('noteSend').addEventListener('click', sendNote);
+  updateNotifyButton();
+  document.getElementById('notifyAllow').addEventListener('click', askNotifyPermission);
   setInterval(() => { for (const s of document.querySelectorAll('.ago')) s.textContent = ago(s.dataset.at); }, 1000);
   window.addEventListener('resize', drawEdges);
   document.getElementById('wrap').addEventListener('scroll', drawEdges);
