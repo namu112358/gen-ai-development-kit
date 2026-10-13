@@ -34,8 +34,8 @@ export interface ShadowRecord {
 }
 
 /** 投稿しなかった記録の outcome（shadow のコメントを付けずに止めた理由） */
-export type StoppedOutcome = 'budget-exceeded' | 'too-large' | 'verdict-invalid';
-const STOPPED_OUTCOMES: readonly string[] = ['budget-exceeded', 'too-large', 'verdict-invalid'];
+export type StoppedOutcome = 'budget-exceeded' | 'too-large' | 'verdict-invalid' | 'no-api-key';
+const STOPPED_OUTCOMES: readonly string[] = ['budget-exceeded', 'too-large', 'verdict-invalid', 'no-api-key'];
 /** 投稿しなかった記録。材料（diff・ファイル・Issue・PR 本文）・detail・budgetInvalid は入れない。usd は使った分の推定（budget で止めたときは null）、estimatedUsd は budget の段階の見込み */
 export interface StoppedRecord {
   version: 1;
@@ -113,6 +113,7 @@ const STOPPED_REASON: Record<StoppedOutcome, string> = {
   'budget-exceeded': '予算の上限（または上限・月の累計・単価が読めない）のため、レビューを行いませんでした。',
   'too-large': '1 回のレビューの見込みが上限を超えるため、レビューを行いませんでした。',
   'verdict-invalid': 'Claude の出力が判定の形に合わず、レビューを投稿しませんでした。',
+  'no-api-key': 'このリポジトリの Claude API のキーが無いため、レビューを行いませんでした。',
 };
 
 /** 投稿しなかった記録のコメントの本文。目印・フェンス・エスケープは renderShadowComment と同じ。headSha が40桁の小文字16進でなければ投げる */
