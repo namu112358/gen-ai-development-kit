@@ -13,6 +13,13 @@
  *   node harness/scripts/hq-decide.ts route --wake <file>
  *     届いた便りの振り分け（手順7）。--wake は hq-watch.ts の {"wake":"messages",...} の出力。出力：{ deliveryId, items: [{ id, type, subject, from, dispatch, action }] }。
  *     status の action：`ready-<PR>` は本文の1行目が `自動 Merge` で始まれば list、それ以外は tell-now。`notice` は本文に `人の判断が要る` があれば tell-now、無くて `人の判断は要らない` があれば intel、どちらも無ければ notice-unmarked（hq が本文を読んで決める）。ほかの件名は list（#772）。
+ *     各 item に judge を足した（#781）：件名 notice で action が notice-unmarked なら split、worker_done なら summary、ほかは null。judge が付いたものは hq が判断の担当（hq-judge）を呼ぶ。action の決め方は変えない。
+ *   node harness/scripts/hq-decide.ts themes --fleet-status <file> --epic-children <file> [--issues <file>] [--live-fleets <n>] [--ledger <file>]
+ *     空きの補充で起こす Epic の候補（#781）。--fleet-status は開いた Epic の子課題の番号を渡した `fleet-status --json` の出力、--epic-children は {"<Epic番号>": [Issue 番号…]}、
+ *     --issues は `gh issue list --state open --json number,title,labels` の出力（任意。title・priority・area に使う）。候補は、控えの fleets のどの epic でもなく、控えの stoppedEpics に無く、「選ぶ」の行が1つ以上ある Epic。
+ *     出力：{ slots（hq.maxFleets − 動いている fleet の数）, candidates: [{ epic, title, children: [{ issue, title, priority, area, selected, waitReason, overlaps }] }], judge: theme | null }。judge は候補が2つ以上で slots が1以上のときだけ theme（hq が hq-judge を呼ぶ）。
+ *   node harness/scripts/hq-decide.ts model
+ *     hq のモデルの設定（hq.model：inherit・haiku・sonnet・opus。既定 inherit）と、その起こし方。出力：{ model, launch }。動いている hq のモデルは変えず、人が launch で起こし直す。
  *   node harness/scripts/hq-decide.ts takeover --theme <テーマ> --fleet-status <file> [--ledger <file>]
  *     起こし直す fleet の着手宣言を、人に聞かずに引き継いでよいか（手順9・10。#770）。--fleet-status は起こし直す fleet の Issue 番号を渡した `fleet-status --json` の出力。
  *     自分（own）でない宣言のうち、控えのそのテーマの fleet の session と、priorSessions[テーマ] のうち at が staleHours（harness.config.json）以内のものにあるものが known、無いもの（期限を過ぎた・at の無い古い形・今より5分を超えて未来の at のもの、session が null、控えが無いときは全部）が unknown。
@@ -216,7 +223,9 @@ export function takeoverDecision(input: TakeoverInput): TakeoverResult {
 // ---- route（手順7：届いた便りの振り分け） ----
 
 export type RouteAction = 'heartbeat-save' | 'handover-check' | 'ask-human' | 'escalation' | 'worker-done' | 'tell-now' | 'list' | 'intel' | 'notice-unmarked';
-export interface RouteItem { id: string; type: string; subject: string | null; from: string | null; dispatch: string | null; action: RouteAction }
+/** hq が判断の担当（hq-judge）を呼ぶ場面（#781） */
+export type JudgeScene = 'theme' | 'split' | 'summary';
+export interface RouteItem { id: string; type: string; subject: string | null; from: string | null; dispatch: string | null; action: RouteAction; judge: 'split' | 'summary' | null }
 export interface RouteResult { deliveryId: string | null; items: RouteItem[] }
 
 /** 質問の文（body、無ければ payload の文字列）。読めなければ '' */
@@ -250,18 +259,84 @@ function actionOf(m: CheckMessage): RouteAction {
   }
 }
 
+/** 判断の担当を呼ぶ印：件名 notice で印なし（notice-unmarked）が split、worker_done が summary、ほかは null */
+const judgeOf = (action: RouteAction): 'split' | 'summary' | null => (action === 'notice-unmarked' ? 'split' : action === 'worker-done' ? 'summary' : null);
+
 export function routeDelivery(wake: { deliveryId: string | null; messages: CheckMessage[] }): RouteResult {
   return {
     deliveryId: wake.deliveryId,
-    items: wake.messages.map((m) => ({
-      id: m.id,
-      type: m.type,
-      subject: m.subject ?? null,
-      from: m.from_handle ?? null,
-      dispatch: m.from_handle?.startsWith('dispatch:') ? m.from_handle.slice('dispatch:'.length) || null : null,
-      action: actionOf(m),
-    })),
+    items: wake.messages.map((m) => {
+      const action = actionOf(m);
+      return {
+        id: m.id,
+        type: m.type,
+        subject: m.subject ?? null,
+        from: m.from_handle ?? null,
+        dispatch: m.from_handle?.startsWith('dispatch:') ? m.from_handle.slice('dispatch:'.length) || null : null,
+        action,
+        judge: judgeOf(action),
+      };
+    }),
   };
+}
+
+// ---- themes（手順3・手順8の空きの補充：起こす Epic の候補） ----
+
+export interface ThemeChild { issue: number; title: string | null; priority: string | null; area: string | null; selected: boolean; waitReason: string | null; overlaps: number[] }
+export interface ThemeCandidate { epic: number; title: string | null; children: ThemeChild[] }
+export interface ThemeInput {
+  status: FleetStatusData;
+  ledgerFleets: LedgerFleet[];
+  stoppedEpics: number[];
+  /** {"<Epic番号>": [Issue 番号…]} */
+  epicChildren: Record<string, number[]>;
+  issues: { number: number; title: string; labels: { name: string }[] }[];
+  liveFleets: number;
+  maxFleets: number;
+}
+export interface ThemeResult { slots: number; candidates: ThemeCandidate[]; judge: 'theme' | null }
+
+/** ラベルの `<prefix>` の後ろ（複数なら最初）。無ければ null */
+const labelValue = (labels: { name: string }[] | undefined, prefix: string): string | null => {
+  const hit = (labels ?? []).find((l) => typeof l?.name === 'string' && l.name.startsWith(prefix) && l.name.length > prefix.length);
+  return hit ? hit.name.slice(prefix.length) : null;
+};
+
+export function themeCandidates(input: ThemeInput): ThemeResult {
+  const rowOf = new Map(input.status.rows.map((r) => [r.issue, r]));
+  const issueOf = new Map(input.issues.map((i) => [i.number, i]));
+  const taken = new Set<number>([...input.ledgerFleets.map((f) => f.epic).filter((e): e is number => e !== null), ...input.stoppedEpics]);
+  const candidates: ThemeCandidate[] = [];
+  for (const epic of Object.keys(input.epicChildren).map(Number).filter(posInt).sort((a, b) => a - b)) {
+    if (taken.has(epic)) continue;
+    const list = input.epicChildren[String(epic)];
+    const children: ThemeChild[] = (Array.isArray(list) ? list : []).filter(posInt).flatMap((n) => {
+      const row = rowOf.get(n);
+      if (!row) return [];
+      const issue = issueOf.get(n);
+      return [{ issue: n, title: issue?.title ?? null, priority: labelValue(issue?.labels, 'priority:'), area: labelValue(issue?.labels, 'area:'), selected: row.selected, waitReason: row.waitReason ?? null, overlaps: row.overlaps ?? [] }];
+    });
+    if (!children.some((c) => c.selected)) continue;
+    candidates.push({ epic, title: issueOf.get(epic)?.title ?? null, children });
+  }
+  const slots = input.maxFleets - input.liveFleets;
+  return { slots, candidates, judge: candidates.length >= 2 && slots >= 1 ? 'theme' : null };
+}
+
+// ---- model（hq のモデルの設定） ----
+
+export const HQ_MODELS = ['inherit', 'haiku', 'sonnet', 'opus'] as const;
+export type HqModel = (typeof HQ_MODELS)[number];
+
+/** hq.model を読む（既定 inherit）。launch は hq の起こし方（inherit は起動したセッションのモデルのまま） */
+export function hqModelConfig(config: { hq?: unknown }): { model: HqModel; launch: string } {
+  const raw = config.hq;
+  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('hq はオブジェクトで書いてください');
+  const given = (raw as Record<string, unknown> | undefined)?.model;
+  const v = given === undefined ? 'inherit' : given;
+  if (typeof v !== 'string' || !(HQ_MODELS as readonly string[]).includes(v)) throw new Error(`hq.model は ${HQ_MODELS.join('・')} のどれかで書いてください`);
+  const model = v as HqModel;
+  return { model, launch: model === 'inherit' ? '/hq' : `claude --model ${model} --name hq /hq` };
 }
 
 // ---- CLI（import.meta.main の中だけで動く） ----
@@ -307,7 +382,7 @@ function loadLedgerFleets(path: string | null): { fleets: LedgerFleet[]; raw: Hq
   let raw: HqLedger | null;
   if (path) {
     const j = readJsonFile(path, '控え');
-    raw = isObj(j) && Array.isArray(j.fleets) ? ({ fleets: j.fleets.filter(isObj), priorSessions: j.priorSessions } as unknown as HqLedger) : null;
+    raw = isObj(j) && Array.isArray(j.fleets) ? ({ fleets: j.fleets.filter(isObj), priorSessions: j.priorSessions, stoppedEpics: j.stoppedEpics } as unknown as HqLedger) : null;
   } else {
     const dir = gitCommonDir(process.cwd());
     raw = dir ? readLedgerFile(dir) : null;
@@ -372,7 +447,33 @@ function run(argv: string[]): unknown {
     if (!isObj(j) || !Array.isArray(j.messages)) throw new Error('hq-watch.ts の出力に messages がありません');
     return routeDelivery({ deliveryId: typeof j.deliveryId === 'string' ? j.deliveryId : null, messages: j.messages as CheckMessage[] });
   }
-  throw new Error('使い方：hq-decide.ts assign|handover|takeover|route …（引数は先頭のコメントを見る）');
+  if (cmd === 'themes') {
+    const f = takeFlags(rest, ['--fleet-status', '--epic-children', '--issues', '--live-fleets', '--ledger']);
+    const { fleets, raw } = loadLedgerFleets(one(f, '--ledger', false));
+    const issuesPath = one(f, '--issues', false);
+    const live = one(f, '--live-fleets', false);
+    const j = issuesPath ? readJsonFile(issuesPath, 'Issue の一覧') : [];
+    if (!Array.isArray(j)) throw new Error(`Issue の一覧（${issuesPath}）が配列ではありません`);
+    const stopped = raw?.stoppedEpics;
+    return themeCandidates({
+      status: loadStatus(one(f, '--fleet-status', true) as string),
+      ledgerFleets: fleets,
+      stoppedEpics: Array.isArray(stopped) ? stopped.filter(posInt) : [],
+      epicChildren: readJsonFile(one(f, '--epic-children', true) as string, 'Epic の子の一覧') as Record<string, number[]>,
+      issues: (j as unknown[]).filter(isObj).filter((i) => posInt(i.number)).map((i) => ({
+        number: i.number as number,
+        title: typeof i.title === 'string' ? i.title : '',
+        labels: Array.isArray(i.labels) ? i.labels.filter(isObj).filter((l) => typeof l.name === 'string').map((l) => ({ name: l.name as string })) : [],
+      })),
+      liveFleets: live === null ? fleets.length : Number(live),
+      maxFleets: hqConfig(loadConfig()).maxFleets,
+    });
+  }
+  if (cmd === 'model') {
+    takeFlags(rest, []);
+    return hqModelConfig(loadConfig() as { hq?: unknown });
+  }
+  throw new Error('使い方：hq-decide.ts assign|handover|takeover|route|themes|model …（引数は先頭のコメントを見る）');
 }
 
 if (import.meta.main) {
