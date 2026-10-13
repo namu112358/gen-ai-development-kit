@@ -65,14 +65,18 @@ test('auto mode でも agent:hold・停止・人の PR・Stacked・受け付け�
   for (const [name, patch] of cases) assert.equal(evaluateMergeRoute({ ...routeIn, ...patch }).conclusion, 'failure', name);
 });
 
-test('順番：委任で乗るときは委任、auto mode と bypass の両方で乗るときは auto mode、自動 Merge の対象は今までどおり', () => {
+test('順番：委任で乗るときは委任、auto mode と bypass の両方で乗るときは auto mode、auto mode の保留は bypass でも止める、自動 Merge の対象は今までどおり', () => {
   const delegated: Acceptance = { ...humanOnly, delegate: { ...delegateNo, eligible: true, reasons: [], exclude: [] } };
   assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: delegated, delegateMode: true }).title, '委任承認（計画＋Merge）の条件を満たしています');
   assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: delegated, delegateMode: false }).title, 'auto mode の条件を満たしています', '委任が無効なら auto mode');
 
   const both: Acceptance = { ...humanOnly, bypass: bypassOk };
   assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: both, bypassMode: true }).title, 'auto mode の条件を満たしています');
-  assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: { ...both, autoMode: autoHeld }, bypassMode: true }).title, 'bypass モードの条件を満たしています', 'auto mode で乗らなければ bypass');
+  const autoRequiredNo: AutoModeRecord = { eligible: false, reasons: ['base が既定ブランチではない'], skipped: [] };
+  assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: { ...both, autoMode: autoRequiredNo }, bypassMode: true }).title, 'bypass モードの条件を満たしています', 'auto mode で保留でない理由で乗らなければ bypass');
+  const heldBypass = evaluateMergeRoute({ ...routeIn, acceptance: { ...both, autoMode: autoHeld }, bypassMode: true });
+  assert.equal(heldBypass.conclusion, 'failure', 'auto mode の危険の判定で保留なら bypass でも乗せない（Issue #942）');
+  assert.ok(heldBypass.summary.includes('auto mode の危険の判定で保留のため、委任承認・bypass でも自動経路に乗せません'), heldBypass.summary);
 
   const auto: Acceptance = { ...humanOnly, riskLevel: 'low', riskOk: true, guardrail: [], autoEligible: true, reasons: [] };
   assert.equal(evaluateMergeRoute({ ...routeIn, acceptance: auto }).title, '自動 Merge 条件を満たしています');

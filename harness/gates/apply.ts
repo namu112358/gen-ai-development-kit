@@ -3,7 +3,7 @@ import { appLogin, CHECKS, LABELS, reasonMark, reasonOf, TEST_EXEMPT_LABEL } fro
 import type { DelegateState } from '../lib/delegate.ts';
 import { exemptRecords, exemptState } from '../lib/exempt.ts';
 import type { IssueComment } from '../lib/github.ts';
-import { evaluateMergeRoute, type Acceptance } from '../lib/merge-route.ts';
+import { autoModeHolds, evaluateMergeRoute, type Acceptance } from '../lib/merge-route.ts';
 import { patchId } from '../lib/patch-id.ts';
 import { checkScope } from '../lib/scope.ts';
 import { classifyBase, type BaseKind } from '../lib/stack.ts';
@@ -57,6 +57,7 @@ import {
   AUTO_MODE_MERGE_KIND,
   autoModeArm,
   autoModeFor,
+  autoModeHoldReason,
   autoModeRoute,
   latestAutoModeRecord,
   type AutoModeMergeEndReason,
@@ -92,6 +93,7 @@ import { renderAutoModeTests, type AutoModeTestsOutcome } from '../lib/auto-mode
  * 乗らないのに前に auto mode で付けた記録が残っていれば、auto-merge を外し、auto-mode-merge-end と human-review を出す。
  * 乗り方の順番は 自動 Merge の対象 → 委任 → auto mode → bypass（harness/lib/merge-route.ts の evaluateMergeRoute と同じ）。
  * 委任・auto mode・bypass のあいだで乗り方が変わったとき（どれかが終わった）は、前の乗り方の終わりの記録を書いて auto-merge は付けたままにする（human-review は出さない）。
+ * auto mode が有効で受け付けが Jev の危険の判定で保留（autoModeHolds）なら、委任・bypass でも自動経路に乗せず、前に付けた記録があれば外して human-review に保留の1行を出す。
  * bypass・autoMode を渡したときはその状態を読み直さない。
  */
 export async function applyAcceptance(ctx: GateContext, pr: PullRequest, acceptance: Acceptance, opts: { fresh: boolean; diff: string; delegation?: DelegateState; bypass?: BypassState; autoMode?: AutoModeState }): Promise<void> {
@@ -117,7 +119,9 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
   const hold = hasLabel(pr, LABELS.hold);
   const mode = await autoMergeMode(ctx.gh, ctx.config);
   const base = classifyBase(pr, ctx.config.defaultBranch);
-  const delegation = mayDelegate ? await getDelegation() : null;
+  // auto mode が有効で Jev の危険の判定で保留なら、委任・bypass でも自動経路に乗せない（Issue #942）
+  const holdReason = autoModeHoldReason(mayAutoMode && autoModeHolds(acceptance) ? await getAutoMode() : null, acceptance);
+  const delegation = mayDelegate && holdReason === null ? await getDelegation() : null;
   const route = delegation ? delegatedRoute(delegation, acceptance) : null;
   const delegated = route?.ok === true;
   // auto mode は、自動 Merge の対象でも委任でも乗らないときだけ見る
@@ -125,7 +129,7 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
   const aRoute = autoMode ? autoModeRoute(autoMode, acceptance) : null;
   const autoModed = aRoute?.ok === true;
   // bypass は、自動 Merge の対象でも委任でも auto mode でも乗らないときだけ見る
-  const bypass = !delegated && !autoModed && mayBypass ? await getBypass() : null;
+  const bypass = !delegated && !autoModed && mayBypass && holdReason === null ? await getBypass() : null;
   const bRoute = bypass ? bypassRoute(bypass, acceptance) : null;
   const bypassed = bRoute?.ok === true;
   // スタックに入る前に受け付けた古い記録（autoEligible が真）が残っていても、既定ブランチ宛てでなければ自動の経路に乗せない
@@ -170,6 +174,7 @@ export async function applyAcceptance(ctx: GateContext, pr: PullRequest, accepta
           ...acceptance.reasons,
           ...(hold ? ['`agent:hold` が付いています'] : []),
           ...(!mode ? ['自動 Merge モードが無効です'] : []),
+          ...(holdReason !== null ? [holdReason] : []),
           ...(delegation?.active && route && !route.ok ? [route.reason] : []),
           // auto mode が有効で乗らなかった理由（Jev の危険の判定で保留なら Jev の確率の1行）
           ...(autoMode?.active && aRoute && !aRoute.ok ? [aRoute.reason] : []),

@@ -81,7 +81,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 - 有効な条件：ダッシュボードにラベルがあり、人が付けている（App・Bot が付けたものは無効）。期限は無い。停止スイッチ（`agent:auto-merge-stopped`）が優先する。
 - 飛ばす理由：Risk が `low` でない・8問のどれかが安全側でないこと、ガードレールに触れること、`humanMergePaths` に触れること、`delegateMergeExclude`（`harness.config.json` を含む）に触れること、`jev.mode` が `enforce` のときの Jev。
 - 今のまま必須の条件：既存 CI、`agent/review` の合格（ブロッキング指摘なし）、範囲照合（委任と同じく、ゲートを通った計画か、ゲートの停止で止まった計画か、人が進めると決めた計画（App の `plan-proceed` の記録がある）と照らす）、`agent/tests`（bypass で乗る PR ではテストの改ざんの検出で止める）、`agent:hold` なし、base が既定ブランチ、自動 Merge モードが有効。
-- 順序：自動 Merge の対象 → 委任承認（計画＋Merge） → bypass の順に見て、最初に当たったもので乗せる。bypass は、自動 Merge の対象でも委任でも乗らない PR だけを扱う。委任と bypass が両方有効な間に片方が終わったら、もう片方で乗る PR は auto-merge を外さずに引き継ぐ（前の乗り方の終わりの記録を書き、人へのレビュー依頼は出さない）。
+- 順序：自動 Merge の対象 → 委任承認（計画＋Merge） → bypass の順に見て、最初に当たったもので乗せる。bypass は、自動 Merge の対象でも委任でも乗らない PR だけを扱う。ただし auto mode が有効で受け付けが Jev の危険の判定で保留なら、委任・bypass でも乗せない（[auto mode](#auto-mode)）。委任と bypass が両方有効な間に片方が終わったら、もう片方で乗る PR は auto-merge を外さずに引き継ぐ（前の乗り方の終わりの記録を書き、人へのレビュー依頼は出さない）。
 - ハーネス自身の守りも委ねる：ゲート（`harness/gates/**`）・ガードレールの一覧（`harness.config.json`）・hook・deny・workflow を変える Agent PR も、人を通らずに Merge される（持ち主の決定。[security.md](security.md#受け入れているリスク)）。bypass の判断そのもの（`harness/gates/bypass.ts`）は `delegateMergeExclude` の中にあり、委任承認では緩められない。
 - bypass で auto-merge を付けたときは PR に App の記録（`bypass-merge`）を残す。ラベルを外す・停止スイッチを入れると、bypass で付けた auto-merge を外し、記録（`bypass-merge-end`）と人へのレビュー依頼を出す（停止スイッチのときも出す）。merge-route は書くたびに今の bypass の状態で評価するので、bypass が終わった後に書かれた merge-route は bypass を理由に通さない。
 - 窓：付けた auto-merge は、次のゲートの起動（PR・Issue のイベントか定期実行）までは外れない。
@@ -93,7 +93,7 @@ merge-route（必須チェック）が 3〜7 をまとめて検査する。`agen
 人が期限なしで、計画ゲートの承認と Merge の判断の両方を App に任せ、Jev が危険と答えたものだけを人の判断に保留する（Epic #339）。ダッシュボード Issue に `agent:auto-mode`（`harness.config.json` の `autoMode.label` で変えられる）を人が付けている間、ガードレール・Risk・`delegateMergeExclude` を理由に止まる計画と Agent PR も、ほかの条件を満たし Jev の危険の判定で保留にならなければ App が通す。
 
 - 有効な条件：bypass と同じ。ダッシュボードにラベルがあり、人が付けている（App・Bot が付けたもの、付けた記録が読めないものは無効）。期限は無い。停止スイッチ（`agent:auto-merge-stopped`）が優先する。
-- 乗り方の順番：計画ゲートは 通常のゲート → 委任承認（計画の委任）→ auto mode、Merge は 自動 Merge の対象 → 委任承認（計画＋Merge）→ auto mode → bypass。狭いものから順に見て、最初に当たったもので乗せる。委任で通る計画・乗る PR には危険の判定をかけない。auto mode が保留にした PR も、bypass が有効なら bypass が今までどおり乗せる。
+- 乗り方の順番：計画ゲートは 通常のゲート → 委任承認（計画の委任）→ auto mode、Merge は 自動 Merge の対象 → 委任承認（計画＋Merge）→ auto mode → bypass。狭いものから順に見て、最初に当たったもので乗せる。計画ゲートの委任で通る計画には危険の判定をかけない。auto mode が有効な間、Jev の危険の判定で保留の PR（`skipped`・`error`・記録なしの保留も含む）は、委任承認・bypass が有効でも乗せず、Human Merge（`human-review`）にする。保留でない PR と、auto mode が無効な間の委任承認・bypass は今までどおり。
 
 ### 計画ゲート
 
