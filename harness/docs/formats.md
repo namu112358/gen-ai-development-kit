@@ -94,7 +94,7 @@ Issue に `agent:plan-review` が付いているときの出し直しは、App �
 | `dependsOn` | 整数の配列（省略可） | 先に終わらせる兄弟の添字。自分より前に並ぶものだけ（循環しない） |
 | `blockedBy` | 整数の配列（省略可） | 先に終わらせる、同じリポジトリの兄弟でない Issue の番号。App が子課題の Issue Dependencies（blocked by）に付ける。開いた Issue だけ付け、閉じた・見つからない・PR の番号は付けずにゲートのログに出す。正の整数で、重複せず、親の番号でないこと |
 
-`split` がある計画では、`files` は空でよく、`risk` は子課題の中で最も高いものを書く（表示用。Risk と空の `files` では止めない）。`needsHuman`・`acChangeProposed`・`openQuestions`・`issue` 不一致は通常どおり止める（Planner の申告で付いた印だけは、条件を満たすと App が外して分ける。[計画](#計画)の出し直しの段落）。子課題の `files` がガードレールに触れても止めない（分ける段階では子 Issue を作るだけで、子課題はそれぞれの計画でゲートがもう一度見る）。次のどれかに当たると、理由コード `split-invalid` で `agent:plan-review` にする：2件未満、タイトルの形式違い、Requirements・AC・`files` が空、`files` の規則違反、兄弟の `files` の重なり（同じパス、片方のパターンがもう片方に一致する、または両方がワイルドカードを含み、最初のワイルドカードより前の部分の片方がもう片方の先頭に一致する。例：`src/**/a.ts` と `src/x/**`）、`dependsOn` が自分より前の兄弟でない、`blockedBy` が正の整数でない・重複している・親の番号である。
+`split` がある計画では、`files` は空でよく、`risk` は子課題の中で最も高いものを書く（表示用。Risk と空の `files` では止めない）。`needsHuman`・`acChangeProposed`・`openQuestions`・`issue` 不一致は通常どおり止める（Planner の申告で付いた印だけは、条件を満たすと App が外して分ける。[計画](#計画agent-plan)の出し直しの段落）。子課題の `files` がガードレールに触れても止めない（分ける段階では子 Issue を作るだけで、子課題はそれぞれの計画でゲートがもう一度見る）。次のどれかに当たると、理由コード `split-invalid` で `agent:plan-review` にする：2件未満、タイトルの形式違い、Requirements・AC・`files` が空、`files` の規則違反、兄弟の `files` の重なり（同じパス、片方のパターンがもう片方に一致する、または両方がワイルドカードを含み、最初のワイルドカードより前の部分の片方がもう片方の先頭に一致する。例：`src/**/a.ts` と `src/x/**`）、`dependsOn` が自分より前の兄弟でない、`blockedBy` が正の整数でない・重複している・親の番号である。
 
 ## 判定（agent-verdict）
 
