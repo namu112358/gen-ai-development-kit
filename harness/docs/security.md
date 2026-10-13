@@ -60,7 +60,7 @@ Claude はユーザー本人の GitHub 名義で動くため、名義では人�
 | コメントの編集 | ゲートは `created` だけを見る | 計画は写しを使う |
 | auto mode のテストの判定の材料 | auto mode の経路の PR でテストを弱める変更を Jev に問う材料（Issue の本文と計画の本文）は、人とセッションが書いたもの。計画に理由を書けば、Jev が妥当と答えうる | 計画は計画ゲートを通ったもの・ゲートの停止で止まったもの・人が進めると決めたものだけで、その後に編集されていないもの。auto mode の計画には危険の判定（Jev）がかかる。通した記録は通した差分にだけ効き、人は `agent:hold` で止められる。`report.ts` で通した件数と人が後から直させた件数を見る |
 | Routine の push 先 | `claude/` 以外のブランチにも push できる可能性がある | その PR は自動経路に乗らない |
-| 合体版の記録の偽り | 合体版のレビューの記録（`agent-review-panel`）はセッションが書くので偽れる。判定コメントより前の記録だけを数えることで防げるのは、App の受け付け・変更要求を見てから記録を合わせることだけで、shadow ではセッションが今の reviewer の出力を見てから記録を合わせることは防げない | 判定コメントより前・未編集・head の一致・コラボレーターの記録だけ数える、集計の表で事実の列と申告の列を分ける、本物・誤検知は事実の裏付けで数える、切り替えの前に人が全件を確かめる（裏付けのうち人のレビューコメントは、セッションも本人の名義で書くので Claude の目印の有無でしか人のものと分けられず、目印の無いセッションのコメントは人のものとして数えてしまう）、担当の定義と組み立て（`.claude/agents/review-*.md`・review-panel の skill・`harness/scripts/review-panel.ts`・`harness/lib/**`）はガードレール（[plan.md](../../docs/plan.md) の Q91） |
+| 合体版の記録の偽り | 合体版のレビューの記録（`agent-review-panel`）はセッションが書くので偽れる。shadow ではセッションが今の reviewer の出力を見てから記録を合わせることを防げない（集計の比較の節は #1008 で削除し、`reviewPanel.mode` は enforce に切り替え済み） | 切り替えの前に、人が記録と同じ head の判定コメントを読み比べて全件を確かめる（[review-panel.md](./review-panel.md) の切り替えの手順）、担当の定義と組み立て（`.claude/agents/review-*.md`・review-panel の skill・`harness/scripts/review-panel.ts`・`harness/lib/**`）はガードレール（[plan.md](../../docs/plan.md) の Q91） |
 | 決定の記録の名義 | 決定の記録（```` ```agent-decision ````）は人の名義で書かれ、App は人が書いたかセッションが書いたかを区別できない。Routine が書くことも、`.claude/routine.md` の禁止だけで止めている（hook の入力・環境変数では Routine と付き添いのセッションを見分けられない。Routine を再開するときに専用の環境と環境変数を用意すれば hook で止められる見込み） | 外すのは Planner の申告の停止だけ（App のゲートの停止・人が付けた印・AC の変更提案は外さない）、答え済みの計画をゲートがもう一度判定する、既定は `shadow`、ガードレール・critical の停止と Human Merge・判定の受け付けは変えない |
 | 確認事項の答えの名義 | 確認事項の答え（```` ```agent-confirm-answer ````・`/answer` で始まるコメント）は人の名義で書かれる。セッションが目印なしで書けば、`confirmAnswerOf` は人の答えと見分けられない（手元のダッシュボードの答えも、セッションの ID の無い `CLAUDE_MARK`） | 規則のやってはいけないこと（セッションは答えを書かない）。答えとして読むのはコラボレーターの答えだけで、セッションの ID のある目印の答えは読まず、確認事項より後ですべての質問に答えがあるものだけ。再開のノードも今の止まり方（領域の上限・古い読み込み・取り込みの上限・同じ指摘）を通り、`implement` は `plan-ok` からだけ（`plan-review` の計画は答えでは進まない）。`stopped`・`merged` は確認事項を見ない。確認事項と答えはラベル・Merge・Close・本文を変えない |
 | split の計画の申告の名義 | `split` の計画の Planner の申告（`needsHuman`・`openQuestions`）はセッション（人の名義）が書くので、申告を落として出し直すと、人の答え無しで子 Issue に分けられる（Issue #659） | 外すのは `post-plan` か App の停止の窓で付いた Planner の申告の印だけ、ガードレール・AC の変更提案・人が付けた印は外さない、委任・auto mode をかける前のゲートで見る、子課題の `files` がガードレール・`delegateMergeExclude`・`harness.config.json` に触れれば外さない（Issue #779）、子課題はそれぞれの計画でゲートがもう一度見る |
@@ -92,7 +92,7 @@ Risk 判定を Jev（TypeSafe AI）に任せる前の、シャドー運用の材
 | Jev の low の外れ | 0 件 | Jev が low（P(low) が `jev.thresholds.lowProbability` 以上）とした PR のうち、外れたもの |
 | Jev だけが「可」 | 0 件 | Claude は不可、Jev は可とした PR |
 
-外れ＝ Merge 後 7 日以内に revert された、または元の PR を直す fix の PR（タイトルが `fix`・`hotfix` で始まるか「修正」を含む、またはブランチ名に `fix`）が Merge された。fix の PR は、変更ファイルが重なるうえで、次のどちらかに当たるときだけ結び付ける（`harness/lib/report.ts` の `fixLinksFor`。偶然同じファイルを触っただけの PR を外れと数えないため。#267）：**行**＝重なるファイルで、fix の PR が元の PR の足した行を消した（書き換えた）か、元の PR の消した行を足し戻した（行番号ではなく内容で比べる。空行・記号だけの行・4文字未満の行は比べない）、**参照**＝fix の PR の題名・本文に、元の PR の番号か元の PR が Closes した Issue の番号がある、または fix の PR が元の PR と同じ Issue を Closes する（Closes する Issue の本文は見ない。背景として過去の PR を名指しする Issue を Closes する PR が、直していない PR に結び付くため）。材料は GitHub の PR の patch・本文・Closes する Issue の番号だけで、GitHub が patch を返さないファイルは参照だけで見る。Jev の low の外れ・Claude の「可」の外れ・合体版の比較の `fix-pr` の裏付け（根拠になったファイルだけ）は、どれもこの結び付けを使う。集計の表の「fix PR」列には、結び付いた PR ごとに根拠（`#244（行）`・`（参照）`・`（行・参照）`）が出る。比べる相手は Claude ではなく結果とする。plan.md の「Jev の『可』に外れがない」を、より厳しい「Jev の low の外れ 0 件」に置き換えた。Jev の「可」の外れと、Claude と Jev の一致率は参考として表に残す（基準には入れない）。集計の表には、ほかに修正の往復（App の修正要求レビューの数）、停滞時間（作成から Merge、未 Merge は Close まで）の中央値、受け付けられなかった判定コメントの数も出る。表の後には、日本語の割合（`jev.size.jaRatio`）の区分ごとに、文字数とトークン数（`usage.input_tokens`）の比も出る（`jev.maxDiffChars` を文字数からトークンでの見積もりに切り替えるかを決めるための実測。docs/plan.md の Q90）。
+外れ＝ Merge 後 7 日以内に revert された、または元の PR を直す fix の PR（タイトルが `fix`・`hotfix` で始まるか「修正」を含む、またはブランチ名に `fix`）が Merge された。fix の PR は、変更ファイルが重なるうえで、次のどちらかに当たるときだけ結び付ける（`harness/lib/report.ts` の `fixLinksFor`。偶然同じファイルを触っただけの PR を外れと数えないため。#267）：**行**＝重なるファイルで、fix の PR が元の PR の足した行を消した（書き換えた）か、元の PR の消した行を足し戻した（行番号ではなく内容で比べる。空行・記号だけの行・4文字未満の行は比べない）、**参照**＝fix の PR の題名・本文に、元の PR の番号か元の PR が Closes した Issue の番号がある、または fix の PR が元の PR と同じ Issue を Closes する（Closes する Issue の本文は見ない。背景として過去の PR を名指しする Issue を Closes する PR が、直していない PR に結び付くため）。材料は GitHub の PR の patch・本文・Closes する Issue の番号だけで、GitHub が patch を返さないファイルは参照だけで見る。Jev の low の外れ・Claude の「可」の外れは、どちらもこの結び付けを使う。集計の表の「fix PR」列には、結び付いた PR ごとに根拠（`#244（行）`・`（参照）`・`（行・参照）`）が出る。比べる相手は Claude ではなく結果とする。plan.md の「Jev の『可』に外れがない」を、より厳しい「Jev の low の外れ 0 件」に置き換えた。Jev の「可」の外れと、Claude と Jev の一致率は参考として表に残す（基準には入れない）。集計の表には、ほかに修正の往復（App の修正要求レビューの数）、停滞時間（作成から Merge、未 Merge は Close まで）の中央値、受け付けられなかった判定コメントの数も出る。表の後には、日本語の割合（`jev.size.jaRatio`）の区分ごとに、文字数とトークン数（`usage.input_tokens`）の比も出る（`jev.maxDiffChars` を文字数からトークンでの見積もりに切り替えるかを決めるための実測。docs/plan.md の Q90）。
 
 **問いの版**：Jev への問いの版（`harness/lib/jev.ts` の `JEV_QUESTION_SET`）を受け付けの記録の `jev.questionSet` に残す（無い古い記録は版 1）。基準の3項目（否定側・Jev の low の外れ・Jev だけが「可」）は今の版の記録だけで数え、否定側は Jev が今の版で応答した PR に限る（問いを書き直す前の記録で基準を満たさないように）。表には版の違う記録の件数も出る。集計の最後には「問いごとの確率（Jev）」の節が出て、版ごとに問いごとの確率の分布（最小・25%・中央・75%・最大）と、しきい値で落とした件数・その問いだけで落とした件数を示す（しきい値の決め方は plan.md の Q88）。
 
@@ -128,24 +128,6 @@ auto mode の経路に乗る PR では、`agent/tests` のすべての種類の�
 
 ### 日本語の材料の実験
 
-Jev は英語が主言語のため、日本語の材料（PR の diff・Issue の本文）を渡したときに答えが変わらないかを、手で実行する実験で確かめる（Epic #130）。ゲート（`gate.yml`）には組み込まず、ゲートでの自動の英訳もしない。スクリプトは `harness/scripts/jev-language.ts`。
-
-**目的**：本番と同じ問い（`harness/lib/jev.ts` の `buildJevRequest`、`harness/lib/issue-triage.ts` の `buildTriageRequest`）に、同じ材料の日本語版・英訳版を投げ比べ、Brier score・一致率・問いごとの確率の対の差などで、言語による答えのぶれを見る。
-
-**素材の選び方**：Merge 済みの PR 30〜40 件を diff の長さで3層（短・中・長）に分けてそれぞれから選び、日本語を含むものに限る。Issue 20〜30 件は Issue Form の本文のもの（`harness/lib/issue-form.ts` が読める形）から選ぶ。候補が層ごとに足りなければ件数を減らし、減らしたことを実行結果（決定ログ、AC2）に書く。
-
-**訳**：付き添いのセッションが下書きし、人が確かめてから `manifest.json` の項目ごとの `translationReviewed` を `true` にする（`jev-language.ts check` が未確認・残る日本語・diff の食い違い・タイトルの説明部分の訳し忘れ（空のまま）を検出する）。Issue のタイトルは `type(scope):` の部分を残し、後ろの説明だけを英訳する（人の決定、2026-09-27）。Issue の `type`（Jev の `type` の選択肢）はラベルの `type:*`（Conventional Commits の type）とは語彙が違うため、`prepare` が対応表（`feat`→`feature`、`fix`→`bug` など）で合わせて下書きする。
-
-**実行の手順**：承認してから手で実行する。
-
-1. `node harness/scripts/jev-language.ts prepare <owner/repo> <出力先> --prs <番号,…> --issues <番号,…>` で材料と manifest を作る。出力先に既に manifest.json があれば、そこに人が入れた `translationReviewed`・`truth` を新しい manifest に引き継ぐ（材料自体は毎回 GitHub から取り直す）。引き継がずに作り直すときは `--force` を付ける
-2. 人が訳を確かめ、`translationReviewed` を `true` にする
-3. `node harness/scripts/jev-language.ts check <manifest>` で訳の問題が無いことを確かめる
-4. `node harness/scripts/jev-language.ts run <manifest> <結果の出力先> --confirm` で Jev に投げる（`JEV_API_KEY` と `--confirm` が無ければ見積もりだけ）。見積もりは `state` だけでなく問い（`instructions`・`criteria`）ぶんの文字数も数え、既に結果がある項目・言語・回（再開できるように結果の出力先を見て決める）は除く
-5. `node harness/scripts/jev-language.ts summarize <manifest> <結果>` で集計する（Brier score・一致率は run1・run2 をまとめて出す。回ごとのぶれ（`runToRunSpread`）、日本語版の input_tokens による3層の対の差も出す）
-
-**費用の見積もり**：文字数からトークン数への換算は日本語・英語で分ける（目安。実測で差し替える前提の係数で、日本語は1文字あたり約 1.5 文字/トークン、英語は約4文字/トークン）。単価は https://docs.typesafe.ai/models を出どころとし、既定は jev-1.13.0 の入力単価（100 万トークンあたり $0.042。出力トークンは無料）（`estimateCost` の引数で差し替え可能）。この式で、上記の規模（PR 30〜40 件・Issue 20〜30 件を日本語版・英訳版・各2回）を見積もると、おおよそ入力トークン数320万・費用$0.13 程度になる（実際の値は選んだ素材で変わるため、`run` は `--confirm` の前に実測の見積もりを出す）。
-
-**結果**：決定ログ（別 Issue、Epic #130 の AC2）に書く。
+英訳はしない（[plan.md](../../docs/plan.md) の決定ログ Q96、人の決定 2026-09-30）。日本語の材料と英訳した材料を投げ比べる実験のスクリプトは #1008 で削除した。
 
 **実装のモデルの振り分け（#139）**：計画ゲートで、App が集めた材料（Issue のタイトルと本文、計画の `files` とその件数・種類、ガードレールに触れるか）だけを Jev に問い、実装に勧めるモデルを `plan-gate` の記録に残す。計画の本文・批評・ゲートの理由は渡さない（計画を書いたセッションが Jev を誘導できないように）。鍵（`JEV_API_KEY`）は Environment `gate` にあり、セッションは Jev を呼べない。使ったモデルは PR 本文の `実装のモデル:` の行の申告で、ゲート・Merge の経路は読まない（集計で人が見るだけ）。`enforce` に切り替える基準は [plan.md](../../docs/plan.md) の決定ログ（Q106）。

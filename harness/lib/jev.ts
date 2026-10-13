@@ -185,6 +185,40 @@ export async function askJev(
   return { status: 'error', detail: 'リトライ上限に達しました' };
 }
 
+/**
+ * `askJev` と同じ形だが、`usage`（トークン数）も返す。
+ */
+export async function askJevWithUsage(
+  apiKey: string,
+  request: { model: string; state: unknown; questions: Record<string, unknown> },
+  fetchImpl: typeof fetch = fetch,
+  opts: JevRetryOptions = {},
+): Promise<{ status: 'ok'; model: string; answers: JevAnswers; usage?: { input_tokens: number; output_tokens: number } } | { status: 'error'; detail: string }> {
+  const body = JSON.stringify(request);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetchImpl(ENDPOINT, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(30_000),
+      });
+      if ([408, 429, 529].includes(res.status) || res.status >= 500) {
+        const wait = backoffDelayMs(attempt, { baseMs: 1000, capMs: 10_000, floorMs: retryAfterMs(res.headers.get('retry-after')) ?? 0, random: opts.random });
+        await (opts.sleep ?? ((ms: number) => new Promise<void>((r) => setTimeout(r, ms))))(Math.min(wait, 10_000));
+        continue;
+      }
+      const text = await res.text();
+      if (!res.ok) return { status: 'error', detail: `HTTP ${res.status}: ${redact(text, apiKey).slice(0, 300)}` };
+      const json = JSON.parse(text) as { model: string; answers: JevAnswers; usage?: { input_tokens: number; output_tokens: number } };
+      return { status: 'ok', model: json.model, answers: json.answers, usage: json.usage };
+    } catch (e) {
+      if (attempt === 2) return { status: 'error', detail: redact(String(e), apiKey).slice(0, 300) };
+    }
+  }
+  return { status: 'error', detail: 'リトライ上限に達しました' };
+}
+
 /** 答えを記録用の形（選択肢ごとの確率、Noul は yes の確率）にする */
 export function flattenAnswers(answers: JevAnswers): Record<string, Record<string, number>> {
   const out: Record<string, Record<string, number>> = {};

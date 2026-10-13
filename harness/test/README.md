@@ -15,7 +15,7 @@
 | `delegate-*.test.ts`・`bypass*.test.ts`・`auto-mode-*.test.ts` | 委任承認・bypass・auto mode の設定と状態、Jev の記録だけから保留するかの判断、Claude の危険の判定を外したこと（欄のある古い計画・判定コメントも読める。#382） |
 | `epic*.test.ts`・`split*.test.ts`・`title*.test.ts`・`issue-*.test.ts` | Epic と子課題への分け方、タイトルの書式、Issue Form と Issue の分類の材料 |
 | `label*.test.ts`・`priority*.test.ts`・`classify*.test.ts` | ラベルの定義と規則、Jev に任せる手順、セッションが決めて付ける手順、優先度・領域の付け方 |
-| `jev*.test.ts` | Jev の問い・言語・使用量 |
+| `jev*.test.ts` | Jev の問い・使用量 |
 | `claim*.test.ts`・`rules-*.test.ts`・`push-*.test.ts`・`assignee*.test.ts`・`session-*.test.ts` | 着手宣言（持ち主の決め方・読み直し・段階・必須の場面）と担当（Assignee）の判定、セッションの ID と目印の規則 |
 | `queue*.test.ts`・`publish-*.test.ts`・`concurrency*.test.ts`・`unowned-*.test.ts`・`stalled-*.test.ts`・`unclaimed-*.test.ts` | queue の組み方と公開、領域ごとの同時の本数、持ち主のいない衝突した Agent PR の判定、止まっていそうな着手宣言（judge・fix・sync）の判定、担当のいない判定待ちの PR の判定 |
 | `flow*.test.ts`・`step-*.test.ts`・`stage-*.test.ts`・`sync-*.test.ts` | 段階のグラフのデータ（`harness/lib/flow.ts`）と queue・fleet の判断の食い違い、`agent.ts step` が返すノード、段階のファイル、`syncLoop` の設定 |
@@ -23,7 +23,7 @@
 | `worktree*.test.ts`・`panes*.test.ts`・`orca-*.test.ts` | worktree の置き場所と作り方、Orca の表示名、fleet と hq のワークスペースのペイン表示、Orca の skill の入口の固定 |
 | `judge*.test.ts`・`verdict*.test.ts`・`compose-verdict-*.test.ts`・`facts*.test.ts`・`scope*.test.ts` | 判定の入力と出力、判定コメント（`agent-verdict`）の書式と判定した head のずれ、facts、PR を出す前の範囲照合 |
 | `merge-*.test.ts`・`human-merge*.test.ts`・`tests-*.test.ts`・`exempt*.test.ts`・`patch-id*.test.ts`・`revert*.test.ts`・`pr-*.test.ts`・`main-push*.test.ts`・`stack*.test.ts` | Merge の経路（自動 Merge と Human Merge）、テストの結果と例外ラベル、patch-id、revert、PR と Issue の結び付け、main への push、Stacked PR |
-| `review-panel-*.test.ts` | 合体版のレビューの組み立て・記録・担当の定義と、今の判定と比べる集計 |
+| `review-panel-*.test.ts` | 合体版のレビューの組み立て・記録・担当の定義 |
 | `review-api-*.test.ts` | PR レビューの試作（`review-api/`）の Node で動く部分のテスト：設定（`review.config.json`）の読み取りなど |
 | `report-*.test.ts`・`render-*.test.ts` | 判定の集計（`harness/lib/report.ts`）：外れの数え方、fix の PR の結び付け、Jev の問いごとの確率、テストの改ざんの判定と人の判断の一致、文字数とトークン数の比、指標の描き方 |
 | `test-*.test.ts`・`mutate*.test.ts`・`related-tests*.test.ts`・`observe*.test.ts`・`hotspot*.test.ts`・`patrol*.test.ts` | テストの改ざんの検査と Jev への問い方、テストの健康・減らせるテスト、ミュータントの検査、変更したファイルから流すテストを選ぶ、保守の観測（docs の照合・ホットスポット）、見直しのまとめ役 patrol |

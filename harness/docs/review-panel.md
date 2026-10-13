@@ -36,7 +36,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 - App が `jev.overbuild` の `enforce` で外した⑨も、判定コメントは書き換えないので次の再レビューの「前回の判定」には前回のブロッキングとして渡るが、⑨は変わった行に当たるものだけブロッキングになる（[operations.md](operations.md#判定の⑨の-jevjevoverbuild)）。
 - ⑨で計画の方針ごと過剰（`planLevel: true`）なものは、ブロッキングでも `nonBlocking` でも `humanNotes.checkPoints` にも入れる。
 - ⑨の出力が無くても組み立ては止めない（`humanNotes.concerns` に「⑨の記録なし」を残す）。そのため⑨の出力が欠けた判定は、⑨のブロッキングが無いまま合格しうる。
-- ⑨の `over-*` の種類は今の reviewer が出さないので、report の合体版と今の reviewer の比較では合体版だけの指摘（`panelOnly`）に数えられる。
+- ⑨の `over-*` の種類は今の reviewer が出さないので、記録と判定コメントを読み比べるときは合体版だけの指摘に数えられる。
 - 担当（review-lens・review-ac-scope・review-safety）は、Merge を止めない提案を任意の `suggestions` に返せる。組み立ては提案を採点せず、`[提案・<担当>] <文>` の形で `nonBlocking` の末尾に入れる（合否を変えない。確信の低い指摘は担当が `findings` に書き、`suggestions` に回さない）。
 - review-ac-scope は AC の照合の帳簿（どちらの AC で照らしたか、受け入れた変更で外した・緩めた項目、CI に任せた項目、スタックの条件）を任意の `acNotes` に返せる。組み立ては ac-scope・safety の `acNotes` を順に連結して `humanNotes.acNotes` に引き継ぐ（どちらも返さなければ欄を作らない）。`concerns` は重要な順に5件まで、`checkPoints` は人が Merge の前に確かめることを重要な順に3件までが目安（コードでは拒まない）。
 - 出力は reviewer と同じ形（`pass`・`blocking`・`nonBlocking`・`humanNotes`。`humanNotes` は `acNotes` を含みうる）なので、`compose-verdict` の reviewer の出力の位置にそのまま渡せる。
@@ -72,9 +72,9 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 
 ④の材料は judge-input の「=== 過去の PR のコメント」の節（変更ファイルを触った Merge 済みの過去の PR の、コラボレーターのコメント。App・Claude の目印のものを除く）。このリポジトリのコメントの大半は App か Claude の目印付きなので、今は「(コラボレーターのコメントなし)」の PR が多く、④の材料は少ない。
 
-- Claude の目印付きのコメントは、計画・判定・着手宣言がほとんどで、過去の PR の AC に対する今の reviewer の指摘の写しになる。④に入れると「前の reviewer の指摘の再掲」になり、合体版と今の reviewer の比較が独立でなくなるので、入れない。
-- 選別を変えると、同じ judge-input を読む今の reviewer の入力も変わり、記録だけの期間の途中で比べる条件が動くので、shadow の期間は変えなかった。このリポジトリは `enforce` に切り替えた（#319）ので、④の選別は別の Issue で変えてよい。
-- 記録の `material` に、節の過去の PR の数（`pastPrs`）とコメントの無い PR の数（`pastPrsWithoutComments`）を残す。20 件の比較のときに④が効いたかを人が見て、④を広げる（Claude の目印付きのレビューコメントを含める）か外すかを、切り替えの判断の Issue で決める。
+- Claude の目印付きのコメントは、計画・判定・着手宣言がほとんどで、過去の PR の AC に対する今の reviewer の指摘の写しになる。④に入れると「前の reviewer の指摘の再掲」になり、合体版と今の reviewer の読み比べが独立でなくなるので、入れない。
+- 選別を変えると、同じ judge-input を読む今の reviewer の入力も変わり、記録だけの期間の途中で読み比べる条件が動くので、shadow の期間は変えなかった。このリポジトリは `enforce` に切り替えた（#319）ので、④の選別は別の Issue で変えてよい。
+- 記録の `material` に、節の過去の PR の数（`pastPrs`）とコメントの無い PR の数（`pastPrsWithoutComments`）を残す。記録を読み比べるときに④が効いたかを人が見て、④を広げる（Claude の目印付きのレビューコメントを含める）か外すかを、切り替えの判断の Issue で決める。
 
 ## 記録の書式
 
@@ -100,8 +100,6 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 
 shadow の期間の「前回の判定」と⑥⑦の `unfixedPrevious` は、今の reviewer の判定（App が受け付けた判定コメント）を基準にする。合体版自身の前回の結果ではない。比べるときは、合体版の再レビューの指摘が「今の reviewer が前回出した指摘」に対するものであることに注意する。
 
-集計の「片方だけのブロッキング指摘」で、今の reviewer だけの指摘の「裏付け」が「未確認（後の head で直された）」のものは、指摘のファイルを、その head の後の最初の合格の head（判定コメントより後に作られた、別の head の最初の受け付けのうち合格のもの）までの PR 自身のコミットが変えたもの（compare を PR のコミットに絞り、merge コミットを除く。main の取り込みで入った変更は数えない。force push で古い head が祖先でなくなったときは compare で読める範囲だけ）。指摘を受けたセッションは誤りでも直すことがあるので本物の強い証拠ではなく、「裏付けあり」とは別に数え、Q91 の基準 (2) には数えない。代わりに基準の判定の文に件数を添えるので、切り替えの前に人が全件を diff と照らして確かめる（#268）。
-
 ## 出どころ
 
 - 元：[anthropics/claude-plugins-official](https://github.com/anthropics/claude-plugins-official) のコミット `fa59bc9037741ecfa131aa27938272605710d7b2` の `plugins/code-review/commands/code-review.md`（Apache License 2.0）
@@ -113,8 +111,8 @@ shadow の期間の「前回の判定」と⑥⑦の `unfixedPrevious` は、今
 ## 切り替えの手順
 
 1. shadow で、判定コメントと記録のコメントの組（同じ PR・同じ head）を集める。
-2. 集計の組が 20 件に達したら、人が集計（`node harness/scripts/report.ts <owner>/<repo> [日数]`）を回し、「合体版のレビュー（記録だけの期間の比較）」の節で基準（[plan.md](../../docs/plan.md) の決定ログの Q91）を見る。
-3. 合体版だけが出した指摘と、誤検知の疑い（今の reviewer が出さず、合体版がブロッキングにしたもの）の全件を、人が diff と照らして確かめる。④の材料の量（`material`）も見る。
+2. 人が、shadow の記録のコメント（`agent-review-panel`）と、同じ head の判定コメントを読み比べ、合体版だけが出した指摘と、誤検知の疑い（今の reviewer が出さず、合体版がブロッキングにしたもの）を数える（集計の比較の節は #1008 で削除した。基準の意味は [plan.md](../../docs/plan.md) の決定ログの Q91）。
+3. 合体版だけが出した指摘と、誤検知の疑いの全件を、人が diff と照らして確かめる。④の材料の量（`material`）も見る。費用は記録の `cost` を見る。
 4. 切り替えてよいと決めたら、人が `reviewPanel.mode` を `enforce` にする Issue を立てる（`agent:ready` は人が決めてから付ける）。変更は `harness.config.json` の1行。
 
 このリポジトリは 2026-09-30 に `enforce` に切り替えた（#319。決定ログの Q102）。集計の基準は「満たす」だったが、しきい値 80 では合体版が一度もブロックしていなかったので、先に #317（PR #321、しきい値 75）・#318（PR #334、今の reviewer との差を埋める）・#325（PR #335、⑨ 過剰さの提案）を入れた。料金の基準 (5)（今の reviewer の3倍以下）は約 3.1 倍の見込みで超えるが、人の決定で受け入れた。

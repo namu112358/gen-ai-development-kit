@@ -35,7 +35,7 @@ export interface StepInput {
   areaFull: string | null;
   /**
    * 開いた PR の App の変更要求レビュー（kind=fix-request）の指摘。古い順、1つのレビューが1つの配列。
-   * 読み方は report.ts の fixRequestFindings で、判定のゲート（harness/gates/on-comment.ts の renderBlockingReview）の本文の書式に依存する
+   * 読み方は review-panel.ts の fixRequestFindings で、判定のゲート（harness/gates/on-comment.ts の renderBlockingReview）の本文の書式に依存する
    */
   fixRequests: BlockingFinding[][];
   /** 開いた PR の main からの取り込み（親が2つの commit）の数 */

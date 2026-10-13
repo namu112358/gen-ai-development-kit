@@ -18,7 +18,6 @@
 | `hq-watch.ts` | hq の見張り（Issue #559）。 |  |
 | `intel-watch.ts` | intel の見張り（Issue #854）。 |  |
 | `jev-context.ts` | auto mode の危険の問い（autoModePrJevRequest）を、4通りの材料（今の材料・＋Issue・＋ファイル全体・＋両方）で Jev に問い直し、PR ごとの危険の確率を Markdown の表で標準出力に出す、手で実行する実験用スクリプト（Issue #596）。 |  |
-| `jev-language.ts` | 日本語の材料と英訳した材料を同じ問いで Jev（TypeSafe AI）に投げ比べる、手で実行する実験用スクリプト。 |  |
 | `mutate.ts` | テストが効いているかを確かめる（mutation）。 |  |
 | `observe.ts` | 保守の観測（docs の照合・ホットスポット・テストの健康・運用の健康）を、人が指示したときに1回分だけ出す（LLM を呼ばない決まる集計）。 |  |
 | `orca-cli.ts` | Orca の CLI を env・printenv を使わずに決める関数（orcaCliInfo・onPath）の置き場所（Issue #757）。 |  |
