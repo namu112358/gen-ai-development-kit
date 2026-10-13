@@ -1,6 +1,6 @@
 # 合体版のレビュー
 
-公式の code-review（`anthropics/claude-plugins-official` の code-review プラグイン）の手順を骨組みに、このハーネスの観点（⑥ AC・範囲、⑦ 秘密・データ破壊・退行、⑧ `npm run check`）を足したレビュー。`harness.config.json` の `reviewPanel.mode` で動かし方を決める（Epic #142、子課題 #149）。
+公式の code-review（`anthropics/claude-plugins-official` の code-review プラグイン）の手順を骨組みに、このハーネスの観点（⑥ AC・範囲、⑦ 秘密・データ破壊・退行）を足したレビュー（⑧の検証コマンドは判定では回さず、型検査とテストの失敗は CI の必須チェック `ci` で止める。#974）。`harness.config.json` の `reviewPanel.mode` で動かし方を決める（Epic #142、子課題 #149）。
 
 手順は [.claude/skills/review-panel/SKILL.md](../../.claude/skills/review-panel/SKILL.md)、組み立てと記録は `harness/lib/review-panel.ts`、CLI は `harness/scripts/review-panel.ts`。
 
@@ -15,7 +15,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 | 3 ⑥ | `review-ac-scope` | opus | AC を満たすか（`ac-unmet`）、範囲外の変更（`out-of-scope`）、Stacked PR の層の積む必要性（3つの条件のどれにも当たらなければ `out-of-scope`） |
 | 3 ⑦ | `review-safety` | opus | `data-destruction`・`secret-leak`・`regression` |
 | 3 ⑨ | `review-overbuild` | sonnet | 計画・AC が求めていない `over-implementation`（過剰な実装）・`over-testing`（過剰なテスト）・`over-engineering`（オーバーエンジニアリング）。1判定5件まで。確信度 75 以上はブロッキング、75 未満は提案（#386。決定ログの Q103） |
-| 3 ⑧ | `review-panel.ts` の `check` | — | head の detached の worktree で、設定の取り込みのコマンド（`project.installCommand`。既定 `npm ci`）と検証コマンド（`project.checkCommand`。既定 `npm run check`。`null` なら動かさない）。終了コードと出力の末尾 60 行 |
+| 3 ⑧ | （判定では回さない。#974） | — | `review-panel.ts` の `check` は人が手で確かめる用に残す（head の detached の worktree で、設定の取り込みのコマンドと検証コマンドを動かし、終了コードと出力の末尾 60 行を `check.json` に書く） |
 | 4 | `review-scorer`（指摘ごと） | haiku（⑥⑦の指摘は opus） | 指摘1件の確信度（0〜100）。公式の採点基準を英文のまま使う。⑥⑦の指摘には Issue 本文と計画の節も渡す（judge-input に「受け入れた AC の変更」の節があれば、`review-ac-scope`・`review-overbuild` と⑥⑦⑨の採点にも渡し、変えられた AC はその節で照らす） |
 | 5・6 | `review-panel.ts` の `compose`・`post` | — | head の再確認、組み立て、記録のコメントの投稿 |
 
@@ -29,10 +29,10 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 | ②〜⑤ | ブロッキング（`bug`） | 捨てる（同上） |
 | ⑥・⑦ | ブロッキング（指摘の `kind`） | `humanNotes.concerns` |
 | ⑨ | ブロッキング（指摘の `kind`：`over-implementation`・`over-testing`・`over-engineering`。#386、Q103） | `nonBlocking`（`[<kind>]（確信度 <点>）…`） |
-| ⑧ | 採点しない。終了コードが 0 でなければ必ず `typecheck-test-failure` | — |
+| ⑧ | 判定では回さない（#974）。`check.json` を手で置いたときだけ、終了コードが 0 でなければ `typecheck-test-failure` | — |
 
 - 採点の無い指摘・同じ ID の採点が2つ・指摘に無い ID の採点・0〜100 の外や整数でない点数・未知の観点は、組み立てを止める（黙って捨てない）。
-- 再レビュー（judge-input に「前回の判定」がある）：ブロッキングにしてよいのは、前回の head からの変わった行（`git diff -U0 <前回の head> <headSha>`）に当たる指摘、⑥⑦の `unfixedPrevious: true`（前回の指摘が直っていない）、⑧だけ。ほかは `nonBlocking`（⑥⑦は `humanNotes.concerns` にも。⑨は①〜⑤と同じく入れない）。reviewer.md の再レビューと同じ決まり。
+- 再レビュー（judge-input に「前回の判定」がある）：ブロッキングにしてよいのは、前回の head からの変わった行（`git diff -U0 <前回の head> <headSha>`）に当たる指摘、⑥⑦の `unfixedPrevious: true`（前回の指摘が直っていない）だけ（⑧は `check.json` があるときだけ）。ほかは `nonBlocking`（⑥⑦は `humanNotes.concerns` にも。⑨は①〜⑤と同じく入れない）。reviewer.md の再レビューと同じ決まり。
 - App が `jev.overbuild` の `enforce` で外した⑨も、判定コメントは書き換えないので次の再レビューの「前回の判定」には前回のブロッキングとして渡るが、⑨は変わった行に当たるものだけブロッキングになる（[operations.md](operations.md#判定の⑨の-jevjevoverbuild)）。
 - ⑨で計画の方針ごと過剰（`planLevel: true`）なものは、ブロッキングでも `nonBlocking` でも `humanNotes.checkPoints` にも入れる。
 - ⑨の出力が無くても組み立ては止めない（`humanNotes.concerns` に「⑨の記録なし」を残す）。そのため⑨の出力が欠けた判定は、⑨のブロッキングが無いまま合格しうる。
@@ -57,13 +57,13 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 | Draft・自動の PR・簡単な PR は対象外 | 対象外は closed と、前回の判定と同じ head だけ | Agent PR はすべて Draft で出て、判定に合格してから Ready になる |
 | 前にレビューしたかを PR のコメントで見る | judge-input の「前回の判定」の head で見る | 担当は GitHub を読まない |
 | 結果を PR にコメントする | reviewer と同じ形の JSON と、記録のコメント（`agent-review-panel`）にする | 判定は App が受け付ける判定コメントに一本化する |
-| 観点は①〜⑤ | ⑥（AC・範囲）・⑦（秘密・データ破壊・退行）・⑧（`npm run check`）を足す | 今の reviewer の基準を引き継ぐ |
+| 観点は①〜⑤ | ⑥（AC・範囲）・⑦（秘密・データ破壊・退行）を足す（⑧の検証コマンドは判定では回さない。#974） | 今の reviewer の基準を引き継ぐ |
 | 観点は①〜⑤ | ⑨（過剰さ）を足す。確信度 75 以上はブロッキング、75 未満は提案（`nonBlocking`） | PR の段階で過剰な実装・テストを見るところが無かった。記録（⑨の指摘 52 件、重複を除いて 40 件）を見て、確信度 75 以上をブロッキングにすると人が決めた（#352、決定ログの Q103）。#386 で入れた |
 | 採点はすべて Haiku | ⑥⑦の指摘の採点だけ opus で呼ぶ（Agent の model の上書き。定義は haiku のまま） | ⑥（opus）⑦（opus）が見つけた指摘を、弱いモデルの採点で落とさない。置き換える今の reviewer は opus で AC・退行を自分で判断している（#318） |
 | 誤検知の例を段階4・5のすべてに当てる | ①〜⑤の指摘にだけ当てる | ⑥⑦の既存の問題・セキュリティの問題を誤検知として落とさない |
 | ④は担当が `gh` で過去の PR を読む | セッションが judge-input の「過去の PR のコメント」の節に集めたものを使う。App と Claude の目印のコメントは含めない | 担当は GitHub を読まない。前の reviewer の指摘の再掲を避ける（下の「④の材料」） |
 | 段階7で対象かをもう一度確かめる | `compose`・`post` が今の PR の head が判定する head と同じかを確かめる | head が変われば組み立て直す |
-| ビルド・型検査を動かさない | ⑧で設定の検証コマンドを動かし、失敗は必ずブロッキング | 今の reviewer の手順3を引き継ぐ |
+| ビルド・型検査を動かさない | 同じく動かさない（#974 で⑧を外した）。型検査とテストの失敗は CI の必須チェック `ci` で止まる | 直近 80 PR で⑧が引っかかった例が 0 件（実装の段階で push の前に通している）で、judge の所要時間の大半を占めていた |
 | 確信度 80 未満の指摘を捨てる | しきい値を 75 にする（採点の刻み 0/25/50/75/100 の 75 をブロッキングにする） | 公式は人向けのコメントで、確実なもの（刻みでは実質 100）だけを出す。ここは合否を決めるゲートで、shadow の記録 80 件では 80 以上が 0 件だった（#317） |
 | 出力は決まった書式の Markdown | 担当ごとの決まった JSON。組み立てはスクリプトが行う | 閾値と再レビューの決まりを機械的に当てる |
 
@@ -77,7 +77,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 
 ## 記録の書式
 
-`node harness/scripts/review-panel.ts post` が PR に投稿する。Claude の目印（`post` がこのセッションの ID を入れる。付き添いのセッションは `AGENT_HARNESS_SESSION`、Routine はセッションの URL。ID が無ければ ID の無い目印のまま）、人が読む短い要約（合否・ブロッキングの数・扱いの数・⑧の終了コード・④の材料の量・推定料金。指摘の本文は入れない）と、```` ```agent-review-panel ```` のブロック（JSON）：
+`node harness/scripts/review-panel.ts post` が PR に投稿する。Claude の目印（`post` がこのセッションの ID を入れる。付き添いのセッションは `AGENT_HARNESS_SESSION`、Routine はセッションの URL。ID が無ければ ID の無い目印のまま）、人が読む短い要約（合否・ブロッキングの数・扱いの数・⑧の終了コード（回していなければその旨）・④の材料の量・推定料金。指摘の本文は入れない）と、```` ```agent-review-panel ```` のブロック（JSON）：
 
 | キー | 内容 |
 | --- | --- |
@@ -86,7 +86,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 | `mode` | `shadow` か `enforce` |
 | `review` | 組み立ての出力（reviewer と同じ形） |
 | `findings` | 指摘ごとの `id`・`source`（`lens1`〜`lens5`・`ac-scope`・`safety`・`overbuild`）・`kind`・`score`・`treatment`（`blocking` / `nonBlocking` / `humanNotes` / `dropped`）・`file`・`line`・`detail` |
-| `check` | `exitCode`（⑧の終了コード） |
+| `check` | `exitCode`（⑧の終了コード。`null` は判定では回していない。#974） |
 | `material` | `pastPrs`・`pastPrsWithoutComments` |
 | `cost` | `panel`・`reviewer` それぞれ、モデル別のトークン数（`tokens`）と推定料金（`totalUsd`・`perModel`）。記録が無ければ `null` |
 

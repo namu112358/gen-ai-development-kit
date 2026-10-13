@@ -8,6 +8,7 @@ import { BLOCKING_KINDS, type BlockingFinding, type BlockingKind, type HumanNote
  * 合体版のレビュー（公式の code-review に、このハーネスの観点⑥〜⑧を足したもの）の組み立てと記録。
  * 担当の出力・採点・`npm run check` の結果から reviewer と同じ形の JSON を作り、記録のコメント（```agent-review-panel）を書き出し・読み取る。
  * 純粋関数だけを置く（API・git・npm の呼び出しは harness/scripts/review-panel.ts）。流れと決まりは harness/docs/review-panel.md。
+ * ⑧（検証コマンド）は judge では回さない（#974。型検査とテストの失敗は CI の必須チェック ci で止まる）。runProjectCheck と check サブコマンドは人が手で確かめる用に残す。
  */
 
 export const PANEL_MODES = ['off', 'shadow', 'enforce'] as const;
@@ -305,7 +306,7 @@ function hitsChanged(f: PanelFinding, changed: ChangedLines): boolean {
 /**
  * 担当の指摘・採点・⑧の結果から、reviewer と同じ形の出力と指摘ごとの扱いを作る。
  * ①は claude-md、②〜⑤は bug、⑥⑦は指摘の kind で、確信度 75 以上をブロッキングにする（75 未満は①〜⑤は捨て、⑥⑦は humanNotes.concerns）。
- * ⑧は採点せず、終了コードが 0 でなければ必ずブロッキング。再レビューでは、変わった行に当たる指摘・⑥⑦の直っていない前回の指摘・⑧だけをブロッキングにする。
+ * ⑧（`check` がある場合だけ。judge の手順からは外した。#974）は採点せず、終了コードが 0 でなければ必ずブロッキング。再レビューでは、変わった行に当たる指摘・⑥⑦の直っていない前回の指摘・（check があれば）⑧だけをブロッキングにする。
  * ⑨（overbuild）は指摘の kind で、確信度 75 以上をブロッキングにする（再レビューは変わった行に当たるものだけ）。それ以外は確信度を付けて nonBlocking（humanNotes.concerns には入れない）。
  * 計画の方針ごと過剰（planLevel）なら、扱いに関わらず humanNotes.checkPoints にも入れる。
  * 採点の欠け・重複・余り・範囲外は、黙って捨てずに拒否する。担当の提案（suggestions）は採点せず、nonBlocking の末尾に入れる（合否を変えない）。
@@ -317,13 +318,14 @@ export function composePanel(input: {
   /** ⑨の出力が無かった（humanNotes.concerns に OVERBUILD_MISSING_NOTE を入れる） */
   overbuildMissing?: boolean;
   scores: unknown[];
-  check: CheckResult;
+  /** ⑧の結果。無い・null なら判定では回していない（#974） */
+  check?: CheckResult | null;
   previous: { headSha: string; blocking: BlockingFinding[] } | null;
   changedLines: ChangedLines | null;
 }): Parsed<PanelComposition> {
   const errors: string[] = [];
   for (const f of input.findings) if (!(PANEL_SOURCES as readonly string[]).includes(f.source)) errors.push(`${f.id}: 未知の観点です（${String(f.source)}）`);
-  if (!Number.isInteger(input.check.exitCode)) errors.push('check.exitCode: 整数ではありません');
+  if (input.check && !Number.isInteger(input.check.exitCode)) errors.push('check.exitCode: 整数ではありません');
   if (input.previous && !input.changedLines) errors.push('再レビューなのに前回の head からの変わった行がありません');
   const scores = parseScores(input.scores, input.findings);
   if (!scores.ok) errors.push(...scores.errors);
@@ -332,7 +334,7 @@ export function composePanel(input: {
   const blocking: BlockingFinding[] = [];
   const nonBlocking: string[] = [];
   const humanNotes: HumanNotes = { concerns: [...(input.notes?.concerns ?? [])], checkPoints: [...(input.notes?.checkPoints ?? [])] };
-  if (input.check.exitCode !== 0) {
+  if (input.check && input.check.exitCode !== 0) {
     blocking.push({ kind: 'typecheck-test-failure', detail: `${input.check.command ?? 'npm run check'} が終了コード ${input.check.exitCode} で失敗しました。出力の末尾:\n${input.check.outputTail}` });
   }
 
@@ -477,7 +479,8 @@ export interface PanelRecord {
   mode: 'shadow' | 'enforce';
   review: PanelReview;
   findings: PanelFindingResult[];
-  check: { exitCode: number };
+  /** ⑧の終了コード。null は判定では回していない（#974） */
+  check: { exitCode: number | null };
   material: { pastPrs: number; pastPrsWithoutComments: number };
   cost: { panel: CostSummary | null; reviewer: CostSummary | null };
 }
@@ -498,7 +501,7 @@ export function renderPanelRecord(record: PanelRecord): string {
     '',
     `- 結果：${record.review.pass ? '合格' : '不合格'}（ブロッキング指摘 ${record.review.blocking.length} 件）`,
     `- 指摘の扱い：ブロッキング ${counts('blocking')}・ブロッキングでない ${counts('nonBlocking')}・人への懸念 ${counts('humanNotes')}・捨てた ${counts('dropped')}`,
-    `- npm run check の終了コード：${record.check.exitCode}`,
+    record.check.exitCode === null ? '- npm run check：判定では回していない（CI に任せる）' : `- npm run check の終了コード：${record.check.exitCode}`,
     `- 過去の PR（④の材料）：${record.material.pastPrs} 件（コラボレーターのコメントなし ${record.material.pastPrsWithoutComments} 件）`,
     `- 推定料金：合体版 ${usd(record.cost.panel)}・今の reviewer ${usd(record.cost.reviewer)}`,
     '',
@@ -567,7 +570,7 @@ export function parsePanelRecord(body: string): Parsed<PanelRecord> {
       humanNotes: { concerns: c.stringArray(notes.concerns, 'record.review.humanNotes.concerns'), checkPoints: c.stringArray(notes.checkPoints, 'record.review.humanNotes.checkPoints') },
     },
     findings,
-    check: { exitCode: c.integer(check.exitCode, 'record.check.exitCode') },
+    check: { exitCode: check.exitCode === null ? null : c.integer(check.exitCode, 'record.check.exitCode') },
     material: { pastPrs: c.integer(material.pastPrs, 'record.material.pastPrs'), pastPrsWithoutComments: c.integer(material.pastPrsWithoutComments, 'record.material.pastPrsWithoutComments') },
     cost: { panel: parseCost(c, cost.panel, 'record.cost.panel'), reviewer: parseCost(c, cost.reviewer, 'record.cost.reviewer') },
   };

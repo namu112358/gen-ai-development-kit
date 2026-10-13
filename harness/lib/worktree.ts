@@ -117,7 +117,7 @@ function isEmptyDir(path: string): boolean {
   }
 }
 
-/** 呼び出し元（worktree コマンド・合体版のレビューの⑧）が渡す設定。どこから呼んでも同じ置き場所になる */
+/** 呼び出し元（worktree コマンド・`review-panel.ts check`（人が手で確かめる用））が渡す設定。どこから呼んでも同じ置き場所になる */
 export function worktreeOptions(
   config: Pick<HarnessConfig, 'defaultBranch' | 'worktreeRoot'>,
   env: Record<string, string | undefined> = process.env,
@@ -302,7 +302,7 @@ export function addWorktree(ref: string, detach: boolean, opts: WorktreeOptions,
 export type NpmCiResult = { status: number | null; error?: Error };
 
 /**
- * 設定のコマンド（取り込み・検証。worktree の作成と合体版のレビューの⑧が使う）の起動の仕方。
+ * 設定のコマンド（取り込み・検証。worktree の作成と `review-panel.ts check`（人が手で確かめる用）が使う）の起動の仕方。
  * コマンドは1つの文字列なので、どの OS でも shell を通す（Windows の npm は `npm.cmd` で shell が要る）。
  * shell: true に引数の配列を渡すと Node 24 が DEP0190 の警告を出すので、args は空にする
  */

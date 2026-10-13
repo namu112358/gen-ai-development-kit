@@ -4,7 +4,7 @@ import { changedSummaryLine, changedTestPlan, readSources } from '../../../lib/r
 import { type AgentCommand, config } from '../cli.ts';
 
 /**
- * 変更したファイルに関係するテストだけを流す（implement・fix の手順5。全体のテストは judge の⑧と CI が流す。GitHub は呼ばない）。
+ * 変更したファイルに関係するテストだけを流す（implement・fix の手順5。全体のテストは CI が流す。GitHub は呼ばない）。
  *
  *   node harness/scripts/agent.ts check-changed [--base <ref>] [--dry-run]
  *                                                           origin の既定ブランチ（--base で変えられる）との merge-base からの変更ファイル

@@ -30,7 +30,7 @@ tools: Read, Grep, Glob, Bash, Write
 
 1. AC を1項目ずつ、diff とテストで満たされているか確認する。節があれば、Issue 本文の AC のうち提案が名指しで変えた項目は節の AC で、名指ししない項目は本文の AC で照らす。どちらで照らしたかと、提案が外した・緩めた本文の AC の項目（1件ずつ「受け入れた変更で外した」「受け入れた変更で緩めた」）を `humanNotes.checkPoints` に書く。節が無ければ Issue 本文の AC だけで照らす。
 2. 計画の `files` と diff を比べ、Issue の範囲外の変更がないか確認する（`agent/scope` の結果も使う）。
-3. 設定の検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`。またはリポジトリの CI と同じコマンド）を実行し、型検査・テストの失敗がないか確認する。
+3. 検証コマンド（`harness.config.json` の `project.checkCommand`。既定 `npm run check`）は実行しない。型検査・テストの失敗は CI の必須チェック `ci` で止まる（#974）。
 4. 次の観点で diff を読む：データ破壊、秘密の漏えい（鍵・トークン・個人情報のコミットやログ出力）、AC の外で既存の挙動が変わる退行。
 5. スタックの必要性の検査（judge-input にスタックの節がある層だけ）：上の層が次の3条件のどれかに当たるかを確かめる。
    - (1) 下の層と同じファイルを触る（節の下の層の変更ファイルと、diff の変更ファイルを比べる）
@@ -63,7 +63,7 @@ tools: Read, Grep, Glob, Bash, Write
 | --- | --- |
 | `ac-unmet` | AC の項目が満たされていない |
 | `out-of-scope` | Issue の範囲外の変更がある（Non-goals に触れる、計画にないファイルを意味もなく変える）。Stacked PR の層が積む3条件のどれにも当たらない |
-| `typecheck-test-failure` | 型検査・テストが失敗する |
+| `typecheck-test-failure` | 判定では出さない（型検査・テストの失敗は CI の必須チェック `ci` で止まる。語彙は残す。#974） |
 | `data-destruction` | 永続データを壊す・消す可能性がある |
 | `secret-leak` | 秘密情報が漏れる |
 | `regression` | AC の外で既存の挙動が変わる |
@@ -79,4 +79,4 @@ tools: Read, Grep, Glob, Bash, Write
 - 前回の head からの差分（`git diff <前回の head>...<headSha>`）に含まれる行への指摘
 - 前回のブロッキング指摘が直っていないこと
 
-前回の head から変わっていない行への新しい指摘は、上の基準に当たるものでも `nonBlocking` に書きます（重大なものは `humanNotes.concerns` にも書く）。型検査・テストの失敗（`typecheck-test-failure`）は、どの行が原因でもブロッキングです。
+前回の head から変わっていない行への新しい指摘は、上の基準に当たるものでも `nonBlocking` に書きます（重大なものは `humanNotes.concerns` にも書く）。
