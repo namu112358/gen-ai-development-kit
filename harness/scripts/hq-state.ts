@@ -5,7 +5,7 @@
  *   node harness/scripts/hq-state.ts ledger [--common-dir <dir>]
  *   node harness/scripts/hq-state.ts ledger-save <file> [--release-handover <テーマ>...] [--common-dir <dir>]（前の控えの印 "handover": true の fleet は、
  *     新しい控えに同じテーマ（無ければ dispatch）が無ければ残す。外すときは --release-handover。#618。前の fleet の session は
- *     最上位のキー priorSessions（{"<テーマ>": [session…]}）に残す。hq は書かない。#770）
+ *     最上位のキー priorSessions（{"<テーマ>": [{ "session": "<ID>", "at": "<控えに入れた時刻 ISO>" }…]}）に残す。hq は書かない。#770・#941）
  *   node harness/scripts/hq-state.ts pending (--session <ID> | --all) [--common-dir <dir>]
  *   node harness/scripts/hq-state.ts pending-add --session <ID> --issue <n> --stage <段階> --question <質問> --option <おすすめ> [--option <ほか>...] [--message-id <id>]
  *   node harness/scripts/hq-state.ts pending-answer --session <ID> --issue <n> --answer <人の答え>
@@ -109,41 +109,64 @@ export function carryHandoverFleets(prev: HqLedger | null, next: HqLedger, relea
 /** priorSessions の鍵ごとに残す session の数（新しいものを残す） */
 export const PRIOR_SESSIONS_LIMIT = 20;
 
-/** priorSessions を読む。形の違う鍵・値は捨てる */
-function readPriorSessions(l: HqLedger | null): Map<string, string[]> {
-  const out = new Map<string, string[]>();
+/** priorSessions の要素。at は控えに入れた時刻（ISO）。古い形・読めない時刻は null（時刻が分からない） */
+export interface PriorSession { session: string; at: string | null }
+
+/** priorSessions を読む。文字列の要素（古い形）と読めない at は at: null、形の違う鍵・要素は捨てる。空の鍵は返さない */
+export function readPriorSessions(l: HqLedger | null): Map<string, PriorSession[]> {
+  const out = new Map<string, PriorSession[]>();
   const p = l?.priorSessions;
   if (!isObj(p)) return out;
   for (const [k, v] of Object.entries(p)) {
     if (!Array.isArray(v)) continue;
-    const list = v.filter((x): x is string => typeof x === 'string' && x !== '');
+    const list: PriorSession[] = [];
+    for (const x of v) {
+      if (typeof x === 'string') {
+        if (x !== '') list.push({ session: x, at: null });
+      } else if (isObj(x) && typeof x.session === 'string' && x.session !== '') {
+        list.push({ session: x.session, at: typeof x.at === 'string' && !Number.isNaN(Date.parse(x.at)) ? x.at : null });
+      }
+    }
     if (list.length > 0) out.set(k, list);
   }
   return out;
 }
 
+/** 同じ session の at の早いほう。null は最も古いとみなす（期限を延ばさない） */
+const earlierAt = (a: string | null, b: string | null): string | null =>
+  a === null || b === null ? null : Date.parse(a) <= Date.parse(b) ? a : b;
+
 /**
  * 前の fleet の session を、新しい控えの priorSessions に残す（hq が自分で起こした fleet の宣言を聞かずに引き継ぐための材料。#770）。
- * 前の控えの fleet の session のうち、新しい控えに同じ鍵で同じ session の fleet が無いものを足し、前と新しい priorSessions との和をとる。
- * 新しい控えで動いている fleet の session は除き、鍵ごとに新しい PRIOR_SESSIONS_LIMIT 件まで。引数は変えない
+ * 前の控えの fleet の session のうち、新しい控えに同じ鍵で同じ session の fleet が無いものを at = now で足し、前と新しい priorSessions との和をとる。
+ * 同じ session は早い at を残す（null は最も古い）。新しい控えで動いている fleet の session は除き、鍵ごとに新しい PRIOR_SESSIONS_LIMIT 件まで。引数は変えない（#941）
  */
-export function carryPriorSessions(prev: HqLedger | null, next: HqLedger): HqLedger {
+export function carryPriorSessions(prev: HqLedger | null, next: HqLedger, now: Date = new Date()): HqLedger {
   const current = new Map<string, Set<string>>();
   for (const f of next.fleets) {
     const key = fleetKey(f);
     if (key === null || typeof f.session !== 'string' || f.session === '') continue;
     current.set(key, (current.get(key) ?? new Set()).add(f.session));
   }
-  const merged = readPriorSessions(prev);
-  for (const [k, v] of readPriorSessions(next)) merged.set(k, [...(merged.get(k) ?? []), ...v]);
+  const merged = new Map<string, PriorSession[]>();
+  const add = (k: string, e: PriorSession): void => {
+    const list = merged.get(k) ?? [];
+    const i = list.findIndex((x) => x.session === e.session);
+    const old = i >= 0 ? list[i] : undefined;
+    if (old) list[i] = { session: e.session, at: earlierAt(old.at, e.at) };
+    else list.push(e);
+    merged.set(k, list);
+  };
+  for (const [k, v] of readPriorSessions(prev)) for (const e of v) add(k, e);
+  for (const [k, v] of readPriorSessions(next)) for (const e of v) add(k, e);
   for (const f of prev?.fleets ?? []) {
     const key = fleetKey(f);
     if (key === null || typeof f.session !== 'string' || f.session === '' || current.get(key)?.has(f.session)) continue;
-    merged.set(key, [...(merged.get(key) ?? []), f.session]);
+    add(key, { session: f.session, at: now.toISOString() });
   }
-  const out: Record<string, string[]> = {};
+  const out: Record<string, PriorSession[]> = {};
   for (const [k, v] of merged) {
-    const kept = [...new Set(v)].filter((x) => !current.get(k)?.has(x)).slice(-PRIOR_SESSIONS_LIMIT);
+    const kept = v.filter((x) => !current.get(k)?.has(x.session)).slice(-PRIOR_SESSIONS_LIMIT);
     if (kept.length > 0) out[k] = kept;
   }
   const { priorSessions: _drop, ...rest } = next;
