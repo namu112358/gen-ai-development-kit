@@ -21,6 +21,8 @@ export interface ReviewConfig {
     maxFileChars: number;
     diffOnlyExtensions: string[];
     docsOnly?: { extensions: string[]; model: string };
+    /** false なら、Reviewer と Risk のモデルが違っても Risk を Reviewer のモデルで比べない（無ければ比べる） */
+    riskCompare?: boolean;
   };
   budget: { monthlyUsd: number; perReviewUsd: number };
   pricing: Record<string, ModelPricing>;
@@ -115,6 +117,8 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
     }
   }
 
+  const riskCompare = Object.hasOwn(claude, 'riskCompare') ? claude.riskCompare : undefined;
+  if (Object.hasOwn(claude, 'riskCompare') && typeof riskCompare !== 'boolean') fail('claude.riskCompare', '真偽値');
   const out: ReviewConfig = {
     trigger: {
       actions,
@@ -133,6 +137,7 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
       maxFileChars: posInt(claude, 'claude', 'maxFileChars'),
       diffOnlyExtensions,
       ...(docsOnly !== undefined ? { docsOnly } : {}),
+      ...(typeof riskCompare === 'boolean' ? { riskCompare } : {}),
     },
     budget: {
       monthlyUsd: posNum(budget, 'budget', 'monthlyUsd'),
