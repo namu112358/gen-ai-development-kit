@@ -82,6 +82,7 @@ const baseInput = (over: Partial<SyncInput> = {}): SyncInput => ({
   kit,
   now,
   prune: false,
+  targetDefaultBranch: 'main',
   ...over,
 });
 
