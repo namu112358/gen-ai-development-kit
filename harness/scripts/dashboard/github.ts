@@ -13,6 +13,7 @@ import { issueFacts, prFacts } from '../../lib/facts.ts';
 import type { FleetPr } from '../../lib/fleet.ts';
 import { GitHub, type RequestOptions, type Transport } from '../../lib/github.ts';
 import { type BatchSpec, type IssueItem, PrefetchTransport, readBatch, restUser, Snapshot } from '../../lib/graphql-prefetch.ts';
+import { unansweredConfirms } from './confirm.ts';
 import { decisionInfo } from './decision.ts';
 import type { DashIssue, DashPr, PlanCopy, ProgressFacts } from './graph.ts';
 
@@ -316,18 +317,20 @@ export class DashboardData {
     const open = this.openPrsOf(item.number);
     const prByIssue = new Map<number, number>(open.length > 0 ? [[item.number, open[0]!.number]] : []);
     const facts = await issueFacts(gh, this.config, item, prByIssue, areaLimitLabels(this.config, this.openPrs, this.repository));
-    const target = facts.labels.some((l) => l.startsWith('agent:')) || facts.claim !== null || open.length > 0;
+    // 確認事項の判定にコメントが要るので、対象の判定の前に読む（先読みの結果から答えるので読みは増えない）
+    const comments = await gh.listComments(item.number);
+    const confirms = unansweredConfirms(comments, item.number, 'issue');
+    const target = facts.labels.some((l) => l.startsWith('agent:')) || facts.claim !== null || open.length > 0 || confirms.length > 0;
     if (!target) return;
     const fleetPrs: FleetPr[] = this.mergedPrs(snap, item.number).map((number) => ({ number, merged: true, draft: false, autoMerge: false, humanReview: false, behindMain: false, facts: null }));
     for (const pr of open) {
       fleetPrs.push((await this.loadPr(gh, snap, pr, item.number, new Map([[item.number, facts.readyAt]]), new Map([[item.number, facts.labels]]))).fleet);
     }
     // 計画の写しは issueFacts が返さないので、コメントから読む（App の名義の記録だけを数える）
-    const comments = await gh.listComments(item.number);
     const gate = latestPlanGate(this.config, comments) as { value: { plan?: PlanCopy } } | null;
     const plan = gate?.value.plan && typeof gate.value.plan === 'object' ? gate.value.plan : null;
     const decision = decisionInfo(this.config, { number: item.number, state: item.state, labels: facts.labels }, comments);
-    this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url, plan, ...(decision ? { decision } : {}) });
+    this.issueMap.set(item.number, { fleet: { facts, closed: false, planFiles: null, prs: fleetPrs }, body: item.body, url: item.html_url, plan, ...(decision ? { decision } : {}), ...(confirms.length > 0 ? { confirms } : {}) });
   }
 
   private async loadPr(gh: GitHub, snap: Snapshot, pr: PullRequest, issue: number | null, readyAt = new Map<number, string | null>(), issueLabels = new Map<number, string[]>()): Promise<DashPr> {
@@ -335,6 +338,7 @@ export class DashboardData {
       prFacts(gh, this.config, pr, readyAt, issueLabels),
       gh.listComments(pr.number),
     ]);
+    const confirms = unansweredConfirms(comments, pr.number, 'pr');
     const dash: DashPr = {
       number: pr.number,
       title: pr.title,
@@ -343,6 +347,7 @@ export class DashboardData {
       baseRef: pr.base.ref,
       issue,
       ...(issue !== null && this.links.get(pr.number)?.fromBody ? { linkGap: true as const } : {}),
+      ...(confirms.length > 0 ? { confirms } : {}),
       fleet: {
         number: pr.number,
         merged: false,
