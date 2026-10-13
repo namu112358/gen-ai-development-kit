@@ -1,7 +1,10 @@
 /**
  * agent.ts step（harness/lib/step.ts）のテスト用の事実の既定値（Issue #306）。IssueFacts・PrFacts・FleetIssue・FleetPr・StepInput を、
  * 既定値に上書きしたいところだけを渡して作る。App の変更要求レビュー（kind=fix-request）の本文も、判定のゲートと同じ形で作る。
+ * 確認事項（Issue #954）：FleetIssue の confirms に入れる ConfirmFact（confirmFact）と、確認事項のコメント・短い答え（/answer）の本文も作る。
  */
+import { claudeMark, renderBlock } from '../../lib/blocks.ts';
+import type { Confirm, ConfirmFact } from '../../lib/confirm.ts';
 import type { FleetIssue, FleetPr } from '../../lib/fleet.ts';
 import type { Claim, ClaimStage, IssueFacts, PrFacts } from '../../lib/queue.ts';
 import type { StepInput } from '../../lib/step.ts';
@@ -71,12 +74,61 @@ export const openPr = (facts: Partial<PrFacts> = {}, pr: Partial<Omit<FleetPr, '
 
 export const mergedPr = (number = PR): FleetPr => ({ number, merged: true, draft: false, autoMerge: false, humanReview: false, behindMain: false, facts: null });
 
-export const fleetIssue = (facts: IssueFacts, opts: { prs?: FleetPr[]; planFiles?: string[] | null; closed?: boolean } = {}): FleetIssue => ({
+export const fleetIssue = (facts: IssueFacts, opts: { prs?: FleetPr[]; planFiles?: string[] | null; closed?: boolean; confirms?: ConfirmFact[] } = {}): FleetIssue => ({
   facts,
   closed: opts.closed ?? false,
   planFiles: opts.planFiles === undefined ? (facts.gate ? ['harness/lib/step.ts'] : null) : opts.planFiles,
   prs: opts.prs ?? [],
+  ...(opts.confirms !== undefined ? { confirms: opts.confirms } : {}),
 });
+
+/** 確認事項のコメントの ID・時刻と、答えのコメントの ID・時刻の既定値（確認事項は計画ゲートより後、答えは確認事項より後で NOW より前） */
+export const CONFIRM_ID = 900;
+export const CONFIRM_AT = '2026-09-26T09:00:00Z';
+export const ANSWER_ID = 910;
+export const ANSWER_AT = '2026-09-26T10:00:00Z';
+
+/** 確認事項の値（質問1件・選択肢あり。target は Issue、止めた段階も再開も implement） */
+export const confirmValue = (patch: Partial<Confirm> = {}): Confirm => ({
+  version: 1,
+  target: N,
+  stage: 'implement',
+  resume: 'implement',
+  questions: [{ text: '既定を shadow にするか', why: '設定の既定は人の決定', choices: ['はい', 'いいえ'] }],
+  holds: '答えがそろうまで実装を止める',
+  ...patch,
+});
+
+/** 答えのコメント（confirmValue の質問1件に「はい」で答えたもの） */
+export const confirmAnswer = (patch: Partial<NonNullable<ConfirmFact['answer']>> = {}): NonNullable<ConfirmFact['answer']> => ({
+  commentId: ANSWER_ID,
+  url: `https://github.com/o/r/issues/${N}#issuecomment-${ANSWER_ID}`,
+  createdAt: ANSWER_AT,
+  answers: [{ to: 'question:0', choice: 'はい', quote: 'はい', at: ANSWER_AT }],
+  ...patch,
+});
+
+/** FleetIssue の confirms の1件（既定は答えの無い確認事項。confirm は confirmValue への上書き） */
+export const confirmFact = (patch: Partial<Omit<ConfirmFact, 'confirm'>> & { confirm?: Partial<Confirm> } = {}): ConfirmFact => {
+  const { confirm, ...rest } = patch;
+  return {
+    confirm: confirmValue(confirm),
+    commentId: CONFIRM_ID,
+    url: `https://github.com/o/r/issues/${N}#issuecomment-${CONFIRM_ID}`,
+    createdAt: CONFIRM_AT,
+    answer: null,
+    resumed: false,
+    ...rest,
+  };
+};
+
+/** 確認事項のコメントの本文（セッションの ID のある Claude の目印と ```agent-confirm。post-confirm と同じ形） */
+export const confirmCommentBody = (value: Confirm, session: string = SESSION): string =>
+  [claudeMark(session), '確認させてください。', '', renderBlock('agent-confirm', value)].join('\n');
+
+/** 短い答えの本文（最初の行が /answer <確認事項のコメントID>、続く行が「<質問の番号（1から）>: <答え>」） */
+export const shortAnswerBody = (confirmCommentId: number, answers: string[]): string =>
+  [`/answer ${confirmCommentId}`, ...answers.map((a, i) => `${i + 1}: ${a}`)].join('\n');
 
 /** step の入力。issue の他は既定値（このセッションの ID あり・担当の食い違いなし・上限 3・批評の回なし・local none） */
 export const stepInput = (issue: FleetIssue, patch: Partial<StepInput> = {}): StepInput => ({

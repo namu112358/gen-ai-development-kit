@@ -1,3 +1,4 @@
+import type { ConfirmFact, ConfirmStage } from './confirm.ts';
 import { delegateModeName } from './delegate.ts';
 import { assigneeExclusion, requireAssignee } from './assignee.ts';
 import { appLogin, LABELS, priorityRank, TRUSTED_ASSOCIATIONS, type HarnessConfig } from './config.ts';
@@ -38,6 +39,8 @@ export interface FleetIssue {
   assignees?: string[];
   /** GitHub の紐付けが無く、本文の Closes #N で結んだ開いた PR の番号（紐付けの抜け） */
   linkGapPrs?: number[];
+  /** 確認事項（agent-confirm）と答えの組。古い順。Issue と開いた PR のコメントから読む（fleet-reads.ts の collectFleetIssues）。無ければ確認事項なし */
+  confirms?: ConfirmFact[];
 }
 
 /** fleet-status が番号なしで集める Issue の一覧の1件（/issues の応答の一部） */
@@ -120,6 +123,8 @@ export interface FleetRow {
   rejudge?: boolean;
   /** 止まる印（hold・blocked・waiting）で止まった行だけ。Issue の印か PR の印か。依存・Epic の stopped には付かない（Issue #667） */
   humanStop?: 'issue' | 'pr';
+  /** 答えの無い確認事項がある行だけ。since は確認事項のコメントの created_at、url はそのコメントの URL */
+  confirmWait?: { since: string; url: string };
 }
 
 /** 人の判断待ちを脇に置くまでの時間の既定値（分）。hq.stuckMinutes の既定にそろえる（Issue #667） */
@@ -153,8 +158,15 @@ export const PAST_PLAN_REVIEW: ClaimStage[] = ['implement', 'judge', 'fix', 'syn
 /**
  * 行の人の判断待ち。plan-review・Issue の止まる印は facts.humanWaitSince から分を数え、PR の止まる印は時間を問わず overdue。待ちでなければ null。
  * plan-review でも、Issue の着手宣言が implement 以降なら（人かセッションが進めると決めた後）待ちに数えない。
+ * 答えの無い確認事項がある行（confirmWait）は、確認事項の時刻から数える。
  */
 export function humanWaitOf(row: FleetRow, facts: IssueFacts, now: Date, limitMinutes: number): HumanWait | null {
+  if (row.confirmWait) {
+    const { since } = row.confirmWait;
+    const t = Date.parse(since);
+    const minutes = Number.isNaN(t) ? null : Math.floor((now.getTime() - t) / 60000);
+    return { since, minutes, overdue: minutes !== null && minutes > limitMinutes, decide: `確認事項に答えるか（${row.confirmWait.url}）` };
+  }
   if (row.humanStop === 'pr') return { since: null, minutes: null, overdue: true, decide: `${row.note ?? '止まる印'} を外すか` };
   if (row.stage !== 'plan-review' && row.humanStop !== 'issue') return null;
   if (row.stage === 'plan-review' && facts.claim && !facts.claim.released && facts.claim.stage !== undefined && PAST_PLAN_REVIEW.includes(facts.claim.stage)) return null;
@@ -256,10 +268,49 @@ function issueStage(i: FleetIssue, anyMerged: boolean): Stage {
   return s;
 }
 
+export type ConfirmState = { kind: 'none' } | { kind: 'pending'; fact: ConfirmFact } | { kind: 'answered'; fact: ConfirmFact };
+
+/**
+ * Issue の確認事項の状態。答えの無いものが1つでもあれば pending（一番古いもの）、
+ * 無ければ答えがそろい resumed でないものの一番新しいものを answered、どちらも無ければ none
+ */
+export function confirmState(issue: FleetIssue): ConfirmState {
+  const facts = issue.confirms ?? [];
+  const pending = facts.find((f) => f.answer === null);
+  if (pending) return { kind: 'pending', fact: pending };
+  const answered = facts.filter((f) => f.answer !== null && !f.resumed).at(-1);
+  return answered ? { kind: 'answered', fact: answered } : { kind: 'none' };
+}
+
+/** 答えのそろった確認事項の resume の段階を、今のノードから再開してよいか */
+export function resumeAllowed(resume: ConfirmStage, at: IssueNode): boolean {
+  switch (resume) {
+    case 'plan':
+    case 'plan-critique':
+      return at.pr === null && (at.node === 'issue' || at.node === 'plan-gate' || at.node === 'plan-review' || at.node === 'plan-ok');
+    case 'implement':
+      return at.node === 'plan-ok';
+    case 'judge':
+    case 'fix':
+    case 'sync':
+      return at.pr !== null && !at.humanPr && (at.node === 'judge' || at.node === 'fix');
+  }
+}
+
 /** Issue ごとの段階と次にやること。Merge 済みの Issue があれば、main に追従していない残りの PR の次にやることを sync にする */
 export function fleetStatus(facts: FleetFacts): FleetRow[] {
   const anyMerged = facts.issues.some((i) => i.prs.some((p) => p.merged));
-  return facts.issues.map((i) => ({ issue: i.facts.number, title: i.facts.title, ...issueStage(i, anyMerged) }));
+  return facts.issues.map((i) => {
+    const row = { issue: i.facts.number, title: i.facts.title, ...issueStage(i, anyMerged) };
+    const n = issueNode(i, anyMerged);
+    if (n.node === 'merged' || n.node === 'stopped' || n.humanPr) return row;
+    const state = confirmState(i);
+    if (state.kind === 'pending') {
+      return { ...row, next: 'none' as const, note: `確認事項の答え待ち（${state.fact.url}）`, confirmWait: { since: state.fact.createdAt, url: state.fact.url } };
+    }
+    if (state.kind === 'answered' && resumeAllowed(state.fact.confirm.resume, n)) return { ...row, next: stepOf(state.fact.confirm.resume === 'plan-critique' ? 'plan' : state.fact.confirm.resume) };
+    return row;
+  });
 }
 
 export interface FleetSelection {
@@ -313,6 +364,7 @@ function overlapKind(a: string[], b: string[], sharedFiles: string[]): 'none' | 
  * PR がまだ無い Issue は、既に選んだ Issue や PR 段階・実装中の Issue と計画の files が重なれば選ばない（重なりのため待つ）。
  * 既に選んだ Issue のうち段階が plan-review（人の判断待ち）のものは、この重なりの相手にしない（今は進まないので、進められる Issue を待たせない。Issue #312）。人が進めると決めて段階が変われば、読み直した表で相手になる。
  * humanWait を渡したときは、人の判断待ち（plan-review）が limitMinutes を超えた Issue を、着手宣言の確かめの後・--max の前に「脇に置く」で外す（Issue #667。止まる印の行は今も先に外れる）。
+ * 答えの無い確認事項がある行（confirmWait）は、着手宣言の確かめの後・--max の前に「待つ」で外し、重なりの相手（busy）にもしない。
  * 計画の無い Issue は重なりが分からないので、その判定から外して選ぶ（計画の後に重なれば、後から選んだほうが待つ）。
  */
 export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: FleetRow[], max: number | null, currentSession: string | null = null, me: string | null = null, humanWait: { limitMinutes: number; now: Date } | null = null): FleetSelection {
@@ -331,7 +383,7 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
   const claimedBusy = (c: Claim | null): boolean => c !== null && !c.released && (!isOwnClaim(c, currentSession) || c.stage === 'implement');
   const busy = facts.issues.filter((i) => {
     const r = rowOf.get(i.facts.number);
-    return r !== undefined && r.stage !== 'merged' && (inFlight(r) || claimedBusy(i.facts.claim));
+    return r !== undefined && r.stage !== 'merged' && r.confirmWait === undefined && (inFlight(r) || claimedBusy(i.facts.claim));
   });
   const openPrOf = (i: FleetIssue): number | null => {
     const r = rowOf.get(i.facts.number);
@@ -362,6 +414,7 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
       excluded.set(r.issue, `着手宣言あり（ほかのセッションが着手中${detail ? `・${detail}` : ''}）`);
       continue;
     }
+    if (r.confirmWait) { excluded.set(r.issue, `待つ：確認事項の答え待ち（${r.confirmWait.url}）`); continue; }
     const hw = humanWaits.get(r.issue);
     if (r.stage === 'plan-review' && hw?.overdue && humanWait) {
       excluded.set(r.issue, `人の判断待ちが ${hw.minutes} 分（hq.humanWaitMinutes の ${humanWait.limitMinutes} 分を超えた）。脇に置く（人の判断が付けば選び直す）`);
