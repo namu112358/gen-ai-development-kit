@@ -11,6 +11,7 @@
 | `auto-mode.ts` | auto mode（Epic #339）の今の状態と、計画・PR を auto mode で通してよいかの判断（Jev の危険の問いと記録の使い回し）。 | ○ |
 | `bypass-merge.ts` | bypass モードの始まりと終わりの動作（ダッシュボードのラベルの付け外しと停止スイッチ）。 | ○ |
 | `bypass.ts` | bypass モードの今の状態と、PR を bypass で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |
+| `confirm-section.ts` | 定期実行（stale.ts の onSchedule）がダッシュボード Issue に書く節「答えの無い確認事項」の、行を作る純粋な関数と定数（Issue #963）。 | ○ |
 | `context.ts` | ゲートの実行コンテキスト。 | ○ |
 | `delegate-merge.ts` | 委任承認の始まりと終わりの動作（ダッシュボードの agent:delegate-plan・agent:delegate-merge の付け外し）。 | ○ |
 | `delegation.ts` | 委任承認の今の状態と、PR を委任（計画＋Merge）で自動経路に乗せるかの判断（読むだけ・判断だけ）。 | ○ |

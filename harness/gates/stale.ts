@@ -13,6 +13,7 @@ import { classifyBase } from '../lib/stack.ts';
 import { renderStalledClaimLine, stalledCandidate, stalledClaimMinutes, stalledClaims, type StalledClaimInput } from '../lib/stalled-claim.ts';
 import { renderUnclaimedJudgeLine, unclaimedJudgeCandidate, unclaimedJudgePrs, type UnclaimedJudgeInput } from '../lib/unclaimed-judge.ts';
 import { renderUnownedConflictLine, unownedConflicts, type UnownedConflictInput } from '../lib/unowned-conflict.ts';
+import { CONFIRM_READ_DAYS, CONFIRM_READ_LIMIT, CONFIRM_READ_PAGES, confirmCandidates, confirmSectionLines, stillUnanswered, type BulkComment, type ConfirmRow } from './confirm-section.ts';
 import { enforceBase, refreshMergeRoute, resumeFromOrphan, rewriteTestsCheck, writeAutoModeEnd } from './apply.ts';
 import { AUTO_MODE_MERGE_END_TEXT, autoModeArm, autoModeFor, autoModeRoute, type AutoModeMergeEndReason } from './auto-mode.ts';
 import { bypassArm, bypassFor, type BypassState } from './bypass.ts';
@@ -534,6 +535,21 @@ async function postHumanWaitDigest(ctx: GateContext, dashboard: number, rows: (H
   });
 }
 
+/** 開いた Issue / PR の、答えの無い確認事項。まとめて読んだ候補を、番号ごとにコメントを読み直して確かめる（読むだけで書かない） */
+async function unansweredConfirms(ctx: GateContext, now: Date, issues: IssueItem[], prs: PullRequest[]): Promise<{ rows: ConfirmRow[]; truncated: boolean; oldestAt: string | null }> {
+  const since = new Date(now.getTime() - CONFIRM_READ_DAYS * 86_400_000).toISOString();
+  const bulk = await ctx.gh.paginate<BulkComment>(`/issues/comments?since=${encodeURIComponent(since)}&sort=created&direction=desc`, CONFIRM_READ_PAGES);
+  const titles = new Map<number, string>([...issues, ...prs].map((i) => [i.number, i.title]));
+  const candidates = confirmCandidates(bulk, new Set(titles.keys()));
+  const reread = new Map<number, IssueComment[]>();
+  for (const n of new Set(candidates.map((f) => Number(/\/(?:issues|pull)\/(\d+)/.exec(f.url)?.[1])))) reread.set(n, await ctx.gh.listComments(n));
+  const rows: ConfirmRow[] = [];
+  for (const [n, comments] of reread) {
+    for (const fact of stillUnanswered(candidates, new Map([[n, comments]]))) rows.push({ number: n, title: titles.get(n) ?? '', fact });
+  }
+  return { rows, truncated: bulk.length >= CONFIRM_READ_LIMIT, oldestAt: bulk.at(-1)?.created_at ?? null };
+}
+
 export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts: { epicUnassigned?: EpicUnassignedRow[] } = {}): Promise<void> {
   // 計画の委任が有効なら、ゲートの停止で止まっている計画を判定し直す。失敗してもダッシュボードの更新は止めない
   const found = await findDashboard(ctx.gh, ctx.config);
@@ -605,6 +621,12 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
   } catch (e) {
     ctx.log(`時間を超えた人の判断待ちを読めませんでした: ${(e as Error).message}`);
   }
+  let confirms: { rows: ConfirmRow[]; truncated: boolean; oldestAt: string | null } | null = null;
+  try {
+    confirms = await unansweredConfirms(ctx, now, issues, prs);
+  } catch (e) {
+    ctx.log(`確認事項を読めませんでした: ${(e as Error).message}`);
+  }
   const autoHeldPrs = autoMode?.active ? await autoModeHeldPrs(ctx, now, staleMs, agentPrs) : null;
 
   const line = (i: { number: number; title: string; html_url: string }, extra = '') => `- [#${i.number}](${i.html_url}) ${i.title}${extra}`;
@@ -639,6 +661,7 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
     ...reviewSection(`auto mode で Merge した PR${recent}`, autoMergedRows, 'auto mode が無効です'),
     ...(autoMode?.active ? readable(`auto mode で保留にした PR${recent}`, autoHeldPrs) : [`### auto mode で保留にした PR${recent}`, '', 'auto mode が無効です', '']),
     ...readable(`時間を超えた人の判断待ち（${waitLimit} 分超）`, waitRows === null ? null : renderHumanWaitDigest(waitRows, waitLimit)),
+    ...confirmSectionLines(confirms),
     '失敗した Actions の実行は [Actions](../../actions?query=is%3Afailure) を確認してください。',
   ].join('\n');
 
@@ -661,5 +684,5 @@ export async function onSchedule(ctx: GateContext, now: Date = new Date(), opts:
       ctx.log(`時間を超えた人の判断待ちの知らせを出せませんでした: ${(e as Error).message}`);
     }
   }
-  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} unowned=${unowned.length} stalePRs=${stalePrs.length} stalledClaims=${stalled.length} unclaimedJudge=${unclaimed.length} staleIssues=${stale.length} labelProblems=${labelProblems.length} autoModeHeld=${(autoPlans?.held.length ?? 0) + (autoHeldPrs?.length ?? 0)}`);
+  ctx.log(`auto-merge reconciled=${reconciled}; bases reconciled=${bases}; dashboard #${dashboard} updated: blocked=${needsHuman.length} conflicts=${conflicts.length} unowned=${unowned.length} stalePRs=${stalePrs.length} stalledClaims=${stalled.length} unclaimedJudge=${unclaimed.length} staleIssues=${stale.length} labelProblems=${labelProblems.length} confirms=${confirms === null ? '-' : confirms.rows.length} autoModeHeld=${(autoPlans?.held.length ?? 0) + (autoHeldPrs?.length ?? 0)}`);
 }
