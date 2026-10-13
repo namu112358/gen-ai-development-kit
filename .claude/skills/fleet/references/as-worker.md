@@ -9,7 +9,7 @@ hq（テーマごとの fleet をまとめる付き添いのセッション）�
 Orca のコマンドは、`node harness/scripts/agent.ts orca-cli` が出す JSON の `command` を実行ファイルとして使う（下では `ORCA` と書く。そのまま打たずに置き換える。決め方は orchestration の skill（[.claude/skills/orchestration/SKILL.md](../../orchestration/SKILL.md)）の「Resolve the CLI for this session」と同じ順で、`harness/lib/worktree.ts` の `orcaCliCommand`。`env`・`printenv` で環境変数を読まない。この点は orchestration・orca-cli の skill の案内より優先する）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
 
 1. **当てはまるとき**：プロンプトに orchestration の注入の前置き（Task ID・Dispatch ID・worker の handle・capability）があるとき。前置きが無ければこの節は使わず、AskUserQuestion で人に聞く。前置きのコマンド（実行ファイル・handle・capability・ID）は写して使い、組み立て直さない。
-2. **ship の動かし方を読む**：最初に `node harness/scripts/panes.ts config` を読む。
+2. **ship の動かし方を読む**：最初に `node harness/scripts/agent.ts fleet-config` を読む。
    - `worker`：節「Orca の worker で ship を動かすとき」で、ship を Orca の worker として起こす（ship の worker は fleet の Run に入れ、質問は ship → fleet → hq の順に `ask` で上げる）。その節の 1 で Orca が動かなければ、または起動に失敗したら、その節の 7 のとおり入れ子の方式に戻る。`worker-start` が入れ子の深さで拒まれたときは、その節の 7 の素の端末の方式で起こす（その ship の質問はタブで人に直接聞き、hq には中継されない）。
    - `subagent`（既定）：入れ子の方式で進める。
    - 終了コード 1（設定の誤りなど）：着手宣言をせず、何もしないで止める。標準エラーの理由を hq に `escalation` で送り、`worker_done` を `--outcome failed` で送る。

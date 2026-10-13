@@ -56,7 +56,7 @@ const SHIP_SPEC: SkillSpec = {
     // fleet から起こされた ship は implementModel で実装だけを動かす（#469）
     {
       section: '## 実装のモデル（fleet から起こされた ship）',
-      words: ['panes.ts config', 'implementModel', 'model', 'test-designer', '--stage plan', '実装のモデル:', '変えないもの', 'plan-critic', 'judge'],
+      words: ['agent.ts fleet-config', 'implementModel', 'model', 'test-designer', '--stage plan', '実装のモデル:', '変えないもの', 'plan-critic', 'judge'],
     },
     { absent: ['agent.ts incident render-comment', 'agent.ts label-audit'] },
   ],

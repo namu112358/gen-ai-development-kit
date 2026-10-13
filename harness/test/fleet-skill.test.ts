@@ -81,7 +81,7 @@ const SHIP_WORKER_SPEC: SkillSpec = {
     {
       section: SHIP_WORKER,
       step: 1,
-      words: ['node harness/scripts/panes.ts config', 'shipMode', '`worker`', 'ORCA status', 'ORCA skills get orchestration', '失敗', 'Orca が無い', '今の手順', '「手順」', '入れ子の方式（orca）'],
+      words: ['node harness/scripts/agent.ts fleet-config', 'shipMode', '`worker`', 'ORCA status', 'ORCA skills get orchestration', '失敗', 'Orca が無い', '今の手順', '「手順」', '入れ子の方式（orca）'],
     },
     { section: SHIP_WORKER, step: 3, words: ['次にやること', '段階', 'settle していない Dispatch が無い', '同時に動かす ship は'] },
     {
@@ -111,7 +111,7 @@ const AS_WORKER_SPEC: SkillSpec = {
       words: [
         'orchestration ask', '--resume', 'reply', 'AskUserQuestion を使わず', 'worker_done', 'release <番号>',
         'terminal split', 'terminal send', 'panes.ts collect', 'panes.ts todo', 'panes.ts prs', 'terminal close', '空のシェルのペイン',
-        'node harness/scripts/panes.ts config', '`worker`', '`subagent`', 'Orca の worker で ship を動かすとき',
+        'node harness/scripts/agent.ts fleet-config', '`worker`', '`subagent`', 'Orca の worker で ship を動かすとき',
         '書き換えない', 'Issue の worktree の中でだけ',
         '--type status', 'ready-<PR>', 'merged-<PR>', 'verdict-<PR>', 'wait-<Issue>', 'notice',
       ],
