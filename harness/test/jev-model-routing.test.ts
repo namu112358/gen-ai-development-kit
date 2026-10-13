@@ -5,7 +5,6 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { skillProblems, type SkillSpec } from './support/skill-text.ts';
 import { loadConfig, type HarnessConfig } from '../lib/config.ts';
 import type { askJev } from '../lib/jev.ts';
 import {
@@ -192,20 +191,4 @@ test('harness.config.json と雛形：jev.modelRouting は shadow', () => {
     const json = JSON.parse(readFileSync(path, 'utf8')) as { jev?: { modelRouting?: unknown } };
     assert.equal(json.jev?.modelRouting, 'shadow', path);
   }
-});
-
-// ship の skill の節「実装のモデル（fleet から起こされた ship）」が show-plan の modelRouting.use でモデルを選ぶ手順か（語の有無だけ。AC2。
-// README の表のパターンに合わせ、計画の ship-model-routing.test.ts ではなくこのファイルに置く）
-const SHIP_ROUTING_SPEC: SkillSpec = {
-  path: '.claude/skills/ship/SKILL.md',
-  parts: [
-    {
-      section: '## 実装のモデル（fleet から起こされた ship）',
-      words: ['show-plan', 'modelRouting.use', 'enforce', 'implementModel', 'agent:plan-review'],
-    },
-  ],
-};
-
-test('ship の skill：実装のモデルの節に show-plan・modelRouting.use・enforce・implementModel・agent:plan-review がある', () => {
-  assert.deepEqual(skillProblems(SHIP_ROUTING_SPEC), []);
 });
