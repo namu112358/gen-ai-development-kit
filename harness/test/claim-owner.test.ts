@@ -1,7 +1,11 @@
 // Issue #171：claimOf は「最初の宣言が持ち主」。後から書いた --takeover でない宣言は持ち主にならず、同じセッションの宣言し直しは段階の更新になる
+// 末尾に、claim が成功したときの1行（claimedLine）を確かめる2件（元 claim-success-line.test.ts、Issue #467）もある
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
-import { claudeMark, renderBlock } from '../lib/blocks.ts';
+import { claimedLine } from '../lib/claim.ts';
+import { claudeMark, renderBlock, shortSession } from '../lib/blocks.ts';
 import { claimOf } from '../lib/facts.ts';
 import type { IssueComment } from '../lib/github.ts';
 import type { Claim } from '../lib/queue.ts';
@@ -140,4 +144,33 @@ test('claimOf：session の無い手動の宣言の後の、session の無い解
 test('claimOf：session の無い宣言が続くときは最後の宣言が使われる', () => {
   const last = manual(undefined, { stage: 'implement', at: '2026-09-26T12:00:00Z' });
   assert.deepEqual(claimOf([claimComment(manual(undefined, { stage: 'plan' })), claimComment(last)]), last);
+});
+
+const LINE_SESSION = '3f2a9c1e-0b1d-4c2e-9f00-123456789abc';
+/** CLAUDE_CODE_REMOTE_LINE_SESSION_ID から作る形（agent.ts の sessionUrl） */
+const LINE_CLOUD = 'https://claude.ai/code/session_01ABCDEFxyz';
+
+test('claimedLine は番号・段階・session の短い形を1行で返す', () => {
+  const cases: { stage: Parameters<typeof claimedLine>[1]; session: string; expected: string }[] = [
+    { stage: 'plan', session: LINE_SESSION, expected: '#467: 着手を宣言しました（段階 plan・session 3f2a9c1e）' },
+    { stage: undefined, session: LINE_SESSION, expected: '#467: 着手を宣言しました（段階 なし・session 3f2a9c1e）' },
+    { stage: 'implement', session: LINE_CLOUD, expected: `#467: 着手を宣言しました（段階 implement・session ${shortSession(LINE_CLOUD)}）` },
+  ];
+  for (const c of cases) {
+    const line = claimedLine(467, c.stage, c.session);
+    assert.equal(line, c.expected);
+    assert.ok(!line.includes('\n'), `改行を含まない: ${JSON.stringify(line)}`);
+  }
+  // URL 形の session は URL のまま出さず、短い形にする
+  assert.equal(shortSession(LINE_CLOUD), '01ABCDEF');
+});
+
+test('claim コマンドは失敗の fail([r.error]) の後で claimedLine を console.log する', () => {
+  const src = readFileSync(join(import.meta.dirname, '..', 'scripts', 'agent', 'commands', 'claim.ts'), 'utf8');
+  const failAt = src.indexOf('fail([r.error])');
+  assert.ok(failAt >= 0, 'claim コマンドに fail([r.error]) がある');
+  const logAt = src.indexOf('console.log(claimedLine(', failAt);
+  assert.ok(logAt > failAt, 'fail([r.error]) の後に console.log(claimedLine( が来る');
+  const releaseAt = src.indexOf('async function release');
+  assert.ok(releaseAt < 0 || logAt < releaseAt, 'claimedLine の出力は claim() の中にある（release より前）');
 });

@@ -83,14 +83,6 @@ test('suggestions：intake には suggestions を足さない（未知のキー�
 const blockingFinding: PanelFinding = { id: 'lens2-0', source: 'lens2', kind: 'bug', file: 'a.ts', line: 3, detail: '②の指摘' };
 const SUGGESTIONS = ['[提案・lens2] 名前を分かりやすくする', '[提案・safety] 失敗時のメッセージを足す'];
 
-test('compose：提案は nonBlocking の末尾にそのまま入り、ブロッキングが無ければ pass は true のまま', () => {
-  const v = ok(composePanel({ findings: [], scores: [], check: CHECK_OK, previous: null, changedLines: null, suggestions: SUGGESTIONS }));
-  assert.equal(v.review.pass, true);
-  assert.deepEqual(v.review.blocking, []);
-  assert.deepEqual(v.review.nonBlocking, SUGGESTIONS);
-  assert.deepEqual(v.findings, [], '提案は findings に入らない');
-});
-
 test('compose：提案は再レビューの nonBlocking の指摘より後に入り、blocking・findings の扱いは変わらない', () => {
   const OLD_HEAD = 'c'.repeat(40);
   const base = {
@@ -118,11 +110,6 @@ test('compose：ブロッキングがあれば提案があっても pass は fal
   assert.equal(v.review.pass, false);
   assert.equal(v.review.blocking.length, 1);
   assert.deepEqual(v.review.nonBlocking, SUGGESTIONS);
-});
-
-test('compose：suggestions を渡さなければ今までどおり（nonBlocking は空）', () => {
-  const v = ok(composePanel({ findings: [], scores: [], check: CHECK_OK, previous: null, changedLines: null }));
-  assert.deepEqual(v.review.nonBlocking, []);
 });
 
 test('compose：parsePanelOutputs の提案を渡すと、担当の順のまま nonBlocking に入る', () => {

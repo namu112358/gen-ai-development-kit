@@ -263,21 +263,14 @@ test('定期実行：auto mode が有効なら、ゲートの停止で止まっ�
   assert.ok(w.issues![61]!.includes(LABELS.planOk), `#61: plan-ok が無い: ${w.issues![61]!.join(',')}`);
 });
 
-test('定期実行：auto mode が無効（ラベル無し・人以外が付けた・停止スイッチ）なら、止まっている計画について Jev に問わず、plan-ok も付けない', async () => {
-  const cases: [string, string[], unknown[]][] = [
-    ['ラベル無し', [], []],
-    ['人以外が付けた', [AUTO], [autoOn(hoursAgo(1), APP)]],
-    ['停止スイッチ', [AUTO, STOP], [autoOn()]],
-  ];
-  for (const [name, labels, events] of cases) {
-    const w: DelegateWorld = { prs: [], dashboardLabels: labels, dashboardEvents: events };
-    addStoppedPlan(w);
-    const fake = delegateWorldFake(w);
-    const jev = fakeJev(0.01);
-    await schedule(fake, jev);
-    assert.equal(jev.asked.length, 0, `${name}: Jev に問った`);
-    assert.ok(!w.issues![61]!.includes(LABELS.planOk), `${name}: 計画を通した`);
-  }
+test('定期実行：auto mode が無効（ラベル無し）なら、止まっている計画について Jev に問わず、plan-ok も付けない（App・停止スイッチは auto-mode-state.test.ts が状態の単位で確かめる）', async () => {
+  const w: DelegateWorld = { prs: [], dashboardLabels: [], dashboardEvents: [] };
+  addStoppedPlan(w);
+  const fake = delegateWorldFake(w);
+  const jev = fakeJev(0.01);
+  await schedule(fake, jev);
+  assert.equal(jev.asked.length, 0, 'Jev に問った');
+  assert.ok(!w.issues![61]!.includes(LABELS.planOk), '計画を通した');
 });
 
 // ---- 5. ダッシュボード：状態の行 ----
