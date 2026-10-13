@@ -36,6 +36,8 @@ Routine の fix（[.claude/routine.md](../../routine.md)）を、付き添いの
 
 ## 人に返す条件
 
+- 人に上げる場面に当たるとき、[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方の確認事項の (a)(b) なら、確認事項（`stage` はこの段階、`resume` はこの段階、番号はPR）を `node harness/scripts/agent.ts check <ファイル>` の後に `node harness/scripts/agent.ts post-confirm <番号> <ファイル>` で書き、`release <番号>` で宣言を解除して返す（ship・fleet が一覧の「確認事項の答え待ち」に載せる。書式と再開は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方の確認事項の箇条）
+- 修正の上限（`agent:blocked`、理由コード `fix-limit`）と Merge 済み・Closed は確認事項で止めない（`step` は `stopped`・`merged` の確認事項を見ない）。答えで再開しても、直近2つの変更要求レビューに同じ指摘があれば `repeated-finding` で止まる
 - PR が Merge 済み・Closed（`claim` か `ensure-claim` が止まった。push しない）
 - 指摘が要件・AC の変更を求めている、または指摘どうし・計画と食い違う
 - 自動 Merge の対象の PR で、テストの assert を変える必要がある（`test:exempt` を頼む。Human Merge の PR では理由を PR に書けば返さなくてよい）
