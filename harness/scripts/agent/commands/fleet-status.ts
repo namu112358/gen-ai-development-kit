@@ -11,7 +11,7 @@ import { fleetWatchConfig, pendingFollowUps, readWatchRecord, updateWatch, watch
 import { GitHub } from '../../../lib/github.ts';
 import { gitCommonDir } from '../../../lib/local-state.ts';
 import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
-import { fixRequestFindings } from '../../../lib/report.ts';
+import { fixRequestFindings } from '../../../lib/review-panel.ts';
 import { splitArgs } from '../../../lib/session-inputs.ts';
 import { sessionFileKey } from '../../../lib/session.ts';
 import { carriedCritique, type CritiqueRound, readStageFile, stageFilePath, writeStageFile } from '../../../lib/stage-file.ts';

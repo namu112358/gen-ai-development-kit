@@ -23,7 +23,6 @@
     "harness/scripts/qa-retro-loop.ts",
     "harness/scripts/mutate.ts",
     "harness/scripts/patrol.ts",
-    "harness/scripts/jev-language.ts",
     "harness/lib/observe.ts",
     "harness/lib/observe-docs.ts",
     "harness/lib/hotspot.ts",
