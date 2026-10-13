@@ -1,6 +1,8 @@
 // review-api のレビューの段階（review-api/src/pipeline.ts の runReview）を外部 API を呼ばずに回す補助。偽の GitHub・偽の Claude（応答の列。Error の要素は投げる）・偽の KV と run、
-// 設定・記録・応答の見本と定数を持つ（review-api-pipeline.test.ts と review-api-risk-compare.test.ts・review-api-rules-material.test.ts が共有する。#995）
+// 設定・記録・応答の見本と定数を持つ（review-api-pipeline.test.ts と review-api-risk-compare.test.ts・review-api-rules-material.test.ts・review-api-parallel.test.ts が共有する。#995）
 // 偽の GitHub には ref（commit の SHA）ごとの規則のファイル（CLAUDE.md など）を渡せる。渡さない ref・パスは 404（#1052）
+// 応答の列は呼ばれた順に返す。review と risk が並行になっても create は review → risk の順に始まる（どちらの段階も同じ深さの await を経て create に届く）ので、
+// 列は今までどおり Reviewer → Risk の順に書く。役ごとに応答を変えたい・呼び出しの時機を見たいテストは run の claude に偽の Claude を渡す（#1061）
 import type { ContentBlock, Message, MessagesClient, MessagesParams } from '../../../review-api/src/claude.ts';
 import type { ReviewConfig } from '../../../review-api/src/config.ts';
 import { createGitHubClient } from '../../../review-api/src/github.ts';
@@ -101,7 +103,7 @@ export const msg = (content: ContentBlock[], stop_reason: string, model = MODEL)
 export const answer = (v: unknown, model = MODEL): Message => msg([{ type: 'text', text: JSON.stringify(v) }], 'end_turn', model);
 
 // 1回の runReview を偽の依存で回す。responses の Error の要素は、その回の問いで投げる。afterClaude は Claude を2回呼んだ後に GitHub の state を書き換える。
-// filesByRef は偽の GitHub に ref ごとに置くファイル（規則のファイルなど）
+// filesByRef は偽の GitHub に ref ごとに置くファイル（規則のファイルなど）。claude を渡すと応答の列の代わりにそれを呼ぶ（呼び出しは claudeCalls に積む）
 export async function run(opts: {
   pr?: Pr;
   comments?: ReturnType<typeof comment>[];
@@ -110,15 +112,21 @@ export async function run(opts: {
   responses?: (Message | Error)[];
   afterClaude?: (state: { pr: Pr; comments: ReturnType<typeof comment>[] }) => void;
   filesByRef?: FilesByRef;
+  claude?: MessagesClient;
 } = {}) {
   const state = { pr: opts.pr ?? { state: 'open', head: HEAD }, comments: opts.comments ?? [] };
   const { gh, calls, posted } = fakeGitHub(state, opts.filesByRef);
   const kv = new Map(Object.entries(opts.kv ?? {}));
   const claudeCalls: MessagesParams[] = [];
   const responses = opts.responses ?? [answer(REVIEW_OK), answer(RISK_OK)];
+  const given = opts.claude;
   const claude: MessagesClient = {
     async create(p) {
       claudeCalls.push(structuredClone(p));
+      if (given !== undefined) {
+        if (claudeCalls.length === 2) opts.afterClaude?.(state);
+        return given.create(p);
+      }
       const r = responses[claudeCalls.length - 1];
       if (r === undefined) throw new Error('偽の Claude の応答が足りない');
       if (claudeCalls.length === 2) opts.afterClaude?.(state);

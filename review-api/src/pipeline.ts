@@ -1,4 +1,4 @@
-// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ）fetch-pr → collect → budget → review → risk → validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
+// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ）fetch-pr → collect → budget → review と risk（並べて待つ）→ validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
 // GitHub・Claude・KV・時計・ログは deps から受け取り、token は deps の作り方（reader・writer）の中に閉じる（ここでは見ない）。
 // 段階は runStep に包んで呼ぶ（Workflow が step.do を渡す）。KV の書き込みと投稿は、その段階の中で行う。
 // risk-compare は Reviewer と Risk のモデルが違うとき、Risk を Reviewer のモデルでも問う（記録だけで判定には使わない。失敗しても verdict と outcome は変えない）。
@@ -84,7 +84,7 @@ const OUTPUT_TOKENS_PER_CALL = 2000;
  * ツールのループを考慮した 1 問いの推定料金（Issue #960）。材料のトークン m は system・tools・messages の文字数の半分（切り上げ）。
  * breakpoint を付けた材料と各回の tool_result は cacheWrite5m、前の回までの分は cacheRead で数える（input は 0。同じトークンを二重に数えない）。
  * 1 回目：cacheWrite5m m・output 2000。k 回目（k = 1..maxToolCalls）：cacheRead m + (k−1)·t・cacheWrite5m t・output 2000（t = min(ceil(maxFileChars/2), 4000)）。
- * Risk が Reviewer のキャッシュを読む分は見込まない（安全側）。モデルが読めない・単価が無ければ null
+ * Reviewer と Risk は並行に問うので、Risk が Reviewer のキャッシュを読む分は見込まない（Issue #1061）。モデルが読めない・単価が無ければ null
  */
 export function estimateLoopUsd(
   params: MessagesParams,
@@ -366,19 +366,19 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
 
   const toolRunner = async (): Promise<ToolRunner> => createToolRunner(await deps.github.reader(), headSha, config.claude.maxFileChars);
 
-  // 4. review
-  const review = await step('review', async (): Promise<AskStep> => {
-    const r = await askWithTools(deps.claude, asks.review, await toolRunner(), config.claude.maxToolCalls);
-    return { skipped: false, result: r };
-  });
+  // 4・5. review と risk を並べて待つ（Issue #1061）。risk は review の結果を待たずに始めるので、review が失敗しても呼ぶ（使用量は費用に数える）。
+  // 両方が終わってから、review の例外を先に、無ければ risk の例外を投げ直す（片方を放ったまま返らない）
+  const ask = (name: 'review' | 'risk', request: MessagesParams): Promise<AskStep> =>
+    step(name, async (): Promise<AskStep> => {
+      const r = await askWithTools(deps.claude, request, await toolRunner(), config.claude.maxToolCalls);
+      return { skipped: false, result: r };
+    });
+  const [reviewSettled, riskSettled] = await Promise.allSettled([ask('review', asks.review), ask('risk', asks.risk)]);
+  if (reviewSettled.status === 'rejected') throw reviewSettled.reason;
+  if (riskSettled.status === 'rejected') throw riskSettled.reason;
+  const review = reviewSettled.value;
+  const risk = riskSettled.value;
   log(`review ${review.skipped ? 'skipped' : review.result.ok ? 'ok' : review.result.reason}`);
-
-  // 5. risk（review が失敗なら呼ばない）
-  const risk = await step('risk', async (): Promise<AskStep> => {
-    if (!review.skipped && !review.result.ok) return { skipped: true };
-    const r = await askWithTools(deps.claude, asks.risk, await toolRunner(), config.claude.maxToolCalls);
-    return { skipped: false, result: r };
-  });
   log(`risk ${risk.skipped ? 'skipped' : risk.result.ok ? 'ok' : risk.result.reason}`);
 
   // 6. validate

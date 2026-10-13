@@ -134,9 +134,10 @@ test('上限が正の有限の数でない（NaN）ときは Claude を呼ばず
 
 test('JSON の取り出しと検査で落ちた出力は verdict-invalid でレビューを投稿せず止めた記録を1件付け、使った分を月の累計に足す', async () => {
   const cases: [string, Message[], number][] = [
-    ['JSON が読めない text', [msg([{ type: 'text', text: 'not json' }], 'end_turn')], 1],
-    ['refusal', [msg([{ type: 'text', text: '{}' }], 'refusal')], 1],
-    ['max_tokens', [msg([{ type: 'text', text: '{"pass":' }], 'max_tokens')], 1],
+    // Reviewer が失敗しても Risk は並行に呼ばれる（#1061）
+    ['JSON が読めない text', [msg([{ type: 'text', text: 'not json' }], 'end_turn'), answer(RISK_OK)], 2],
+    ['refusal', [msg([{ type: 'text', text: '{}' }], 'refusal'), answer(RISK_OK)], 2],
+    ['max_tokens', [msg([{ type: 'text', text: '{"pass":' }], 'max_tokens'), answer(RISK_OK)], 2],
     ['Reviewer の検査で落ちる', [answer({ pass: true, blocking: [{ kind: 'bug', detail: 'x' }], nonBlocking: [] }), answer(RISK_OK)], 2],
     ['Risk の検査で落ちる', [answer(REVIEW_OK), answer({ ...RISK_OK, level: 'huge' })], 2],
   ];

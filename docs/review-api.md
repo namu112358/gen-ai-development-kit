@@ -79,7 +79,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | ファイル | 役割 | 実行環境 |
 | --- | --- | --- |
 | `src/worker.ts` | Webhook の受付。署名の検証 → 対象の判定 → Workflow の起動 | Workers |
-| `src/workflow.ts` | 上の段階1〜7。各段階は `step.do` で再試行・永続化 | Workflows |
+| `src/workflow.ts` | 上の段階1〜7。各段階は `step.do` で再試行・永続化（Reviewer と Risk の2つの `step.do` は並べて待つ） | Workflows |
 | `src/webhook.ts` | 署名の検証（WebCrypto）と、イベントから「レビューするか」を決める純粋な関数 | 共通（Node でテスト） |
 | `src/config.ts` | `review.config.json` の型と、検査して読む `loadReviewConfig` | 共通 |
 | `src/untrusted.ts` | 信頼できない入力を `<untrusted_…>` で囲む `wrapUntrusted` | 共通 |
@@ -92,7 +92,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `src/verdict.ts` | 出力の検査（`parseVerdict` と同じ規則）と `agent-verdict` 互換の形への組み立て | 共通 |
 | `src/cost.ts` | usage → USD（`harness.config.json` の `pricing` と同じ形の表）、月の累計、上限の判定 | 共通 |
 | `src/record.ts` | PR に書くコメント（目印 `<!-- api-review-shadow head=<sha> -->`、人が読む要約、`api-review-shadow` ブロック。```` ` ```` は ```） | 共通 |
-| `src/pipeline.ts` | 段階1〜7を純粋な関数として並べたもの（Workflow と Node のテストが同じコードを動かす） | 共通 |
+| `src/pipeline.ts` | 段階1〜7を純粋な関数として並べたもの（Workflow と Node のテストが同じコードを動かす。Reviewer と Risk の問いは並行に始める） | 共通 |
 | `src/replay.ts` | 過去の PR の head を、PR の状態・今の head・KV・投稿なしで、Worker と同じ材料・問い・検査で問い直す replayReview | 共通 |
 | `src/redact.ts` | ログ・コメントから鍵と token を伏せる | 共通 |
 | `review.config.json` | モデル・effort・レビューの条件・上限・単価 | 設定 |
@@ -171,11 +171,11 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 
 **見積もり（1 レビュー = Reviewer + Risk の 2 問い）**。材料を 40k トークン（diff 10k・変更ファイル 20k・前置き 5k・ツールで読んだ関連コード 5k）、出力を 5k（thinking を含む）と置く。
 
-| 構成 | Reviewer | Risk（同じモデルのときは前置きと diff がキャッシュ読み） | 合計の目安 |
+| 構成 | Reviewer | Risk（Reviewer と並行に問うので、Reviewer の書いたキャッシュは読まない見込みで数える） | 合計の目安 |
 | --- | --- | --- | --- |
-| Opus 5.5（$4 / $20、キャッシュ読み $0.20）（今の既定） | 40k×4 + 5k×20 = $0.26 | 30k×0.2 + 10k×4 + 4k×20 = $0.13 | **約 $0.4**（大きな PR で $0.8） |
+| Opus 5.5（$4 / $20、キャッシュ読み $0.20）（今の既定） | 40k×4 + 5k×20 = $0.26 | 40k×4 + 4k×20 = $0.24 | **約 $0.5**（大きな PR で $1.0） |
 | Reviewer Opus 5.5 ＋ Risk Sonnet 5.5（Risk を Sonnet にしていたとき） | $0.26 | 30k×2.5 + 10k×2 + 4k×10 = $0.14（材料は Sonnet のキャッシュ書き込みの単価） | **約 $0.4**（1 回目は同じ。節約はツールのループの出力と読み直しに出る：下の $1.9 → $1.4） |
-| Sonnet 5.5（$2 / $10、$0.10） | $0.13 | $0.06 | **約 $0.2** |
+| Sonnet 5.5（$2 / $10、$0.10） | $0.13 | $0.12 | **約 $0.25** |
 | Sonnet 一次 → 必要なら Opus | — | — | $0.2〜0.6 |
 | Batches API | 50% 引き | 50% 引き | 上の半分（最長 24 時間後） |
 
@@ -187,7 +187,9 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 
 **上限をダッシュボードで変える**：Worker の Settings → Variables and Secrets で、`BUDGET_MONTHLY_USD`（月）・`BUDGET_PER_REVIEW_USD`（1 レビュー）を Type Text で入れると、`review.config.json` の `budget` をその値で上書きする（保存するとその場で新しい版が出る。PR は要らない）。消せば `review.config.json` の値に戻る。`wrangler.jsonc` の `keep_vars: true` でデプロイの後も残る。正の数として読めない値（数でない・0 以下）を入れたときは、既定に戻さず Claude を呼ばずに `budget-exceeded` を記録し（記録に `budgetInvalid: true`）、ログに `budget invalid` を出す。使った上限は毎回ログの `budget limits monthlyUsd=… perReviewUsd=…` の行に出る。
 
-**キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置き（とリポジトリの規則）だけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。リポジトリの規則があるとき（`rules.status` が `ok`）は、system を [前置き（印なし）, 規則のブロック（印あり）] にして (1) の印を規則のブロックに移す（印の数は3つのまま）。同じ base の規則の版の続くレビューと、同じレビューの Risk の問いが、前置き＋規則のキャッシュを読める。規則は system の文字数に入るので、事前の見積もりの材料 m に含まれる。Reviewer と Risk が同じモデルのときは Risk の問いが Reviewer の書いた system＋材料のキャッシュを読み（Reviewer と Risk が別モデルだと Risk は自分の材料を書き込む。今の既定は同じ Opus 5.5 なので読める見込みだが、実測は未確認）、ツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。Risk を Sonnet 5.5 にしていたとき（Reviewer Opus 5.5・Risk Sonnet 5.5）の値は、材料 20k で Reviewer＋Risk 約 $1.4、60k で約 $1.9（Reviewer の分は変わらず、Risk の分が半額）。そのときは Risk のキャッシュを Reviewer（Opus）と共有できず（キャッシュはモデルごと）、Risk の材料は Sonnet の単価で書き込んでいた。今の既定（同じモデル）の値は、この式で出し直していない。
+**キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置き（とリポジトリの規則）だけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。リポジトリの規則があるとき（`rules.status` が `ok`）は、system を [前置き（印なし）, 規則のブロック（印あり）] にして (1) の印を規則のブロックに移す（印の数は3つのまま）。同じ base の規則の版の続くレビューが、前置き＋規則のキャッシュを読める。規則は system の文字数に入るので、事前の見積もりの材料 m に含まれる。Reviewer と Risk は並行に問い、Risk は Reviewer の書いた system＋材料のキャッシュを読む前提にしない（Issue #1061。同じモデルでも、同時に始めるのでそれぞれが材料を書き込む）。それぞれのツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。Risk を Sonnet 5.5 にしていたとき（Reviewer Opus 5.5・Risk Sonnet 5.5）の値は、材料 20k で Reviewer＋Risk 約 $1.4、60k で約 $1.9（Reviewer の分は変わらず、Risk の分が半額）。そのときは Risk のキャッシュを Reviewer（Opus）と共有できず（キャッシュはモデルごと）、Risk の材料は Sonnet の単価で書き込んでいた。今の既定（同じモデル）の値は、この式で出し直していない。
+
+**並行に問うときのキャッシュ（Issue #1061）**：(a) 同時に始める（キャッシュは共有しない）を選んだ。(b) Reviewer の最初の応答（材料のキャッシュが書かれた後）を待ってから Risk を始める形は、別の `step.do` どうしの待ち合わせが要り、Workflow の再開のときは review の段階が永続化した結果から返って Claude を呼ばないので、review の段階の終わりも待ち合わせに入れなければならない。仕組みが増えるわりに、縮む時間は Reviewer の最初の応答の分だけ減る。共有して得られていた額も確かでない：PR #1060（どちらも Opus 5.5）は Risk が $0.39（Reviewer $0.48）で、材料をキャッシュ読みしていたにしては高い。Reviewer と Risk は出力の形（`output_config.format` の schema）が違い、#996 の比べでも別の問いが Reviewer の材料のキャッシュを読めていなかった（原因は確かめていない）。費用の増え方は、共有できていた場合と比べて多くても材料 m トークン × (cacheWrite5m − cacheRead) で、Opus 5.5 では m × ($5 − $0.20)/M = m × $4.80/M（m = 20k で約 +$0.10、40k で約 +$0.19）。もともと共有できていなかったなら増えない。事前の見積もり（`estimateLoopUsd`）は前から Risk が Reviewer のキャッシュを読む分を見込まず、Reviewer と Risk のそれぞれが材料 m を cacheWrite で数えているので、式と予算の判定（Reviewer＋Risk の見込みの和）は変えない。review が失敗しても risk は既に呼んでいるので、risk の使用量も費用と月の累計に数える（verdict と outcome は今と同じ `verdict-invalid`）。
 
 **実測**：
 
@@ -206,7 +208,7 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 
 除いた PR：#1023（比べる問いが `skipped: budget`）、#1029（文書だけで両方同じモデル）、#1006（比べる記録なし）。
 
-合計：Reviewer $1.218、Risk Sonnet $0.271、比べる Risk Opus $0.554。Risk を Opus にすると 3 件で +$0.284（1 件あたり約 +$0.09、Risk の分は約 2.05 倍）。Reviewer＋Risk は Sonnet で $1.488、Opus で $1.772（比べる問いの実測。Opus を Reviewer と同じモデルにすると Risk が Reviewer の材料のキャッシュを読めるので、実際はこれより下がりうる）。8 問の一致は合計 22/24（91.7%）だが、level は #1024 で違った（Sonnet medium・Opus low）。#1031 は Sonnet・Opus とも medium で、同じ head の `agent-verdict` は low。
+合計：Reviewer $1.218、Risk Sonnet $0.271、比べる Risk Opus $0.554。Risk を Opus にすると 3 件で +$0.284（1 件あたり約 +$0.09、Risk の分は約 2.05 倍）。Reviewer＋Risk は Sonnet で $1.488、Opus で $1.772（比べる問いの実測。このときは Opus を Reviewer と同じモデルにすると Risk が Reviewer の材料のキャッシュを読めて下がりうると見ていたが、Reviewer と Risk を並行に問う今（Issue #1061）は共有を見込まない）。8 問の一致は合計 22/24（91.7%）だが、level は #1024 で違った（Sonnet medium・Opus low）。#1031 は Sonnet・Opus とも medium で、同じ head の `agent-verdict` は low。
 
 キャッシュ：比べる Risk（Opus）の cacheRead は 3 件とも 0 ではないが、cacheWrite は Sonnet の Risk とほぼ同じ量で、Reviewer（Opus）が書いた材料のキャッシュ（87,703 / 66,233 / 32,384）は読めておらず、自分の材料を書き込み直しているように見える（cacheRead はツールのループの読み直しの分とみられる）。Sonnet の Risk の後に問うので 5 分のキャッシュが切れたか、接頭辞が違う可能性がある。原因は確かめていない。
 
