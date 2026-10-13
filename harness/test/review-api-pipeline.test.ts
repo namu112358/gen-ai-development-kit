@@ -1,7 +1,8 @@
 // review-api のレビューの段階（review-api/src/pipeline.ts の runReview）が、偽の GitHub・偽の Claude・偽の KV で外部 API を呼ばずに、
 // head のずれ・closed・merged・同じ head の記録（KV とレビュー用の App の名義のコメント）・月の上限・単価の無いモデル・材料の大きさ・投稿の直前の取り直しで
 // Claude を呼ばない（か投稿しない）こと、App 以外の名義の目印では duplicate にならないこと、JSON の取り出しと検査で落ちた出力が verdict-invalid になり
-// 使った分が月の累計に足されること、投稿が1件で目印を含むこと、鍵と token が戻り値・ログ・コメント・KV に出ないこと、
+// 使った分が月の累計に足されること、budget-exceeded・too-large・verdict-invalid で止めたときは投稿しなかった記録が1件で
+// parseApiReviewComment で outcome と head が読めること（Issue #1003）、投稿が1件で目印を含むこと、鍵と token が戻り値・ログ・コメント・KV に出ないこと、
 // ツール（createToolRunner）が秘密の恐れがあるパスと外に出るパスを GitHub に問わず一覧からも除くこと、
 // 1 レビューの見積もり（estimateLoopUsd）がツールのループと prompt caching を織り込んだ式で、budget の段階がそれで too-large を決めること（Issue #960）、
 // pipeline.ts が @anthropic-ai/sdk・cloudflare:workers・node:・harness/lib を import しないことを確かめる（Issue #911）
@@ -12,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 import type { Message, MessagesParams } from '../../review-api/src/claude.ts';
 import type { ReviewConfig } from '../../review-api/src/config.ts';
 import { createToolRunner, estimateLoopUsd, type ReviewOutcome } from '../../review-api/src/pipeline.ts';
-import { parseShadowComment } from '../../review-api/src/record.ts';
+import { parseApiReviewComment, parseShadowComment } from '../../review-api/src/record.ts';
 import {
   answer,
   API_KEY,
@@ -33,6 +34,13 @@ import {
   shadowComment,
   TOKEN,
 } from './support/review-api-pipeline.ts';
+
+// 投稿しなかった記録のコメント：parseApiReviewComment で止めた outcome と HEAD が読める（posted との見分けは review-api-stopped-record.test.ts）
+const assertStoppedRecord = (body: string, outcome: ReviewOutcome, name: string): void => {
+  const parsed = parseApiReviewComment(body);
+  assert.equal(parsed?.outcome, outcome, `${name}: 止めた記録の outcome`);
+  assert.equal(parsed?.headSha, HEAD, `${name}: 止めた記録の head`);
+};
 
 test('estimateLoopUsd はツールのループと prompt caching を織り込んだ式で見積もり、単価の無いモデルは null', () => {
   // JSON.stringify({ system, tools, messages }) は 68 文字 → m = 34。maxFileChars 100 → t = 50、output は毎回 2000
@@ -90,18 +98,21 @@ test('outcome ごとに Claude の呼び出しの数・投稿・KV の review: �
     ['投稿の直前に同じ head の自分の記録', { afterClaude: (s) => s.comments.push(shadowComment(2, REVIEWER, HEAD)) }, 'duplicate', 2],
     ['App 以外の名義の同じ head の目印', { comments: [shadowComment(1, GATE, HEAD), shadowComment(2, 'someone', HEAD)] }, 'posted', 2],
   ];
+  // 止めた outcome は投稿しなかった記録が1件、posted はレビューの記録が1件、それ以外（superseded・closed・duplicate）は投稿しない（Issue #1003）
+  const stopped: ReviewOutcome[] = ['budget-exceeded', 'too-large', 'verdict-invalid'];
   for (const [name, opts, outcome, claudeCount] of cases) {
     const r = await run(opts);
     assert.equal(r.result.outcome, outcome, name);
     assert.equal(r.claudeCalls.length, claudeCount, `${name}: Claude の呼び出し`);
-    assert.equal(r.posted.length, outcome === 'posted' ? 1 : 0, `${name}: 投稿`);
+    assert.equal(r.posted.length, outcome === 'posted' || stopped.includes(outcome) ? 1 : 0, `${name}: 投稿`);
+    if (stopped.includes(outcome)) assertStoppedRecord(r.posted[0]!, outcome, name);
     if (name.startsWith('KV に')) assert.equal(r.kv.get(REVIEW_KEY), opts!.kv![REVIEW_KEY], `${name}: 上書きしない`);
     else assert.equal(r.record?.outcome, outcome, `${name}: KV の記録`);
     if (claudeCount === 0) assert.equal(r.kv.get(COST_KEY), opts?.kv?.[COST_KEY], `${name}: 月の累計は変えない`);
   }
 });
 
-test('上限が正の有限の数でない（NaN）ときは Claude を呼ばずに budget-exceeded で止まり、KV の記録に budgetInvalid: true を入れる（Issue #989）', async () => {
+test('上限が正の有限の数でない（NaN）ときは Claude を呼ばずに budget-exceeded で止まり、KV の記録に budgetInvalid: true を入れ、止めた記録を1件付ける（Issue #989・#1003）', async () => {
   const cases: [string, (c: ReviewConfig) => void][] = [
     ['monthlyUsd が NaN', (c) => (c.budget.monthlyUsd = NaN)],
     ['perReviewUsd が NaN', (c) => (c.budget.perReviewUsd = NaN)],
@@ -112,7 +123,8 @@ test('上限が正の有限の数でない（NaN）ときは Claude を呼ばず
     const r = await run({ config });
     assert.equal(r.result.outcome, 'budget-exceeded', name);
     assert.equal(r.claudeCalls.length, 0, `${name}: Claude の呼び出し`);
-    assert.equal(r.posted.length, 0, `${name}: 投稿`);
+    assert.equal(r.posted.length, 1, `${name}: 投稿`);
+    assertStoppedRecord(r.posted[0]!, 'budget-exceeded', name);
     assert.equal(r.record?.outcome, 'budget-exceeded', `${name}: KV の記録`);
     assert.equal((r.record as { budgetInvalid?: unknown } | null)?.budgetInvalid, true, `${name}: budgetInvalid`);
     assert.equal(r.kv.get(COST_KEY), undefined, `${name}: 月の累計は変えない`);
@@ -120,7 +132,7 @@ test('上限が正の有限の数でない（NaN）ときは Claude を呼ばず
   }
 });
 
-test('JSON の取り出しと検査で落ちた出力は verdict-invalid で投稿せず、使った分を月の累計に足す', async () => {
+test('JSON の取り出しと検査で落ちた出力は verdict-invalid でレビューを投稿せず止めた記録を1件付け、使った分を月の累計に足す', async () => {
   const cases: [string, Message[], number][] = [
     ['JSON が読めない text', [msg([{ type: 'text', text: 'not json' }], 'end_turn')], 1],
     ['refusal', [msg([{ type: 'text', text: '{}' }], 'refusal')], 1],
@@ -132,7 +144,8 @@ test('JSON の取り出しと検査で落ちた出力は verdict-invalid で投�
     const r = await run({ responses });
     assert.equal(r.result.outcome, 'verdict-invalid', name);
     assert.equal(r.claudeCalls.length, claudeCount, `${name}: Claude の呼び出し`);
-    assert.equal(r.posted.length, 0, `${name}: 投稿`);
+    assert.equal(r.posted.length, 1, `${name}: 投稿`);
+    assertStoppedRecord(r.posted[0]!, 'verdict-invalid', name);
     assert.equal(r.record?.outcome, 'verdict-invalid', `${name}: KV の記録`);
     assert.ok(Math.abs(Number(r.kv.get(COST_KEY)) - claudeCount * CALL_USD) < 1e-9, `${name}: 月の累計 ${r.kv.get(COST_KEY)}`);
   }
