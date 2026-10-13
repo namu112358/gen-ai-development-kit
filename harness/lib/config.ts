@@ -1,12 +1,18 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { TITLE_TYPES } from './title.ts';
-import type { OpsHealthThresholds } from './ops-health.ts';
 import type { PricingTable } from './usage.ts';
 
 /**
  * `harness.config.json` の読み込みと、ラベル・理由コード・必須チェックの名前などの定義。
  */
+
+export interface OpsHealthThresholds {
+  scheduleGapMinutes: number; rateLimitFailures: number; failedGateMinutes: number; gateRunsPerDay: number;
+  ciJobMinutes: number; readyHours: number; prOpenHours: number; requeueCount: number; claimIdleMinutes: number;
+  planReviewCount: number; unplannedIssueCount: number; epicDrift: number; linkMismatch: number; staleWorktrees: number;
+  areaFullMinutes: number; reviewPanelFailures: number; maxGets: number;
+}
 
 export interface HarnessConfig {
   appSlug: string;
