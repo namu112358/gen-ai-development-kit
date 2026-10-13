@@ -27,7 +27,7 @@ const includesAll = (text: string, keys: string[], where: string) => {
   for (const k of keys) assert.ok(text.includes(k), `${where} に「${k}」がありません`);
 };
 
-const FLEET = '.claude/skills/fleet/SKILL.md';
+const FLEET = '.claude/skills/fleet/references/hold-council.md';
 const RULES = 'harness/CLAUDE.harness.md';
 const council = () => section(read(FLEET), '## auto mode の保留の検討会');
 

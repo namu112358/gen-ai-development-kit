@@ -17,17 +17,25 @@ const HQ_DISPLAY_NAME_SPEC: SkillSpec = {
   ],
 };
 
-/** fleet の skill：worker の手順3（テーマの名前）と、交代の手順4（起こし直す端末の表示名） */
+/** fleet の skill：本文全体に古い形が無い（references も合わせ読み。Issue #999） */
 const FLEET_DISPLAY_NAME_SPEC: SkillSpec = {
   path: '.claude/skills/fleet/SKILL.md',
-  parts: [
-    { section: '## Orca の worker として動くとき', step: 3, words: [NEW_FORM] },
-    { section: '## ハーネスが更新されたときの交代', step: 4, words: [NEW_FORM] },
-    { absent: [OLD_FORM] },
-  ],
+  parts: [{ absent: [OLD_FORM] }],
+};
+
+/** fleet の skill：worker の手順3（テーマの名前）。references/as-worker.md に分けた */
+const FLEET_WORKER_NAME_SPEC: SkillSpec = {
+  path: '.claude/skills/fleet/references/as-worker.md',
+  parts: [{ section: '## Orca の worker として動くとき', step: 3, words: [NEW_FORM] }],
+};
+
+/** fleet の skill：交代の手順4（起こし直す端末の表示名）。references/handover.md に分けた */
+const FLEET_HANDOVER_NAME_SPEC: SkillSpec = {
+  path: '.claude/skills/fleet/references/handover.md',
+  parts: [{ section: '## ハーネスが更新されたときの交代', step: 4, words: [NEW_FORM] }],
 };
 
 test('fleet の表示名：hq の起動と fleet の交代が同じ `fleet: #<Epic番号> <日本語の短い言葉>` の形で、古い形が残らない（#591）', () => {
-  const problems = [HQ_DISPLAY_NAME_SPEC, FLEET_DISPLAY_NAME_SPEC].flatMap((spec) => skillProblems(spec).map((p) => `${spec.path}：${p}`));
+  const problems = [HQ_DISPLAY_NAME_SPEC, FLEET_DISPLAY_NAME_SPEC, FLEET_WORKER_NAME_SPEC, FLEET_HANDOVER_NAME_SPEC].flatMap((spec) => skillProblems(spec).map((p) => `${spec.path}：${p}`));
   assert.deepEqual(problems, []);
 });

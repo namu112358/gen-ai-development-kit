@@ -5,9 +5,11 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { HQ_STATE_COMMANDS } from '../scripts/hq-state.ts';
+import { skillText } from './support/skill-text.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const FLEET_SKILL = '.claude/skills/fleet/SKILL.md';
+const FLEET_AS_WORKER = '.claude/skills/fleet/references/as-worker.md';
 const HQ_SKILL = '.claude/skills/hq/SKILL.md';
 const OPERATIONS = 'harness/docs/operations.md';
 
@@ -43,7 +45,7 @@ function numbered(text: string, n: number): string {
   return [lines[start]!, ...(end < 0 ? rest : rest.slice(0, end))].join('\n');
 }
 
-const fleetWorker = (): string => section(read(FLEET_SKILL), '## Orca の worker として動くとき');
+const fleetWorker = (): string => section(read(FLEET_AS_WORKER), '## Orca の worker として動くとき');
 const hqSkill = (): string => read(HQ_SKILL);
 
 // ---- fleet：hq がいないと見なす条件と退行 ----
@@ -111,7 +113,7 @@ test('harness/docs/operations.md の hq の節：hq がいない間の見方と�
 test('fleet・hq の skill に出る hq-state.ts のコマンドは、すべて HQ_STATE_COMMANDS にある', () => {
   const used = new Set<string>();
   for (const path of [FLEET_SKILL, HQ_SKILL]) {
-    for (const m of read(path).matchAll(/hq-state\.ts\s+([a-z][a-z-]*)/g)) used.add(m[1]!);
+    for (const m of skillText(path).matchAll(/hq-state\.ts\s+([a-z][a-z-]*)/g)) used.add(m[1]!);
   }
   assert.ok(used.size > 0, 'skill に hq-state.ts のコマンドがありません');
   const unknown = [...used].filter((c) => !HQ_STATE_COMMANDS.includes(c));

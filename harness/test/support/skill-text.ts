@@ -1,6 +1,6 @@
 // skill の文を確かめるテストが共有する補助（Issue #487）。frontmatter・節・手順の切り出しと、skill ごとの構造の表
 // （見出し・本文の語・節や手順の中の語・含まないはずの語・順番）を本文と照らし、足りないものを全部一度に返す skillProblems。
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** リポジトリの根 */
@@ -8,6 +8,16 @@ export const ROOT = join(import.meta.dirname, '..', '..', '..');
 
 /** 根からの相対パスで読み、CRLF を LF にする */
 export const readText = (path: string): string => readFileSync(join(ROOT, path), 'utf8').replace(/\r\n/g, '\n');
+
+/** 根からの相対パスで読む。path が SKILL.md で終わるときは、本文の後に同じディレクトリの references/*.md を名前の順に `\n` でつないで返す（無ければ本文のまま） */
+export function skillText(path: string): string {
+  const text = readText(path);
+  if (!path.endsWith('SKILL.md')) return text;
+  const dir = join(ROOT, path, '..', 'references');
+  if (!existsSync(dir)) return text;
+  const files = readdirSync(dir).filter((f) => f.endsWith('.md')).sort();
+  return [text, ...files.map((f) => readText(join(path, '..', 'references', f)))].join('\n');
+}
 
 /** 先頭の `---` で囲まれた frontmatter を key: value で読む */
 export function frontmatter(text: string): Record<string, string> {
@@ -50,12 +60,13 @@ export type SkillSpec = { path: string; headings?: string[]; words?: string[]; p
 export function skillProblems(spec: SkillSpec): string[] {
   if (!existsSync(join(ROOT, spec.path))) return [`${spec.path} がありません`];
   const text = readText(spec.path);
+  const whole = skillText(spec.path);
   const problems: string[] = [];
   const lines = text.split('\n');
   for (const h of spec.headings ?? []) if (!lines.includes(h)) problems.push(`見出し「${h}」がありません`);
-  for (const w of spec.words ?? []) if (!text.includes(w)) problems.push(`本文に「${w}」がありません`);
+  for (const w of spec.words ?? []) if (!whole.includes(w)) problems.push(`本文に「${w}」がありません`);
   for (const part of spec.parts ?? []) {
-    let body = text;
+    let body = part.section === undefined && part.step === undefined ? whole : text;
     let where = '本文';
     if (part.section !== undefined) {
       body = section(body, part.section);
