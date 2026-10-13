@@ -218,11 +218,11 @@ Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の 
 8. **hq に知らせる（send）**：途中の報告・連絡を、その都度 hq に `status` で送る。形は前置きの `--from`・`--dispatch-capability`・`--task-id`・`--dispatch-id` を写した `ORCA orchestration send ... --type status --subject "<件名>" --body "<要点>"`（`--to` は付けない。worker が `--to` を省くと、自分の Dispatch の Run の mailbox（hq）に届く）。本文は hq が一目で状況を掴める短さにする。
    - 送る時機：ship が返ったとき・`fleet-status` を読み直したとき・節「待つ間の読み直し」で気づいたとき。
    - 報告（件名）：
-     - `ready-<PR>`：PR が人の Merge 待ち（`human-merge`・`auto-merge`）になった。本文に Human Merge か自動 Merge か
+     - `ready-<PR>`：PR が人の Merge 待ち（`human-merge`・`auto-merge`）になった。本文の1行目を `Human Merge` か `自動 Merge` で始める（ship の手順6の App の印で決め、推測で書かない）
      - `merged-<PR>`：Merge された
      - `verdict-<PR>`：判定に合格／不合格。本文に合否とブロッキングの件数
      - `wait-<Issue>`：fleet が Issue を待ちにした。本文に理由（重なり・PR 同士の衝突・`--max`・領域の上限・読み込みが古い）
-   - 連絡（件名 `notice`）：着手宣言の引き継ぎ・宣言で負けた・衝突・main の取り込みで判定が外れた・ほかのセッションと重なった。本文の先頭に Issue／PR 番号。人の判断が要るなら本文に `人の判断が要る` と書く（hq が語で見分けてすぐ人に伝える）。
+   - 連絡（件名 `notice`）：着手宣言の引き継ぎ・宣言で負けた・衝突・main の取り込みで判定が外れた・ほかのセッションと重なった。本文の1行目を `#<Issue／PR 番号> 人の判断が要る` か `#<Issue／PR 番号> 人の判断は要らない` にする（hq が語で見分け、要るものだけすぐ人に伝え、要らないものは intel に回す。迷ったら `人の判断が要る`）。
    - 相談：今の `ask`（この節の 5）のまま。人の判断が要るものは `status` で送らない。
    - 二重に送らない：送った件名と状態を scratchpad の `fleet-hq-sent.json` に控え、読み直しで同じ状態なら送らない（状態が変わったら送り直す）。
    - `status` は知らせるだけで、判断の正は GitHub（`fleet-status`）とラベル。

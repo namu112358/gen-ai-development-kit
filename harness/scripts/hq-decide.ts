@@ -12,6 +12,7 @@
  *     出力：{ decision: auto | ask, theme, dispatch, failed }。
  *   node harness/scripts/hq-decide.ts route --wake <file>
  *     届いた便りの振り分け（手順7）。--wake は hq-watch.ts の {"wake":"messages",...} の出力。出力：{ deliveryId, items: [{ id, type, subject, from, dispatch, action }] }。
+ *     status の action：`ready-<PR>` は本文の1行目が `自動 Merge` で始まれば list、それ以外は tell-now。`notice` は本文に `人の判断が要る` があれば tell-now、無くて `人の判断は要らない` があれば intel、どちらも無ければ notice-unmarked（hq が本文を読んで決める）。ほかの件名は list（#772）。
  *   node harness/scripts/hq-decide.ts takeover --theme <テーマ> --fleet-status <file> [--ledger <file>]
  *     起こし直す fleet の着手宣言を、人に聞かずに引き継いでよいか（手順9・10。#770）。--fleet-status は起こし直す fleet の Issue 番号を渡した `fleet-status --json` の出力。
  *     自分（own）でない宣言のうち、控えのそのテーマの fleet の session と、priorSessions[テーマ] のうち at が staleHours（harness.config.json）以内のものにあるものが known、無いもの（期限を過ぎた・at の無い古い形・今より5分を超えて未来の at のもの、session が null、控えが無いときは全部）が unknown。
@@ -214,7 +215,7 @@ export function takeoverDecision(input: TakeoverInput): TakeoverResult {
 
 // ---- route（手順7：届いた便りの振り分け） ----
 
-export type RouteAction = 'heartbeat-save' | 'handover-check' | 'ask-human' | 'escalation' | 'worker-done' | 'tell-now' | 'list';
+export type RouteAction = 'heartbeat-save' | 'handover-check' | 'ask-human' | 'escalation' | 'worker-done' | 'tell-now' | 'list' | 'intel' | 'notice-unmarked';
 export interface RouteItem { id: string; type: string; subject: string | null; from: string | null; dispatch: string | null; action: RouteAction }
 export interface RouteResult { deliveryId: string | null; items: RouteItem[] }
 
@@ -237,8 +238,12 @@ function actionOf(m: CheckMessage): RouteAction {
     case 'worker_done': return 'worker-done';
     case 'status': {
       const subject = m.subject ?? '';
-      if (/^ready-/.test(subject)) return 'tell-now';
-      if (subject === 'notice' && textOf(m).includes('人の判断が要る')) return 'tell-now';
+      if (/^ready-/.test(subject)) return textOf(m).split('\n')[0]?.trim().startsWith('自動 Merge') ? 'list' : 'tell-now';
+      if (subject === 'notice') {
+        const text = textOf(m);
+        if (text.includes('人の判断が要る')) return 'tell-now';
+        return text.includes('人の判断は要らない') ? 'intel' : 'notice-unmarked';
+      }
       return 'list';
     }
     default: return 'ask-human';
