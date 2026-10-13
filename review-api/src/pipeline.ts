@@ -2,6 +2,7 @@
 // GitHub・Claude・KV・時計・ログは deps から受け取り、token は deps の作り方（reader・writer）の中に閉じる（ここでは見ない）。
 // 段階は runStep に包んで呼ぶ（Workflow が step.do を渡す）。KV の書き込みと投稿は、その段階の中で行う。
 // risk-compare は Reviewer と Risk のモデルが違うとき、Risk を Reviewer のモデルでも問う（記録だけで判定には使わない。失敗しても verdict と outcome は変えない）。
+// 問いの組み立て buildAskRequests・出力の検査 validateAsks・使用量の和 sumUsage・USD の計算 usageUsd は replay.ts も使う。
 // import は review-api/src の中だけで、Node と Workers の両方で動く。
 import { askWithTools, type AskResult, type MessagesClient, type MessagesParams, type ToolRunner } from './claude.ts';
 import { collectMaterial, type Material } from './collect.ts';
@@ -9,15 +10,16 @@ import type { ModelPricing, ReviewConfig } from './config.ts';
 import { checkBudget, estimateUsd, monthKey, type Usage } from './cost.ts';
 import type { GitHubClient } from './github.ts';
 import {
-  COMMON_SYSTEM,
   REVIEW_TOOLS,
   REVIEWER_OUTPUT_SCHEMA,
   RISK_OUTPUT_SCHEMA,
   buildReviewerMessages,
   buildRiskMessages,
+  systemFor,
   isSecretPath,
 } from './prompts.ts';
-import { parseApiReviewComment, renderShadowComment, renderStoppedComment, type RiskCompareRecord, type RoleUsage, type ShadowRecord, type StoppedOutcome } from './record.ts';
+import { parseApiReviewComment, renderShadowComment, renderStoppedComment, type RiskCompareRecord, type RoleUsage, type RulesSummary, type ShadowRecord, type StoppedOutcome } from './record.ts';
+import type { RepositoryRules } from './rules.ts';
 import { redact } from './redact.ts';
 import { wrapUntrusted } from './untrusted.ts';
 import { checkReviewerOutput, checkRiskOutput, composeShadowVerdict, type ReviewerOutput, type RiskOutput } from './verdict.ts';
@@ -166,7 +168,7 @@ function hasOwnRecord(comments: { body: string; user: { login: string } | null }
   return comments.some((c) => c.user?.login === login && parseApiReviewComment(c.body)?.headSha === headSha);
 }
 
-function sumUsage(...parts: Record<string, Usage>[]): Record<string, Usage> {
+export function sumUsage(...parts: Record<string, Usage>[]): Record<string, Usage> {
   const out: Record<string, Usage> = {};
   for (const part of parts) {
     for (const [model, u] of Object.entries(part)) {
@@ -181,7 +183,63 @@ function sumUsage(...parts: Record<string, Usage>[]): Record<string, Usage> {
   return out;
 }
 
-type AskStep = { skipped: true } | { skipped: false; result: AskResult };
+export type AskStep = { skipped: true } | { skipped: false; result: AskResult };
+
+/** モデルごとの使用量の推定 USD（小数6桁で丸める）。空なら 0、単価の無いモデルが1つでもあれば null */
+export function usageUsd(usage: Record<string, Usage>, pricing: Record<string, ModelPricing>): number | null {
+  let usd = 0;
+  for (const [model, v] of Object.entries(usage)) {
+    const e = estimateUsd(v, model, pricing);
+    if (e === null) return null;
+    usd += e;
+  }
+  return Math.round(usd * 1e6) / 1e6;
+}
+
+export interface AskRequests {
+  models: { review: string; risk: string; docsOnly: boolean };
+  review: MessagesParams;
+  risk: MessagesParams;
+  /** 比べる問い：Risk と同じ材料・出力の形・ツールで、モデルだけ Reviewer のもの。riskCompare が false か、Reviewer と Risk のモデルが同じなら null */
+  riskCompare: MessagesParams | null;
+}
+
+/** 記録に残す規則の要約（本文は入れない） */
+export function rulesSummary(rules: RepositoryRules): RulesSummary {
+  return { status: rules.status, paths: rules.files.map((f) => f.path), chars: rules.chars, skipped: rules.skipped };
+}
+
+/** Reviewer・Risk（と比べる Risk）の問いを組む。system は規則があれば2ブロック（systemFor） */
+export function buildAskRequests(material: Material, config: Pick<ReviewConfig, 'claude'>): AskRequests {
+  const claude = config.claude;
+  const models = chooseModels(material, claude);
+  const request = (model: string, messages: MessagesParams['messages'], schema: unknown): MessagesParams => ({
+    model,
+    max_tokens: claude.maxTokens,
+    system: systemFor(material.rules),
+    tools: REVIEW_TOOLS,
+    messages,
+    output_config: { effort: claude.effort, format: { type: 'json_schema', schema } },
+  });
+  const compareEnabled = claude.riskCompare !== false && models.review !== models.risk;
+  return {
+    models,
+    review: request(models.review, buildReviewerMessages(material), REVIEWER_OUTPUT_SCHEMA),
+    risk: request(models.risk, buildRiskMessages(material), RISK_OUTPUT_SCHEMA),
+    riskCompare: compareEnabled ? request(models.review, buildRiskMessages(material), RISK_OUTPUT_SCHEMA) : null,
+  };
+}
+
+/** Reviewer と Risk の結果を検査する（失敗・飛ばした・形が合わないときは detail を返す） */
+export function validateAsks(review: AskStep, risk: AskStep): { ok: true; reviewer: ReviewerOutput; riskOut: RiskOutput } | { ok: false; detail: string } {
+  if (review.skipped || !review.result.ok) return { ok: false, detail: review.skipped ? 'review-skipped' : `review:${(review.result as { reason: string }).reason}` };
+  if (risk.skipped || !risk.result.ok) return { ok: false, detail: risk.skipped ? 'risk-skipped' : `risk:${(risk.result as { reason: string }).reason}` };
+  const r = checkReviewerOutput(review.result.value);
+  if (!r.ok) return { ok: false, detail: `review:invalid(${r.errors.length})` };
+  const k = checkRiskOutput(risk.result.value);
+  if (!k.ok) return { ok: false, detail: `risk:invalid(${k.errors.length})` };
+  return { ok: true, reviewer: r.value, riskOut: k.value };
+}
 
 export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?: RunStep): Promise<ReviewResult> {
   const step: RunStep = runStep ?? ((_name, fn) => fn());
@@ -256,33 +314,14 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     const gh = await deps.github.reader();
     return collectMaterial(gh, config, { owner, repo, pr, headSha, appLogin: params.gateAppLogin, reviewLogin: params.reviewAppLogin });
   });
-  log('collect ok');
-  const models = chooseModels(material, config.claude);
+  log(`collect ok rules=${material.rules.status}`);
+  const rules = rulesSummary(material.rules);
+  const asks = buildAskRequests(material, config);
+  const models = asks.models;
   log(`models review=${models.review} risk=${models.risk}`);
 
-  const request = (model: string, system: MessagesParams['system'], messages: MessagesParams['messages'], schema: unknown): MessagesParams => ({
-    model,
-    max_tokens: config.claude.maxTokens,
-    system,
-    tools: REVIEW_TOOLS,
-    messages,
-    output_config: { effort: config.claude.effort, format: { type: 'json_schema', schema } },
-  });
-  const reviewRequest = (): MessagesParams => request(models.review, COMMON_SYSTEM, buildReviewerMessages(material), REVIEWER_OUTPUT_SCHEMA);
-  const riskRequest = (): MessagesParams => request(models.risk, COMMON_SYSTEM, buildRiskMessages(material), RISK_OUTPUT_SCHEMA);
-  // 比べる問い：Risk と同じ材料・出力の形・ツールで、モデルだけ Reviewer のもの
-  const riskCompareRequest = (): MessagesParams => request(models.review, COMMON_SYSTEM, buildRiskMessages(material), RISK_OUTPUT_SCHEMA);
-  const compareEnabled = config.claude.riskCompare !== false && models.review !== models.risk;
   const month = costKey(new Date(deps.now()));
-  const usdOf = (u: Record<string, Usage>): number | null => {
-    let usd = 0;
-    for (const [model, v] of Object.entries(u)) {
-      const e = estimateUsd(v, model, config.pricing);
-      if (e === null) return null;
-      usd += e;
-    }
-    return Math.round(usd * 1e6) / 1e6;
-  };
+  const usdOf = (u: Record<string, Usage>): number | null => usageUsd(u, config.pricing);
   const roleUsage = (u: Record<string, Usage>): RoleUsage => ({ usage: u, usd: usdOf(u) });
 
   // 3. budget
@@ -292,14 +331,14 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     const badLimits = (['monthlyUsd', 'perReviewUsd'] as const).filter((k) => !(Number.isFinite(config.budget[k]) && config.budget[k] > 0));
     if (badLimits.length > 0) {
       log(`budget invalid ${badLimits.join(',')}`);
-      await writeRecord('budget-exceeded', { budgetInvalid: true });
+      await writeRecord('budget-exceeded', { budgetInvalid: true, rules });
       return { stop: 'budget-exceeded', compare: null };
     }
     const raw = await deps.kv.get(month);
     const monthUsd = raw === null ? 0 : raw.trim() === '' ? NaN : Number(raw);
     const limits = { maxToolCalls: config.claude.maxToolCalls, maxFileChars: config.claude.maxFileChars };
-    const a = estimateLoopUsd(reviewRequest(), limits, config.pricing);
-    const b = estimateLoopUsd(riskRequest(), limits, config.pricing);
+    const a = estimateLoopUsd(asks.review, limits, config.pricing);
+    const b = estimateLoopUsd(asks.risk, limits, config.pricing);
     let outcome: ReviewOutcome | null = null;
     if (!Number.isFinite(monthUsd) || monthUsd < 0 || a === null || b === null) outcome = 'budget-exceeded';
     else {
@@ -307,12 +346,12 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
       if (!checked.ok) outcome = checked.reason;
     }
     if (outcome !== null) {
-      await writeRecord(outcome, {});
+      await writeRecord(outcome, { rules });
       return { stop: outcome, compare: null, ...(a === null || b === null ? {} : { estimatedUsd: a + b }) };
     }
-    if (!compareEnabled) return { stop: null, compare: null };
+    if (asks.riskCompare === null) return { stop: null, compare: null };
     // 比べる分を足しても上限に収まるときだけ比べる（収まらなければ比べる問いだけ飛ばす）
-    const c = estimateLoopUsd(riskCompareRequest(), limits, config.pricing);
+    const c = estimateLoopUsd(asks.riskCompare, limits, config.pricing);
     const withCompare = c === null ? null : checkBudget({ monthUsd, estimatedUsd: a! + b! + c, budget: config.budget });
     return { stop: null, compare: withCompare !== null && withCompare.ok ? 'run' : 'budget' };
   });
@@ -329,7 +368,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
 
   // 4. review
   const review = await step('review', async (): Promise<AskStep> => {
-    const r = await askWithTools(deps.claude, reviewRequest(), await toolRunner(), config.claude.maxToolCalls);
+    const r = await askWithTools(deps.claude, asks.review, await toolRunner(), config.claude.maxToolCalls);
     return { skipped: false, result: r };
   });
   log(`review ${review.skipped ? 'skipped' : review.result.ok ? 'ok' : review.result.reason}`);
@@ -337,7 +376,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   // 5. risk（review が失敗なら呼ばない）
   const risk = await step('risk', async (): Promise<AskStep> => {
     if (!review.skipped && !review.result.ok) return { skipped: true };
-    const r = await askWithTools(deps.claude, riskRequest(), await toolRunner(), config.claude.maxToolCalls);
+    const r = await askWithTools(deps.claude, asks.risk, await toolRunner(), config.claude.maxToolCalls);
     return { skipped: false, result: r };
   });
   log(`risk ${risk.skipped ? 'skipped' : risk.result.ok ? 'ok' : risk.result.reason}`);
@@ -345,15 +384,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   // 6. validate
   const validated = await step(
     'validate',
-    async (): Promise<{ ok: true; reviewer: ReviewerOutput; riskOut: RiskOutput } | { ok: false; detail: string }> => {
-      if (review.skipped || !review.result.ok) return { ok: false, detail: review.skipped ? 'review-skipped' : `review:${(review.result as { reason: string }).reason}` };
-      if (risk.skipped || !risk.result.ok) return { ok: false, detail: risk.skipped ? 'risk-skipped' : `risk:${(risk.result as { reason: string }).reason}` };
-      const r = checkReviewerOutput(review.result.value);
-      if (!r.ok) return { ok: false, detail: `review:invalid(${r.errors.length})` };
-      const k = checkRiskOutput(risk.result.value);
-      if (!k.ok) return { ok: false, detail: `risk:invalid(${k.errors.length})` };
-      return { ok: true, reviewer: r.value, riskOut: k.value };
-    },
+    async (): Promise<{ ok: true; reviewer: ReviewerOutput; riskOut: RiskOutput } | { ok: false; detail: string }> => validateAsks(review, risk),
   );
   log(`validate ${validated.ok ? 'ok' : 'invalid'}`);
 
@@ -366,7 +397,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
       compared = await step('risk-compare', async () => {
         if (budget.compare === 'budget') return { record: { model, skipped: 'budget' }, usage: {} };
         if (!validated.ok) return { record: { model, skipped: 'not-validated' }, usage: {} };
-        const r = await askWithTools(deps.claude, riskCompareRequest(), await toolRunner(), config.claude.maxToolCalls);
+        const r = await askWithTools(deps.claude, asks.riskCompare!, await toolRunner(), config.claude.maxToolCalls);
         if (!r.ok) return { record: { model, error: r.reason }, usage: r.usage };
         const k = checkRiskOutput(r.value);
         if (!k.ok) return { record: { model, error: `invalid(${k.errors.length})` }, usage: r.usage };
@@ -402,7 +433,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     }
     const durationSec = Math.round((deps.now() - fetched.startedAt) / 1000);
     if (!validated.ok) {
-      await writeRecord('verdict-invalid', { durationSec, models: { review: models.review, risk: models.risk }, usage, usd, detail: validated.detail, ...compareFields });
+      await writeRecord('verdict-invalid', { durationSec, models: { review: models.review, risk: models.risk }, usage, usd, detail: validated.detail, ...compareFields, rules });
       return { usd, body: null, durationSec };
     }
     const record: ShadowRecord = {
@@ -415,6 +446,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
       usd,
       durationSec,
       ...compareFields,
+      rules,
     };
     return { usd, body: redact(renderShadowComment(record), secrets), durationSec };
   });
@@ -433,7 +465,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     if (found.head.sha !== headSha) outcome = 'superseded';
     else if (found.state !== 'open') outcome = 'closed';
     else if (hasOwnRecord(await gh.listComments(pr), params.reviewAppLogin, headSha)) outcome = 'duplicate';
-    const extra = { durationSec: recorded.durationSec, models: { review: models.review, risk: models.risk }, usage, usd: recorded.usd, ...compareFields };
+    const extra = { durationSec: recorded.durationSec, models: { review: models.review, risk: models.risk }, usage, usd: recorded.usd, ...compareFields, rules };
     if (outcome !== null) {
       await writeRecord(outcome, extra);
       return outcome;

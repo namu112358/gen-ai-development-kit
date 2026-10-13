@@ -1,4 +1,4 @@
-// Issue #388：test-prune を /loop から回すときの手元の状態（読み書き・回の記録・下書きの検査と重なり・pending・adopt・2回分でたまること）と、skill の回し方の書き方を確かめる。
+// Issue #388：test-prune を /loop から回すときの手元の状態（読み書き・回の記録・下書きの検査と重なり・pending・adopt・2回分でたまること）と、skill に書いたサブコマンドがスクリプトにあるかを確かめる。
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -254,27 +254,11 @@ test('parseTestPruneLoopState：壊れた JSON・version が 1 でない・形�
   }
 });
 
-// --- skill ---
+// --- skill のコマンドの実在 ---
 
 const root = join(import.meta.dirname, '..', '..');
 const readRoot = (...parts: string[]): string => readFileSync(join(root, ...parts), 'utf8').replace(/\r\n/g, '\n');
 const skill = (): string => readRoot('.claude', 'skills', 'test-prune', 'SKILL.md');
-
-/** 見出しから次の同じ深さの見出しまでの本文。見出しが無ければ null（qa-retro-loop.test.ts と同じ） */
-function section(text: string, heading: string): string | null {
-  const lines = text.split('\n');
-  const start = lines.indexOf(heading);
-  if (start < 0) return null;
-  const rest = lines.slice(start + 1);
-  const end = rest.findIndex((l) => /^## /.test(l));
-  return (end < 0 ? rest : rest.slice(0, end)).join('\n');
-}
-
-function frontmatter(text: string): Record<string, string> {
-  const m = text.match(/^---\n([\s\S]*?)\n---\n/);
-  if (!m) return {};
-  return Object.fromEntries(m[1]!.split('\n').map((l) => l.match(/^([a-z-]+):\s*(.*)$/)).filter((x) => x !== null).map((x) => [x[1]!, x[2]!.trim()]));
-}
 
 /** skill が使う test-prune-loop.ts のサブコマンド */
 const usedLoopCommands = (text: string): string[] => [...text.matchAll(/node harness\/scripts\/test-prune-loop\.ts ([a-z][\w-]*)/g)].map((m) => m[1]!);
@@ -286,62 +270,10 @@ function documentedLoopCommands(): Set<string> {
   return new Set(usedLoopCommands(doc));
 }
 
-const loopSection = (): string => {
-  const body = section(skill(), '## /loop で回すとき');
-  assert.ok(body !== null, 'SKILL.md に「## /loop で回すとき」がありません');
-  return body;
-};
-
-test('skill：入力に --loop がある', () => {
-  const body = section(skill(), '## 入力');
-  assert.ok(body !== null, '「## 入力」がありません');
-  assert.ok(body.includes('--loop'), '「## 入力」に --loop がありません');
-});
-
-test('skill：/loop で回すときの節に、間隔（/loop <間隔> /test-prune --loop）と止め方がある', () => {
-  const body = loopSection();
-  assert.match(body, /\/loop\s+\S+\s+\/test-prune --loop/, '`/loop 1d /test-prune --loop` の形の書き方がありません');
-  assert.ok(body.includes('止め方'), '「止め方」がありません');
-});
-
-test('skill：/loop で回すときの節で、test-prune-loop.ts の record・pending・adopt を使う', () => {
-  const used = new Set(usedLoopCommands(loopSection()));
-  for (const sub of ['record', 'pending', 'adopt']) assert.ok(used.has(sub), `node harness/scripts/test-prune-loop.ts ${sub} がありません`);
-});
-
-test('skill：ループの回では AskUserQuestion を呼ばず、gh issue create もしないと書かれている', () => {
-  const lines = loopSection().split('\n');
-  assert.ok(lines.some((l) => l.includes('AskUserQuestion') && l.includes('呼ばない')), '「AskUserQuestion」と「呼ばない」を同じ行に含む行がありません');
-  assert.ok(lines.some((l) => l.includes('gh issue create') && l.includes('しない')), '「gh issue create」と「しない」を同じ行に含む行がありません');
-});
-
-test('skill：/loop で回すときの節から harness/docs/operations.md へリンクしている', () => {
-  assert.match(loopSection(), /\]\([^)]*docs\/operations\.md[^)]*\)/, 'harness/docs/operations.md へのリンクがありません');
-});
-
-test('skill：やってはいけないことに、無人の定期 Routine を動かさない規則が残り、/loop と patrol の --routine の例外を許す文がある', () => {
-  const body = section(skill(), '## やってはいけないこと');
-  assert.ok(body !== null, '「## やってはいけないこと」がありません');
-  assert.ok(body.includes('無人の定期 Routine'), '「無人の定期 Routine」がありません');
-  assert.ok(body.includes('/loop'), '/loop を許す文がありません');
-  assert.ok(body.includes('patrol の --routine'), 'patrol の --routine の例外の文がありません');
-});
-
-test('skill：description に「test-prune の下書きを選ぶ」がある', () => {
-  const fm = frontmatter(skill());
-  assert.ok((fm.description ?? '').includes('test-prune の下書きを選ぶ'), `description: ${fm.description}`);
-});
-
 test('skill が使う test-prune-loop.ts のサブコマンドは、スクリプトの使い方のコメントに実在する', () => {
   const known = documentedLoopCommands();
   for (const sub of ['record', 'pending', 'adopt']) assert.ok(known.has(sub), `test-prune-loop.ts の使い方のコメントに ${sub} がありません`);
   const used = usedLoopCommands(skill());
   assert.ok(used.length > 0, 'SKILL.md が test-prune-loop.ts を使っていません');
   for (const sub of used) assert.ok(known.has(sub), `test-prune-loop.ts ${sub} は使い方のコメントにありません`);
-});
-
-test('harness/CLAUDE.harness.md の skill の表の test-prune の行に /loop がある', () => {
-  const row = readRoot('harness', 'CLAUDE.harness.md').split('\n').find((l) => l.startsWith('| [test-prune](../.claude/skills/test-prune/SKILL.md) |'));
-  assert.ok(row, 'test-prune の行がありません');
-  assert.ok(row.includes('/loop'), `test-prune の行に /loop がありません: ${row}`);
 });

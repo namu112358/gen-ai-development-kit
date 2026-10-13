@@ -9,8 +9,20 @@ export interface ModelPricing {
   cacheRead: number;
 }
 
+/** PR 本文の Issue の結び付け方。closes は Closes・Fixes・Resolves だけ、closes-or-refs は Refs #N も含む */
+export type IssueLink = 'closes' | 'closes-or-refs';
+const ISSUE_LINKS: readonly string[] = ['closes', 'closes-or-refs'];
+
 export interface ReviewConfig {
-  trigger: { actions: string[]; skipBotSenders: boolean; branchPrefix: string; requireClosesIssue: boolean; settleSeconds: number };
+  trigger: {
+    actions: string[];
+    skipBotSenders: boolean;
+    branchPrefix: string;
+    requireClosesIssue: boolean;
+    settleSeconds: number;
+    /** 無ければ closes */
+    issueLink?: IssueLink;
+  };
   claude: {
     reviewModel: string;
     riskModel: string;
@@ -117,6 +129,10 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
     }
   }
 
+  const issueLink = Object.hasOwn(trigger, 'issueLink') ? trigger.issueLink : undefined;
+  if (Object.hasOwn(trigger, 'issueLink') && !(typeof issueLink === 'string' && ISSUE_LINKS.includes(issueLink))) {
+    fail('trigger.issueLink', `${ISSUE_LINKS.join(' か ')}`);
+  }
   const riskCompare = Object.hasOwn(claude, 'riskCompare') ? claude.riskCompare : undefined;
   if (Object.hasOwn(claude, 'riskCompare') && typeof riskCompare !== 'boolean') fail('claude.riskCompare', '真偽値');
   const out: ReviewConfig = {
@@ -126,6 +142,7 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
       branchPrefix: str(trigger, 'trigger', 'branchPrefix', true),
       requireClosesIssue: bool(trigger, 'trigger', 'requireClosesIssue'),
       settleSeconds: nonNegInt(trigger, 'trigger', 'settleSeconds'),
+      ...(typeof issueLink === 'string' && ISSUE_LINKS.includes(issueLink) ? { issueLink: issueLink as IssueLink } : {}),
     },
     claude: {
       reviewModel: str(claude, 'claude', 'reviewModel'),
@@ -198,4 +215,42 @@ export function applyBudgetEnv(config: ReviewConfig, env: BudgetEnv): { config: 
     perReviewUsd: pick('BUDGET_PER_REVIEW_USD', config.budget.perReviewUsd),
   };
   return { config: { ...config, budget }, invalid };
+}
+
+/** リポジトリの表の行の上書き（review-api/src/repos.ts が表から読む。検査は repos.ts） */
+export interface RepoOverrides {
+  budget?: { monthlyUsd?: number; perReviewUsd?: number };
+  trigger?: { branchPrefix?: string; requireClosesIssue?: boolean; issueLink?: IssueLink };
+}
+
+/**
+ * 表の行の上書きを重ねた新しい設定を返す（元の config は変えない）。上限は 行の budget → BUDGET_*（applyBudgetEnv）→ review.config.json の順。
+ * 行の上限が有限の正の数でなければ、その上限を NaN にして名前（repo.budget.<鍵>）を invalid に入れる（budget の段階で止める）。trigger は行にある鍵だけを重ねる
+ */
+export function applyRepoOverrides(config: ReviewConfig, overrides: RepoOverrides, env: BudgetEnv): { config: ReviewConfig; invalid: string[] } {
+  const fromEnv = applyBudgetEnv(config, env);
+  const invalid: string[] = [];
+  const budget = { ...fromEnv.config.budget };
+  for (const key of ['monthlyUsd', 'perReviewUsd'] as const) {
+    const v = overrides.budget?.[key];
+    if (v === undefined) {
+      if (fromEnv.invalid.includes(key === 'monthlyUsd' ? 'BUDGET_MONTHLY_USD' : 'BUDGET_PER_REVIEW_USD')) {
+        invalid.push(key === 'monthlyUsd' ? 'BUDGET_MONTHLY_USD' : 'BUDGET_PER_REVIEW_USD');
+      }
+      continue;
+    }
+    if (Number.isFinite(v) && v > 0) budget[key] = v;
+    else {
+      budget[key] = NaN;
+      invalid.push(`repo.budget.${key}`);
+    }
+  }
+  const t = overrides.trigger ?? {};
+  const trigger = {
+    ...config.trigger,
+    ...(t.branchPrefix !== undefined ? { branchPrefix: t.branchPrefix } : {}),
+    ...(t.requireClosesIssue !== undefined ? { requireClosesIssue: t.requireClosesIssue } : {}),
+    ...(t.issueLink !== undefined ? { issueLink: t.issueLink } : {}),
+  };
+  return { config: { ...config, budget, trigger }, invalid };
 }

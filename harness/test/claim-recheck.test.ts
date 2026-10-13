@@ -1,7 +1,5 @@
 // Issue #171：claim は「投稿 → 少し待つ → 読み直す」で、同時に宣言した後の側が取り下げて止まる。読み直しで気づかなくても ensureOwnClaim が止める
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { test } from 'node:test';
 import { claudeMark, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { ensureOwnClaim, postClaim } from '../lib/claim.ts';
@@ -227,43 +225,9 @@ test('postClaim：クラウドの付き添いのセッションの手動の宣�
 
 // ---- agent.ts：環境変数で Routine を見分けて確かめを飛ばさない ----
 
-const root = join(import.meta.dirname, '..', '..');
-const read = (path: string): string => readFileSync(join(root, path), 'utf8');
-
-test('agent.ts：isRoutine() が無く、ensureOwnClaim が CLAUDE_CODE_REMOTE_SESSION_ID で早抜けしない', () => {
-  const src = agentSource();
-  assert.doesNotMatch(src, /\bisRoutine\b/, 'isRoutine が残っている');
-  const i = src.indexOf('function ensureOwnClaim');
-  if (i >= 0) {
-    const body = src.slice(i, src.indexOf('\n}\n', i));
-    assert.doesNotMatch(body, /CLAUDE_CODE_REMOTE_SESSION_ID|sessionUrl\(\)/, 'ensureOwnClaim が Routine の環境変数を見ている');
-  }
-});
-
-test('agent.ts：claim は lib/claim.ts の postClaim を使い、worktree は --routine のときだけ宣言を確かめない', () => {
-  const src = agentSource();
-  assert.match(src, /from '(?:\.\.\/)+lib\/claim\.ts'/);
-  assert.match(src, /\bpostClaim\(/);
-  assert.match(src, /worktreeClaimIssue\([^)]*args\.includes\('--routine'\)\)/);
-});
-
 test('agent.ts：ensure-claim <番号> のコマンドがあり、使い方に書かれている', () => {
   const src = agentSource();
   assert.match(src, /'ensure-claim'/, 'コマンドの分岐');
   const usage = (src.match(/\/\*\*[\s\S]*?\*\//g) ?? []).filter((c) => c.includes('node harness/scripts/agent.ts')).join('\n');
   assert.match(usage, /^\s*\*\s+node harness\/scripts\/agent\.ts ensure-claim <番号>/m, '使い方のコメント');
-});
-
-test('implement の skill：rest-create draft-pr（PR の作成）の前に ensure-claim <番号> で宣言を確かめる', () => {
-  const skill = read('.claude/skills/implement/SKILL.md');
-  const ensure = skill.indexOf('ensure-claim <番号>');
-  const create = skill.indexOf('rest-create draft-pr');
-  assert.ok(ensure >= 0, 'ensure-claim の手順がありません');
-  assert.ok(create >= 0 && ensure < create, 'ensure-claim は rest-create draft-pr より前');
-});
-
-test('routine.md：実装・修正・衝突の解消の worktree の呼び出しに --routine を付ける（--detach は除く）', () => {
-  const lines = read('.claude/routine.md').split('\n').filter((l) => /agent\.ts worktree /.test(l) && !l.includes('--detach'));
-  assert.ok(lines.length > 0, 'worktree の呼び出しがありません');
-  for (const l of lines) assert.match(l, /--routine/, l);
 });

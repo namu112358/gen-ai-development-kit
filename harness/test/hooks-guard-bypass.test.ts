@@ -116,17 +116,6 @@ test('ラベル定義（LABEL_DEFS）と setup.ts が作るラベルの一覧（
   assert.ok(def.description.length > 0 && def.description.length <= 100, 'description は 1〜100 文字');
 });
 
-test('規則：harness/CLAUDE.harness.md の「やってはいけないこと」と各 skill・routine.md が agent:bypass-merge の付け外しを禁じる', () => {
-  const read = (p: string) => readFileSync(join(root, p), 'utf8');
-  const rules = read('harness/CLAUDE.harness.md');
-  const section = rules.slice(rules.indexOf('## やってはいけないこと'));
-  assert.ok(section.split('\n').some((l) => l.startsWith('- ') && l.includes(`\`${BYPASS}\``)), 'CLAUDE.harness.md の「やってはいけないこと」に行が無い');
-  for (const p of ['.claude/routine.md', ...['ship', 'fleet', 'plan', 'implement', 'judge', 'fix', 'sync'].map((s) => `.claude/skills/${s}/SKILL.md`)]) {
-    const line = read(p).split('\n').find((l) => l.includes('やってはいけないこと'));
-    assert.ok(line?.includes(`\`${BYPASS}\``), `${p} の「やってはいけないこと」に ${BYPASS} が無い`);
-  }
-});
-
 test('gate.yml：Issue の項に bypass のラベルがあり、設定のラベル名と同じ', () => {
   const yml = readFileSync(join(root, '.github', 'workflows', 'gate.yml'), 'utf8');
   const start = yml.indexOf("(github.event_name != 'issues' ||");

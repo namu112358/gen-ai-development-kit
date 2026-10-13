@@ -2,13 +2,13 @@
 // 推定料金（null は不明）・所要秒・判定に使わない旨）、指摘の本文に ```agent-plan などのフェンスやバッククォートがあっても出力に
 // それらが現れないこと、読み戻しが元と同じこと、目印が無い・JSON が壊れた・head の食い違い・フェンスが2つ・version が違うと null、
 // headSha が40桁の小文字16進でなければ投げること、record.ts が cloudflare:workers・@anthropic-ai/sdk・node:・harness/lib を
-// import しないことを、外部 API を呼ばずに確かめる（Issue #897）
+// import しないこと、リポジトリの規則の要約（rules）がある記録は要約に規則の1行が出て読み戻せ、無い記録には出ないことを、外部 API を呼ばずに確かめる（Issue #897・#1052）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import type { Usage } from '../../review-api/src/cost.ts';
-import { parseShadowComment, renderShadowComment, type ShadowRecord } from '../../review-api/src/record.ts';
+import { parseShadowComment, renderShadowComment, type RulesSummary, type ShadowRecord } from '../../review-api/src/record.ts';
 import { composeShadowVerdict, type ReviewerOutput, type RiskOutput } from '../../review-api/src/verdict.ts';
 
 const recordPath = fileURLToPath(new URL('../../review-api/src/record.ts', import.meta.url));
@@ -113,6 +113,23 @@ test('読み戻すと元の記録と head が返る（ふつう・フェンス�
     ['usd が null', makeRecord({ usd: null })],
   ] as const) {
     assert.deepStrictEqual(parseShadowComment(renderShadowComment(r)), { headSha: r.headSha, record: r }, name);
+  }
+});
+
+test('rules の要約がある記録は要約に規則の1行が出て読み戻すと元と同じになり、rules の無い記録には規則の行が出ない（Issue #1052）', () => {
+  const cases: [string, RulesSummary | undefined, string | null][] = [
+    ['ok', { status: 'ok', paths: ['CLAUDE.md', 'docs/rules.md'], chars: 1234, skipped: [{ path: 'secret/.env', reason: 'secret' }] }, '- リポジトリの規則：ok（2 ファイル、1234 字）'],
+    ['none', { status: 'none', paths: [], chars: 0, skipped: [] }, '- リポジトリの規則：なし'],
+    ['unreadable', { status: 'unreadable', paths: [], chars: 0, skipped: [] }, '- リポジトリの規則：読めなかった（使っていない）'],
+    ['too-large', { status: 'too-large', paths: [], chars: 0, skipped: [] }, '- リポジトリの規則：上限を超えた（使っていない）'],
+    ['rules が無い', undefined, null],
+  ];
+  for (const [name, rules, line] of cases) {
+    const r: ShadowRecord = rules === undefined ? makeRecord() : { ...makeRecord(), rules };
+    const body = renderShadowComment(r);
+    const lines = summaryOf(body).split('\n').filter((l) => l.includes('リポジトリの規則'));
+    assert.deepEqual(lines, line === null ? [] : [line], name);
+    assert.deepStrictEqual(parseShadowComment(body), { headSha: r.headSha, record: r }, `${name}: 読み戻し`);
   }
 });
 

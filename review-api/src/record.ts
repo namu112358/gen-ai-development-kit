@@ -11,6 +11,14 @@ export type RiskCompareRecord =
   | { model: string; skipped: 'budget' | 'not-validated' }
   | { model: string; error: string };
 
+/** 記録に残す規則の要約（本文は入れない。rules.ts の RepositoryRules から files の中身を除いたもの） */
+export interface RulesSummary {
+  status: 'ok' | 'none' | 'unreadable' | 'too-large';
+  paths: string[];
+  chars: number;
+  skipped: { path: string; reason: string }[];
+}
+
 export interface ShadowRecord {
   version: 1;
   pr: number;
@@ -22,6 +30,7 @@ export interface ShadowRecord {
   durationSec: number;
   usageByRole?: { review: RoleUsage; risk: RoleUsage; riskCompare?: RoleUsage };
   riskCompare?: RiskCompareRecord;
+  rules?: RulesSummary;
 }
 
 /** 投稿しなかった記録の outcome（shadow のコメントを付けずに止めた理由） */
@@ -40,6 +49,19 @@ export interface StoppedRecord {
 const SHA = /^[0-9a-f]{40}$/;
 const MARK = /<!-- api-review-shadow head=([0-9a-f]{40}) -->/g;
 const FENCE = /^```api-review-shadow[ \t]*\n([\s\S]*?)\n```/gm;
+
+function rulesLine(rules: RulesSummary | undefined): string[] {
+  if (rules === undefined) return [];
+  const text =
+    rules.status === 'ok'
+      ? `ok（${rules.paths.length} ファイル、${rules.chars} 字）`
+      : rules.status === 'none'
+        ? 'なし'
+        : rules.status === 'unreadable'
+          ? '読めなかった（使っていない）'
+          : '上限を超えた（使っていない）';
+  return [`- リポジトリの規則：${text}`];
+}
 
 /** shadow の記録のコメントの本文。headSha が40桁の小文字16進でなければ投げる */
 export function renderShadowComment(record: ShadowRecord): string {
@@ -71,6 +93,7 @@ export function renderShadowComment(record: ShadowRecord): string {
     ...rcLine,
     `- 推定料金：${record.usd === null ? '不明' : `$${record.usd}`}`,
     ...roleLine,
+    ...rulesLine(record.rules),
     `- 所要：${record.durationSec} 秒`,
     '',
     '判定には使っていません（記録だけ）。',

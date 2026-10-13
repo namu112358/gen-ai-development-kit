@@ -1,10 +1,11 @@
-// レビューの材料（PR・Closes の Issue・plan-gate 記録の計画・diff・変更ファイル・前回の shadow 記録）を GitHub から集める。
-// 前回の shadow 記録は、レビュー用の App の名義（reviewLogin）のコメントだけを読む。
+// レビューの材料（PR・Closes の Issue・plan-gate 記録の計画・diff・変更ファイル・前回の shadow 記録・PR の base の版のリポジトリの規則）を GitHub から集める。
+// 前回の shadow 記録は、レビュー用の App の名義（reviewLogin）のコメントだけを読む。previous: false なら PR のコメントを読まず、previous は null（replay.ts の流し直し）。
 // harness/lib は写すだけで import せず、Node と Workers の両方で動く。GitHub に書く操作はしない（読むだけ）。
 import type { GitHubClient, IssueComment } from './github.ts';
 import type { ReviewConfig } from './config.ts';
 import { closingIssueNumbers } from './webhook.ts';
 import { parseShadowComment, type ShadowRecord } from './record.ts';
+import { collectRules, type RepositoryRules } from './rules.ts';
 
 export interface MaterialFile {
   path: string;
@@ -23,6 +24,8 @@ export interface Material {
   diffTruncated: boolean;
   files: MaterialFile[];
   previous: ShadowRecord | null;
+  /** PR の base の commit の CLAUDE.md・AGENTS.md と @ の先（rules.ts の collectRules。head は読まない） */
+  rules: RepositoryRules;
 }
 
 // harness/lib/state.ts の appRecords・latestPlanGate、harness/lib/blocks.ts の appMarkKind・extractBlock と同じ条件
@@ -75,7 +78,10 @@ function changedPaths(diff: string): string[] {
 export async function collectMaterial(
   gh: Pick<GitHubClient, 'getPr' | 'getIssue' | 'listComments' | 'compareDiff' | 'getFileContent'>,
   config: Pick<ReviewConfig, 'claude'>,
-  input: { owner: string; repo: string; pr: number; headSha: string; appLogin: string; reviewLogin: string },
+  input: { owner: string; repo: string; pr: number; headSha: string; appLogin: string } & (
+    | { previous?: true; reviewLogin: string }
+    | { previous: false; reviewLogin?: string }
+  ),
 ): Promise<Material> {
   const { maxDiffChars, maxFileChars, diffOnlyExtensions } = config.claude;
   const pr = await gh.getPr(input.pr);
@@ -102,10 +108,12 @@ export async function collectMaterial(
   }
 
   let previous: ShadowRecord | null = null;
-  for (const c of await gh.listComments(input.pr)) {
-    if (c.user?.login !== input.reviewLogin) continue;
-    const parsed = parseShadowComment(c.body);
-    if (parsed !== null && parsed.headSha !== input.headSha) previous = parsed.record;
+  if (input.previous !== false) {
+    for (const c of await gh.listComments(input.pr)) {
+      if (c.user?.login !== input.reviewLogin) continue;
+      const parsed = parseShadowComment(c.body);
+      if (parsed !== null && parsed.headSha !== input.headSha) previous = parsed.record;
+    }
   }
 
   return {
@@ -117,5 +125,6 @@ export async function collectMaterial(
     diffTruncated: fullDiff.length > maxDiffChars,
     files,
     previous,
+    rules: await collectRules(gh, pr.base.sha),
   };
 }

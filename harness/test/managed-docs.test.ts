@@ -3,6 +3,8 @@
  * managed に harness/docs/** があること、6文書が harness/docs/ にあり docs/ に無いこと、
  * リポジトリの中に旧パス（root からの形の docs/<名前>.md）への参照が残っていないこと、
  * Markdown の文書の相対リンクが実在するファイルを指すことを確かめる。
+ * CLAUDE.md の @<パス> の読み込み先（Claude Code が実行時に読む）が実在することも確かめる
+ * （#166 の review-panel-claude-imports.test.ts から #1007 で移した）。
  */
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -102,4 +104,39 @@ test('Markdown の文書の相対リンクが、各ファイルのディレク�
     }
   }
   assert.deepEqual(broken, [], `存在しないファイルへのリンク:\n${broken.join('\n')}`);
+});
+
+// ---- CLAUDE.md の @ の読み込み先（Issue #166。#1007 で review-panel-claude-imports.test.ts から移した） ----
+
+const IMPORTED = 'harness/CLAUDE.harness.md';
+
+/** review-intake の段階1の規則どおりに、CLAUDE.md の @ の行（行頭が @、コードブロックの外）が指すパスを返す（1段だけ） */
+function imports(claudeMdPath: string): string[] {
+  const out: string[] = [];
+  let fenced = false;
+  for (const line of read(claudeMdPath).split('\n')) {
+    if (/^\s*(```|~~~)/.test(line)) {
+      fenced = !fenced;
+      continue;
+    }
+    if (fenced) continue;
+    const m = line.match(/^@(\S+)\s*$/);
+    if (m) out.push(join(dirname(claudeMdPath), m[1]!).replace(/\\/g, '/'));
+  }
+  return out;
+}
+
+test('root の CLAUDE.md の @ の行が harness/CLAUDE.harness.md を指し、そのファイルがある', () => {
+  const found = imports('CLAUDE.md');
+  assert.ok(found.includes(IMPORTED), `見つけた読み込み先: ${found.join(', ')}`);
+  for (const p of found) assert.ok(existsSync(join(root, p)), `${p} がある`);
+});
+
+test('git ls-files の CLAUDE.md の @ の読み込み先はどれも存在し、*CLAUDE.md の形には当たらない（たどらないと拾えない）', () => {
+  const r = spawnSync('git', ['ls-files', '*CLAUDE.md'], { cwd: root, encoding: 'utf8' });
+  assert.equal(r.status, 0, r.stderr);
+  const listed = r.stdout.split('\n').filter(Boolean);
+  assert.ok(listed.includes('CLAUDE.md'));
+  assert.ok(!listed.includes(IMPORTED), `${IMPORTED} は git ls-files '*CLAUDE.md' に当たらない`);
+  for (const md of listed) for (const p of imports(md)) assert.ok(existsSync(join(root, p)), `${md} の @${p} がある`);
 });
