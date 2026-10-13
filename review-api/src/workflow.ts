@@ -1,5 +1,6 @@
 // runReview を段階ごとに step.do で動かす ReviewWorkflow と、Worker の Env・Workflow の params の型 ReviewEventParams。
 // collect の結果（diff と変更ファイルの中身）は 1 MiB を超えうるので、collect だけは step.do で包まず、再開のたびに GitHub を読み直す。
+// 最初に step.sleep で settleSeconds 秒待つ（push が続くあいだの古い head に Claude を呼ばない）。
 // token・API キー・本文・署名は段階の結果にもログにも入れない。
 // @anthropic-ai/sdk・cloudflare:workers・cloudflare:workflows を import するのは worker.ts とこのファイルだけ。
 import Anthropic from '@anthropic-ai/sdk';
@@ -119,6 +120,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
       },
       now: () => Date.now(),
       log: (line) => console.log(redact(line, secrets)),
+      sleep: (ms) => step.sleep('settle', ms),
       secrets,
     };
     const params: ReviewParams = {

@@ -10,7 +10,7 @@ export interface ModelPricing {
 }
 
 export interface ReviewConfig {
-  trigger: { actions: string[]; skipBotSenders: boolean; branchPrefix: string; requireClosesIssue: boolean };
+  trigger: { actions: string[]; skipBotSenders: boolean; branchPrefix: string; requireClosesIssue: boolean; settleSeconds: number };
   claude: {
     reviewModel: string;
     riskModel: string;
@@ -56,6 +56,12 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
     fail(`${path}.${key}`, '正の整数');
     return 0;
   };
+  const nonNegInt = (o: Record<string, unknown>, path: string, key: string): number => {
+    const v = o[key];
+    if (typeof v === 'number' && Number.isInteger(v) && v >= 0) return v;
+    fail(`${path}.${key}`, '0 以上の整数');
+    return 0;
+  };
   const posNum = (o: Record<string, unknown>, path: string, key: string): number => {
     const v = o[key];
     if (typeof v === 'number' && Number.isFinite(v) && v > 0) return v;
@@ -97,6 +103,7 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
       skipBotSenders: bool(trigger, 'trigger', 'skipBotSenders'),
       branchPrefix: str(trigger, 'trigger', 'branchPrefix', true),
       requireClosesIssue: bool(trigger, 'trigger', 'requireClosesIssue'),
+      settleSeconds: nonNegInt(trigger, 'trigger', 'settleSeconds'),
     },
     claude: {
       reviewModel: str(claude, 'claude', 'reviewModel'),
