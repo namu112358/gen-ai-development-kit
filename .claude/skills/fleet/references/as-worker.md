@@ -6,7 +6,7 @@ fleet の skill（[SKILL.md](../SKILL.md)）の参照用のファイル。手順
 
 hq（テーマごとの fleet をまとめる付き添いのセッション）が Orca の orchestration で起こした fleet の手順。人に聞く窓口は hq にまとめる（ship → fleet → hq → 人）。ここに書いていないことは、上の節（入力・選び方・手順・入れ子の方式）のとおりに進める。
 
-Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の `command` を実行ファイルとして使う（下では `ORCA` と書く。そのまま打たずに置き換える。決め方は orchestration の skill（[.claude/skills/orchestration/SKILL.md](../../orchestration/SKILL.md)）の「Resolve the CLI for this session」と同じ順で、`harness/lib/worktree.ts` の `orcaCliCommand`。`env`・`printenv` で環境変数を読まない。この点は orchestration・orca-cli の skill の案内より優先する）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
+Orca のコマンドは、`node harness/scripts/agent.ts orca-cli` が出す JSON の `command` を実行ファイルとして使う（下では `ORCA` と書く。そのまま打たずに置き換える。決め方は orchestration の skill（[.claude/skills/orchestration/SKILL.md](../../orchestration/SKILL.md)）の「Resolve the CLI for this session」と同じ順で、`harness/lib/worktree.ts` の `orcaCliCommand`。`env`・`printenv` で環境変数を読まない。この点は orchestration・orca-cli の skill の案内より優先する）。細部は `ORCA skills get orchestration` の、版に合った案内に従う。
 
 1. **当てはまるとき**：プロンプトに orchestration の注入の前置き（Task ID・Dispatch ID・worker の handle・capability）があるとき。前置きが無ければこの節は使わず、AskUserQuestion で人に聞く。前置きのコマンド（実行ファイル・handle・capability・ID）は写して使い、組み立て直さない。
 2. **ship の動かし方を読む**：最初に `node harness/scripts/panes.ts config` を読む。
