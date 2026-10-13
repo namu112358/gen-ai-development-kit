@@ -20,7 +20,7 @@ const HQ_NOTIFY_SPEC: SkillSpec = {
 
 /** fleet の skill の worker の手順8：ready と notice の印 */
 const FLEET_MARK_SPEC: SkillSpec = {
-  path: '.claude/skills/fleet/SKILL.md',
+  path: '.claude/skills/fleet/references/as-worker.md',
   parts: [
     {
       section: '## Orca の worker として動くとき',

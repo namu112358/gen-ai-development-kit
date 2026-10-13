@@ -1,6 +1,6 @@
-# 導入先の CI の雛形で、ハーネスの .ts の構文と render-claim の起動を確かめる ci ジョブを持つ。
+# 導入先の CI の雛形で、ハーネスの .ts の構文・render-claim の起動と、harness.config.json の project（installCommand→checkCommand。既定 npm ci・npm run check、null なら流さない）を流す ci ジョブを持つ。
 # projectOwned で初回だけ写し、導入先が書き換えてよい。
-# 導入先の検証コマンド（lint・テストなど）は、下の「導入先の検証」の位置に足す。
+# project で表せない検証（lint を別に流すなど）は、下の「導入先の検証」の位置に足す。
 # ジョブ名 ci を変えるなら、harness.config.json の projectChecks の context も同じ名前に変える（Ruleset の必須チェックの名前になる）。
 name: ci
 
@@ -32,4 +32,6 @@ jobs:
         run: find harness .claude/hooks -name '*.ts' -print0 | xargs -0 -n1 node --check
       - name: Render claim
         run: node harness/scripts/agent.ts render-claim --stage plan
-      # 導入先の検証：ここに lint・テストなどの step を足す
+      - name: Project check
+        run: node harness/scripts/agent.ts project-check
+      # 導入先の検証：project で表せない lint などの step はここに足す
