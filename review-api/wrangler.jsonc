@@ -1,7 +1,6 @@
 {
   // PR レビューの試作の Worker の設定。デプロイは Cloudflare の Workers Builds（main への push）。docs/review-api.md の節 8.2・10
   "name": "gen-ai-development-kit-review-api",
-  // src/worker.ts は #865 で作る
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
   "workflows": [
