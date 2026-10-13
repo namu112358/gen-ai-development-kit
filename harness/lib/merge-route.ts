@@ -13,6 +13,7 @@
  */
 import type { AutoModeJevRecord } from './auto-mode.ts';
 import type { OverbuildJevRecord } from './overbuild-jev.ts';
+import type { HumanNotes } from './verdict.ts';
 
 /** 受け付け時にまとめる、委任承認（計画＋Merge）なら自動経路に乗せてよいか（harness/lib/delegate.ts の delegateEligibility） */
 export interface DelegateRecord {
@@ -81,7 +82,7 @@ export interface Acceptance {
   reasons: string[];
   jev?: JevRecord;
   /** 人にレビューを依頼するときに載せる（判定の写し） */
-  humanNotes?: { concerns: string[]; checkPoints: string[] };
+  humanNotes?: HumanNotes;
   riskRationale?: string;
   /** 委任承認（計画＋Merge）なら自動経路に乗せてよいか（無い古い記録は委任の対象外） */
   delegate?: DelegateRecord;
