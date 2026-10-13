@@ -61,6 +61,7 @@ Routine の implement（[.claude/routine.md](../../routine.md)）を、付き添
 
 ## 人に返す条件
 
+- 人に上げる場面に当たるとき、[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方の確認事項の (a)(b) なら、確認事項（`stage` はこの段階、`resume` はこの段階、番号はIssue。計画の出し直しなら `resume` は plan）を `node harness/scripts/agent.ts check <ファイル>` の後に `node harness/scripts/agent.ts post-confirm <番号> <ファイル>` で書き、`release <番号>` で宣言を解除して返す（ship・fleet が一覧の「確認事項の答え待ち」に載せる。書式と再開は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方の確認事項の箇条）
 - `claim --manual` が領域の上限で止まった（「待つ」と決めて返す）
 - `claim` が先に宣言したセッションがあるため取り下げて止まった、または `ensure-claim` で止まった（PR を出さない）
 - 計画どおりでは AC を満たせない（計画に無い設計の判断が要るときは、人に返さずに手順4のとおり計画に返す）
