@@ -92,6 +92,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `src/cost.ts` | usage → USD（`harness.config.json` の `pricing` と同じ形の表）、月の累計、上限の判定 | 共通 |
 | `src/record.ts` | PR に書くコメント（目印 `<!-- api-review-shadow head=<sha> -->`、人が読む要約、`api-review-shadow` ブロック。```` ` ```` は ```） | 共通 |
 | `src/pipeline.ts` | 段階1〜7を純粋な関数として並べたもの（Workflow と Node のテストが同じコードを動かす） | 共通 |
+| `src/replay.ts` | 過去の PR の head を、PR の状態・今の head・KV・投稿なしで、Worker と同じ材料・問い・検査で問い直す replayReview | 共通 |
 | `src/redact.ts` | ログ・コメントから鍵と token を伏せる | 共通 |
 | `review.config.json` | モデル・effort・レビューの条件・上限・単価 | 設定 |
 | `wrangler.jsonc` | Worker・Workflow・KV の束ね方と、秘密でない設定5つ（`vars`）。秘密の3つは Cloudflare の Secret（節 8.3）。`name`・KV の id・`vars` は導入先ごとの値（`harness.config.json` と同じ扱い。review-api を導入先に配るときは `harness/managed.json` の `projectOwned` に雛形で登録する。Cloudflare の Import の既定の名前は `<リポジトリ名>-review-api`） | 設定 |
