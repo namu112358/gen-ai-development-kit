@@ -1,0 +1,69 @@
+# kit の更新を取り込む同期 PR を週1で出す workflow の雛形で、projectOwned として初回だけ写し、導入先が書き換えてよい。
+# リポジトリの Settings > Actions > General で「Allow GitHub Actions to create and approve pull requests」を有効にする。
+#
+# 使うもの：
+# - 変数 HARNESS_KIT_REPO（kit の <owner>/<repo>）・HARNESS_KIT_REF（取り込むタグ）
+# - kit が Private なら Secret HARNESS_KIT_TOKEN（kit の Contents を読める PAT など）。insteadOf は kit の URL だけに絞り、このリポジトリの origin は書き換えない
+#
+# 注意：github.token で作った PR では pull_request の workflow（ci.yml）が起動せず、Ruleset の必須チェック ci が付かない。
+# PR を閉じて開き直すか、PAT か App のトークンで gh pr create するように GH_TOKEN を差し替える。
+# ブランチ名は harness-sync/<ref>（claude/ で始めない。Agent PR と見なされるため）。
+name: harness-sync
+
+on:
+  schedule:
+    - cron: '23 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      KIT_REPO: ${{ vars.HARNESS_KIT_REPO }}
+      KIT_REF: ${{ vars.HARNESS_KIT_REF }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      - name: Credential for a private kit
+        env:
+          KIT_TOKEN: ${{ secrets.HARNESS_KIT_TOKEN }}
+        run: |
+          if [ -n "$KIT_TOKEN" ]; then
+            git config --global "url.https://x-access-token:${KIT_TOKEN}@github.com/${KIT_REPO}.insteadOf" "https://github.com/${KIT_REPO}"
+          fi
+      - name: Dry run
+        run: node harness/scripts/sync.ts "$KIT_REF" --from "$KIT_REPO" --dry-run | tee "$RUNNER_TEMP/sync-dry-run.txt"
+      - name: Sync
+        run: node harness/scripts/sync.ts "$KIT_REF" --from "$KIT_REPO"
+      - name: Commit and push
+        id: commit
+        run: |
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          branch="harness-sync/${KIT_REF}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B "$branch"
+          git add -A
+          git commit -m "chore(harness): kit ${KIT_REF} を取り込む"
+          git push --force-with-lease origin "$branch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+      - name: Open a draft PR
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.commit.outputs.branch }}
+        run: |
+          if [ -z "$(gh pr list --head "$BRANCH" --json number --jq '.[].number')" ]; then
+            gh pr create --draft --head "$BRANCH" --title "chore(harness): kit ${KIT_REF} を取り込む" --body-file "$RUNNER_TEMP/sync-dry-run.txt"
+          fi

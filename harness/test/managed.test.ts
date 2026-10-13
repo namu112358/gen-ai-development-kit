@@ -16,6 +16,7 @@ interface Managed {
   projectOwned: { path: string; template: string }[];
   settingsKeys: string[];
   settingsAllow?: string[];
+  notDistributed?: string[];
 }
 const loadManaged = (): Managed => JSON.parse(read('harness/managed.json')) as Managed;
 
@@ -39,6 +40,10 @@ test('managed.json：managed・projectOwned・settingsKeys の形で書かれて
     assert.equal(typeof o.path, 'string');
     assert.equal(typeof o.template, 'string');
   }
+  // Issue #652：配らないものの一覧（文字列の配列）と、一覧そのものを配ること
+  assert.ok(Array.isArray(m.notDistributed), 'notDistributed は文字列の配列');
+  for (const p of m.notDistributed) assert.equal(typeof p, 'string');
+  assert.ok(m.managed.includes('harness/managed.json'), 'harness/managed.json 自身を managed に入れる');
   assert.deepEqual(m.settingsKeys, ['permissions.deny', 'permissions.disableBypassPermissionsMode', 'hooks', 'permissions.allow']);
 });
 
@@ -82,17 +87,18 @@ test('managed.json：harness/test 以下・package.json・tsconfig.json を含�
   }
 });
 
-test('managed.json：projectOwned の path と template が存在し、harness.config.json と CLAUDE.md の雛形を指す', () => {
+// Issue #652：workflow の雛形（harness-sync.yml・ci.yml）の path はこのリポジトリに置かないので、path の存在は harness.config.json・CLAUDE.md だけ
+test('managed.json：projectOwned の template がすべて存在し、path は harness.config.json・CLAUDE.md だけ存在を確かめる', () => {
   const owned = loadManaged().projectOwned;
-  for (const o of owned) {
-    assert.ok(existsSync(join(root, o.path)), `${o.path} が無い`);
-    assert.ok(existsSync(join(root, o.template)), `${o.template} が無い`);
-  }
+  for (const o of owned) assert.ok(existsSync(join(root, o.template)), `${o.template} が無い`);
+  for (const p of ['harness.config.json', 'CLAUDE.md']) assert.ok(existsSync(join(root, p)), `${p} が無い`);
   assert.deepEqual(
     owned.map((o) => [o.path, o.template]),
     [
       ['harness.config.json', 'harness/templates/harness.config.json'],
       ['CLAUDE.md', 'harness/templates/CLAUDE.template.md'],
+      ['.github/workflows/harness-sync.yml', 'harness/templates/harness-sync.yml'],
+      ['.github/workflows/ci.yml', 'harness/templates/ci.yml'],
     ],
   );
   const managed = loadManaged().managed;

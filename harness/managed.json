@@ -1,6 +1,7 @@
 {
-  "$comment": "導入先に配るファイルの一覧（Issue #155）。managed は sync が上書きする kit のもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー（混ぜ方は sync の Issue で決める）。harness/test・package.json・tsconfig.json は配らない（ゲートは依存なしで Node 24 だけで動く）。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。sync は写さない。settingsAllow は permissions.allow に足す行（和集合。導入先の行は残し、kit の settings の allow は配らない）。規則の文書（harness/docs/）も配る。このリポジトリの docs/ は配らない",
+  "$comment": "導入先に配るファイルの一覧（Issue #155・#652）。managed は sync が上書きする kit のもの（この一覧 harness/managed.json 自身も含む）、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー（settingsKeys のキーは kit の値で丸ごと置き換える。配列は merge しない。permissions.allow だけは settingsAllow の和集合）。notDistributed はこのリポジトリのファイルのうち配らないもの（git ls-files の全ファイルは managed・projectOwned・notDistributed のどれかに入る。harness/test/managed-coverage.test.ts が確かめる）。.claude/settings.json はファイルとしては配らず、settingsKeys のキーだけが導入先の settings.json に入るので notDistributed に入れる。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）で、sync は写さない。導入先が sync に触らせないファイルは、導入先の harness/managed.local.json（{ \"exclude\": [...] }）に書く（このリポジトリには置かない）。規則の文書（harness/docs/）も配る。このリポジトリの docs/ は配らない",
   "managed": [
+    "harness/managed.json",
     "harness/lib/**",
     "harness/gates/**",
     "harness/scripts/**",
@@ -50,6 +51,14 @@
     {
       "path": "CLAUDE.md",
       "template": "harness/templates/CLAUDE.template.md"
+    },
+    {
+      "path": ".github/workflows/harness-sync.yml",
+      "template": "harness/templates/harness-sync.yml"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "template": "harness/templates/ci.yml"
     }
   ],
   "settingsKeys": [
@@ -63,5 +72,27 @@
     "Bash(gh issue view *)",
     "Bash(gh pr view *)",
     "Bash(gh pr diff *)"
+  ],
+  "notDistributed": [
+    "harness/test/**",
+    "package.json",
+    "package-lock.json",
+    "tsconfig.json",
+    ".node-version",
+    ".gitattributes",
+    ".gitignore",
+    "NOTICE",
+    "README.md",
+    "overview.html",
+    "docs/**",
+    "mods/**",
+    ".claude-plugin/**",
+    ".github/workflows/ci.yml",
+    ".github/workflows/README.md",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    "review-api/**",
+    ".claude/README.md",
+    ".claude/settings.json",
+    "harness/README.md"
   ]
 }

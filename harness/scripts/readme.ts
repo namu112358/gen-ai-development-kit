@@ -62,7 +62,7 @@ const NO_COMMENT_TEXT: Record<string, string> = {
   'harness/templates/claude-settings.deny.json':
     'Claude Code にさせない操作（Merge、既定ブランチへの push、保護ラベルの付け外し、Secret・資格情報の読み出しなど）の一覧。既定ブランチへの push の3行は `{{defaultBranch}}` の置き場所で、sync が導入先の defaultBranch で埋める。`.claude/settings.json` の `permissions.deny` は、この雛形をこのリポジトリの defaultBranch（main）で埋めたものと同じで、変えるときは両方を直す',
   'harness/managed.json':
-    '導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。settingsAllow は permissions.allow に足す行（導入先の行を残す和集合）',
+    '導入先に配るファイルの一覧。managed は kit が持ち sync が上書きするもの、projectOwned は初回だけ雛形から作る導入先のもの、settingsKeys は .claude/settings.json のうちハーネスが持つキー。exclude は managed に当たっても配らないもの（このリポジトリ専用の観測系）。notDistributed はこのリポジトリのファイルのうち配らないもの（導入先が sync に触らせないものは導入先の managed.local.json に書く）。settingsAllow は permissions.allow に足す行（導入先の行を残す和集合）',
   'harness/templates/harness.config.json':
     '導入先の harness.config.json の雛形（初回だけ写す）。appSlug・projectChecks・project（検証コマンドと取り込みのコマンド）・guardrailPaths・classification.areas・classification.priorityCriteria・humanMergePaths を導入先に合わせて書き換える',
   '.github/ISSUE_TEMPLATE/':
