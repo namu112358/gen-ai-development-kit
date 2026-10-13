@@ -1,6 +1,6 @@
 {
-  // PR レビューの試作の Worker の設定。デプロイは人が docs/review-api.md の手順で行う。
-  "name": "review-api",
+  // PR レビューの試作の Worker の設定。デプロイは Cloudflare の Workers Builds（main への push）。docs/review-api.md の節 8.2・10
+  "name": "gen-ai-development-kit-review-api",
   // src/worker.ts は #865 で作る
   "main": "src/worker.ts",
   "compatibility_date": "2026-10-01",
@@ -8,15 +8,7 @@
     { "name": "review-workflow", "binding": "REVIEW_WORKFLOW", "class_name": "ReviewWorkflow" }
   ],
   "kv_namespaces": [
-    // id は人が docs/review-api.md の節8.2 の `wrangler kv namespace create` の出力で埋める
-    { "binding": "REVIEW_KV", "id": "" }
-  ],
-  "vars": {
-    // GitHub App の Client ID
-    "GITHUB_APP_CLIENT_ID": "",
-    // GitHub App のインストール先の installation id
-    "GITHUB_INSTALLATION_ID": "",
-    // レビューの対象にするリポジトリ（owner/repo をカンマ区切り）
-    "ALLOWED_REPOS": ""
-  }
+    // 人が 2026-10-12 に作った KV（docs/review-api.md の節8.2）
+    { "binding": "REVIEW_KV", "id": "03092b8601b34de8800ff563881df28e" }
+  ]
 }
