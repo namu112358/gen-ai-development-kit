@@ -1,12 +1,13 @@
 // review-api の Webhook の受け口（review-api/src/webhook.ts）の、署名の検証（verifySignature・constantTimeEqual）と、
-// 対象の判定（decideReview）と、PR 本文の閉じる Issue の読み取り（closingIssueNumbers）を、外部 API を呼ばずに確かめる（Issue #878）
+// 対象の判定（decideReview。今の vars から組んだ表で、今と同じに決まること）と、PR 本文の閉じる Issue の読み取り（closingIssueNumbers）を、外部 API を呼ばずに確かめる（Issue #878）
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { loadReviewConfig } from '../../review-api/src/config.ts';
+import { parseRepoTable, type RepoEnv } from '../../review-api/src/repos.ts';
 import { closingIssueNumbers, constantTimeEqual, decideReview, verifySignature } from '../../review-api/src/webhook.ts';
-import type { PullRequestEvent, ReviewEnv } from '../../review-api/src/webhook.ts';
+import type { PullRequestEvent } from '../../review-api/src/webhook.ts';
 
 // GitHub の公式のテストベクタ（Webhook の署名の検証の説明にある例）
 const SECRET = "It's a Secret to Everybody";
@@ -40,7 +41,8 @@ test('constantTimeEqual は同じ内容で真、1バイト違い・長さ違い�
 
 const configPath = fileURLToPath(new URL('../../review-api/review.config.json', import.meta.url));
 const baseConfig = loadReviewConfig(JSON.parse(readFileSync(configPath, 'utf8')));
-const baseEnv: ReviewEnv = { ALLOWED_REPOS: 'owner/repo', GITHUB_INSTALLATION_ID: '42' };
+// 今の vars から組む表（REVIEW_REPOS が無いときの legacy の表。Issue #1049）
+const baseEnv: RepoEnv = { ALLOWED_REPOS: 'owner/repo', GITHUB_INSTALLATION_ID: '42' };
 const baseEvent = (): PullRequestEvent => ({
   action: 'opened',
   sender: { type: 'User', login: 'someone' },
@@ -54,7 +56,7 @@ const cases: {
   name: string;
   event?: (e: PullRequestEvent) => void;
   trigger?: Partial<typeof baseConfig.trigger>;
-  env?: Partial<ReviewEnv>;
+  env?: Partial<RepoEnv>;
   reason: string;
 }[] = [
   { name: '対象', reason: 'ok' },
@@ -80,7 +82,7 @@ for (const c of cases) {
     const event = baseEvent();
     c.event?.(event);
     const config = { trigger: { ...baseConfig.trigger, ...c.trigger } };
-    assert.deepEqual(decideReview(event, config, { ...baseEnv, ...c.env }), { review: c.reason === 'ok', reason: c.reason });
+    assert.deepEqual(decideReview(event, config, parseRepoTable({ ...baseEnv, ...c.env }).table), { review: c.reason === 'ok', reason: c.reason });
   });
 }
 
