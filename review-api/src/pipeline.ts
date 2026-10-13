@@ -10,15 +10,16 @@ import type { ModelPricing, ReviewConfig } from './config.ts';
 import { checkBudget, estimateUsd, monthKey, type Usage } from './cost.ts';
 import type { GitHubClient } from './github.ts';
 import {
-  COMMON_SYSTEM,
   REVIEW_TOOLS,
   REVIEWER_OUTPUT_SCHEMA,
   RISK_OUTPUT_SCHEMA,
   buildReviewerMessages,
   buildRiskMessages,
+  systemFor,
   isSecretPath,
 } from './prompts.ts';
-import { parseApiReviewComment, renderShadowComment, renderStoppedComment, type RiskCompareRecord, type RoleUsage, type ShadowRecord, type StoppedOutcome } from './record.ts';
+import { parseApiReviewComment, renderShadowComment, renderStoppedComment, type RiskCompareRecord, type RoleUsage, type RulesSummary, type ShadowRecord, type StoppedOutcome } from './record.ts';
+import type { RepositoryRules } from './rules.ts';
 import { redact } from './redact.ts';
 import { wrapUntrusted } from './untrusted.ts';
 import { checkReviewerOutput, checkRiskOutput, composeShadowVerdict, type ReviewerOutput, type RiskOutput } from './verdict.ts';
@@ -203,14 +204,19 @@ export interface AskRequests {
   riskCompare: MessagesParams | null;
 }
 
-/** Reviewer・Risk（と比べる Risk）の問いを組む */
+/** 記録に残す規則の要約（本文は入れない） */
+export function rulesSummary(rules: RepositoryRules): RulesSummary {
+  return { status: rules.status, paths: rules.files.map((f) => f.path), chars: rules.chars, skipped: rules.skipped };
+}
+
+/** Reviewer・Risk（と比べる Risk）の問いを組む。system は規則があれば2ブロック（systemFor） */
 export function buildAskRequests(material: Material, config: Pick<ReviewConfig, 'claude'>): AskRequests {
   const claude = config.claude;
   const models = chooseModels(material, claude);
   const request = (model: string, messages: MessagesParams['messages'], schema: unknown): MessagesParams => ({
     model,
     max_tokens: claude.maxTokens,
-    system: COMMON_SYSTEM,
+    system: systemFor(material.rules),
     tools: REVIEW_TOOLS,
     messages,
     output_config: { effort: claude.effort, format: { type: 'json_schema', schema } },
@@ -308,7 +314,8 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     const gh = await deps.github.reader();
     return collectMaterial(gh, config, { owner, repo, pr, headSha, appLogin: params.gateAppLogin, reviewLogin: params.reviewAppLogin });
   });
-  log('collect ok');
+  log(`collect ok rules=${material.rules.status}`);
+  const rules = rulesSummary(material.rules);
   const asks = buildAskRequests(material, config);
   const models = asks.models;
   log(`models review=${models.review} risk=${models.risk}`);
@@ -324,7 +331,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     const badLimits = (['monthlyUsd', 'perReviewUsd'] as const).filter((k) => !(Number.isFinite(config.budget[k]) && config.budget[k] > 0));
     if (badLimits.length > 0) {
       log(`budget invalid ${badLimits.join(',')}`);
-      await writeRecord('budget-exceeded', { budgetInvalid: true });
+      await writeRecord('budget-exceeded', { budgetInvalid: true, rules });
       return { stop: 'budget-exceeded', compare: null };
     }
     const raw = await deps.kv.get(month);
@@ -339,7 +346,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
       if (!checked.ok) outcome = checked.reason;
     }
     if (outcome !== null) {
-      await writeRecord(outcome, {});
+      await writeRecord(outcome, { rules });
       return { stop: outcome, compare: null, ...(a === null || b === null ? {} : { estimatedUsd: a + b }) };
     }
     if (asks.riskCompare === null) return { stop: null, compare: null };
@@ -426,7 +433,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     }
     const durationSec = Math.round((deps.now() - fetched.startedAt) / 1000);
     if (!validated.ok) {
-      await writeRecord('verdict-invalid', { durationSec, models: { review: models.review, risk: models.risk }, usage, usd, detail: validated.detail, ...compareFields });
+      await writeRecord('verdict-invalid', { durationSec, models: { review: models.review, risk: models.risk }, usage, usd, detail: validated.detail, ...compareFields, rules });
       return { usd, body: null, durationSec };
     }
     const record: ShadowRecord = {
@@ -439,6 +446,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
       usd,
       durationSec,
       ...compareFields,
+      rules,
     };
     return { usd, body: redact(renderShadowComment(record), secrets), durationSec };
   });
@@ -457,7 +465,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     if (found.head.sha !== headSha) outcome = 'superseded';
     else if (found.state !== 'open') outcome = 'closed';
     else if (hasOwnRecord(await gh.listComments(pr), params.reviewAppLogin, headSha)) outcome = 'duplicate';
-    const extra = { durationSec: recorded.durationSec, models: { review: models.review, risk: models.risk }, usage, usd: recorded.usd, ...compareFields };
+    const extra = { durationSec: recorded.durationSec, models: { review: models.review, risk: models.risk }, usage, usd: recorded.usd, ...compareFields, rules };
     if (outcome !== null) {
       await writeRecord(outcome, extra);
       return outcome;

@@ -1,5 +1,6 @@
 // review-api のレビューの段階（review-api/src/pipeline.ts の runReview）を外部 API を呼ばずに回す補助。偽の GitHub・偽の Claude（応答の列。Error の要素は投げる）・偽の KV と run、
-// 設定・記録・応答の見本と定数を持つ（review-api-pipeline.test.ts と review-api-risk-compare.test.ts が共有する。#995）
+// 設定・記録・応答の見本と定数を持つ（review-api-pipeline.test.ts と review-api-risk-compare.test.ts・review-api-rules-material.test.ts が共有する。#995）
+// 偽の GitHub には ref（commit の SHA）ごとの規則のファイル（CLAUDE.md など）を渡せる。渡さない ref・パスは 404（#1052）
 import type { ContentBlock, Message, MessagesClient, MessagesParams } from '../../../review-api/src/claude.ts';
 import type { ReviewConfig } from '../../../review-api/src/config.ts';
 import { createGitHubClient } from '../../../review-api/src/github.ts';
@@ -59,8 +60,11 @@ export const TREE = {
   ],
 };
 
-// URL で振り分ける偽の GitHub。state は Claude の呼び出しの後に書き換えられる（投稿の直前の取り直しを見るため）
-export function fakeGitHub(state: { pr: Pr; comments: ReturnType<typeof comment>[] }) {
+/** ref（commit の SHA）→ パス → 中身。PR の base の SHA は OTHER */
+export type FilesByRef = Record<string, Record<string, string>>;
+
+// URL で振り分ける偽の GitHub。state は Claude の呼び出しの後に書き換えられる（投稿の直前の取り直しを見るため）。filesByRef は ref ごとのファイル（無ければ 404）
+export function fakeGitHub(state: { pr: Pr; comments: ReturnType<typeof comment>[] }, filesByRef: FilesByRef = {}) {
   const calls: string[] = [];
   const posted: string[] = [];
   const json = (v: unknown) => new Response(JSON.stringify(v), { headers: { 'content-type': 'application/json' } });
@@ -81,8 +85,12 @@ export function fakeGitHub(state: { pr: Pr; comments: ReturnType<typeof comment>
     if (p === '/issues/5/comments') return json(state.comments);
     if (p === `/compare/main...${HEAD}`) return new Response(DIFF);
     if (p === `/git/trees/${HEAD}`) return json(TREE);
-    const file = p.startsWith('/contents/') ? FILES[decodeURIComponent(p.slice('/contents/'.length))] : undefined;
-    if (file !== undefined && url.searchParams.get('ref') === HEAD) return new Response(file);
+    const path = p.startsWith('/contents/') ? decodeURIComponent(p.slice('/contents/'.length)) : undefined;
+    const ref = url.searchParams.get('ref') ?? '';
+    const byRef = path === undefined ? undefined : filesByRef[ref]?.[path];
+    if (byRef !== undefined) return new Response(byRef);
+    const file = path === undefined ? undefined : FILES[path];
+    if (file !== undefined && ref === HEAD) return new Response(file);
     return new Response('not found', { status: 404 });
   }) as typeof globalThis.fetch;
   return { gh: createGitHubClient({ token: TOKEN, owner: 'o', repo: 'r', fetch }), calls, posted };
@@ -92,7 +100,8 @@ export function fakeGitHub(state: { pr: Pr; comments: ReturnType<typeof comment>
 export const msg = (content: ContentBlock[], stop_reason: string, model = MODEL): Message => ({ model, content, stop_reason, usage: { input_tokens: 1000, output_tokens: 100 } });
 export const answer = (v: unknown, model = MODEL): Message => msg([{ type: 'text', text: JSON.stringify(v) }], 'end_turn', model);
 
-// 1回の runReview を偽の依存で回す。responses の Error の要素は、その回の問いで投げる。afterClaude は Claude を2回呼んだ後に GitHub の state を書き換える
+// 1回の runReview を偽の依存で回す。responses の Error の要素は、その回の問いで投げる。afterClaude は Claude を2回呼んだ後に GitHub の state を書き換える。
+// filesByRef は偽の GitHub に ref ごとに置くファイル（規則のファイルなど）
 export async function run(opts: {
   pr?: Pr;
   comments?: ReturnType<typeof comment>[];
@@ -100,9 +109,10 @@ export async function run(opts: {
   config?: ReviewConfig;
   responses?: (Message | Error)[];
   afterClaude?: (state: { pr: Pr; comments: ReturnType<typeof comment>[] }) => void;
+  filesByRef?: FilesByRef;
 } = {}) {
   const state = { pr: opts.pr ?? { state: 'open', head: HEAD }, comments: opts.comments ?? [] };
-  const { gh, calls, posted } = fakeGitHub(state);
+  const { gh, calls, posted } = fakeGitHub(state, opts.filesByRef);
   const kv = new Map(Object.entries(opts.kv ?? {}));
   const claudeCalls: MessagesParams[] = [];
   const responses = opts.responses ?? [answer(REVIEW_OK), answer(RISK_OK)];

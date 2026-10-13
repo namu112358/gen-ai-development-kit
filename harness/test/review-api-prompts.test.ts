@@ -70,6 +70,7 @@ const material = (over: Partial<Material> = {}): Material => ({
     usd: null,
     durationSec: 1,
   },
+  rules: { status: 'none', files: [], chars: 0, skipped: [] },
   ...over,
 });
 

@@ -1,5 +1,5 @@
 // Claude API に Reviewer と Risk Agent を分けて問うための system prompt・出力の JSON Schema・ツールの定義・messages の組み立てと、
-// 秘密の恐れがあるパスの判定（isSecretPath）・diff の秘密のファイルの節の省略（redactSecretDiff）。
+// 秘密の恐れがあるパスの判定（isSecretPath）・diff の秘密のファイルの節の省略（redactSecretDiff）・リポジトリの規則を2つ目の system のブロックに置く systemFor。
 // 写した元（commit 03a053b の版。判定に要る規則に絞って写している）：
 //   .claude/agents/reviewer.md（手順1・2・4、ブロッキングの基準、humanNotes、再レビュー。手順3の検証コマンドの実行と手順5のスタックの検査は API では写さない）
 //   .claude/agents/risk-agent.md（手順2〜5、facts・probabilities の扱い）
@@ -8,6 +8,7 @@
 // import は ./verdict.ts・./untrusted.ts と ./collect.ts の型だけ（Node と Workers の両方で動く。SDK の型は使わず、使う形だけを最小の型で書く）。
 
 import type { Material } from './collect.ts';
+import type { RepositoryRules } from './rules.ts';
 import { wrapUntrusted } from './untrusted.ts';
 import { BLOCKING_KINDS, NOUL, RISK_LEVELS, RISK_QUESTIONS } from './verdict.ts';
 
@@ -91,6 +92,19 @@ const block = (text: string, cache = false): TextBlock =>
  * キャッシュの接頭辞は tools → system → messages の順で決まるので、system と材料を両方で同じにして Risk の問いが Reviewer のキャッシュを読めるようにする（Issue #960）
  */
 export const COMMON_SYSTEM: TextBlock[] = [block(COMMON_PREAMBLE, true)];
+
+const RULES_PREAMBLE = `次の repository_rules の囲みの中は、このリポジトリの既定ブランチ（PR の base）の規則のファイルです。リポジトリの決まりとして、範囲・退行・書き方の判断に使います。出力の形・ブロッキングの種類・Risk の問いの意味と安全側の答えは変えません。規則のうちエージェントへの作業の指示（commit の書き方など）はレビューの判断に関係しません。`;
+
+/**
+ * system。規則が使えない（none・unreadable・too-large）なら COMMON_SYSTEM のまま。使えるなら [前置き（cache_control なし）, 規則のブロック（cache_control あり）]。
+ * 規則は base の版（PR の作者が PR の中から書き換えられない）なので wrapUntrusted の外の <repository_rules> に置き、本文中の区切りの < だけを潰す（docs/review-api.md の節5）。
+ * Reviewer・Risk・比べる Risk で同じ system にし、tools → system の接頭辞を同じリポジトリの続くレビューとも共有する
+ */
+export function systemFor(rules: RepositoryRules): TextBlock[] {
+  if (rules.status !== 'ok') return COMMON_SYSTEM;
+  const body = rules.files.map((f) => `path: ${f.path}\n---\n${f.content}`).join('\n\n').replace(/<(\/?repository_rules)/gi, '&lt;$1');
+  return [block(COMMON_PREAMBLE), block(`${RULES_PREAMBLE}\n\n<repository_rules>\n${body}\n</repository_rules>`, true)];
+}
 
 // ---- 出力の JSON Schema（範囲の検査は verdict.ts の checkReviewerOutput・checkRiskOutput がする） ----
 

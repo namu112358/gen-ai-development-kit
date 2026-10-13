@@ -1,10 +1,11 @@
-// レビューの材料（PR・Closes の Issue・plan-gate 記録の計画・diff・変更ファイル・前回の shadow 記録）を GitHub から集める。
+// レビューの材料（PR・Closes の Issue・plan-gate 記録の計画・diff・変更ファイル・前回の shadow 記録・PR の base の版のリポジトリの規則）を GitHub から集める。
 // 前回の shadow 記録は、レビュー用の App の名義（reviewLogin）のコメントだけを読む。previous: false なら PR のコメントを読まず、previous は null（replay.ts の流し直し）。
 // harness/lib は写すだけで import せず、Node と Workers の両方で動く。GitHub に書く操作はしない（読むだけ）。
 import type { GitHubClient, IssueComment } from './github.ts';
 import type { ReviewConfig } from './config.ts';
 import { closingIssueNumbers } from './webhook.ts';
 import { parseShadowComment, type ShadowRecord } from './record.ts';
+import { collectRules, type RepositoryRules } from './rules.ts';
 
 export interface MaterialFile {
   path: string;
@@ -23,6 +24,8 @@ export interface Material {
   diffTruncated: boolean;
   files: MaterialFile[];
   previous: ShadowRecord | null;
+  /** PR の base の commit の CLAUDE.md・AGENTS.md と @ の先（rules.ts の collectRules。head は読まない） */
+  rules: RepositoryRules;
 }
 
 // harness/lib/state.ts の appRecords・latestPlanGate、harness/lib/blocks.ts の appMarkKind・extractBlock と同じ条件
@@ -122,5 +125,6 @@ export async function collectMaterial(
     diffTruncated: fullDiff.length > maxDiffChars,
     files,
     previous,
+    rules: await collectRules(gh, pr.base.sha),
   };
 }
