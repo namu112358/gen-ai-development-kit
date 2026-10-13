@@ -92,7 +92,7 @@ function makeRunStep(step: WorkflowStep): RunStep {
         throw err;
       }
     };
-    const result = name === 'review' || name === 'risk' ? await step.do(name, RETRY_CONFIG, body) : await step.do(name, body);
+    const result = name === 'review' || name === 'risk' || name === 'risk-compare' ? await step.do(name, RETRY_CONFIG, body) : await step.do(name, body);
     return result as unknown as T;
   };
 }
