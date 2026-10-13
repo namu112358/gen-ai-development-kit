@@ -379,7 +379,7 @@ Planner の申告（`needsHuman`・`openQuestions`）への人の答えを、付
 
 答えとして読むのは、次をすべて満たすコメントだけ（`harness/lib/confirm.ts` の `confirmAnswerOf`）。コラボレーター（OWNER・MEMBER・COLLABORATOR）が書き、セッションの ID のある Claude の目印が無く、`confirmCommentId` が確認事項のコメントと同じで、確認事項より後（コメントの ID の大小）に書かれ、すべての質問に答えがあり、存在しない添字・同じ添字の重複が無い。最初に条件を満たしたコメントを答えとする。
 
-答えの名義は `agent-decision` と同じく人の名義で、目印を付けずにセッションが書けば人の答えと見分けられない（セッションが答えを書かない規則は #952）。
+答えの名義は `agent-decision` と同じく人の名義で、目印を付けずにセッションが書けば人の答えと見分けられない（セッションが答えを書かない規則は [harness/CLAUDE.harness.md](../CLAUDE.harness.md) のやってはいけないこと）。
 
 `step` と `fleet-status` の扱い（`harness/lib/fleet.ts` の `confirmState`・`resumeAllowed`）：
 

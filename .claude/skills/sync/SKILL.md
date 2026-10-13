@@ -35,6 +35,8 @@ Routine の resolve-conflict（[.claude/routine.md](../../routine.md)）に、�
 
 ## 人に返す条件
 
+- 人に上げる場面に当たるとき、[harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方の確認事項の (a)(b) なら、確認事項（`stage` はこの段階、`resume` はこの段階、番号はPR）を `node harness/scripts/agent.ts check <ファイル>` の後に `node harness/scripts/agent.ts post-confirm <番号> <ファイル>` で書き、`release <番号>` で宣言を解除して返す（ship・fleet が一覧の「確認事項の答え待ち」に載せる。書式と再開は [harness/CLAUDE.harness.md](../../../harness/CLAUDE.harness.md) の進め方の確認事項の箇条）
+- 確認事項の答えで再開しても、取り込みの回数が `syncLoop.limit` 以上なら `sync-limit` で止まる
 - PR が Merge 済み・Closed（`claim` か `ensure-claim` が止まった。push しない）
 - 両方の意図を残して解消できない衝突がある
 - 取り込み後に検証コマンド（`project.checkCommand`）が落ち、この PR の範囲で直せない
