@@ -14,6 +14,7 @@ import { type AgentCommand, config, currentSession, fail, type IssueItem, readJs
  *
  *   node harness/scripts/agent.ts post-verdict <pr> <file>  判定コメントを検査して投稿。headSha が現在の head と違っても PR 自身の差分（patch-id）が同じなら
  *                                                           判定した head のまま投稿する。違えば止まる
+ *                                                           --dry-run（位置は問わない）を付けると、同じ検査の後に組み立てた本文を { dryRun: true, body } で出し、投稿しない（Issue #786）
  *   node harness/scripts/agent.ts judge-input <pr>          Reviewer に渡す入力（head、Closes する Issue の本文とコラボレーターのコメント〔計画コメントの agent-plan ブロックは省く〕、
  *                                                           Epic の子課題なら親 Epic〔子課題の一覧と Validation Requirements〕、計画ゲートの記録の計画、PR 本文、
  *                                                           PR のコラボレーターのコメント〔判定コメントを除く〕、agent/scope の結果、前回の判定の head とブロッキング指摘、
@@ -35,9 +36,14 @@ import { type AgentCommand, config, currentSession, fail, type IssueItem, readJs
  *                                                           agent-verdict の authorView に入り、auto mode の危険の問いの見解ありの問いにだけ渡る（結論には使わない。#426）
  */
 
-async function postVerdict(gh: GitHub, n: number, file: string): Promise<void> {
+export async function postVerdict(gh: GitHub, n: number, file: string, opts: { dryRun?: boolean } = {}): Promise<void> {
   const pr = await gh.get<PullRequest>(`/pulls/${n}`);
-  const posted = await gh.comment(n, renderVerdict(n, pr.head.sha, file, (judged) => samePatchAsCurrent(pr, judged)));
+  const body = renderVerdict(n, pr.head.sha, file, (judged) => samePatchAsCurrent(pr, judged));
+  if (opts.dryRun) {
+    console.log(JSON.stringify({ dryRun: true, body }, null, 2));
+    return;
+  }
+  const posted = await gh.comment(n, body);
   console.log(JSON.stringify({ posted: posted.html_url }, null, 2));
 }
 
@@ -139,7 +145,14 @@ async function composeVerdictFile(gh: GitHub, args: string[]): Promise<string> {
 }
 
 export const commands: AgentCommand[] = [
-  { name: 'post-verdict', run: (args, ctx) => postVerdict(ctx.gh(), Number(args[0]), args[1]!) },
+  {
+    name: 'post-verdict',
+    run: (args, ctx) => {
+      const dryRun = args.includes('--dry-run');
+      const rest = args.filter((a) => a !== '--dry-run');
+      return postVerdict(ctx.gh(), Number(rest[0]), rest[1]!, { dryRun });
+    },
+  },
   { name: 'judge-input', run: async (args, ctx) => void console.log(await judgeInput(ctx.gh(), Number(args[0]))) },
   { name: 'compose-verdict', run: async (args, ctx) => void console.log(await composeVerdictFile(ctx.gh(), args)) },
 ];
