@@ -152,6 +152,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 - `risk.probabilities` は記録のみ
 - `facts` は記録と人の確認用の事実（日本語）。Jev には渡さない。Claude の判定を含めない
 - `risk` に危険の判定の欄（`danger`）は無い。auto mode の危険の判定は Jev だけで（#382）、#343 の後に投稿された古い判定コメントに `risk.danger` があっても読まない（無視する）
+- `metrics.reviewSource`（任意）：判定に使ったレビューの出どころ。`api`（API のレビュー（review-api）の記録）か `local`（ローカルの担当）。`compose-verdict` の `--review-source` で入り、本文にも「レビュー：API（URL）」か「レビュー：ローカル」の1行が入る。`metrics.apiReviewRecord`（任意）は `api` のときの記録のコメントの URL（`--api-record`）。どちらも記録と人の確認用で、App は読まない（Issue #1004・#1043）
 - `authorView`（任意）：PR を実装したセッションの見解。空でなく 2000 文字まで。`compose-verdict` の `--author-view <file>`（見解を書いたテキストのファイル。前後の空白を除いて空なら止まる）で入る。渡すのは、その PR を実装したセッションが判定するときだけ。auto mode の危険の問い（Jev）の見解ありの問いにだけ、別の欄 `author_view` で渡す。保留するかには使わない（shadow。Issue #426）
 
 

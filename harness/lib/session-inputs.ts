@@ -460,9 +460,13 @@ export interface ComposeArgs {
   model?: string;
   /** 見解（authorView）を書いたテキストのファイル（任意。PR を実装したセッションだけが渡す。#426） */
   authorViewFile?: string;
+  /** 判定に使ったレビューの出どころ（API の記録か、ローカルの担当か。Issue #1004・#1043） */
+  reviewSource?: 'api' | 'local';
+  /** API の記録のコメントの URL（reviewSource が api のときだけ） */
+  apiRecord?: string;
 }
 
-const COMPOSE_USAGE = 'compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>] [--author-view <file>]';
+const COMPOSE_USAGE = 'compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>] [--author-view <file>] [--review-source api|local] [--api-record <url>]';
 
 /** --author-view のファイルを読み、前後の空白を除く（空なら空文字。誤りにするのは composeVerdict・parseVerdict。#426・#449） */
 export function readAuthorViewFile(file: string): string {
@@ -471,13 +475,21 @@ export function readAuthorViewFile(file: string): string {
 
 /** compose-verdict の引数を読む（--judge-input・--model・--author-view の位置に関わらず） */
 export function parseComposeArgs(args: string[]): Parsed<ComposeArgs> {
-  const r = splitArgs(args, ['--judge-input', '--model', '--author-view']);
+  const r = splitArgs(args, ['--judge-input', '--model', '--author-view', '--review-source', '--api-record']);
   if (!r.ok) return { ok: false, errors: [...r.errors, COMPOSE_USAGE] };
   const { positional, options } = r.value;
   const [pr, reviewerFile, riskFile] = positional;
   const judgeInput = options['--judge-input'];
   if (positional.length !== 3 || !pr || !reviewerFile || !riskFile || !judgeInput) return { ok: false, errors: [COMPOSE_USAGE] };
   if (!/^\d+$/.test(pr)) return { ok: false, errors: [`PR 番号「${pr}」が数ではありません`, COMPOSE_USAGE] };
+  const reviewSource = options['--review-source'];
+  const apiRecord = options['--api-record'];
+  const sourceErrors: string[] = [];
+  if (reviewSource !== undefined && reviewSource !== 'api' && reviewSource !== 'local') sourceErrors.push(`--review-source「${reviewSource}」は api か local です`);
+  if (apiRecord !== undefined && reviewSource !== 'api') sourceErrors.push('--api-record は --review-source api のときだけ渡せます');
+  if (reviewSource === 'api' && apiRecord === undefined) sourceErrors.push('--review-source api には --api-record <url>（API の記録のコメントの URL）が要ります');
+  if (apiRecord !== undefined && !apiRecord.startsWith('https://')) sourceErrors.push(`--api-record「${apiRecord}」は https:// で始まる URL です`);
+  if (sourceErrors.length > 0) return { ok: false, errors: [...sourceErrors, COMPOSE_USAGE] };
   return {
     ok: true,
     value: {
@@ -487,6 +499,8 @@ export function parseComposeArgs(args: string[]): Parsed<ComposeArgs> {
       judgeInput,
       ...(options['--model'] ? { model: options['--model'] } : {}),
       ...(options['--author-view'] ? { authorViewFile: options['--author-view'] } : {}),
+      ...(reviewSource === 'api' || reviewSource === 'local' ? { reviewSource } : {}),
+      ...(apiRecord !== undefined ? { apiRecord } : {}),
     },
   };
 }
@@ -566,7 +580,7 @@ export interface ComposeInput {
   reviewer: unknown;
   risk: unknown;
   /** judgedBy は判定者の説明（「付き添いのセッション」やセッションの URL など） */
-  meta: { model?: string; judgedBy: string };
+  meta: { model?: string; judgedBy: string; reviewSource?: 'api' | 'local'; apiRecord?: string };
   /** PR を実装したセッションの見解（任意。判定の agent-verdict の authorView に入る。結論には使わない。#426） */
   authorView?: string;
 }
@@ -584,7 +598,14 @@ export function composeVerdict(input: ComposeInput, session: string | null = inp
   }
   if (keyErrors.length > 0) return { ok: false, errors: keyErrors };
   const { facts, ...risk } = input.risk as Record<string, unknown>;
-  const metrics: Record<string, string> = { ...(input.meta.model ? { model: input.meta.model } : {}), stage: 'judge', judgedBy: input.meta.judgedBy };
+  const metrics: Record<string, string> = {
+    ...(input.meta.model ? { model: input.meta.model } : {}),
+    stage: 'judge',
+    judgedBy: input.meta.judgedBy,
+    // 判定に使ったレビューの出どころ（記録と人の確認用。App は読まない。#1043）
+    ...(input.meta.reviewSource ? { reviewSource: input.meta.reviewSource } : {}),
+    ...(input.meta.apiRecord ? { apiReviewRecord: input.meta.apiRecord } : {}),
+  };
   const parsed = parseVerdict({
     version: 1,
     pr: input.pr,
@@ -605,6 +626,7 @@ export function composeVerdict(input: ComposeInput, session: string | null = inp
     `- Reviewer：${v.review.pass ? '合格' : '不合格'}（ブロッキング指摘 ${v.review.blocking.length} 件）`,
     `- Risk：${v.risk.level}${unsafe.length > 0 ? '。安全側でない答え：' : ''}`,
     ...unsafe.map((l) => `  ${l}`),
+    ...(input.meta.reviewSource === undefined ? [] : [input.meta.reviewSource === 'api' ? `- レビュー：API（${input.meta.apiRecord ?? '記録の URL なし'}）` : '- レビュー：ローカル']),
     '',
     renderBlock('agent-verdict', v),
   ].join('\n');
