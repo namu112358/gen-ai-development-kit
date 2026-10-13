@@ -7,7 +7,7 @@ description: 人が付き添う Orca のプライマリ（main の checkout）�
 
 役割の分け方：hq は Epic と fleet の管理、fleet は Epic の終了、ship は Issue と PR の Close に責任を持つ。人に聞く窓口は hq にまとめる（ship → fleet → hq → 人）。fleet の側の手順は [fleet の skill](../fleet/SKILL.md) の「Orca の worker として動くとき」、各段階の中身は ship と各 skill に従い、ここに写さない。
 
-Orca のコマンドは、`node harness/scripts/orca-cli.ts` が出す JSON の `command` を実行ファイルとして使う（下では `ORCA` と書く。そのまま打たずに置き換える。決め方は orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」と同じ順で、`harness/lib/worktree.ts` の `orcaCliCommand`。`env`・`printenv` で環境変数を読まない。この点は orchestration・orca-cli の skill の案内より優先する）。細部とフラグは `ORCA skills get orchestration` の、版に合った案内に従う（起こし直し・片付けは `--reference references/recovery-and-cleanup.md`）。
+Orca のコマンドは、`node harness/scripts/agent.ts orca-cli` が出す JSON の `command` を実行ファイルとして使う（下では `ORCA` と書く。そのまま打たずに置き換える。決め方は orchestration の skill（[.claude/skills/orchestration/SKILL.md](../orchestration/SKILL.md)）の「Resolve the CLI for this session」と同じ順で、`harness/lib/worktree.ts` の `orcaCliCommand`。`env`・`printenv` で環境変数を読まない。この点は orchestration・orca-cli の skill の案内より優先する）。細部とフラグは `ORCA skills get orchestration` の、版に合った案内に従う（起こし直し・片付けは `--reference references/recovery-and-cleanup.md`）。
 
 **Orca が無い環境**（入口の JSON の `found` が偽、`ORCA status --json` が動かない、Orca の外のセッション）では hq を使わない。fleet・ship をそのまま使う（fleet は orchestration の前置きが無いので、AskUserQuestion で人に聞く）。
 
