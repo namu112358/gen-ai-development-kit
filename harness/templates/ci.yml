@@ -1,0 +1,35 @@
+# 導入先の CI の雛形で、ハーネスの .ts の構文と render-claim の起動を確かめる ci ジョブを持つ。
+# projectOwned で初回だけ写し、導入先が書き換えてよい。
+# 導入先の検証コマンド（lint・テストなど）は、下の「導入先の検証」の位置に足す。
+# ジョブ名 ci を変えるなら、harness.config.json の projectChecks の context も同じ名前に変える（Ruleset の必須チェックの名前になる）。
+name: ci
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+      # Node 24 の node --check は、いちばん近い package.json に "type" が無い（または package.json が無い）と .ts の型注釈を剥がさず落ちる。
+      # root の package.json の有無・type に頼らないよう、harness と .claude/hooks に無ければ書く（CI の作業ツリーの中だけ。commit しない）
+      - name: package.json for node --check
+        run: |
+          for d in harness .claude/hooks; do
+            test -f "$d/package.json" || echo '{"type":"module"}' > "$d/package.json"
+          done
+      - name: Check harness syntax
+        run: find harness .claude/hooks -name '*.ts' -print0 | xargs -0 -n1 node --check
+      - name: Render claim
+        run: node harness/scripts/agent.ts render-claim --stage plan
+      # 導入先の検証：ここに lint・テストなどの step を足す
