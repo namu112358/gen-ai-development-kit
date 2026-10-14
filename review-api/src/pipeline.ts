@@ -1,4 +1,4 @@
-// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ。待つのは action が trigger.settleActions にあるか、action の無い古い params のときだけ）fetch-pr → collect → budget → review → risk → validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
+// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ。待つのは action が trigger.settleActions にあるか、action の無い古い params のときだけ）fetch-pr → collect → budget → review と risk（Risk は Reviewer の最初の応答の後に始め、並べて待つ）→ validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
 // リポジトリの表（repos.ts）の行から Claude のクライアント・設定・伏せる秘密を組む prepareRepoReview（Workflow が使う）。行に Claude のキーが無ければ deps.claude は null で、fetch-pr の後に no-api-key で止める。
 // 月の累計は cost:<owner>/<repo>:<YYYY-MM>（小文字）でリポジトリごとに数え、上限は行の上書き済みの config.budget で見る。KV の記録・ログ・コメントは deps.secrets で伏せる。
 // GitHub・Claude・KV・時計・ログは deps から受け取り、token は deps の作り方（reader・writer）の中に閉じる（ここでは見ない）。
@@ -27,7 +27,7 @@ import { collectSecrets, parseRepoTable, resolveRepoRuntime, type RepoEnv, type 
 import { wrapUntrusted } from './untrusted.ts';
 import { checkReviewerOutput, checkRiskOutput, composeShadowVerdict, type ReviewerOutput, type RiskOutput } from './verdict.ts';
 
-export type StepName = 'fetch-pr' | 'collect' | 'budget' | 'review' | 'risk' | 'validate' | 'risk-compare' | 'record' | 'post' | 'post-stopped';
+export type StepName = 'fetch-pr' | 'collect' | 'budget' | 'review' | 'risk' | 'validate' | 'risk-compare' | 'record' | 'record-cost' | 'post' | 'post-stopped';
 export type RunStep = <T>(name: StepName, fn: () => Promise<T>) => Promise<T>;
 export type ReviewOutcome = 'superseded' | 'closed' | 'duplicate' | 'no-api-key' | 'budget-exceeded' | 'too-large' | 'verdict-invalid' | 'posted';
 
@@ -127,25 +127,46 @@ const OUTPUT_TOKENS_PER_CALL = 2000;
  * ツールのループを考慮した 1 問いの推定料金（Issue #960）。材料のトークン m は system・tools・messages の文字数の半分（切り上げ）。
  * breakpoint を付けた材料と各回の tool_result は cacheWrite5m、前の回までの分は cacheRead で数える（input は 0。同じトークンを二重に数えない）。
  * 1 回目：cacheWrite5m m・output 2000。k 回目（k = 1..maxToolCalls）：cacheRead m + (k−1)·t・cacheWrite5m t・output 2000（t = min(ceil(maxFileChars/2), 4000)）。
- * Risk が Reviewer のキャッシュを読む分は見込まない（安全側）。モデルが読めない・単価が無ければ null
+ * cachedTokens は、1 回目の問いで材料 m のうち既にキャッシュにある分（cacheRead で数え、残り m − cachedTokens を cacheWrite5m で数える）。
+ * Risk は Reviewer の最初の応答の後に始めるので、Reviewer と共有する接頭辞（sharedPrefixTokens）を渡す（Issue #1061）。モデルが読めない・単価が無ければ null
  */
 export function estimateLoopUsd(
   params: MessagesParams,
   limits: { maxToolCalls: number; maxFileChars: number },
   pricing: Record<string, ModelPricing>,
+  cachedTokens = 0,
 ): number | null {
   const model = params['model'];
   if (typeof model !== 'string') return null;
   const chars = JSON.stringify({ system: params['system'], tools: params['tools'], messages: params.messages }).length;
   const m = Math.ceil(chars / 2);
   const t = Math.min(Math.ceil(limits.maxFileChars / 2), TOOL_RESULT_TOKENS);
-  const usage: Usage = { input: 0, output: OUTPUT_TOKENS_PER_CALL, cacheWrite5m: m, cacheWrite1h: 0, cacheRead: 0 };
+  const cached = Math.min(Math.max(cachedTokens, 0), m);
+  const usage: Usage = { input: 0, output: OUTPUT_TOKENS_PER_CALL, cacheWrite5m: m - cached, cacheWrite1h: 0, cacheRead: cached };
   for (let k = 1; k <= limits.maxToolCalls; k++) {
     usage.cacheRead += m + (k - 1) * t;
     usage.cacheWrite5m += t;
     usage.output += OUTPUT_TOKENS_PER_CALL;
   }
   return estimateUsd(usage, model, pricing);
+}
+
+/**
+ * 2 つの問いが共有するキャッシュの接頭辞のトークン数（文字数の半分の切り上げ）。モデル・system・tools が同じときだけ数え、
+ * system・tools と、最初の user メッセージの content がどちらもブロックの配列なら先頭から同じブロックの並び（文字列なら system・tools の分だけ）。
+ * output_config（出力の形）の違いは見ない（共有できているかは実測で確かめる。docs/review-api.md の節7）。違えば 0
+ */
+export function sharedPrefixTokens(a: MessagesParams, b: MessagesParams): number {
+  if (a['model'] !== b['model']) return 0;
+  if (JSON.stringify(a['system']) !== JSON.stringify(b['system']) || JSON.stringify(a['tools']) !== JSON.stringify(b['tools'])) return 0;
+  const ca = a.messages[0]?.content;
+  const cb = b.messages[0]?.content;
+  const shared: unknown[] = [];
+  if (Array.isArray(ca) && Array.isArray(cb)) {
+    for (let i = 0; i < Math.min(ca.length, cb.length) && JSON.stringify(ca[i]) === JSON.stringify(cb[i]); i++) shared.push(ca[i]);
+  }
+  const chars = JSON.stringify({ system: a['system'], tools: a['tools'], messages: shared.length > 0 ? [{ role: 'user', content: shared }] : [] }).length;
+  return Math.ceil(chars / 2);
 }
 
 type ToolResult = { content: string; isError?: boolean };
@@ -386,6 +407,15 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   const month = costKey(owner, repo, new Date(deps.now()));
   const usdOf = (u: Record<string, Usage>): number | null => usageUsd(u, config.pricing);
   const roleUsage = (u: Record<string, Usage>): RoleUsage => ({ usage: u, usd: usdOf(u) });
+  // 月の累計（cost:）に使用量の推定 USD を足す（record と record-cost の段階の中で呼ぶ）
+  const addMonthCost = async (u: Record<string, Usage>): Promise<void> => {
+    if (Object.keys(u).length === 0) return;
+    let add = 0;
+    for (const [model, v] of Object.entries(u)) add += estimateUsd(v, model, config.pricing) ?? 0;
+    const raw = await deps.kv.get(month);
+    const cur = raw === null || raw.trim() === '' || !Number.isFinite(Number(raw)) ? 0 : Number(raw);
+    await deps.kv.put(month, String(Math.round((cur + add) * 1e6) / 1e6));
+  };
 
   // 3. budget
   const budget = await step('budget', async (): Promise<{ stop: ReviewOutcome | null; compare: 'run' | 'budget' | null; estimatedUsd?: number }> => {
@@ -401,7 +431,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     const monthUsd = raw === null ? 0 : raw.trim() === '' ? NaN : Number(raw);
     const limits = { maxToolCalls: config.claude.maxToolCalls, maxFileChars: config.claude.maxFileChars };
     const a = estimateLoopUsd(asks.review, limits, config.pricing);
-    const b = estimateLoopUsd(asks.risk, limits, config.pricing);
+    const b = estimateLoopUsd(asks.risk, limits, config.pricing, sharedPrefixTokens(asks.review, asks.risk));
     let outcome: ReviewOutcome | null = null;
     if (!Number.isFinite(monthUsd) || monthUsd < 0 || a === null || b === null) outcome = 'budget-exceeded';
     else {
@@ -429,19 +459,37 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
 
   const toolRunner = async (): Promise<ToolRunner> => createToolRunner(await deps.github.reader(), headSha, config.claude.maxFileChars);
 
-  // 4. review
-  const review = await step('review', async (): Promise<AskStep> => {
-    const r = await askWithTools(claude, asks.review, await toolRunner(), config.claude.maxToolCalls);
-    return { skipped: false, result: r };
-  });
+  // 4・5. review と risk（Issue #1061）。Risk は Reviewer の最初の応答（材料のキャッシュが書かれた後）か、review の段階の終わり
+  // （Workflow の再開で永続化した結果から返り Claude を呼ばないときを含む）の先の方を待ってから始め、両方を並べて待つ。
+  // review が最初の応答の前に投げたら risk は呼ばない
+  let firstResponse: () => void = () => {};
+  const responded = new Promise<void>((resolve) => (firstResponse = resolve));
+  const reviewClient: MessagesClient = {
+    async create(p) {
+      const res = await claude.create(p);
+      firstResponse();
+      return res;
+    },
+  };
+  const ask = (name: 'review' | 'risk', client: MessagesClient, request: MessagesParams): Promise<AskStep> =>
+    step(name, async (): Promise<AskStep> => ({ skipped: false, result: await askWithTools(client, request, await toolRunner(), config.claude.maxToolCalls) }));
+  const reviewing = ask('review', reviewClient, asks.review);
+  const go = await Promise.race([responded.then(() => true), reviewing.then(() => true, () => false)]);
+  const [reviewSettled, riskSettled] = await Promise.allSettled([reviewing, go ? ask('risk', claude, asks.risk) : Promise.resolve<AskStep>({ skipped: true })]);
+  if (reviewSettled.status === 'rejected') {
+    // risk が終わっていれば、その使用量を月の累計に足してから投げる（並べたことで数えられない支出を作らない）
+    if (riskSettled.status === 'fulfilled' && !riskSettled.value.skipped) {
+      const used = riskSettled.value.result.usage;
+      await step('record-cost', () => addMonthCost(used));
+      log('record-cost risk');
+    }
+    throw reviewSettled.reason;
+  }
+  const review = reviewSettled.value;
   log(`review ${review.skipped ? 'skipped' : review.result.ok ? 'ok' : review.result.reason}`);
-
-  // 5. risk（review が失敗なら呼ばない）
-  const risk = await step('risk', async (): Promise<AskStep> => {
-    if (!review.skipped && !review.result.ok) return { skipped: true };
-    const r = await askWithTools(claude, asks.risk, await toolRunner(), config.claude.maxToolCalls);
-    return { skipped: false, result: r };
-  });
+  // review が ok: false で risk が投げたときは、投げずに verdict-invalid へ進む（risk の使用量は分からないので数えない）
+  if (riskSettled.status === 'rejected' && (review.skipped || review.result.ok)) throw riskSettled.reason;
+  const risk: AskStep = riskSettled.status === 'fulfilled' ? riskSettled.value : { skipped: true };
   log(`risk ${risk.skipped ? 'skipped' : risk.result.ok ? 'ok' : risk.result.reason}`);
 
   // 6. validate
@@ -487,13 +535,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   };
   const recorded = await step('record', async (): Promise<{ usd: number | null; body: string | null; durationSec: number }> => {
     const usd = usdOf(usage);
-    let add = 0;
-    for (const [model, u] of Object.entries(usage)) add += estimateUsd(u, model, config.pricing) ?? 0;
-    if (Object.keys(usage).length > 0) {
-      const raw = await deps.kv.get(month);
-      const cur = raw === null || raw.trim() === '' || !Number.isFinite(Number(raw)) ? 0 : Number(raw);
-      await deps.kv.put(month, String(Math.round((cur + add) * 1e6) / 1e6));
-    }
+    await addMonthCost(usage);
     const durationSec = Math.round((deps.now() - fetched.startedAt) / 1000);
     if (!validated.ok) {
       await writeRecord('verdict-invalid', { durationSec, models: { review: models.review, risk: models.risk }, usage, usd, detail: validated.detail, ...compareFields, rules });
