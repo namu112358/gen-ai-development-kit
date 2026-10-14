@@ -79,7 +79,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | ファイル | 役割 | 実行環境 |
 | --- | --- | --- |
 | `src/worker.ts` | Webhook の受付。署名の検証 → 対象の判定 → Workflow の起動 | Workers |
-| `src/workflow.ts` | 上の段階1〜7。各段階は `step.do` で再試行・永続化 | Workflows |
+| `src/workflow.ts` | 上の段階1〜7。各段階は `step.do` で再試行・永続化（Reviewer と Risk の2つの `step.do` は並べて待つ） | Workflows |
 | `src/webhook.ts` | 署名の検証（WebCrypto）と、イベントから「レビューするか」を決める純粋な関数 | 共通（Node でテスト） |
 | `src/config.ts` | `review.config.json` の型と、検査して読む `loadReviewConfig`、上限の上書き（`applyBudgetEnv`・行の上書きを重ねる `applyRepoOverrides`） | 共通 |
 | `src/repos.ts` | 1つの Worker で受けるリポジトリの表（`REVIEW_REPOS`）の読み取りと検査 `parseRepoTable`（無ければ `vars` から1行の表を組む）、行から実行に要る値を選ぶ `resolveRepoRuntime`、伏せる秘密の一覧 `collectSecrets`（節 8.3） | 共通 |
@@ -93,7 +93,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `src/verdict.ts` | 出力の検査（`parseVerdict` と同じ規則）と `agent-verdict` 互換の形への組み立て | 共通 |
 | `src/cost.ts` | usage → USD（`harness.config.json` の `pricing` と同じ形の表）、月の累計、上限の判定 | 共通 |
 | `src/record.ts` | PR に書くコメント（目印 `<!-- api-review-shadow head=<sha> -->`、人が読む要約、`api-review-shadow` ブロック。```` ` ```` は ```） | 共通 |
-| `src/pipeline.ts` | 段階1〜7を純粋な関数として並べたもの（Workflow と Node のテストが同じコードを動かす）と、表の行から Claude のクライアント・設定・伏せる秘密を組む `prepareRepoReview` | 共通 |
+| `src/pipeline.ts` | 段階1〜7を純粋な関数として並べたもの（Workflow と Node のテストが同じコードを動かす。Risk は Reviewer の最初の応答の後に始め、両方を並べて待つ）と、表の行から Claude のクライアント・設定・伏せる秘密を組む `prepareRepoReview` | 共通 |
 | `src/replay.ts` | 過去の PR の head を、PR の状態・今の head・KV・投稿なしで、Worker と同じ材料・問い・検査で問い直す replayReview | 共通 |
 | `src/redact.ts` | ログ・コメントから鍵と token を伏せる | 共通 |
 | `review.config.json` | モデル・effort・レビューの条件・上限・単価 | 設定 |
@@ -178,7 +178,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 
 **見積もり（1 レビュー = Reviewer + Risk の 2 問い）**。材料を 40k トークン（diff 10k・変更ファイル 20k・前置き 5k・ツールで読んだ関連コード 5k）、出力を 5k（thinking を含む）と置く。
 
-| 構成 | Reviewer | Risk（同じモデルのときは前置きと diff がキャッシュ読み） | 合計の目安 |
+| 構成 | Reviewer | Risk（同じモデルのときは、Reviewer の最初の応答の後に始めるので前置きと diff がキャッシュ読み） | 合計の目安 |
 | --- | --- | --- | --- |
 | Opus 5.5（$4 / $20、キャッシュ読み $0.20）（今の既定） | 40k×4 + 5k×20 = $0.26 | 30k×0.2 + 10k×4 + 4k×20 = $0.13 | **約 $0.4**（大きな PR で $0.8） |
 | Reviewer Opus 5.5 ＋ Risk Sonnet 5.5（Risk を Sonnet にしていたとき） | $0.26 | 30k×2.5 + 10k×2 + 4k×10 = $0.14（材料は Sonnet のキャッシュ書き込みの単価） | **約 $0.4**（1 回目は同じ。節約はツールのループの出力と読み直しに出る：下の $1.9 → $1.4） |
@@ -194,7 +194,9 @@ Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV
 
 **上限をダッシュボードで変える**：Worker の Settings → Variables and Secrets で、`BUDGET_MONTHLY_USD`（月）・`BUDGET_PER_REVIEW_USD`（1 レビュー）を Type Text で入れると、`review.config.json` の `budget` をその値で上書きする（保存するとその場で新しい版が出る。PR は要らない）。消せば `review.config.json` の値に戻る。`BUDGET_*` はすべてのリポジトリに効き、表の行の `budget` があればそちらが先。`wrangler.jsonc` の `keep_vars: true` でデプロイの後も残る。正の数として読めない値（数でない・0 以下）を入れたときは、既定に戻さず Claude を呼ばずに `budget-exceeded` を記録し（記録に `budgetInvalid: true`）、ログに `budget invalid` を出す。使った上限は毎回ログの `budget limits monthlyUsd=… perReviewUsd=…` の行に出る。
 
-**キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置き（とリポジトリの規則）だけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。リポジトリの規則があるとき（`rules.status` が `ok`）は、system を [前置き（印なし）, 規則のブロック（印あり）] にして (1) の印を規則のブロックに移す（印の数は3つのまま）。同じ base の規則の版の続くレビューと、同じレビューの Risk の問いが、前置き＋規則のキャッシュを読める。規則は system の文字数に入るので、事前の見積もりの材料 m に含まれる。Reviewer と Risk が同じモデルのときは Risk の問いが Reviewer の書いた system＋材料のキャッシュを読み（Reviewer と Risk が別モデルだと Risk は自分の材料を書き込む。今の既定は同じ Opus 5.5 なので読める見込みだが、実測は未確認）、ツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。Risk を Sonnet 5.5 にしていたとき（Reviewer Opus 5.5・Risk Sonnet 5.5）の値は、材料 20k で Reviewer＋Risk 約 $1.4、60k で約 $1.9（Reviewer の分は変わらず、Risk の分が半額）。そのときは Risk のキャッシュを Reviewer（Opus）と共有できず（キャッシュはモデルごと）、Risk の材料は Sonnet の単価で書き込んでいた。今の既定（同じモデル）の値は、この式で出し直していない。
+**キャッシュの置き方**：prompt caching の breakpoint（`cache_control`）を3つ置く。(1) system の前置き、(2) 材料（diff と変更ファイル）の最後のブロック、(3) ツールのループの各回の最後の tool_result（前の回の印は外し、常に最新の1つだけ。1 リクエスト 4 つまでの範囲）。接頭辞は tools → system → messages の順で決まるので、system は共通の前置き（とリポジトリの規則）だけにし、Reviewer / Risk の基準は材料の後ろの user ブロックに置く。リポジトリの規則があるとき（`rules.status` が `ok`）は、system を [前置き（印なし）, 規則のブロック（印あり）] にして (1) の印を規則のブロックに移す（印の数は3つのまま）。同じ base の規則の版の続くレビューと、同じレビューの Risk の問いが、前置き＋規則のキャッシュを読める。規則は system の文字数に入るので、事前の見積もりの材料 m に含まれる。Risk は Reviewer の最初の応答の後に始めるので、Reviewer と Risk が同じモデルのときは Risk の問いが Reviewer の書いた system＋材料のキャッシュを読み（Reviewer と Risk が別モデルだと Risk は自分の材料を書き込む。今の既定は同じ Opus 5.5 なので読める見込みだが、実測は未確認）、ツールのループの 2 回目以降は入力の大半がキャッシュ読み（Opus 5.5 で $0.20/M。入力 $4/M の 1/20）になる。事前の見積もり（`estimateLoopUsd`）は、材料 m トークン（文字数の半分）を 1 回目に cacheWrite、k 回目（k = 1..maxToolCalls）に cacheRead `m + (k−1)·t`・cacheWrite `t`（t = min(maxFileChars/2, 4000)）、出力は 1 回 2000 トークンの見込みで足す（maxTokens は上限なので使わない）。Risk を Sonnet 5.5 にしていたとき（Reviewer Opus 5.5・Risk Sonnet 5.5）の値は、材料 20k で Reviewer＋Risk 約 $1.4、60k で約 $1.9（Reviewer の分は変わらず、Risk の分が半額）。そのときは Risk のキャッシュを Reviewer（Opus）と共有できず（キャッシュはモデルごと）、Risk の材料は Sonnet の単価で書き込んでいた。今の既定（同じモデル）の値は、この式で出し直していない。
+
+**Reviewer と Risk を並べて問うときのキャッシュ（Issue #1061）**：人が案 (b)「Reviewer の最初の応答（材料のキャッシュが書かれた後）を待ってから Risk を始め、残りを並行にする」を選んだ（案 (a)「同時に始める」は両方が材料を書き込むので選ばなかった）。Risk の段階は、Reviewer の最初の `create` が返った印か、review の段階の終わり（Workflow の再開で review の段階が永続化した結果から返り Claude を呼ばないときも、ここで待ちが解ける）の先の方を待ってから始め、両方の段階を並べて待つ。review が最初の応答の前に投げたら Risk は呼ばない。review が出力の検査で落ちても（`verdict-invalid`）Risk は既に始まっているので、その使用量も費用と月の累計に数える。review の段階が最初の応答の後に投げ、Risk が終わっていたときは、`record-cost` の段階で Risk の使用量を月の累計に足してから投げる（record と同じく `step.do` の既定の再試行で包むので、再試行で加算が二重になりうるのも record と同じ）。review が `ok: false` で Risk の段階が投げたときは、投げずに `verdict-invalid` へ進む（Risk の使用量は分からないので数えない）。事前の見積もりは、Risk の 1 回目の問いで Reviewer と共有する接頭辞（`sharedPrefixTokens`：モデル・system・tools が同じとき、system・tools と最初の user メッセージの先頭から同じブロックの並び。文字数の半分）を cacheRead、残りを cacheWrite で数える（`estimateLoopUsd` の `cachedTokens`）。共有できているかは実測で確かめていない（Reviewer と Risk は `output_config.format` の schema が違い、#996 では別の問いが Reviewer の材料のキャッシュを読めていなかった）。読めていなければ、見込みより 1 レビューで多くても共有分 × (cacheWrite5m − cacheRead)（Opus 5.5 で 40k なら約 $0.19）多くかかり、`perReviewUsd` の判定がその分だけ甘くなる。次の実測（`usageByRole.risk` の cacheRead）で確かめ、schema の違いで共有できないと分かったら、`sharedPrefixTokens` を `output_config` の違いで 0 にするかを決め直す。
 
 **実測**：
 

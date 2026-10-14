@@ -133,10 +133,13 @@ test('上限が正の有限の数でない（NaN）ときは Claude を呼ばず
 });
 
 test('JSON の取り出しと検査で落ちた出力は verdict-invalid でレビューを投稿せず止めた記録を1件付け、使った分を月の累計に足す', async () => {
-  const cases: [string, Message[], number][] = [
-    ['JSON が読めない text', [msg([{ type: 'text', text: 'not json' }], 'end_turn')], 1],
-    ['refusal', [msg([{ type: 'text', text: '{}' }], 'refusal')], 1],
-    ['max_tokens', [msg([{ type: 'text', text: '{"pass":' }], 'max_tokens')], 1],
+  // Reviewer が失敗しても Risk は呼ばれ（Issue #1061）、Risk の使用量も月の累計に数える。Risk が投げたら投げずに verdict-invalid で、数えるのは Reviewer の分だけ
+  const notJson = msg([{ type: 'text', text: 'not json' }], 'end_turn');
+  const cases: [string, (Message | Error)[], number][] = [
+    ['JSON が読めない text', [notJson, answer(RISK_OK)], 2],
+    ['refusal', [msg([{ type: 'text', text: '{}' }], 'refusal'), answer(RISK_OK)], 2],
+    ['max_tokens', [msg([{ type: 'text', text: '{"pass":' }], 'max_tokens'), answer(RISK_OK)], 2],
+    ['JSON が読めない text で Risk が投げる', [notJson, new Error('risk-boom')], 2],
     ['Reviewer の検査で落ちる', [answer({ pass: true, blocking: [{ kind: 'bug', detail: 'x' }], nonBlocking: [] }), answer(RISK_OK)], 2],
     ['Risk の検査で落ちる', [answer(REVIEW_OK), answer({ ...RISK_OK, level: 'huge' })], 2],
   ];
@@ -147,7 +150,13 @@ test('JSON の取り出しと検査で落ちた出力は verdict-invalid でレ�
     assert.equal(r.posted.length, 1, `${name}: 投稿`);
     assertStoppedRecord(r.posted[0]!, 'verdict-invalid', name);
     assert.equal(r.record?.outcome, 'verdict-invalid', `${name}: KV の記録`);
-    assert.ok(Math.abs(Number(r.kv.get(COST_KEY)) - claudeCount * CALL_USD) < 1e-9, `${name}: 月の累計 ${r.kv.get(COST_KEY)}`);
+    const costCalls = responses.filter((x) => !(x instanceof Error)).length;
+    assert.ok(Math.abs(Number(r.kv.get(COST_KEY)) - costCalls * CALL_USD) < 1e-9, `${name}: 月の累計 ${r.kv.get(COST_KEY)}`);
+    if (name.startsWith('JSON が読めない')) {
+      const rec = r.record as unknown as { detail: string; usageByRole: { risk: { usd: number | null } } };
+      assert.equal(rec.detail, 'review:invalid-json', `${name}: detail`);
+      assert.equal(rec.usageByRole.risk.usd, responses[1] instanceof Error ? 0 : CALL_USD, `${name}: Risk の使用量`);
+    }
   }
 });
 

@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { runReview } from '../../review-api/src/pipeline.ts';
 import { parseApiReviewComment, parseShadowComment, renderStoppedComment, type StoppedOutcome } from '../../review-api/src/record.ts';
 import {
+  answer,
   API_KEY,
   comment,
   COST_KEY,
@@ -18,6 +19,7 @@ import {
   params,
   REVIEW_KEY,
   REVIEWER,
+  RISK_OK,
   run,
   shadowComment,
   TOKEN,
@@ -67,7 +69,7 @@ test('止めた記録の本文に API キー・token・diff の行・PR の題�
   const leaky = `not json ${API_KEY} +new PR の題 LEAK-SENTINEL`;
   const cases: [string, Parameters<typeof run>[0]][] = [
     ['budget-exceeded', { kv: { [COST_KEY]: '9.99' } }],
-    ['verdict-invalid', { responses: [msg([{ type: 'text', text: leaky }], 'end_turn')] }],
+    ['verdict-invalid', { responses: [msg([{ type: 'text', text: leaky }], 'end_turn'), answer(RISK_OK)] }],
   ];
   for (const [name, opts] of cases) {
     const r = await run(opts);
