@@ -48,7 +48,8 @@
     "docs/CODEOWNERS",
     ".claude/agents/review-*.md",
     ".claude/skills/review-panel/SKILL.md",
-    "harness/scripts/review-panel.ts"
+    "harness/scripts/review-panel.ts",
+    "review-api/**"
   ],
   "guardrailExclude": [
     "harness/lib/usage.ts",
@@ -77,6 +78,7 @@
   },
   "project": { "checkCommand": "npm run check", "installCommand": "npm ci" },
   "reviewPanel": { "mode": "enforce" },
+  "reviewSource": { "mode": "api", "waitMinutes": 8, "appLogin": "harness-review-agent[bot]" },
   "fleet": {
     "nesting": "orca",
     "maxParallelShips": 3,
@@ -156,7 +158,10 @@
     "harness/lib/auto-mode-tests.ts",
     ".claude/agents/plan-critic.md",
     "harness/lib/plan.ts",
-    "harness/lib/session-inputs.ts"
+    "harness/lib/session-inputs.ts",
+    "review-api/**",
+    "harness/lib/api-review.ts",
+    "harness/scripts/agent/commands/api-review.ts"
   ],
   "classification": {
     "sizes": [

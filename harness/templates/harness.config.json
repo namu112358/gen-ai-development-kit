@@ -72,6 +72,9 @@
   "reviewPanel": {
     "mode": "shadow"
   },
+  "reviewSource": {
+    "mode": "local"
+  },
   "fleet": {
     "nesting": "orca",
     "maxParallelShips": 3,

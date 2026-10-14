@@ -1,11 +1,11 @@
 ---
 name: judge
-description: "人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。「PR #番号 を判定して」「レビューして判定を出して」と頼まれたとき、またはクラウドの Routine の `/judge --routine`（PR 1件の判定を1回分行う。節「Routine の1回分」）で、実装・修正の後の段階で使う。"
+description: "人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。reviewSource.mode が api なら API のレビュー（review-api）の記録で判定し、使えないときだけ Reviewer と Risk Agent で判定する。「PR #番号 を判定して」「レビューして判定を出して」と頼まれたとき、またはクラウドの Routine の `/judge --routine`（PR 1件の判定を1回分行う。節「Routine の1回分」）で、実装・修正の後の段階で使う。"
 ---
 
 # judge（判定）
 
-Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添いのセッションで行う手順。Agent PR も人の PR も同じ手順で判定する。人の PR は修正しない。クラウドの Routine で PR を1件指定して判定するときは、下の節「Routine の1回分（`/judge --routine`）」に従う。
+Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添いのセッションで行う手順。Agent PR も人の PR も同じ手順で判定する。`harness.config.json` の `reviewSource.mode` が `api` なら、ローカルのレビュー（reviewer・risk-agent・合体版）の代わりに API のレビュー（review-api）の記録で判定し、記録が使えないときはローカルのレビューで判定する（手順2a。[docs/review-api.md](../../../docs/review-api.md)）。人の PR は修正しない。クラウドの Routine で PR を1件指定して判定するときは、下の節「Routine の1回分（`/judge --routine`）」に従う。
 
 ## 入力
 
@@ -16,7 +16,13 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 
 1. `node harness/scripts/agent.ts claim <PR番号> --manual --stage judge` で着手を宣言する（判定コメントの投稿で宣言は終わる）。`node harness/scripts/agent.ts judge-input <PR番号>` を実行する（出力はファイルのパス）。先頭行の `headSha` が判定する head。
 2. 現在の head に、Claude・App 以外のコラボレーターのレビュー（Comment か Request changes）があれば、判定ではなく fix を先にする。
-3. `node harness/scripts/review-panel.ts mode` で合体版のレビュー（[review-panel](../review-panel/SKILL.md)）の動かし方を確かめ、次のどれかで進める。
+2a. レビューの出どころを決める：`node harness/scripts/agent.ts api-review <PR番号> --judge-input <judge-input のファイル>` を1回だけ流す（`reviewSource.mode` が `api` なら記録を最大 `waitMinutes` 分待つので、Bash の timeout は 600000）。出力の `action` で分ける。
+   - `api`：手順3〜5を飛ばし、手順6を `compose-verdict <PR番号> <出力の reviewer のパス> <出力の risk のパス> --judge-input <judge-input のファイル> --model <出力の models.review> --review-source api --api-record <出力の recordUrl>` で行う（出力の reviewer・risk は `api-reviewer-<PR番号>-<head7>.json`・`api-risk-<PR番号>-<head7>.json` で、手順4の担当の出力のパスとは別）。`compose-verdict` が記録の出力の書式で止まったら、手順3からローカルのレビューで判定し直し、手順6に `--review-source local` を付け、理由 `api-invalid` を報告に1行で載せる。
+   - `local`：手順3〜5を今のとおり行い、手順6に `--review-source local` を付ける。出力の `reason`（`disabled`・`timeout`・`guardrail-files` など）を報告に1行で載せる。
+   - `skip`：判定せずに、理由（`closed`・`same-head`）を伝える。
+   - 終了コードが 0 以外（設定・judge-input の誤り）：判定せずに人に返す。
+   - Merge の経路は、API の記録で判定してもローカルで判定しても同じ（App が受け付けの記録で決める）。
+3. （手順2a が `local` のときだけ。手順3〜5も同じ）`node harness/scripts/review-panel.ts mode` で合体版のレビュー（[review-panel](../review-panel/SKILL.md)）の動かし方を確かめ、次のどれかで進める。
    - `off`：手順4〜5で reviewer と risk-agent だけを動かす。
    - `shadow`：手順4の reviewer・risk-agent と、review-panel の skill（段階0〜4）を並行に動かす（入れ子のときの呼び方は [ship の skill](../ship/SKILL.md) の節「サブエージェントの ship として動くとき」）。全部が終わってから、review-panel の compose と post で合体版の記録を投稿し、その後に手順6・7（判定は reviewer の出力）。合体版が失敗しても判定は止めず、記録が無いことを人に伝える。
    - `enforce`：reviewer を呼ばない。手順4の risk-agent と review-panel の skill を動かし、review-panel の compose の出力 `review-<PR番号>-<head7>.json` を、手順6の compose-verdict の reviewer の出力の位置に渡す。合体版が失敗したら判定せず人に返す。review-intake が `eligible: false`（PR が closed、または前回の判定と同じ head）を返したら、判定を投稿せずに終え、理由を人に伝える（同じ head を二重に判定しない。closed の PR は判定しない）。
@@ -29,7 +35,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
    - ファイルがあって JSON として読めないときは、呼び直さずに判定せず人に返す。
    - 呼んだ後の `git status --porcelain --untracked-files=all` の結果を、呼ぶ前に控えた結果と比べる。増えた行・変わった行があれば、判定せず人に返す（担当が出力のパスの外を書いた恐れがある）。付き添いの作業ツリーにはもともと未 commit の変更があり得るので、前後の差だけを見る。
    - 呼んだ後の `git rev-parse HEAD` と `git branch --show-current` の結果を、呼ぶ前に控えた結果と比べる。違えば、戻さずに（直さない）判定せず人に返す（担当がブランチや HEAD を動かした恐れがある）。
-6. `node harness/scripts/agent.ts compose-verdict <PR番号> <reviewer-<PR番号>-<head7>.json> <risk-<PR番号>-<head7>.json> --judge-input <judge-input のファイル> --model <モデル名>` で判定コメントを作る（出力はファイルのパス。`enforce` では reviewer の出力の位置に合体版の組み立ての出力を渡す）。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら（既定ブランチの取り込みだけなら）判定した head のまま組み立てる（App は patch-id で受け付ける）。patch-id が違って止まったら手順1からやり直す。risk-agent の出力に定義に無いキーがあって止まったら（定義に合わない古い出力など）、出力を直さずに risk-agent を呼び直す（手順1からやり直す）。
+6. `node harness/scripts/agent.ts compose-verdict <PR番号> <reviewer-<PR番号>-<head7>.json> <risk-<PR番号>-<head7>.json> --judge-input <judge-input のファイル> --model <モデル名>` で判定コメントを作る（出力はファイルのパス。`enforce` では reviewer の出力の位置に合体版の組み立ての出力を渡す。手順2a の結果に合わせて `--review-source local`、`api` なら手順2a の引数で組み立てる）。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら（既定ブランチの取り込みだけなら）判定した head のまま組み立てる（App は patch-id で受け付ける）。patch-id が違って止まったら手順1からやり直す。risk-agent の出力に定義に無いキーがあって止まったら（定義に合わない古い出力など）、出力を直さずに risk-agent を呼び直す（手順1からやり直す）。
    - その PR を実装したセッション（ship の中で同じセッションが judge するとき）だけ、任意で `--author-view <file>`（実装したセッションの見解を書いたテキストのファイル。scratchpad に置く）を渡せる。判定の `agent-verdict` の `authorView` に入り、auto mode の危険の問い（Jev）の見解ありの問いにだけ渡る。保留するかには使われない（shadow）。judge を単独で呼んだ別のセッションは渡さない。
 7. `node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル>` で投稿する。現在の head が判定した head と違っても、PR 自身の差分（patch-id）が同じなら判定した head のまま投稿する。patch-id が違って止まったら手順1からやり直す。
 8. App が受け付けたかを `node harness/scripts/agent.ts rest pr-view <PR番号>` の `isDraft`・`statusCheckRollup` で確かめる。合格なら `agent/review`・`agent/risk` が成功し、`isDraft` が false になる。数分待っても変わらなければ、PR のコメント（App の `verdict-rejected` など）とゲートの実行（`gh run list --workflow gate.yml`）の結果を見る。確かめてから人に報告する。
@@ -51,7 +57,7 @@ judge-input の「再レビューの範囲（補足）」には、前回の head
 2. `node --version` が v24 か確かめる。`git fetch --unshallow origin` で浅い clone を解く（patch-id と diff に履歴が要る）。
 3. 入力を scratchpad のファイルに書き、`node harness/scripts/agent.ts judge-routine-check <ファイル>` を流す。出力の `action` が `skip` なら何もせず、`reason` を出力して終える。`judge` なら出力の `head`（今の head）を判定する。
 4. `dryRun` が偽なら `node harness/scripts/agent.ts claim <PR番号> --stage judge` で着手を宣言する（Routine の宣言。`--manual` は付けない）。`dryRun` が真なら宣言しない。
-5. 手順1〜7を行う。ただし手順1の `claim --manual --stage judge` は流さず（宣言はこの節の4だけ）、judge-input だけを流す。PR の head は checkout しない。型検査とテストは CI（必須チェック `ci`）に任せる（#974）。モデル名は Routine に指定したもの。
+5. 手順1〜7を行う。ただし手順1の `claim --manual --stage judge` は流さず（宣言はこの節の4だけ）、judge-input だけを流す。手順2a の `api-review` は `dryRun` が真でも流す。PR の head は checkout しない。型検査とテストは CI（必須チェック `ci`）に任せる（#974）。モデル名は Routine に指定したもの（手順2a が `api` なら記録の `models.review`）。
    - 人に聞かない。「人に返す条件」に当たったら、判定せず理由を出力して終える（`dryRun` が偽なら `node harness/scripts/agent.ts release <PR番号>`）。手順2（今の head にコラボレーターのレビューがある）も fix をせず、理由を出して終える。
    - `dryRun` が真なら、`node harness/scripts/review-panel.ts post` を流さず記録のファイルの中身を出力に出し、`node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル> --dry-run` で組み立てた判定を出す。手順8（App の受け付けの確かめ）と9はしない。
    - `dryRun` が偽なら、手順8は `rest pr-view` で行い、数分待っても受け付けられなければ理由を出力して終える（判定コメントで宣言は終わるので release は要らない）。手順9は下書きのパスと要約を出力に出すだけにする（人に報告しない）。
