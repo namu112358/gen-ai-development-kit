@@ -97,6 +97,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `src/record.ts` | PR に書くコメント（目印 `<!-- api-review-shadow head=<sha> -->`、人が読む要約、`api-review-shadow` ブロック。```` ` ```` は ```） | 共通 |
 | `src/pipeline.ts` | 段階1〜7を純粋な関数として並べたもの（Workflow と Node のテストが同じコードを動かす。Risk は Reviewer の最初の応答の後に始め、両方を並べて待つ）と、表の行から Claude のクライアント・設定・伏せる秘密を組む `prepareRepoReview` | 共通 |
 | `src/replay.ts` | 過去の PR の head を、PR の状態・今の head・KV・投稿なしで、Worker と同じ材料・問い・検査で問い直す replayReview | 共通 |
+| `src/replay-compare.ts` | ローカルの判定（コラボレーターの `agent-verdict`）のブロッキング指摘を選び、流し直しの結果と並べた表（`summary.md`）と PR ごとの JSON を書く。fs と Claude のクライアントは注入（節11） | 共通 |
 | `src/redact.ts` | ログ・コメントから鍵と token を伏せる | 共通 |
 | `review.config.json` | モデル・effort・レビューの条件・上限・単価 | 設定 |
 | `wrangler.jsonc` | Worker・Workflow・KV の束ね方と、秘密でない設定5つ（`vars`）。秘密の3つは Cloudflare の Secret（節 8.3）。`name`・KV の id・`vars` は導入先ごとの値（`harness.config.json` と同じ扱い。review-api を導入先に配るときは `harness/managed.json` の `projectOwned` に雛形で登録する。Cloudflare の Import の既定の名前は `<リポジトリ名>-review-api`） | 設定 |
@@ -106,6 +107,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 | `.dev.vars.example` | `wrangler dev` 用の秘密と、`scripts/send-webhook.ts` が読む `GITHUB_INSTALLATION_ID` の例（実際の値は `.dev.vars` に書き、git に入れない。ほかは `wrangler.jsonc` の `vars` から読む） | 設定 |
 | `.gitignore` | `node_modules`・`.dev.vars` などを git に入れない | 設定 |
 | `scripts/send-webhook.ts` | 手元の `wrangler dev` に署名つきの Webhook を送る | Node |
+| `scripts/replay.ts` | 流し直しを手元で回す。引数と環境変数を読み、SDK のクライアントを作って `src/replay-compare.ts` に渡すだけ（節11） | Node |
 | `README.md` | 構成・コマンド・docs への案内 | 文書 |
 
 テストは `harness/test/review-api-*.test.ts`（`node:test`。外部 API は呼ばず、`fetch` と Claude のクライアントを偽物にする）。根の CI は根の `npm ci` → `npm run check` だけを行い、根の `tsconfig.json`（include は `harness/**`）が `harness/test` の import を辿って `review-api/src` も型検査する。そのため `review-api/src` のうち `cloudflare:workers`・`@anthropic-ai/sdk` を読み込むのは `worker.ts` と `workflow.ts` だけ（テストは import しない）で、ほかは Node 24 でそのまま動く。`review-api/package.json` は `"type": "module"`（根の tsconfig は `module: nodenext` なので、辿られたファイルを ESM として扱わせる）。Worker・Workflow の型検査は `review-api/tsconfig.json`（`src/**`・`scripts/**`、`@cloudflare/workers-types`）で別に行う。
@@ -344,8 +346,34 @@ main への Merge で Cloudflare の Workers Builds がビルドしてデプロ�
 ## 11. Shadow Mode の比較手順
 
 1. Agent PR が作られる・push されるたびに、PR に新 App のコメント「API レビュー（shadow）」が付く。本運用では judge がこの記録で判定するので、ローカルのレビューと並べて比べられるのは、ローカルのレビューに戻った PR（ガードレールに当たる PR など）だけになる。
-2. 比較のスクリプト（未作成。Phase 4 で `review-api/scripts/` に足す）で、同じ head の `agent-verdict` と `api-review-shadow` を並べる：`pass` の一致、ブロッキング指摘の対応（同じ・片方だけ）、Risk の level・8問の一致、USD・所要秒。
+2. 過去の PR を流し直して、ローカルの判定と並べる（下の「流し直し」）。
 3. 20 件ほど溜まったら表にして、見逃し（既存にあって API に無い重大な指摘）と誤検知（API だけが指摘し、人が見て違うもの）を数える。
+
+### 流し直し（`review-api/scripts/replay.ts`）
+
+**対象の選び方**：PR ごとに、コラボレーター（`author_association` が `OWNER`・`MEMBER`・`COLLABORATOR`）の `agent-verdict` のうち、フェンスがちょうど1つで JSON が読め、`review.blocking` が1件以上の最初の判定（コメントの id の古い順）を選び、その head を `replayReview`（`src/replay.ts`）で流し直す。ブロッキング指摘のある判定が無い PR は「対象外」として理由つきで表に載る。
+
+- `agent-verdict` で選んだ集合は、App の `fix-request` の集合と違いうる（修正の上限・人の Merge で `fix-request` が出なかった判定も入る）。
+- Issue と計画は今の時点のものを読むので、当時の判定が読んだ材料と違いうる。
+- モデル・上限・単価は今の `review.config.json` のもの（表の先頭に書く）。
+
+**実行のコマンド**（`review-api/` で）：
+
+```bash
+GITHUB_TOKEN=… node scripts/replay.ts owner/repo --prs 1001-1040 --list                                   # 対象と見込みの USD だけを出す（Claude を呼ばない）
+GITHUB_TOKEN=… ANTHROPIC_API_KEY=… node scripts/replay.ts owner/repo --prs 1001-1040 --max-usd 10 --out ../tmp/replay-1   # 流し直して書く
+```
+
+- `--prs` は範囲（`1001-1040`）か列挙（`1001,1005`）。`--list` でなければ `--max-usd` と `--out` は必須。
+- `GITHUB_TOKEN` は対象のリポジトリの PR・Issue・コメント・内容を読めればよい（書き込みはしない）。計画は根の `harness.config.json` の `appSlug` の App（`<appSlug>[bot]`）の計画ゲートの記録から読む。
+- `--out` に `summary.md` が既にあれば何もせずに終わる（別の `--out` を渡す）。`pr-<番号>.json` だけがあればその PR は「未実行（既にファイルがある）」になり Claude を呼ばない。既にあるファイルは上書きしない。
+- ログと書くファイルの鍵と token は伏せ字になる。
+
+**費用の目安**：1 PR あたり節7の見積もり（Opus 5.5 で約 $0.4、大きな PR で $0.8）。`--list` の見込みはツールのループを最大まで回す上限の側の数で、実際はそれより小さいことが多い。見込みが残り（`--max-usd` − 使った額）を超えた PR から後の対象は、すべて「未実行（上限）」になる（小さい PR を拾い直さない。何件で止まったかが表から読める）。
+
+**表の読み方**（`summary.md`）：1 PR 1 行で、列は PR・head・状態（比べた・invalid・error・未実行・対象外）・pass（ローカル / API）・ローカルのブロッキング・API のブロッキング・Risk level（ローカル / API）・8 問の一致（level ＋ q2〜q8）・USD。指摘は `kind` `file`：detail の形で、反対側に kind と file が同じ指摘があるものに〔候補〕が付く。〔候補〕は印だけで、同じ問題かは本文を読んで人が決める。末尾に合計（件数・pass の一致・ローカルのブロッキング指摘の件数と〔候補〕の件数・Risk level の一致・USD 合計）。PR ごとの JSON（`pr-<番号>.json`）には、ローカルの判定・流し直しの結果（記録・使用量）・表の行が入る。
+
+**見逃しと誤検知の数え方**：ローカルのブロッキング指摘ごとに、API の指摘に同じ問題があるかを人が読んで決め、無ければ見逃しと数える。API だけの指摘は、人が読んで違うと決めたものを誤検知と数える。〔候補〕の付いた指摘も、同じ問題でなければ見逃し・誤検知に数える。数えた結果は節12の移行条件に使う。
 
 ## 12. 本運用
 
