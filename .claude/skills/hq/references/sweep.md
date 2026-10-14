@@ -25,7 +25,7 @@ hq の skill（[SKILL.md](../SKILL.md)）の参照用のファイル。手順・
     - **止まった宣言**：ダッシュボードの「止まっていそうな着手宣言」の節（#391）と、`fleet-status` のメモの着手宣言のうち、控えのどの fleet のセッションでもなく、`claim`／`prClaim` の `stale` が真のもの（期限は `routine.humanClaimStaleHours`・`routineClaimTakeoverMinutes`。#639）。控えに無く `stale` が偽の宣言は hq の外のセッション（Claude Desktop など）が着手中とみなし、引き継ぎの問いにも割り振りにも入れない。この集合（`stale` が真のもの）だけを、手順12の一覧に「期限切れの着手宣言」として1行ずつ（#番号・段階・session の短い ID）出す。引き継ぎの問い（AskUserQuestion）は同じ行について聞き、別の集合・別の扱いで2か所に出さない。hq は `release` も `--takeover` もしない（引き継ぎは人が決め、受け持つ fleet の指示で行う）
     - **どの fleet にも入っていない開いた Issue**：`fleet-status --json` の行のうち、控えのどの fleet の Issue 番号の集合にも無いもの
     - **Epic に入っていない単発の Issue**：ダッシュボードの節「Epic に入っていない Issue」の行（番号・Jev の一番高い Epic と確率か「未判定」）。節が無いか空なら無し。hq は Epic の子の一覧から自分で探し直さない
-  - 前の回と同じものは数え直すだけにし、人に同じことを繰り返し聞かない（控えに聞いたものを残す。止まった宣言・担当のいない PR の聞き直しは `hq-takeover-ask.ts` の記録で決める）。
+  - 前の回と同じものは数え直すだけにし、人に同じことを繰り返し聞かない（控えに聞いたものを残す。止まった宣言・担当のいない PR の聞き直しは `hq-decide.ts` の `takeover-record` が書く記録で決める）。
   - 割り振り（hq が決めて、手順12の一覧でまとめて知らせる）：
     - 動いている ship の数と空いた枠の割り当ては、hq が数えず、`node harness/scripts/hq-decide.ts assign --fleet-status <番号を渡さない fleet-status --json のファイル> --epic-children <ファイル> [--live-fleets <n>]` の結果に従う（`--epic-children` は、上の開いた Epic の子の一覧を scratchpad の `hq-epic-children.json` に `{"<Epic番号>": [Issue 番号…]}` で書いたもの。読んだら必ず書き、`assign` の前に置く。無いと Epic の子が単発の fleet で起きる。`--live-fleets` は「空きの補充」の数え方の settle していない Dispatch の数で、無ければ控えの `fleets` の数。控えの各 fleet の Issue 番号の集合は、要素の `issues`（Issue 番号の配列）に書く）。
       - `directEpics` の Issue は `assign` に渡す前に `fleet-status` の表から外す（直接の Epic の子は hq が節「ship を直接起こす進め方（`--direct`）」で起こすので、fleet への割り当てに入れない）。
@@ -35,12 +35,12 @@ hq の skill（[SKILL.md](../SKILL.md)）の参照用のファイル。手順・
       - `wait`：手順12の一覧に「空き待ち」として出す。
       - 触るファイルの重なり・依存・着手宣言は `fleet-status` の `selected` が見るので、割り当てで変えない。動いている ship の数が上限を超えていても、動いている ship は止めない（新しく割り当てないだけ）。割り当ての順と数え方は `hq-decide.ts` の `assignSlots` にあり、hq は写さない。
     - 止まった宣言・担当のいない PR：引き継ぐかは人が決める。hq は自分で引き継がない。見回しのたびに聞かず、見つけたものはためて、24 時間（`HQ_TAKEOVER_DEFAULTS`）＝1日1回に1回、1回にまとめて AskUserQuestion で聞く（#771）。手順：
-      1. 見回しのたびに、見つけたもの（上の「担当のいない PR」「止まった宣言」）を `{ "key", "state", "line" }` の配列にして scratchpad の `hq-takeover-found.json` に書き、`node harness/scripts/hq-takeover-ask.ts check <ファイル>` を流す（記録は書かない。標準出力は `{ due, ask, held, skippedDeclined, nextAskAt }`）。見つけたものが無ければ空の配列で流す。
+      1. 見回しのたびに、見つけたもの（上の「担当のいない PR」「止まった宣言」）を `{ "key", "state", "line" }` の配列にして scratchpad の `hq-takeover-found.json` に書き、`node harness/scripts/hq-decide.ts takeover-ask --found <ファイル>` を流す（記録は書かない。標準出力は `{ due, ask, held, skippedDeclined, nextAskAt }`）。見つけたものが無ければ空の配列で流す。
          - `key`：Issue の着手宣言は `#N`、PR に関わるもの（PR の着手宣言・担当のいない PR）は `PR #N`。同じ `key` が複数の元（ダッシュボードの節と `fleet-status`）に出たら1件にまとめる。`line` は人に示す1行（#番号・段階・session の短い ID・理由）。
          - `state`：`<元>|<段階>|<session>`。`<元>` はその `key` が出た元の名前（`fleet-status`・「引き継ぐか決める」・「停滞している Agent PR」・「担当のいない判定待ちの PR」・「止まっていそうな着手宣言」）を並べ替えて `+` でつないだもの。`<段階>`・`<session>` は `fleet-status --json` の行の `claim`（`#N`）か `prClaim`（`PR #N`）の `stage` と session の先頭8文字で、その行・宣言が無いときは `-`。ダッシュボードの行の経過時間などの文は入れない（見回しのたびに変わり、見送りが効かなくなる）。例：`fleet-status|plan|4559340b`、`停滞している Agent PR|-|-`。
       2. `due` が偽なら聞かず、ためるだけ（`held` と `nextAskAt` は手順12の一覧へ）。
       3. `due` が真なら、`ask` の全件を1問にまとめ、選択肢「全部引き継ぐ／全部見送る／選ぶ」で AskUserQuestion で聞く（おすすめを先頭に置き、なぜ人が要るかの1行を添える）。「選ぶ」なら続けて `ask` の `line` を選択肢にした複数選択で聞く（1問の選択肢は4つまでなので、多ければ4件ずつに分け、1回の AskUserQuestion の4問（16件）の中に収める）。
-      4. 答えを `node harness/scripts/hq-takeover-ask.ts record <ファイル>` で残す。ファイルは `{ "declined": [{ "key", "state" }…], "taken": ["<key>"…] }`。全部引き継ぐ＝`ask` の全件の `key` を `taken`。全部見送る＝`ask` の全件の `{key,state}` を `declined`。選ぶ＝選ばれた行の `key` を `taken`、示したが選ばれなかった行の `{key,state}` を `declined`（16件に収まらず示さなかった行はどちらにも入れない）。答えなかった・拒んだ＝`declined` も `taken` も空。`record` は聞いた時刻を進めるので、示さなかった行と答えの無かった行は、次の見回しではなく 24 時間（`HQ_TAKEOVER_DEFAULTS`）が経った次の `due` の回に聞く。
+      4. 答えを `node harness/scripts/hq-decide.ts takeover-record --answer <ファイル>` で残す。ファイルは `{ "declined": [{ "key", "state" }…], "taken": ["<key>"…] }`。全部引き継ぐ＝`ask` の全件の `key` を `taken`。全部見送る＝`ask` の全件の `{key,state}` を `declined`。選ぶ＝選ばれた行の `key` を `taken`、示したが選ばれなかった行の `{key,state}` を `declined`（16件に収まらず示さなかった行はどちらにも入れない）。答えなかった・拒んだ＝`declined` も `taken` も空。`takeover-record` は聞いた時刻を進めるので、示さなかった行と答えの無かった行は、次の見回しではなく 24 時間（`HQ_TAKEOVER_DEFAULTS`）が経った次の `due` の回に聞く。
       5. 引き継ぐものは、手順10と同じく受け持つ fleet の指示に `--takeover` での出し直しを書く。見送った行は、`state` が変わるまで聞き直さない（手順12では `skippedDeclined` の数だけ出す）。
   - Epic の振り分け（App が行い、hq は一覧に出すだけ）：
     - Epic に入っていない単発の Issue は、App の定期実行が Jev に問い、`jev.epicTriage` が `enforce` のときだけ App が Epic の sub-issues に足す（規則は [harness/docs/operations.md](../../../../harness/docs/operations.md) の「Epic の振り分け」）。

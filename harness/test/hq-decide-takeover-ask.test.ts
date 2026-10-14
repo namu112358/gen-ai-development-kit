@@ -1,7 +1,8 @@
-// Issue #771：止まった宣言・担当のいない PR の引き継ぎを hq が1日1回まとめて聞く判定（harness/scripts/hq-takeover-ask.ts）を確かめる。Orca・GitHub は起動しない。
+// Issue #771・#1026：止まった宣言・担当のいない PR の引き継ぎを hq が1日1回まとめて聞く判定（harness/scripts/hq-decide.ts の takeover-ask・takeover-record）を確かめる。
+// #1026 で別のスクリプト（harness/scripts/hq-takeover-ask.ts）から hq-decide.ts の subcommand に移したので、元のスクリプトが無いことと、出力の JSON が前と同じ形であることも確かめる。Orca・GitHub は起動しない。
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -9,7 +10,7 @@ import { hqStateDir } from '../scripts/hq-state.ts';
 import {
   HQ_TAKEOVER_DEFAULTS, recordTakeoverAnswer, takeoverAskDecision, takeoverPath,
   type TakeoverItem, type TakeoverRecord,
-} from '../scripts/hq-takeover-ask.ts';
+} from '../scripts/hq-decide.ts';
 
 const root = join(import.meta.dirname, '..', '..');
 const NOW = Date.parse('2026-10-13T12:00:00.000Z');
@@ -102,26 +103,38 @@ test('takeoverPath：hqStateDir の下の hq-takeover-ask.json', () => {
 });
 
 const cli = (dir: string, ...args: string[]) =>
-  spawnSync(process.execPath, ['harness/scripts/hq-takeover-ask.ts', ...args, '--common-dir', dir], { cwd: root, encoding: 'utf8' });
+  spawnSync(process.execPath, ['harness/scripts/hq-decide.ts', ...args, '--common-dir', dir], { cwd: root, encoding: 'utf8' });
 
-test('CLI：check は記録を書かずに判定を出し、record の後の check は見送りを外して間隔待ちになる', () => {
+test('元のスクリプト harness/scripts/hq-takeover-ask.ts は無い（hq-decide.ts の subcommand に移した）', () => {
+  assert.equal(existsSync(join(root, 'harness', 'scripts', 'hq-takeover-ask.ts')), false);
+});
+
+test('CLI：takeover-ask は記録を書かずに判定を出し、takeover-record の後の takeover-ask は見送りを外して間隔待ちになる', () => {
   const dir = mkdtempSync(join(tmpdir(), 'hq-takeover-'));
   try {
     const found = join(dir, 'found.json');
-    writeFileSync(found, JSON.stringify([item('#1'), item('#2')]));
-    const c1 = cli(dir, 'check', found);
+    const foundItems = [item('#1'), item('#2')];
+    writeFileSync(found, JSON.stringify(foundItems));
+    const c1 = cli(dir, 'takeover-ask', '--found', found);
     assert.equal(c1.status, 0, c1.stderr);
-    const d1 = JSON.parse(c1.stdout) as { due: boolean; held: number; nextAskAt: string | null };
-    assert.deepEqual([d1.due, d1.held, d1.nextAskAt], [true, 2, null]);
+    const d1 = JSON.parse(c1.stdout) as Record<string, unknown>;
+    // 出力の形は前と同じ：キーはちょうどこの5つで、値は記録なしの takeoverAskDecision と同じ
+    assert.deepEqual(Object.keys(d1).sort(), ['ask', 'due', 'held', 'nextAskAt', 'skippedDeclined']);
+    assert.deepEqual(d1, takeoverAskDecision({ found: foundItems, record: null, now: Date.now(), hours: H }));
     assert.equal(existsSync(takeoverPath(dir)), false);
 
     const answer = join(dir, 'answer.json');
     writeFileSync(answer, JSON.stringify({ declined: [{ key: '#1', state: 'stale' }], taken: ['#2'] }));
-    const r = cli(dir, 'record', answer);
+    const r = cli(dir, 'takeover-record', '--answer', answer);
     assert.equal(r.status, 0, r.stderr);
     assert.equal(existsSync(takeoverPath(dir)), true);
+    // 出力は更新後の記録で、書いたファイルの中身と同じ
+    const written = JSON.parse(readFileSync(takeoverPath(dir), 'utf8')) as TakeoverRecord;
+    assert.deepEqual(JSON.parse(r.stdout), written);
+    assert.deepEqual([written.version, written.declined], [1, [{ key: '#1', state: 'stale' }]]);
+    assert.equal(typeof written.lastAskedAt, 'string');
 
-    const c2 = cli(dir, 'check', found);
+    const c2 = cli(dir, 'takeover-ask', '--found', found);
     assert.equal(c2.status, 0, c2.stderr);
     const d2 = JSON.parse(c2.stdout) as { due: boolean; held: number; skippedDeclined: number; nextAskAt: string | null };
     assert.deepEqual([d2.due, d2.held, d2.skippedDeclined], [false, 1, 1]);
@@ -140,7 +153,7 @@ test('CLI：記録ファイルが壊れている・version が違うときは記
     mkdirSync(dirname(path), { recursive: true });
     for (const body of ['{not json', JSON.stringify({ version: 2, lastAskedAt: new Date().toISOString(), declined: [{ key: '#1', state: 'stale' }] })]) {
       writeFileSync(path, body);
-      const c = cli(dir, 'check', found);
+      const c = cli(dir, 'takeover-ask', '--found', found);
       assert.equal(c.status, 0, c.stderr);
       const d = JSON.parse(c.stdout) as { due: boolean; held: number; skippedDeclined: number };
       assert.deepEqual([d.due, d.held, d.skippedDeclined], [true, 1, 0], body);
@@ -156,7 +169,7 @@ test('CLI：found が配列でない・要素の key/state/line が文字列で�
     const found = join(dir, 'found.json');
     for (const bad of [{ key: '#1', state: 's', line: 'l' }, [{ key: 1, state: 's', line: 'l' }], [{ key: '#1', state: null, line: 'l' }], [{ key: '#1', state: 's' }]]) {
       writeFileSync(found, JSON.stringify(bad));
-      assert.equal(cli(dir, 'check', found).status, 1, JSON.stringify(bad));
+      assert.equal(cli(dir, 'takeover-ask', '--found', found).status, 1, JSON.stringify(bad));
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
