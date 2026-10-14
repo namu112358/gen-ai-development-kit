@@ -1,16 +1,18 @@
 // runReview を段階ごとに step.do で動かす ReviewWorkflow と、Worker の Env・Workflow の params の型 ReviewEventParams。
 // collect の結果（diff と変更ファイルの中身）は 1 MiB を超えうるので、collect だけは step.do で包まず、再開のたびに GitHub を読み直す。
 // 最初に step.sleep で settleSeconds 秒待つ（push が続くあいだの古い head に Claude を呼ばない）。待つのは action が trigger.settleActions にあるときと、action の無い古い params のときだけ。
-// token・API キー・本文・署名は段階の結果にもログにも入れない。
+// 実行に要る値（installation・App の鍵と login・Claude のキー・上限・trigger）は、リポジトリの表（REVIEW_REPOS。無ければ vars から組む1行の表）の
+// その PR のリポジトリの行だけから prepareRepoReview（pipeline.ts）で選ぶ。表に無い・行が足りなければ Claude を呼ばずに止める。
+// token・API キー・本文・署名は段階の結果にもログにも入れない（ログ・コメント・KV の記録は表のすべての行の秘密で伏せる）。
 // @anthropic-ai/sdk・cloudflare:workers・cloudflare:workflows を import するのは worker.ts とこのファイルだけ。
 import Anthropic from '@anthropic-ai/sdk';
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { NonRetryableError as WorkflowNonRetryableError } from 'cloudflare:workflows';
 import { NonRetryableError, type Message, type MessagesClient, type MessagesParams } from './claude.ts';
-import { applyBudgetEnv, loadReviewConfig } from './config.ts';
+import { loadReviewConfig } from './config.ts';
 import { appJwt, installationToken, READ_PERMISSIONS, WRITE_PERMISSIONS } from './github-app.ts';
 import { createGitHubClient } from './github.ts';
-import { runReview, type ReviewDeps, type ReviewParams, type ReviewResult, type RunStep, type StepName } from './pipeline.ts';
+import { prepareRepoReview, runReview, type ReviewDeps, type ReviewParams, type ReviewResult, type RunStep, type StepName } from './pipeline.ts';
 import { redact } from './redact.ts';
 import { RISK_QUESTIONS } from './verdict.ts';
 import reviewConfigJson from '../review.config.json' with { type: 'json' };
@@ -32,7 +34,9 @@ export interface Env {
   GITHUB_WEBHOOK_SECRET?: string;
   GITHUB_APP_PRIVATE_KEY?: string;
   ANTHROPIC_API_KEY?: string;
-  // 識別子は wrangler.jsonc の vars から入る（docs/review-api.md の節8.3）。無ければ空として扱う
+  // リポジトリの表（ダッシュボードの変数。JSON の文字列）。行が名指しする Secret は名前で env から読む（docs/review-api.md の節8.3）
+  REVIEW_REPOS?: string;
+  // REVIEW_REPOS が無い間は、wrangler.jsonc の vars のこれらから1行の表を組む（docs/review-api.md の節8.3）
   GITHUB_APP_CLIENT_ID?: string;
   GITHUB_INSTALLATION_ID?: string;
   ALLOWED_REPOS?: string;
@@ -102,25 +106,24 @@ function makeRunStep(step: WorkflowStep): RunStep {
 export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
   override async run(event: WorkflowEvent<ReviewEventParams>, step: WorkflowStep): Promise<ReviewResult> {
     const env = this.env;
-    const gateAppLogin = (env.GATE_APP_LOGIN ?? '').trim();
-    const reviewAppLogin = (env.REVIEW_APP_LOGIN ?? '').trim();
-    if (gateAppLogin === '' || reviewAppLogin === '') {
-      throw new WorkflowNonRetryableError('GATE_APP_LOGIN と REVIEW_APP_LOGIN が必要です');
-    }
     const { owner, repo, pr, headSha, action } = event.payload;
-    const secrets = [env.GITHUB_WEBHOOK_SECRET, env.GITHUB_APP_PRIVATE_KEY, env.ANTHROPIC_API_KEY].filter(
-      (s): s is string => s !== undefined && s !== '',
-    );
+    const setup = prepareRepoReview(env as unknown as Parameters<typeof prepareRepoReview>[0], loadReviewConfig(reviewConfigJson), `${owner}/${repo}`, {
+      dryRun: dryRunClient,
+      anthropic: anthropicClient,
+    });
+    // 理由と項目の名前・パスだけを出す（値は入れない）
+    if (!setup.ok) throw new WorkflowNonRetryableError(`repo ${setup.reason}${setup.errors.length > 0 ? ` ${setup.errors.join(' ')}` : ''}`);
+    const { runtime, secrets } = setup;
     const client = async (permissions: typeof READ_PERMISSIONS | typeof WRITE_PERMISSIONS) => {
-      const jwt = await appJwt(env.GITHUB_APP_CLIENT_ID ?? '', env.GITHUB_APP_PRIVATE_KEY ?? '');
-      const { token } = await installationToken(jwt, env.GITHUB_INSTALLATION_ID ?? '', permissions);
+      const jwt = await appJwt(runtime.clientId, runtime.privateKey);
+      const { token } = await installationToken(jwt, runtime.installationId, permissions);
       return createGitHubClient({ token, owner, repo });
     };
-    // 固定の JSON を使う経路と記録の印を同じ値で決める（Issue #1068）
+    // 記録の印は、prepareRepoReview が固定の JSON のクライアントを選ぶのと同じ条件（DRY_RUN=1）で決める（Issue #1068）
     const dryRun = env.DRY_RUN === '1';
     const deps: ReviewDeps = {
       github: { reader: () => client(READ_PERMISSIONS), writer: () => client(WRITE_PERMISSIONS) },
-      claude: dryRun ? dryRunClient() : anthropicClient(env.ANTHROPIC_API_KEY ?? ''),
+      claude: setup.claude,
       dryRun,
       kv: {
         get: (key) => env.REVIEW_KV.get(key),
@@ -131,18 +134,17 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
       sleep: (ms) => step.sleep('settle', ms),
       secrets,
     };
-    const budgeted = applyBudgetEnv(loadReviewConfig(reviewConfigJson), env);
     // 名前だけを出す（値は budget の段階のログに出る）
-    if (budgeted.invalid.length > 0) console.log(`budget env invalid ${budgeted.invalid.join(',')}`);
+    if (setup.invalid.length > 0) console.log(`budget env invalid ${setup.invalid.join(',')}`);
     const params: ReviewParams = {
       owner,
       repo,
       pr,
       headSha,
       ...(action === undefined ? {} : { action }),
-      gateAppLogin,
-      reviewAppLogin,
-      config: budgeted.config,
+      gateAppLogin: runtime.gateAppLogin,
+      reviewAppLogin: runtime.reviewAppLogin,
+      config: setup.config,
     };
     return runReview(deps, params, makeRunStep(step));
   }

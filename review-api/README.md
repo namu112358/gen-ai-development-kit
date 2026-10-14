@@ -10,6 +10,7 @@ PR レビューの試作の Worker（Cloudflare Workers・Workflows・KV）。�
 - `scripts/`：手元の確かめ用（`send-webhook.ts`）
 - `review.config.json`：モデル・レビューの条件・上限・単価
 - `wrangler.jsonc`：Worker・Workflow・KV の束ね方と、秘密でない設定（`vars`。App の識別子・受け付けるリポジトリ・bot の login）。`name`・KV の id・`vars` は導入先ごとの値。秘密は Cloudflare の Secret に入れる
+- リポジトリの表 `REVIEW_REPOS`：1つの Worker で複数のリポジトリを受けるときの行ごとの App・installation・Claude のキーの Secret の名前・上限。Cloudflare のダッシュボードの変数に置く（docs/review-api.md の節8.3。無ければ `wrangler.jsonc` の `vars` から1行の表を組む）
 - `.dev.vars.example`：`wrangler dev` 用の秘密と、`scripts/send-webhook.ts` が読む installation id の雛形（`.dev.vars` にコピーして使う。commit しない）
 
 ## コマンド

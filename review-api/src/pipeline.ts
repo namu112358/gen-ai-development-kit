@@ -1,4 +1,6 @@
 // レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ。待つのは action が trigger.settleActions にあるか、action の無い古い params のときだけ）fetch-pr → collect → budget → review → risk → validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
+// リポジトリの表（repos.ts）の行から Claude のクライアント・設定・伏せる秘密を組む prepareRepoReview（Workflow が使う）。行に Claude のキーが無ければ deps.claude は null で、fetch-pr の後に no-api-key で止める。
+// 月の累計は cost:<owner>/<repo>:<YYYY-MM>（小文字）でリポジトリごとに数え、上限は行の上書き済みの config.budget で見る。KV の記録・ログ・コメントは deps.secrets で伏せる。
 // GitHub・Claude・KV・時計・ログは deps から受け取り、token は deps の作り方（reader・writer）の中に閉じる（ここでは見ない）。
 // 段階は runStep に包んで呼ぶ（Workflow が step.do を渡す）。KV の書き込みと投稿は、その段階の中で行う。
 // risk-compare は Reviewer と Risk のモデルが違うとき、Risk を Reviewer のモデルでも問う（記録だけで判定には使わない。失敗しても verdict と outcome は変えない）。
@@ -6,7 +8,7 @@
 // import は review-api/src の中だけで、Node と Workers の両方で動く。
 import { askWithTools, type AskResult, type MessagesClient, type MessagesParams, type ToolRunner } from './claude.ts';
 import { collectMaterial, type Material } from './collect.ts';
-import { DEFAULT_SETTLE_ACTIONS, type ModelPricing, type ReviewConfig } from './config.ts';
+import { applyRepoOverrides, DEFAULT_SETTLE_ACTIONS, type BudgetEnv, type ModelPricing, type ReviewConfig } from './config.ts';
 import { checkBudget, estimateUsd, monthKey, type Usage } from './cost.ts';
 import type { GitHubClient } from './github.ts';
 import {
@@ -21,12 +23,13 @@ import {
 import { parseApiReviewComment, renderShadowComment, renderStoppedComment, type RiskCompareRecord, type RoleUsage, type RulesSummary, type ShadowRecord, type StoppedOutcome } from './record.ts';
 import type { RepositoryRules } from './rules.ts';
 import { redact } from './redact.ts';
+import { collectSecrets, parseRepoTable, resolveRepoRuntime, type RepoEnv, type RepoRuntime } from './repos.ts';
 import { wrapUntrusted } from './untrusted.ts';
 import { checkReviewerOutput, checkRiskOutput, composeShadowVerdict, type ReviewerOutput, type RiskOutput } from './verdict.ts';
 
 export type StepName = 'fetch-pr' | 'collect' | 'budget' | 'review' | 'risk' | 'validate' | 'risk-compare' | 'record' | 'post' | 'post-stopped';
 export type RunStep = <T>(name: StepName, fn: () => Promise<T>) => Promise<T>;
-export type ReviewOutcome = 'superseded' | 'closed' | 'duplicate' | 'budget-exceeded' | 'too-large' | 'verdict-invalid' | 'posted';
+export type ReviewOutcome = 'superseded' | 'closed' | 'duplicate' | 'no-api-key' | 'budget-exceeded' | 'too-large' | 'verdict-invalid' | 'posted';
 
 export type GitHubReader = Pick<GitHubClient, 'getPr' | 'getIssue' | 'listComments' | 'compareDiff' | 'getFileContent' | 'getTree'>;
 export type GitHubWriter = Pick<GitHubClient, 'createComment'>;
@@ -38,7 +41,8 @@ export interface ReviewKv {
 
 export interface ReviewDeps {
   github: { reader(): Promise<GitHubReader>; writer(): Promise<GitHubWriter> };
-  claude: MessagesClient;
+  /** null はリポジトリの行に Claude のキーが無い（Claude を呼ばずに no-api-key で止める） */
+  claude: MessagesClient | null;
   kv: ReviewKv;
   now(): number;
   log(line: string): void;
@@ -81,8 +85,37 @@ export function reviewKey(owner: string, repo: string, pr: number, sha: string):
   return `review:${owner}/${repo}:${pr}:${sha}`;
 }
 
-export function costKey(date: Date): string {
-  return `cost:${monthKey(date)}`;
+/** 月の累計の鍵。リポジトリごとに分ける（owner/repo は小文字） */
+export function costKey(owner: string, repo: string, date: Date): string {
+  return `cost:${owner.toLowerCase()}/${repo.toLowerCase()}:${monthKey(date)}`;
+}
+
+export type RepoReviewSetup =
+  | { ok: false; reason: 'repo-table-invalid' | 'not-in-table' | 'repo-row-incomplete'; errors: string[] }
+  | { ok: true; runtime: RepoRuntime; claude: MessagesClient | null; config: ReviewConfig; invalid: string[]; secrets: string[] };
+
+/**
+ * リポジトリの表の行だけから、レビューの Claude のクライアント・設定・伏せる秘密を組む（ほかの行の値は使わない）。
+ * 表が壊れている・表に無い・行の login・installationId・clientId が空なら ok: false（errors は項目の名前とパスだけで、値は入れない）。
+ * DRY_RUN=1 ならキーを見ずに dryRun のクライアント、行のキーが空なら claude は null。secrets は表のすべての行の秘密
+ */
+export function prepareRepoReview(
+  env: RepoEnv & BudgetEnv & { DRY_RUN?: string },
+  baseConfig: ReviewConfig,
+  fullName: string,
+  clients: { dryRun(): MessagesClient; anthropic(apiKey: string): MessagesClient },
+): RepoReviewSetup {
+  const parsed = parseRepoTable(env);
+  if (parsed.errors.length > 0) return { ok: false, reason: 'repo-table-invalid', errors: parsed.errors };
+  const runtime = resolveRepoRuntime(env, parsed.table, fullName);
+  if (runtime === null) return { ok: false, reason: 'not-in-table', errors: [] };
+  const required = { gateAppLogin: runtime.gateAppLogin, reviewAppLogin: runtime.reviewAppLogin, installationId: runtime.installationId, clientId: runtime.clientId };
+  const missing = Object.entries(required).filter(([, v]) => v.trim() === '').map(([k]) => k);
+  if (missing.length > 0) return { ok: false, reason: 'repo-row-incomplete', errors: missing };
+  const apiKey = runtime.anthropicKey.trim();
+  const claude = env.DRY_RUN === '1' ? clients.dryRun() : apiKey === '' ? null : clients.anthropic(apiKey);
+  const { config, invalid } = applyRepoOverrides(baseConfig, runtime.overrides, env);
+  return { ok: true, runtime, claude, config, invalid, secrets: collectSecrets(env, parsed.table) };
 }
 
 /** tool_result 1 件の見込みのトークン数の上限（ファイルの中身は maxFileChars より小さいことが多い。4000 トークン ≒ 8000 文字） */
@@ -262,7 +295,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   // duplicate は既にある記録を消さない
   const writeRecord = async (outcome: ReviewOutcome, extra: Record<string, unknown>): Promise<void> => {
     if (outcome === 'duplicate' && (await deps.kv.get(key)) !== null) return;
-    await deps.kv.put(key, JSON.stringify({ version: 1, outcome, pr, headSha, at: new Date(deps.now()).toISOString(), ...extra }));
+    await deps.kv.put(key, redact(JSON.stringify({ version: 1, outcome, pr, headSha, at: new Date(deps.now()).toISOString(), ...extra }), secrets));
   };
   const stopStep = async (name: StepName, outcome: ReviewOutcome): Promise<ReviewResult> => {
     log(`${name} ${outcome}`);
@@ -318,16 +351,31 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
     else if (found.state !== 'open') stop = 'closed';
     else if ((await deps.kv.get(key)) !== null) stop = 'duplicate';
     else if (hasOwnRecord(await gh.listComments(pr), params.reviewAppLogin, headSha)) stop = 'duplicate';
+    else if (deps.claude === null) stop = 'no-api-key';
     if (stop !== null) await writeRecord(stop, {});
     return { startedAt, stop };
   });
-  if (fetched.stop !== null) return stopStep('fetch-pr', fetched.stop);
+  if (fetched.stop !== null) {
+    const stopped = await stopStep('fetch-pr', fetched.stop);
+    if (fetched.stop === 'no-api-key') await postStopped('no-api-key', { usd: null });
+    return stopped;
+  }
+  const claude = deps.claude;
+  if (claude === null) return stopStep('fetch-pr', 'no-api-key');
   log('fetch-pr ok');
 
   // 2. collect
   const material = await step('collect', async (): Promise<Material> => {
     const gh = await deps.github.reader();
-    return collectMaterial(gh, config, { owner, repo, pr, headSha, appLogin: params.gateAppLogin, reviewLogin: params.reviewAppLogin });
+    return collectMaterial(gh, config, {
+      owner,
+      repo,
+      pr,
+      headSha,
+      appLogin: params.gateAppLogin,
+      reviewLogin: params.reviewAppLogin,
+      ...(config.trigger.issueLink === undefined ? {} : { issueLink: config.trigger.issueLink }),
+    });
   });
   log(`collect ok rules=${material.rules.status}`);
   const rules = rulesSummary(material.rules);
@@ -335,7 +383,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   const models = asks.models;
   log(`models review=${models.review} risk=${models.risk}`);
 
-  const month = costKey(new Date(deps.now()));
+  const month = costKey(owner, repo, new Date(deps.now()));
   const usdOf = (u: Record<string, Usage>): number | null => usageUsd(u, config.pricing);
   const roleUsage = (u: Record<string, Usage>): RoleUsage => ({ usage: u, usd: usdOf(u) });
 
@@ -383,7 +431,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
 
   // 4. review
   const review = await step('review', async (): Promise<AskStep> => {
-    const r = await askWithTools(deps.claude, asks.review, await toolRunner(), config.claude.maxToolCalls);
+    const r = await askWithTools(claude, asks.review, await toolRunner(), config.claude.maxToolCalls);
     return { skipped: false, result: r };
   });
   log(`review ${review.skipped ? 'skipped' : review.result.ok ? 'ok' : review.result.reason}`);
@@ -391,7 +439,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   // 5. risk（review が失敗なら呼ばない）
   const risk = await step('risk', async (): Promise<AskStep> => {
     if (!review.skipped && !review.result.ok) return { skipped: true };
-    const r = await askWithTools(deps.claude, asks.risk, await toolRunner(), config.claude.maxToolCalls);
+    const r = await askWithTools(claude, asks.risk, await toolRunner(), config.claude.maxToolCalls);
     return { skipped: false, result: r };
   });
   log(`risk ${risk.skipped ? 'skipped' : risk.result.ok ? 'ok' : risk.result.reason}`);
@@ -412,7 +460,7 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
       compared = await step('risk-compare', async () => {
         if (budget.compare === 'budget') return { record: { model, skipped: 'budget' }, usage: {} };
         if (!validated.ok) return { record: { model, skipped: 'not-validated' }, usage: {} };
-        const r = await askWithTools(deps.claude, asks.riskCompare!, await toolRunner(), config.claude.maxToolCalls);
+        const r = await askWithTools(claude, asks.riskCompare!, await toolRunner(), config.claude.maxToolCalls);
         if (!r.ok) return { record: { model, error: r.reason }, usage: r.usage };
         const k = checkRiskOutput(r.value);
         if (!k.ok) return { record: { model, error: `invalid(${k.errors.length})` }, usage: r.usage };
