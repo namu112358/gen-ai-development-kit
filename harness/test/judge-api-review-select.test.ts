@@ -5,43 +5,13 @@
 // head の一致を patch-id の一致より先に、同じ段では id の大きい記録を選び、samePatch は head が違う候補にだけ呼ぶことを見る
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { renderShadowComment, renderStoppedComment, parseApiReviewComment, type StoppedOutcome } from '../../review-api/src/record.ts';
-import { composeShadowVerdict, type ReviewerOutput, type RiskOutput } from '../../review-api/src/verdict.ts';
-import { judgeInputFacts, parseApiReviewRecord, selectApiReview } from '../lib/api-review.ts';
+import { parseApiReviewComment } from '../../review-api/src/record.ts';
+import { composeShadowVerdict } from '../../review-api/src/verdict.ts';
+import { judgeInputFacts, parseApiReviewRecord } from '../lib/api-review.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { renderJudgeInput } from '../lib/session-inputs.ts';
-import { RISK_QUESTIONS } from '../lib/verdict.ts';
 import { config, verdictComment } from './support/gate-fixtures.ts';
-
-const PR = 5;
-const HEAD = 'a'.repeat(40);
-const OTHER = 'b'.repeat(40);
-const APP = 'review-api[bot]';
-const MODELS = { review: 'claude-opus-5-5', risk: 'claude-sonnet-5-5' };
-
-const REVIEWER: ReviewerOutput = { pass: false, blocking: [{ kind: 'bug', file: 'src/a.ts', detail: 'null で落ちる' }], nonBlocking: ['命名'] };
-const RISK: RiskOutput = {
-  level: 'low',
-  answers: Object.fromEntries(RISK_QUESTIONS.map((q) => [q.key, q.safe])) as RiskOutput['answers'],
-  rationale: 'docs のみ',
-  facts: { references: 'none', tests: 'none', fileKinds: 'docs' },
-};
-
-const postedBody = (headSha = HEAD, pr = PR): string =>
-  renderShadowComment({
-    version: 1, pr, headSha,
-    verdict: composeShadowVerdict({ pr, headSha, reviewer: REVIEWER, risk: RISK, model: MODELS.review }),
-    models: MODELS, usage: {}, usd: null, durationSec: 1,
-  });
-const stoppedBody = (outcome: StoppedOutcome, headSha = HEAD, pr = PR): string => renderStoppedComment({ version: 1, pr, headSha, outcome, usd: null });
-
-const comment = (id: number, body: string, user: IssueComment['user'] = { login: APP, type: 'Bot' }): IssueComment => ({
-  id, body, html_url: `https://example.test/c${id}`, created_at: '2026-10-13T00:00:00Z', updated_at: '', author_association: 'NONE', user,
-});
-
-const OPEN = { state: 'open', previousHead: null };
-const select = (comments: IssueComment[], opts: { facts?: { state: string | null; previousHead: string | null }; samePatch?: (h: string) => boolean } = {}) =>
-  selectApiReview({ pr: PR, judgedHead: HEAD, appLogin: APP, comments, facts: opts.facts ?? OPEN, samePatch: opts.samePatch ?? (() => false) });
+import { APP, HEAD, MODELS, OTHER, PR, REVIEWER, RISK, comment, postedBody, select, stoppedBody } from './support/judge-api-review.ts';
 
 // 目印とフェンスだけを手で組んだ本文（render が受け付けない値を読み戻しに渡すため）
 const handBody = (json: string, head = HEAD): string => [`<!-- api-review-shadow head=${head} -->`, '', '```api-review-shadow', json, '```', ''].join('\n');
@@ -54,6 +24,11 @@ test('parseApiReviewRecord：review-api の parseApiReviewComment と同じ記�
     ['JSON が壊れた', handBody('{ not json')],
     ['head の食い違い', handBody(JSON.stringify({ version: 1, pr: PR, headSha: OTHER, outcome: 'too-large', usd: null }))],
     ['outcome が語彙の外', handBody(JSON.stringify({ version: 1, pr: PR, headSha: HEAD, outcome: 'exploded', usd: null }))],
+    // 印の欄が boolean でない posted（#1069）
+    ...(['diffTruncated', 'dryRun'] as const).map((key): [string, string] => [
+      `${key} が文字列`,
+      handBody(JSON.stringify({ version: 1, pr: PR, headSha: HEAD, verdict: composeShadowVerdict({ pr: PR, headSha: HEAD, reviewer: REVIEWER, risk: RISK, model: MODELS.review }), models: MODELS, usage: {}, usd: null, durationSec: 1, [key]: 'false' })),
+    ]),
   ];
   for (const [name, body] of bodies) {
     const want = parseApiReviewComment(body);
