@@ -242,3 +242,14 @@ Claude Code のクラウドのセッション（claude.ai/code）で、付き添
 **Orca が無いときの進め方**：クラウドではサブエージェントの入れ子が1段までなので、`fleet.nesting` が `orca` のままでも、ship が「入れ子不可」を返し、fleet は1つのセッションで段階を交互に進める方式（`flat`）になる。この1段までという事実は Epic #706 の 2026-10-11 の動作確認によるもので、クラウドの挙動が変わったら見直す。hq・intel・ペイン・Orca の通知は無い（hq を使わず、fleet・ship を使う）。SessionStart の hook は、`CLAUDE_CODE_REMOTE_SESSION_ID` があるときは Orca の CLI が無いことを知らせない。ハーネスが更新されたときの交代は、Orca が無いときの手順（人が新しいセッションに渡す1行を示して止まる）になる。
 
 **PR を出した後の待ち方**：クラウドのセッションは、止まると VM が回収されることがあり、数分おきの読み直しのループは続かない。そのため ship は Draft PR を出したらその PR の通知を購読し（`subscribe_pr_activity`）、CI・レビュー・衝突・Merge・Close のイベントで起きて `step` で次の段階（fix・sync・判定のやり直し・Merge の後の見届け）に進む。取りこぼしに備えて30分おきに見回りを予約し（`send_later`）、何も変わらない見回りが3回続いたら予約を止めて人に一度だけ伝える。Merge か Close で購読と予約をやめる。fleet は購読中の PR を数分おきの読み直しから外す。手順は [ship の skill](../.claude/skills/ship/SKILL.md) の節「クラウドで PR を出した後（PR のイベントで進める）」（#892）。
+
+## 13. API のレビュー（任意）
+
+既定ではローカルのレビュー（reviewer・risk-agent）で判定するので、何もしなくても今の judge で動く（`harness.config.json` の `reviewSource` が無いか `mode` が `local`）。kit の Worker（Claude API + Cloudflare）でレビューを受けるときに導入先がすることは次の4つ。
+
+1. レビュー専用の GitHub App を導入先にインストールする（別の owner なら、App を公開にして入れるか、その owner に App を別に作る）。
+2. Claude API のキーを、導入先ごとの Console のワークスペースで発行し、月の上限を切る。
+3. キーなどを Worker の Secret に入れ、Worker のリポジトリの表（`REVIEW_REPOS`）に導入先の行を足す。導入先のリポジトリ名・installation id などは kit のリポジトリのファイル・Issue・PR に書かず、Cloudflare のダッシュボードで入れる。
+4. 試運転で記録を数件比べてから、導入先の `harness.config.json` の `reviewSource` を `mode: api` にする（導入先の Issue・PR で行う）。
+
+手順の正本（取り込みの前に導入先で決めること・試運転・ロールバックを含む）は [review-api.md の節 15](review-api.md#15-導入先で-api-のレビューを使う)。kit の `docs/` は配られないので、kit のリポジトリで読む。

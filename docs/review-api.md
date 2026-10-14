@@ -12,6 +12,7 @@ reviewer / risk-agent の判定を Claude API + Cloudflare に委ねる仕組み
 - **App は記録を読まない**：新 App のコメントはコラボレーターではないのでゲートが読まず（`author_association` が OWNER / MEMBER / COLLABORATOR 以外は無視。`harness/gates/on-comment.ts`）、記録のブロック名は `api-review-shadow`（`gate.yml` の起動条件にも `agent-verdict` の読み取りにも当たらない）。Merge・Approve・ラベル・Check Run は書かない。
 - **既存の形式をそのまま使う**：Claude API の出力は reviewer の JSON（`pass`・`blocking`・`nonBlocking`・`humanNotes`）と risk-agent の JSON（`level`・8問の `answers`・`rationale`・`facts`）と同じ形。検証は `harness/lib/verdict.ts` の `parseVerdict` と同じ規則（`pass` と `blocking` の整合、kind・noul の語彙）。本運用では、この JSON を `compose-verdict` の入力に渡す。
 - **費用の仮説（$1〜2 / レビュー）は高めの見込み**。Opus 5.5 で 1 レビュー（2 回の問い）あたり $0.3〜0.8、Sonnet 5.5 でその半分程度と見積もる（下の「費用」）。実測はレビューごとの記録（トークン・USD）で確かめる。
+- **導入先**：導入先は kit の Worker でレビューを受け、キーと上限はリポジトリごとに分ける。配る設定の既定はローカルのレビュー（手順は節 15）。
 - **人が決めること**（下の「人が決めること」）：(1) レビュー専用 App を作るか、(2) Cloudflare の plan（Free で始めるか Paid $5/月か）、(3) Claude API のキーをどの Console のワークスペースで発行するか。どれも試作のコードには影響しない（Secrets と変数で渡す）。
 
 ## 1. 調査結果：既存のレビューの仕組み
@@ -266,7 +267,7 @@ Observability（Worker のログ）は `wrangler.jsonc` の `observability` で 
 
 識別子の5つは `wrangler.jsonc` の `vars` に書き、ダッシュボードでは入れない（変更はレビューを通す）。運用で変える上限の2つはダッシュボードで入れる。`wrangler deploy`（Workers Builds）は、`wrangler.jsonc` の `keep_vars: true` で `wrangler.jsonc` に無いダッシュボードの変数を残し、`vars` にある名前は `wrangler.jsonc` の値で上書きする（`keep_vars` が無かった 2026-10-13 には、ダッシュボードに Text で入れた `ALLOWED_REPOS` がデプロイで消えて `repo-not-allowed` で止まった。#985）。秘密の3つは `wrangler.jsonc` に書かない。
 
-**ほかのリポジトリへの転用**：導入先ごとに変える値は `wrangler.jsonc` の `name`・KV の id・`vars` の5つで、秘密の3つは導入先の Cloudflare の Secret に入れる。同じ owner の別のリポジトリは、レビュー専用 App をそこにもインストールし（同じ installation になる）、`ALLOWED_REPOS` にカンマ区切りで足せば、1つの Worker で受けられる。
+**ほかのリポジトリへの転用**：導入先で API のレビューを使う手順は節 15。
 
 **リポジトリの表（`REVIEW_REPOS`）**：1つの Worker で、App・installation・Claude のキー・上限の違う複数のリポジトリを受けるときは、ダッシュボードの変数 `REVIEW_REPOS`（Type Text。JSON の文字列）に表を書く。あればこれだけを使い、上の `vars` の5つ（`ALLOWED_REPOS` など）は読まない。無い・空白だけの間は、`vars` の5つと秘密の3つの名前から1行の表を組む（今の動き）。
 
@@ -395,3 +396,69 @@ base の `guardrailPaths` には `harness/lib/**`・`harness/scripts/agent/**`�
 | Cloudflare の plan | 課金の発生 | Free で始め、CPU の制限に当たったら Paid（$5/月） |
 | Claude API のキー | 課金の発生。Console のワークスペースで上限（月の spend limit）を切れる | 専用のワークスペースを作り、月の上限を `budget.monthlyUsd` と同じにする（`BUDGET_MONTHLY_USD` で上書きしたらその値に合わせる） |
 | Risk を Sonnet 5.5 のままにするか | 精度と費用の取り引き | 決めた（Issue #996）：Opus 5.5。level が 3 件中 1 件で違ったため |
+
+## 15. 導入先で API のレビューを使う
+
+人の決定（2026-10-13、Epic #1018）：Worker は kit の1つを使い、Claude API のキーと上限はリポジトリごとに分ける。導入先がすることは、レビュー専用 App のインストール、Claude API のキーの用意、Worker のリポジトリの表（`REVIEW_REPOS`）への登録、judge の設定（`reviewSource`）の4つ。何もしなければ、導入先の judge は今までどおりローカルのレビューで判定する（下の 15.6）。
+
+導入先のリポジトリへの変更（`harness.config.json` の `reviewSource` など）は、導入先の Issue・PR で行う。このリポジトリからは導入先を変えない。
+
+### 15.1 取り込みの前に導入先で決めること
+
+API のレビューは kit の判定の流れ（judge の skill・reviewer / risk-agent の基準・`claude/` のブランチ・`Closes #N`）を前提に問う。導入先の流れが kit と違うときは、取り込みの前に導入先で次を決める。
+
+| 導入先の違い | 決めること | おすすめ |
+| --- | --- | --- |
+| judge の skill を `harness/managed.local.json` で sync から外している・手を入れている | 手順2a（`api-review`）と `compose-verdict --review-source api` を導入先の judge に入れるか | 入れられないなら `reviewSource.mode` は `local` のまま |
+| Agent PR のブランチが `claude/` で始まらない（`agentBranchPrefix` が違う） | 行の `trigger.branchPrefix` | 導入先の `agentBranchPrefix` と同じ値 |
+| Issue を `Closes #N` でなく `Refs #N` で結ぶ（Stacked PR の下の層など） | 行の `trigger.issueLink`・`trigger.requireClosesIssue` | `issueLink` を `closes-or-refs` |
+| `reviewPanel.mode` が `enforce`（合体版で判定している） | API のレビュー（Reviewer と Risk の2つの問い）で代わりにしてよいか（節 12 の「置き換わる先の差」） | 導入先の人が数件比べてから決める（15.7） |
+| レビューの基準が kit の reviewer / risk-agent と違う（導入先の agent を書き換えている） | API のレビューを使うか | API のレビューは kit の基準と base の CLAUDE.md で問うので、導入先の基準に合わせられないなら `local` のまま |
+| `guardrailPaths` が kit と違う | API の記録で判定する PR の範囲 | 決めることは無い（`api-review` は base の `guardrailPaths` に当たる PR をローカルに戻す。節 12） |
+
+### 15.2 識別子を公開のリポジトリに書かない
+
+導入先のリポジトリ名・installation id・Client ID・bot の login と、Secret の値は、このリポジトリ（公開）のファイル・Issue・PR に書かない。`REVIEW_REPOS` の行は Cloudflare のダッシュボード（Worker の Settings → Variables and Secrets、Type Text）で入れ、`wrangler.jsonc` の `vars` には書かない。このリポジトリの文書の例は `<owner>/<repo>`・`<slug>[bot]` と架空の値（節 8.3 の `example-owner/example-repo` など）だけにする。導入先の Issue・PR に書くかは導入先が決める（導入先が非公開なら書いてよい）。
+
+### 15.3 レビュー専用 App のインストール
+
+- 導入先が kit と同じ owner：kit のレビュー専用 App（節 8.1）を導入先のリポジトリにもインストールする（Install App → Only select repositories に足す）。installation は同じになるので、行の `installationId`・`app` は kit の行と同じ値・同じ Secret の名前でよい。
+- 導入先が別の owner：次のどちらか。
+  - kit の App を公開にして（App の設定の Advanced → Make public）、その owner にインストールする。installation が別になるので、URL の末尾の installation id を控えて行の `installationId` に書く。`app` は kit の行と同じ。
+  - その owner にレビュー専用 App を別に作る（節 8.1 の手順と同じ権限・イベント）。行の `app` に、その App の Client ID・秘密鍵の Secret の名前・Webhook の秘密の Secret の名前・bot の login を書く。
+- 権限は節 8.1 と同じ（Contents read・Issues read・Pull requests write・Metadata read、イベントは Pull request）。インストール先は API のレビューを使うリポジトリだけにする。
+- App の Webhook の URL は kit の Worker（節 10 の手順2）。別の owner に App を別に作ったときは、その App の Webhook にも同じ URL と、その App 用の Webhook の秘密を入れる。
+
+### 15.4 Claude API のキー
+
+導入先ごとに Claude Console のワークスペースを分けてキーを発行し、ワークスペースの月の上限（spend limit）を行の `budget.monthlyUsd` と同じにする（節 14 の Claude API のキーの行と同じ考え方を導入先ごとに）。行に `budget` が無ければ `review.config.json` の `budget`（節 6・7）が効くので、上限はその値に合わせる。月の累計は KV の `cost:<owner>/<repo>:<YYYY-MM>` にリポジトリごとに数える（節 8.3）。
+
+### 15.5 Worker の Secret と表への登録
+
+1. 行が名指しする Secret の名前を決める：`^[A-Z][A-Z0-9_]*$`。導入先のリポジトリ名が分からない名前にする（例：`ANTHROPIC_API_KEY_<短い名前>`。ダッシュボードの名前は公開されないが、名前を表に書いて PR で見せることがあるため）。
+2. Worker の Settings → Variables and Secrets で、Claude のキー（と、App を別に作ったなら App の秘密鍵・Webhook の秘密）を **Type を Secret** にして入れる。
+3. `REVIEW_REPOS`（Type Text）に導入先の行を足す。行の書き方と、表がまだ無いときの移行は節 8.3（「リポジトリの表」と「表への移行の手順」）。表に誤りが1つでもあると表全体が使われず、kit のレビューも止まる（`repo-table-invalid`）ので、保存の前に JSON として読めるかを確かめ、保存の後に kit の PR でレビューが付くことも確かめる。
+
+### 15.6 judge の設定
+
+導入先の judge は `harness.config.json` の `reviewSource`（節 12 の表）で、API の記録を使うかを決める。
+
+- 既定はローカルのレビュー：`reviewSource` が無い、または `mode` が `local` なら、`api-review` は GitHub を読まずに `{ "action": "local", "reason": "disabled" }` を返し、judge は今までどおりローカルのレビューで判定する。雛形（`harness/templates/harness.config.json`）は `"reviewSource": { "mode": "local" }`。`harness.config.json` は `projectOwned`（初回だけ雛形から作る）なので、前から導入している先にはキーが無いことがあるが、そのときも `local`。配布物でこの既定を確かめるテストは `harness/test/managed-review-source.test.ts`。
+- 使うとき：導入先の `harness.config.json` に次を書く（`appLogin` は導入先の行の App の bot の login）。`mode` が `api` で `appLogin` が無いと、設定の誤りで止まる。
+  ```json
+  "reviewSource": { "mode": "api", "waitMinutes": 8, "appLogin": "<slug>[bot]" }
+  ```
+- `harness.config.json` は導入先でもガードレールなので、この変更は導入先の Issue・PR で、導入先の人の判断を通して行う。
+
+### 15.7 試運転（shadow）と本運用への切り替え
+
+1. 表に行を足した後も、導入先の `reviewSource.mode` は `local` のまま置く。Worker は導入先の Agent PR に記録（「API レビュー（shadow）」のコメント）を付けるが、judge は読まない（ゲートも読まない。節 4・結論）。
+2. 導入先の PR で、記録が付くこと・KV の導入先の累計が増え kit の累計が変わらないこと（節 8.3 の移行の手順5）を確かめ、同じ head のローカルの判定（`agent-verdict`）と記録を節 11 の比べ方で数件並べる。
+3. 導入先の人が決めたら、導入先の Issue・PR で `reviewSource` を 15.6 の「使うとき」の形にする。
+
+### 15.8 ロールバック
+
+- judge をローカルに戻す：導入先の `reviewSource.mode` を `local` にする。次の判定から GitHub を読まずにローカルのレビューで判定する。
+- Worker 側で止める：`REVIEW_REPOS` から導入先の行を消す（表に無いリポジトリでは Claude を呼ばない。節 5）か、その行のキーを Console で無効にする。どちらも記録が付かなくなるので、`mode` が `api` のままなら judge は `waitMinutes` を待ってからローカルに戻る（`no-api-key` の記録は今は judge が読み戻さず、記録が無いときと同じに扱う。節 5）。すぐ戻すなら上の `local` も行う。
+- 行を消しても、ほかの導入先と kit のレビューは止まらない（行ごとにキー・上限・installation を使うため）。表の JSON を壊すと全部が止まるので、消した後に kit の PR でレビューが付くことを確かめる。
+- 鍵の失効は節 13 と同じ（App を別に作ったなら、その App の秘密鍵を Revoke）。
