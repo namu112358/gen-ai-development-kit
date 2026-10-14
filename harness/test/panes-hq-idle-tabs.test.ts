@@ -2,12 +2,12 @@
 // 8時間出力の無い claude のタブが1行で出ること、しきい値未満・claude でない・除外の handle のタブが出ないことが AC。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { hqStallConfig } from '../lib/hq-stall.ts';
+import { HQ_STALL_DEFAULTS } from '../lib/hq-stall.ts';
 import { idleTabs, parseIdleArgs, readIdleTabs, renderIdleTab, type RunResult } from '../scripts/panes.ts';
 
 const NOW = Date.parse('2026-10-12T12:00:00.000Z');
 const MIN = 60_000;
-const DEFAULT_MINUTES = hqStallConfig({}).stuckMinutes;
+const DEFAULT_MINUTES = HQ_STALL_DEFAULTS.stuckMinutes;
 
 interface Tab { handle: string; title?: string; worktreePath?: string; agentIdentity?: string; lastOutputAt?: unknown }
 const tab = (handle: string, ago: number | null, extra: Partial<Tab> = {}): Tab => ({

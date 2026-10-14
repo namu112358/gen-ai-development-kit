@@ -7,15 +7,14 @@
  * - heartbeat 以外の行が入った束（question・escalation・worker_done・status）か、結びつかない一言のある束は、ack せずに標準出力へ
  *   `{"wake":"messages",...}` を書いて終わる（hq が処理して ack する）。区切りまで何も来なければ `{"wake":"timeout"}`。
  * - Orca が失敗したら標準エラーに1行書いて終了コード 1。
- * - 区切り（timeout）で戻る前に、hq.compactMinutes 以上経って hq の端末がターンを終えていれば、hq 自身に /compact を送り、縮め終わるのを待つ
+ * - 区切り（timeout）で戻る前に、180 分（HQ_COMPACT_DEFAULTS）以上経って hq の端末がターンを終えていれば、hq 自身に /compact を送り、縮め終わるのを待つ
  *   （出力に `"compacted":true`。失敗しても見張りは止めない。Issue #737。hq-compact.ts）。
  * - 直接の ship（#756）の heartbeat も、控えの ships の Dispatch からテーマを引いて控える。
  * - 区切りは起動からの全体の締め切り。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
 import { spawnSync } from 'node:child_process';
 import { orcaCliCommand } from '../lib/worktree.ts';
-import { hqCompactConfig, maybeCompactHq, realHqDeps } from './hq-compact.ts';
-import { loadConfig } from '../lib/config.ts';
+import { HQ_COMPACT_DEFAULTS, maybeCompactHq, realHqDeps } from './hq-compact.ts';
 import { gitCommonDir, heartbeatPath, readHeartbeatAt, readLedgerFile, recordHeartbeat, writeJson, type HqLedger } from './hq-state.ts';
 
 export const WATCH_TYPES = 'worker_done,escalation,question,status,heartbeat';
@@ -163,7 +162,7 @@ if (import.meta.main) {
     let out = watch(deps, opts);
     if (out.wake === 'timeout' && commonDir) {
       try {
-        const r = await maybeCompactHq(realHqDeps(commonDir), opts.terminal, hqCompactConfig(loadConfig() as { hq?: unknown }).compactMinutes);
+        const r = await maybeCompactHq(realHqDeps(commonDir), opts.terminal, HQ_COMPACT_DEFAULTS.compactMinutes);
         if (r.compacted) out = { wake: 'timeout', compacted: true };
       } catch (e) {
         console.error(`hq の縮めに失敗しました：${(e as Error).message}`);

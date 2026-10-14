@@ -26,9 +26,9 @@
  *   log は控えの隣の hq-heartbeat.json（hq-state.ts heartbeat-save）の古くない一言もまぜる（Issue #438）。
  *   board は標準入力が端末なら Tab・e・i でページ（Epic・Issue）を切り替える（q・Ctrl+C で終わる）。--once は1回だけ色なしで描いて終わる。
  * - fleets：渡した fleet のスナップショットを1回読み、進んでいないかの判定（harness/lib/hq-stall.ts の fleetStall。しきい値は
- *   hq.staleSnapshotMinutes・hq.stuckMinutes）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
+ *   HQ_STALL_DEFAULTS の 30・120 分）の配列を JSON で出して終わる（hq が読む。Issue #287）。無いスナップショットは missing。
  *   終わった fleet の古いスナップショットも一時ディレクトリに残るので、--session は必ず渡す（無ければ終了コード 1）。
- * - idle：Orca の `terminal list --json` を1回読み、agentIdentity が claude で lastOutputAt が hq.stuckMinutes（--minutes で上書き）以上前のタブを、
+ * - idle：Orca の `terminal list --json` を1回読み、agentIdentity が claude で lastOutputAt が 120 分（HQ_STALL_DEFAULTS.stuckMinutes。--minutes で上書き）以上前のタブを、
  *   --exclude の handle を除いて「長く出力の無いタブ：<handle>・<分>分・<title>（<worktreePath>）」の1行ずつ出す。無ければ何も出さない。
  *   Orca の一覧を読めなければ「Orca のタブの一覧を読めません（理由）」の1行を出して終了コード 0（hq の見回しを止めない）。タブは閉じない。
  * - config：fleet.shipMode・fleet.implementModel・hq・panes の設定を JSON で出す。shipModeConfig が止める理由（stopReason）を返したときだけ、理由を標準エラーに出して終了コード 1（今は subagent・worker とも null）。
@@ -43,7 +43,7 @@ import { fileURLToPath } from 'node:url';
 import { LABELS, hqConfig, implementModelConfig, loadConfig, panesConfig, shipModeConfig, type HarnessConfig } from '../lib/config.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { epicChildrenFromRecords } from '../lib/session-inputs.ts';
-import { fleetStall, hqStallConfig, missingFleet } from '../lib/hq-stall.ts';
+import { fleetStall, HQ_STALL_DEFAULTS, missingFleet } from '../lib/hq-stall.ts';
 import type { FleetStatusData } from '../lib/fleet.ts';
 import { CLEAR_SCREEN, HISTORY_LIMIT, MARKS, PANE_STEPS, WHO_MARK, ago, locateRow, nextSince, renderProgress, renderPrs, renderTodo, shortTitle, stripAnsi, todoItems, type PaneEpic, type PaneEpicIssue, type PanePr, type PaneSnapshot, type PaneUsage } from '../lib/panes.ts';
 import { groupByEpic, hqWarning, nextBoardPage, readHqView, renderHqBoard, renderHqLog, renderHqTodo, type BoardPage, type EpicGroup, type FleetRow, type HqView } from '../lib/panes-hq.ts';
@@ -332,7 +332,7 @@ export interface HqRenderDeps {
   now(): number;
   width(): number;
   height(): number;
-  /** hq.staleSnapshotMinutes */
+  /** HQ_STALL_DEFAULTS.staleSnapshotMinutes */
   staleMinutes: number;
 }
 
@@ -617,9 +617,9 @@ export function parseIdleArgs(args: string[]): { excludes: string[]; minutes: nu
   return out;
 }
 
-function mainIdle(rest: string[], config: ReturnType<typeof loadConfig>): void {
+function mainIdle(rest: string[]): void {
   const a = parseIdleArgs(rest);
-  const minutes = a.minutes ?? hqStallConfig(config).stuckMinutes;
+  const minutes = a.minutes ?? HQ_STALL_DEFAULTS.stuckMinutes;
   const run = (cmd: string, args: string[]): RunResult => {
     const r = spawnSync(cmd, args, { shell: false, encoding: 'utf8', timeout: 30_000, stdio: ['ignore', 'pipe', 'pipe'] });
     if (r.error) return { status: null, stdout: '', stderr: r.error.message };
@@ -651,7 +651,7 @@ function main(argv: string[]): void {
     return;
   }
   if (mode === 'hq') return mainHq(rest, config);
-  if (mode === 'idle') return mainIdle(rest, config);
+  if (mode === 'idle') return mainIdle(rest);
   const args = parseCli(rest);
   const root = fileURLToPath(new URL('../..', import.meta.url));
   const every: Schedule = (fn, ms) => setInterval(fn, ms);
@@ -716,7 +716,7 @@ function main(argv: string[]): void {
       console.error(`--session を1つ以上渡してください（${USAGE}）`);
       process.exit(1);
     }
-    const cfg = hqStallConfig(config);
+    const cfg = HQ_STALL_DEFAULTS;
     const now = Date.now();
     const out = args.sessions.map((s) => {
       const snap = readSnapshotFile(defaultSnapshotPath(tmpdir(), s));
@@ -748,7 +748,7 @@ function mainHq(argv: string[], config: ReturnType<typeof loadConfig>): void {
   if (args.sessions.length > 0 || args.snapshot || args.issues.length > 0) throw new Error(`hq のペインは --session・--snapshot・Issue 番号を受け付けません（hq の控えから今動いている fleet を読みます。${USAGE}）`);
   if (args.json && pane !== 'todo' && pane !== 'board') throw new Error(`--json は hq todo・hq board だけです（${USAGE}）`);
   const { maxFleets } = hqConfig(config);
-  const { staleSnapshotMinutes } = hqStallConfig(config);
+  const { staleSnapshotMinutes } = HQ_STALL_DEFAULTS;
   const root = fileURLToPath(new URL('../..', import.meta.url));
   let path = args.fleets;
   if (!path) {
