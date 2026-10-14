@@ -41,7 +41,6 @@
     "harness/lib/ops-health.ts",
     "harness/lib/observe-ops.ts",
     "harness/lib/test-health.ts",
-    "harness/lib/local-state-loop.ts",
     "harness/scripts/report.ts",
     ".claude/skills/arch-review/**",
     ".claude/skills/qa-retro/**",

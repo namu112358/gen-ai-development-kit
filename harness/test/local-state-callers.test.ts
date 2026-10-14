@@ -8,7 +8,9 @@ import { readText, ROOT } from './support/skill-text.ts';
 
 const WRITERS = [
   'harness/lib/stage-file.ts',
-  'harness/lib/fleet-watch.ts',
+  'harness/lib/hq-stall.ts',
+  // Issue #1025：pull したディレクトリの部分の書き込み（writeDirPart）。消えた local-state-loop.test.ts の構造の検査の代わり
+  'harness/lib/patrol-issue.ts',
   'harness/lib/harness-drift.ts',
   'harness/scripts/hq-state.ts',
   'harness/scripts/panes.ts',

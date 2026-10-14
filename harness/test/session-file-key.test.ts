@@ -6,7 +6,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { watchRecordPath } from '../lib/fleet-watch.ts';
+import { watchRecordPath } from '../lib/hq-stall.ts';
 import { sessionFileKey, sessionFromEnv } from '../lib/session.ts';
 import { readStageFile, stageFilePath, writeStageFile, type StageFile } from '../lib/stage-file.ts';
 import { SESSION } from './support/step-fixtures.ts';

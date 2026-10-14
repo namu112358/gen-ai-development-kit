@@ -561,13 +561,13 @@ test('parsePatrolState：壊れた JSON・version が 1 でない・形の誤り
 
 // --- parsePatrolArgs ---
 
-test('parsePatrolArgs：既定値（max 2・state なし・ran と suggested は空）', () => {
+test('parsePatrolArgs：既定値（max 2・dir なし・ran と suggested は空）', () => {
   const r = parsePatrolArgs(['select', 'observe.json']);
   assert.ok(r.ok, JSON.stringify(r));
   assert.equal(r.sub, 'select');
   assert.deepEqual(r.positional, ['observe.json']);
   assert.equal(r.max, PATROL_DEFAULT_MAX);
-  assert.equal(r.state, null);
+  assert.equal(r.dir, null);
   assert.deepEqual(r.ran, []);
   assert.deepEqual(r.suggested, []);
   const p = parsePatrolArgs(['previous']);
@@ -576,26 +576,26 @@ test('parsePatrolArgs：既定値（max 2・state なし・ran と suggested は
   assert.deepEqual(p.positional, []);
 });
 
-test('parsePatrolArgs：--max・--state・繰り返しの --ran・--suggested を読む', () => {
-  const r = parsePatrolArgs(['record', 'observe.json', '--ran', 'arch-review', '--state', '/tmp/p.json', '--ran', 'qa-retro', '--suggested', 'test-prune', '--max', '3']);
+test('parsePatrolArgs：--max・--dir・繰り返しの --ran・--suggested を読む', () => {
+  const r = parsePatrolArgs(['record', 'observe.json', '--ran', 'arch-review', '--dir', '/tmp/p', '--ran', 'qa-retro', '--suggested', 'test-prune', '--max', '3']);
   assert.ok(r.ok, JSON.stringify(r));
   assert.equal(r.sub, 'record');
   assert.deepEqual(r.positional, ['observe.json']);
   assert.equal(r.max, 3);
-  assert.equal(r.state, '/tmp/p.json');
+  assert.equal(r.dir, '/tmp/p');
   assert.deepEqual(r.ran, ['arch-review', 'qa-retro']);
   assert.deepEqual(r.suggested, ['test-prune']);
 });
 
-test('parsePatrolArgs：--max が正の整数でない・値が無い・--state が2回・知らない引数は誤り', () => {
+test('parsePatrolArgs：--max が正の整数でない・値が無い・--dir が2回・知らない引数は誤り', () => {
   for (const args of [
     ['select', 'o.json', '--max', '0'],
     ['select', 'o.json', '--max', '-1'],
     ['select', 'o.json', '--max', 'abc'],
     ['select', 'o.json', '--max', '1.5'],
     ['select', 'o.json', '--max'],
-    ['select', 'o.json', '--state'],
-    ['select', 'o.json', '--state', 'a.json', '--state', 'b.json'],
+    ['select', 'o.json', '--dir'],
+    ['select', 'o.json', '--dir', 'a', '--dir', 'b'],
     ['record', 'o.json', '--ran'],
     ['record', 'o.json', '--suggested'],
     ['select', 'o.json', '--dry-run'],

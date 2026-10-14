@@ -2,7 +2,7 @@ import { checkIssueDrafts } from './arch-review.ts';
 import type { LoopDraft } from './qa-retro-loop.ts';
 
 /**
- * test-prune を付き添いのセッションの `/loop` から回すときの、手元の状態と回の記録（純粋関数）。スクリプトは harness/scripts/test-prune-loop.ts。
+ * test-prune を付き添いのセッションの `/loop` から回すときの、loop の状態と回の記録（純粋関数）。スクリプトは harness/scripts/test-prune-loop.ts。
  * test-prune は毎回全部のテストを見るので、qa-retro のような期間（until）は持たず、回ごとに集計の時刻と下書きを残す。
  * 未採用の一覧と採用は qa-retro-loop の pendingDrafts・adoptDraft をそのまま使う。
  *
