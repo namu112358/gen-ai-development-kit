@@ -1,4 +1,4 @@
-// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ）fetch-pr → collect → budget → review → risk → validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
+// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ。待つのは action が trigger.settleActions にあるか、action の無い古い params のときだけ）fetch-pr → collect → budget → review → risk → validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
 // リポジトリの表（repos.ts）の行から Claude のクライアント・設定・伏せる秘密を組む prepareRepoReview（Workflow が使う）。行に Claude のキーが無ければ deps.claude は null で、fetch-pr の後に no-api-key で止める。
 // 月の累計は cost:<owner>/<repo>:<YYYY-MM>（小文字）でリポジトリごとに数え、上限は行の上書き済みの config.budget で見る。KV の記録・ログ・コメントは deps.secrets で伏せる。
 // GitHub・Claude・KV・時計・ログは deps から受け取り、token は deps の作り方（reader・writer）の中に閉じる（ここでは見ない）。
@@ -8,7 +8,7 @@
 // import は review-api/src の中だけで、Node と Workers の両方で動く。
 import { askWithTools, type AskResult, type MessagesClient, type MessagesParams, type ToolRunner } from './claude.ts';
 import { collectMaterial, type Material } from './collect.ts';
-import { applyRepoOverrides, type BudgetEnv, type ModelPricing, type ReviewConfig } from './config.ts';
+import { applyRepoOverrides, DEFAULT_SETTLE_ACTIONS, type BudgetEnv, type ModelPricing, type ReviewConfig } from './config.ts';
 import { checkBudget, estimateUsd, monthKey, type Usage } from './cost.ts';
 import type { GitHubClient } from './github.ts';
 import {
@@ -57,6 +57,8 @@ export interface ReviewParams {
   repo: string;
   pr: number;
   headSha: string;
+  /** Webhook の action。古い形の Workflow の params には無い（そのときは待つ） */
+  action?: string;
   gateAppLogin: string;
   reviewAppLogin: string;
   config: ReviewConfig;
@@ -70,6 +72,12 @@ export interface ReviewResult {
 }
 
 const MAX_LISTED = 1000;
+
+/** settle で待つか。action が無い（古い形の params）なら待つ */
+export function shouldSettle(trigger: Pick<ReviewConfig['trigger'], 'settleActions'>, action: string | undefined): boolean {
+  if (action === undefined) return true;
+  return (trigger.settleActions ?? DEFAULT_SETTLE_ACTIONS).includes(action);
+}
 
 export function reviewKey(owner: string, repo: string, pr: number, sha: string): string {
   return `review:${owner}/${repo}:${pr}:${sha}`;
@@ -321,9 +329,14 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   };
 
   // 0. settle（待っている間に head が変われば、次の fetch-pr で superseded になる）
+  // 待たない action（opened など）でも、fetch-pr の取り直しで head が違えば superseded になる
   if (config.trigger.settleSeconds > 0 && deps.sleep !== undefined) {
-    await deps.sleep(config.trigger.settleSeconds * 1000);
-    log(`settle ${config.trigger.settleSeconds}s`);
+    if (shouldSettle(config.trigger, params.action)) {
+      await deps.sleep(config.trigger.settleSeconds * 1000);
+      log(`settle ${config.trigger.settleSeconds}s`);
+    } else {
+      log(`settle skipped ${params.action}`);
+    }
   }
 
   // 1. fetch-pr

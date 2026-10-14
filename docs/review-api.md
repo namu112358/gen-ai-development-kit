@@ -52,7 +52,7 @@ Cloudflare Worker  review-api/src/worker.ts
           │
           ▼
 Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結果を永続化）
-  0. settle      trigger.settleSeconds 秒だけ step.sleep で待つ（0 なら待たない）
+  0. settle      action が trigger.settleActions（既定 synchronize だけ）なら settleSeconds 秒だけ step.sleep で待つ（0 なら待たない。opened などは待たない）
   1. fetch-pr    App の installation token（読み取りだけ）で PR を取り直す。closed / merged / head が違えば終了
   2. collect     Closes する Issue の本文、App の plan-gate 記録の計画、diff（compare）、変更ファイルの中身、前回の shadow 記録、PR の base の版のリポジトリの規則（CLAUDE.md・AGENTS.md と @ の先）
   3. budget      月の上限・1 レビューの上限（KV の累計）を確かめる。超えていれば記録して終了
@@ -62,7 +62,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
   7. post        PR を取り直して head が同じ・open のときだけ、書き込みだけの token（pull_requests: write）でコメントを1件投稿。同じ head の記録が既にあれば投稿しない
 ```
 
-**データフロー**：GitHub → Worker（本文は読むだけ、保存しない）→ Workflow（params は repo・PR 番号・head・installation id・delivery id だけ。token は段階の中で作って段階の結果には残さない）→ Claude API（diff・ファイルの中身・Issue 本文。Prompt caching で reviewer と risk の共通の前置きを使い回す）→ GitHub（コメント1件）。KV にはレビューの記録（トークン・USD・結果の要約）と月の累計だけ。
+**データフロー**：GitHub → Worker（本文は読むだけ、保存しない）→ Workflow（params は repo・PR 番号・head・Webhook の action・installation id・delivery id だけ。token は段階の中で作って段階の結果には残さない）→ Claude API（diff・ファイルの中身・Issue 本文。Prompt caching で reviewer と risk の共通の前置きを使い回す）→ GitHub（コメント1件）。KV にはレビューの記録（トークン・USD・結果の要約）と月の累計だけ。
 
 ### 代替案と採らなかった理由
 
@@ -143,7 +143,8 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
     "skipBotSenders": true,            // App の update-branch など
     "branchPrefix": "claude/",        // 空なら全部。既存の Agent PR と同じ範囲
     "requireClosesIssue": true,        // Closes #N が無い PR は材料が無いので飛ばす
-    "settleSeconds": 120               // 最初にこの秒数だけ待ち、head が変わっていれば superseded（0 なら待たない）
+    "settleSeconds": 120,              // 最初にこの秒数だけ待ち、head が変わっていれば superseded（0 なら待たない）
+    "settleActions": ["synchronize"]   // 待つ action（Issue #1067）。鍵が無ければ synchronize だけ
   },
   "claude": {
     "reviewModel": "claude-opus-5-5",
@@ -163,6 +164,8 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 ```
 
 - `settleSeconds` は push が続くあいだの古い head に Claude の費用を払わないための待ち（Issue #991）。DRY_RUN で手元で試すときは 0 にできる。
+- 待つのは Webhook の action が `settleActions`（空でない文字列の配列。空配列なら待たない。鍵が無ければ `["synchronize"]`）にあるときだけ（Issue #1067）。`opened`・`reopened`・`converted_to_draft` は head が新しくないので既定では待たない。待たなかったときも fetch-pr で PR を取り直し、head が違えば `superseded`。Workflow の params に action が無い（#1067 より前に作った Workflow が再開した）ときは今までどおり待つ。
+- `opened` で待たない根拠（2026-10-14 の実測。過去の PR 72 件、#922〜#1060 の `claude/` のブランチ。push の時刻は CI が `pull_request` で動いた時刻で測った）：PR を作ってから 120 秒以内にセッションが push した PR は 0 件（セッションは最後の push の約 20 秒後、中央値 22.5 秒・5〜41 秒に PR を作り、判定より前にコードの commit を push した PR は無い）。120 秒以内に push があった 4 件（#947・#948・#997・#1017）はどれも App の既定ブランチの取り込み（update-branch）。#1017 は作ってから 106 秒後に App の push があり、待ちの後に作ったときの head が `superseded`、App の push は送り手が Bot なので対象外（`skipBotSenders`）になって、どちらの head もレビューされなかったと見られる（KV にしか残らないので推定）。#1060 では待ち 120 秒＋レビュー 87 秒で、ローカルの判定と Human Merge の依頼の方が先に出た。待ちの費用は Actions には無く（Workflow の `step.sleep`）、コストは記録が約 2 分遅れることと上の取りこぼしだった。`synchronize` の待ち時間は今のまま（効果は別に測る）。
 - `trigger.issueLink`（任意）は PR 本文から材料の Issue を決めるキーワード。`closes`（既定。`Closes #N` などだけ）か `closes-or-refs`（`Refs #N` も）。受け付けの判定（`requireClosesIssue`）と材料の Issue の読み取りの両方に使う。
 - リポジトリの表（節 8.3）の行に `budget`（`monthlyUsd`・`perReviewUsd`）と `trigger`（`branchPrefix`・`requireClosesIssue`・`issueLink`）を書くと、そのリポジトリだけ `review.config.json` の値を上書きする（行にある鍵だけ。ほかの行には効かない）。
 - `ready_for_review` は head が変わらないので対象にしない（同じ head は二重に見ない）。
@@ -319,7 +322,7 @@ node scripts/send-webhook.ts opened owner/repo 123 <sha>   # 署名つきの Web
 
 `wrangler dev` は Workflow も手元で動く。Claude を呼ばずに流れだけ見るときは `DRY_RUN=1`（Claude の段階を飛ばして固定の JSON を使う。`.dev.vars` に `DRY_RUN=1` を書く）。
 
-`settleSeconds` が 120 なら、待つあいだの push でも superseded になる。手元ですぐ試すときは 0 にする。
+`settleSeconds` が 120 なら、`synchronize` で送ったときは待つあいだの push でも superseded になる（`opened` は待たない）。手元ですぐ試すときは 0 にする。
 
 ### 9.1 実 API を使う結合テスト（この Issue では実行しない）
 

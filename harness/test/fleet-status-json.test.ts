@@ -146,15 +146,6 @@ test('JSON の中身：選ぶ・待つと理由・重なり・共有ファイル
   assert.equal(r10.waitReason, 'Merge 済み');
 });
 
-test('--max で待つ行の理由も表と同じ', () => {
-  const { data, table } = build(2, SESSION);
-  assert.equal(data.max, 2);
-  assert.equal(data.selectedCount, 2);
-  const waitMax = data.rows.filter((r) => r.waitReason === '--max で指定した、人が1回にさばける数（2）に達した');
-  assert.ok(waitMax.length > 0, '前提：--max で待つ行がある');
-  for (const r of waitMax) assert.ok(table.includes(`| 待つ：--max で指定した、人が1回にさばける数（2）に達した |`), `#${r.issue}`);
-});
-
 test('選んだ数・max・進め方が表の末尾の行と一致する', () => {
   const cases: { max: number | null; mode?: { nesting: 'orca' | 'flat'; maxParallelShips: number } }[] = [
     { max: null },

@@ -1,14 +1,16 @@
 // Issue #718：fleet-status の表の末尾と --json に、bypass と委任承認の今の状態を出す。
 // mergeStateLines の2行（bypass：有効・無効・読めない、委任承認：計画＋Merge・計画のみ・無効・読めない、付けた人が不明）、
 // renderFleetStatus の末尾（進め方の行の後に2行）、fleetStatusData の merge と、状態を渡さなければ表と JSON が今と同じことを確かめる。
+// 末尾に、答えの無い確認事項の行（confirmWait）と答えのそろった行の再開（resume）の扱い（元 fleet-status-confirm.test.ts、Issue #954）もある。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { bypassMergeConfig, delegateConfig, loadConfig } from '../lib/config.ts';
 import { delegateState } from '../lib/delegate.ts';
-import { fleetStatus, fleetStatusData, mergeStateLines, renderFleetStatus, selectFleet, type FleetFacts, type FleetIssue, type FleetMergeState } from '../lib/fleet.ts';
+import { fleetStatus, fleetStatusData, humanWaitOf, mergeStateLines, renderFleetStatus, selectFleet, type FleetFacts, type FleetIssue, type FleetMergeState } from '../lib/fleet.ts';
 import type { IssueFacts } from '../lib/queue.ts';
 import type { TimelineEvent } from '../lib/state.ts';
 import { bypassState } from '../gates/bypass.ts';
+import { CONFIRM_AT, NOW as CONFIRM_NOW, SESSION, confirmAnswer, confirmFact, fleetIssue, planOkFacts } from './support/step-fixtures.ts';
 
 const config = loadConfig();
 const BYPASS = bypassMergeConfig(config).label;
@@ -126,5 +128,51 @@ test('fleetStatusData：merge を渡すとそのまま入り（読めた・読�
     assert.equal(plain.version, 1);
     const { merge: _m, ...rest } = fleetStatusData(facts, rows, sel, null, null, mode, BYPASS_ON);
     assert.deepEqual(rest, plain, 'merge の鍵のほかは今と同じ');
+  }
+});
+
+const CONFIRM_LIMIT = 120;
+
+test('答え待ちの行は none・confirmWait・選ばれず・humanWaitOf の since が確認事項の時刻、答えのそろった行は次にやることが resume', () => {
+  const PENDING = 1;
+  const RESUME_IMPLEMENT = 2;
+  const RESUME_PLAN = 3;
+  const pending = confirmFact({ url: 'https://github.com/o/r/issues/1#issuecomment-900', confirm: { target: PENDING } });
+  const facts: FleetFacts = {
+    issues: [
+      // 答え待ちの行は、答えのそろった行と同じファイルを触る（並び順も先）
+      fleetIssue(planOkFacts({ number: PENDING, title: 't1' }), { planFiles: ['harness/lib/a.ts'], confirms: [pending] }),
+      fleetIssue(planOkFacts({ number: RESUME_IMPLEMENT, title: 't2' }), {
+        planFiles: ['harness/lib/a.ts'],
+        confirms: [confirmFact({ confirm: { target: RESUME_IMPLEMENT, stage: 'implement', resume: 'implement' }, answer: confirmAnswer() })],
+      }),
+      fleetIssue(planOkFacts({ number: RESUME_PLAN, title: 't3' }), {
+        planFiles: ['harness/lib/b.ts'],
+        confirms: [confirmFact({ confirm: { target: RESUME_PLAN, stage: 'implement', resume: 'plan' }, answer: confirmAnswer() })],
+      }),
+    ],
+    prConflicts: [],
+  };
+  const rows = fleetStatus(facts);
+  const row = (n: number) => rows.find((r) => r.issue === n)!;
+
+  // 答え待ち
+  assert.equal(row(PENDING).next, 'none');
+  assert.equal(row(PENDING).stage, 'plan-ok', '段階は変えない');
+  assert.deepEqual(row(PENDING).confirmWait, { since: CONFIRM_AT, url: pending.url });
+  const sel = selectFleet(config, facts, rows, null, SESSION, null, { limitMinutes: CONFIRM_LIMIT, now: CONFIRM_NOW });
+  assert.equal(sel.selected.includes(PENDING), false, '答え待ちの行は選ばない');
+  assert.ok((sel.excluded.get(PENDING) ?? '') !== '', '待つ理由が付く');
+  const hw = humanWaitOf(row(PENDING), facts.issues[0]!.facts, CONFIRM_NOW, CONFIRM_LIMIT);
+  assert.equal(hw?.since, CONFIRM_AT);
+  assert.equal(hw?.minutes, Math.floor((CONFIRM_NOW.getTime() - Date.parse(CONFIRM_AT)) / 60000));
+  assert.equal(hw?.overdue, true, `${CONFIRM_LIMIT} 分を超えた`);
+
+  // 答えのそろった行：次にやることが resume（段階はそのまま）。答え待ちの行と同じファイルでも待たない
+  for (const [n, next] of [[RESUME_IMPLEMENT, 'implement'], [RESUME_PLAN, 'plan']] as const) {
+    assert.equal(row(n).next, next, `#${n}`);
+    assert.equal(row(n).stage, 'plan-ok', `#${n}`);
+    assert.equal(row(n).confirmWait, undefined, `#${n}`);
+    assert.equal(sel.selected.includes(n), true, `#${n} を選ぶ`);
   }
 });

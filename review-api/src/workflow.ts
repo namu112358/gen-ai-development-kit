@@ -1,6 +1,6 @@
 // runReview を段階ごとに step.do で動かす ReviewWorkflow と、Worker の Env・Workflow の params の型 ReviewEventParams。
 // collect の結果（diff と変更ファイルの中身）は 1 MiB を超えうるので、collect だけは step.do で包まず、再開のたびに GitHub を読み直す。
-// 最初に step.sleep で settleSeconds 秒待つ（push が続くあいだの古い head に Claude を呼ばない）。
+// 最初に step.sleep で settleSeconds 秒待つ（push が続くあいだの古い head に Claude を呼ばない）。待つのは action が trigger.settleActions にあるときと、action の無い古い params のときだけ。
 // 実行に要る値（installation・App の鍵と login・Claude のキー・上限・trigger）は、リポジトリの表（REVIEW_REPOS。無ければ vars から組む1行の表）の
 // その PR のリポジトリの行だけから prepareRepoReview（pipeline.ts）で選ぶ。表に無い・行が足りなければ Claude を呼ばずに止める。
 // token・API キー・本文・署名は段階の結果にもログにも入れない（ログ・コメント・KV の記録は表のすべての行の秘密で伏せる）。
@@ -22,6 +22,8 @@ export interface ReviewEventParams {
   repo: string;
   pr: number;
   headSha: string;
+  /** Webhook の action（Issue #1067 より前に作った Workflow の params には無い） */
+  action?: string;
   installationId: number;
   deliveryId: string;
 }
@@ -104,7 +106,7 @@ function makeRunStep(step: WorkflowStep): RunStep {
 export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
   override async run(event: WorkflowEvent<ReviewEventParams>, step: WorkflowStep): Promise<ReviewResult> {
     const env = this.env;
-    const { owner, repo, pr, headSha } = event.payload;
+    const { owner, repo, pr, headSha, action } = event.payload;
     const setup = prepareRepoReview(env as unknown as Parameters<typeof prepareRepoReview>[0], loadReviewConfig(reviewConfigJson), `${owner}/${repo}`, {
       dryRun: dryRunClient,
       anthropic: anthropicClient,
@@ -136,6 +138,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
       repo,
       pr,
       headSha,
+      ...(action === undefined ? {} : { action }),
       gateAppLogin: runtime.gateAppLogin,
       reviewAppLogin: runtime.reviewAppLogin,
       config: setup.config,

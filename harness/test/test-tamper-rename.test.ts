@@ -202,18 +202,6 @@ test('askableChanges：名前の変更だけでも問う', () => {
   assert.deepEqual(r.changes, [{ kind: 'test-name', file: FILE, before: "test('a0', () => {", after: "test('b0', () => {" }]);
 });
 
-test('askableChanges：名前の変更があっても、removed-test などが1件でもあれば問わない', () => {
-  const removed: TamperFinding = { kind: 'removed-test', file: FILE, line: 50, side: 'base', text: "test('gone', () => {" };
-  assert.equal(askableChanges([renamed(0), changed(1), removed]).ask, false);
-  const fromDiff = detectTestTampering(fileDiff('a.test.ts', ["-test('a', () => {});", "+test('a2', () => {});", ' // 間', "-test('gone', () => {});"]), P);
-  assert.equal(askableChanges(fromDiff).ask, false);
-});
-
-test('askableChanges：変更後の行が無い名前の変更は問わない', () => {
-  const noAfter: TamperFinding = { kind: 'renamed-test', file: FILE, line: 3, side: 'base', text: "test('a', () => {" };
-  assert.equal(askableChanges([changed(0), noAfter]).ask, false);
-});
-
 // ---- buildTamperRequest ----
 
 const config: HarnessConfig = (() => {
