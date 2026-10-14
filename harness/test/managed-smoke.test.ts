@@ -2,22 +2,14 @@
 // 一時ディレクトリに写し、入口（render-claim・gates/run.ts・hooks/run.mjs）が起動して想定の所で止まることと、
 // 配布物の相対 import が配布物の中に収まること、写した .ts が node --check を通ることを確かめる
 import assert from 'node:assert/strict';
-import { execFile, execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { execFile, spawnSync } from 'node:child_process';
+import { existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { after, before, test } from 'node:test';
 
-import { isManaged } from '../lib/sync.ts';
+import { copyDistribution } from './support/managed-tree.ts';
 
 const root = join(import.meta.dirname, '..', '..');
-
-interface Managed {
-  managed: string[];
-  exclude?: string[];
-  projectOwned: { path: string; template: string }[];
-}
-const m = JSON.parse(readFileSync(join(root, 'harness/managed.json'), 'utf8')) as Managed;
 
 let dir = '';
 let copied: string[] = [];
@@ -29,18 +21,8 @@ function run(args: string[], input = '') {
   return spawnSync(process.execPath, args, { cwd: dir, input, encoding: 'utf8', env });
 }
 
-function copy(from: string, to: string): void {
-  mkdirSync(dirname(join(dir, to)), { recursive: true });
-  copyFileSync(join(root, from), join(dir, to));
-}
-
 before(() => {
-  dir = mkdtempSync(join(tmpdir(), 'managed-smoke-'));
-  const files = execFileSync('git', ['ls-files', '-z'], { cwd: root, encoding: 'utf8' }).split('\0').filter(Boolean);
-  copied = files.filter((f) => isManaged(m.managed, m.exclude ?? [], f) && existsSync(join(root, f)));
-  for (const f of copied) copy(f, f);
-  for (const o of m.projectOwned) if (existsSync(join(root, o.template))) copy(o.template, o.path);
-  execFileSync('git', ['init', '-q'], { cwd: dir });
+  ({ dir, copied } = copyDistribution(root, 'managed-smoke-'));
 });
 
 after(() => {
