@@ -20,6 +20,8 @@ export interface ReviewConfig {
     branchPrefix: string;
     requireClosesIssue: boolean;
     settleSeconds: number;
+    /** settleSeconds だけ待つ Webhook の action（Issue #1067）。無ければ DEFAULT_SETTLE_ACTIONS */
+    settleActions?: string[];
     /** 無ければ closes */
     issueLink?: IssueLink;
   };
@@ -39,6 +41,9 @@ export interface ReviewConfig {
   budget: { monthlyUsd: number; perReviewUsd: number };
   pricing: Record<string, ModelPricing>;
 }
+
+/** settle で待つ action の既定。opened などは head が新しくなく、待つ間の push はセッションには無い（Issue #1067 の実測） */
+export const DEFAULT_SETTLE_ACTIONS: readonly string[] = ['synchronize'];
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
@@ -102,6 +107,16 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
     }
   }
 
+  let settleActions: string[] = [...DEFAULT_SETTLE_ACTIONS];
+  if (Object.hasOwn(trigger, 'settleActions')) {
+    const v = trigger.settleActions;
+    if (Array.isArray(v) && v.every((a) => typeof a === 'string' && a !== '')) {
+      settleActions = v as string[];
+    } else {
+      fail('trigger.settleActions', '空でない文字列の配列（空配列可）');
+    }
+  }
+
   const rawDiffOnly = claude.diffOnlyExtensions;
   let diffOnlyExtensions: string[] = [];
   if (isObject(raw) && isObject(root.claude)) {
@@ -142,6 +157,7 @@ export function loadReviewConfig(raw: unknown): ReviewConfig {
       branchPrefix: str(trigger, 'trigger', 'branchPrefix', true),
       requireClosesIssue: bool(trigger, 'trigger', 'requireClosesIssue'),
       settleSeconds: nonNegInt(trigger, 'trigger', 'settleSeconds'),
+      settleActions,
       ...(typeof issueLink === 'string' && ISSUE_LINKS.includes(issueLink) ? { issueLink: issueLink as IssueLink } : {}),
     },
     claude: {
