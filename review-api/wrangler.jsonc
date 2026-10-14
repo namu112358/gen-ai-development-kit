@@ -15,6 +15,7 @@
     { "binding": "REVIEW_KV", "id": "03092b8601b34de8800ff563881df28e" }
   ],
   // 秘密でない設定（導入先ごとの値）。秘密（GITHUB_WEBHOOK_SECRET・GITHUB_APP_PRIVATE_KEY・ANTHROPIC_API_KEY）はここに書かず Cloudflare の Secret に置く（docs/review-api.md の節8.3）
+  // リポジトリの表 REVIEW_REPOS（ダッシュボードの変数）が無い間は、この5つから1行の表を組む。消すのは表への移行を確かめた後の別の変更（docs/review-api.md の節8.3）
   "vars": {
     "GITHUB_APP_CLIENT_ID": "Iv23liUPDeIwdfJkJddW",
     "GITHUB_INSTALLATION_ID": "170641202",

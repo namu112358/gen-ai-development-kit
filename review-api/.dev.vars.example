@@ -5,5 +5,7 @@ GITHUB_APP_PRIVATE_KEY=
 ANTHROPIC_API_KEY=
 # scripts/send-webhook.ts が読むので、wrangler.jsonc の vars と同じ値を書く（違うと installation-mismatch で止まる）
 GITHUB_INSTALLATION_ID=
+# 任意。リポジトリの表（docs/review-api.md の節8.3）。あれば wrangler.jsonc の vars の5つの代わりにこれを使う。値は架空の例で、Secret は名前だけを書き、値は同じファイルにその名前で足す
+# REVIEW_REPOS={"example-owner/example-repo":{"installationId":12345678,"app":{"clientId":"Iv23liEXAMPLE","privateKeySecret":"EXAMPLE_APP_PRIVATE_KEY","webhookSecret":"EXAMPLE_WEBHOOK_SECRET","login":"example-review[bot]"},"gateAppLogin":"example-gate[bot]","anthropicKeySecret":"EXAMPLE_ANTHROPIC_API_KEY","budget":{"monthlyUsd":20}}}
 # 1 なら Claude を呼ばず固定の JSON を使う（実 API で試すときは消す）
 DRY_RUN=1

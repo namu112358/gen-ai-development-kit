@@ -1,4 +1,4 @@
-// review-api の投稿しなかった記録（review-api/src/record.ts の renderStoppedComment・parseApiReviewComment と pipeline.ts の post-stopped）を確かめる（Issue #1003）。
+// review-api の投稿しなかった記録（review-api/src/record.ts の renderStoppedComment・parseApiReviewComment と pipeline.ts の post-stopped）を確かめる（Issue #1003。no-api-key は #1050）。
 // 読み戻しで posted（renderShadowComment の本文）と止めた outcome（renderStoppedComment の本文）を見分け、parseShadowComment は止めた記録を読まないこと、
 // outcome が語彙の外・止めた記録に verdict があると null になること、同じ head の止めた記録のコメント（レビュー用の App の名義）があると duplicate で投稿しないこと、
 // 止めた記録の本文に API キー・token・diff の行・PR の題・Claude の出力が出ないこと、止めた記録の投稿が失敗しても outcome が変わらないことを見る。
@@ -32,7 +32,7 @@ test('読み戻しで posted と止めた outcome を見分け、parseShadowComm
   assert.equal(posted?.outcome, 'posted');
   assert.equal(posted?.headSha, HEAD);
 
-  const outcomes: StoppedOutcome[] = ['budget-exceeded', 'too-large', 'verdict-invalid'];
+  const outcomes: StoppedOutcome[] = ['budget-exceeded', 'too-large', 'verdict-invalid', 'no-api-key'];
   for (const outcome of outcomes) {
     const body = renderStoppedComment({ version: 1, pr: 5, headSha: HEAD, outcome, usd: null });
     const parsed = parseApiReviewComment(body);
