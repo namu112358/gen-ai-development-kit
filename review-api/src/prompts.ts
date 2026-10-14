@@ -135,6 +135,19 @@ export const RISK_OUTPUT_SCHEMA = closed({
   facts: closed({ references: str, tests: str, fileKinds: str }),
 });
 
+/** Reviewer と Risk の問いで同じ output_config.format を使うための schema（format が違うと prompt cache が別になる。Issue #1086） */
+export const OUTPUT_SCHEMA = { anyOf: [REVIEWER_OUTPUT_SCHEMA, RISK_OUTPUT_SCHEMA] } as const;
+
+/** 問いの役。最初の user メッセージの役の基準のブロックで見分ける（schema は両役で同じ）。見分けられなければ null */
+export function askRole(params: { messages: { role: string; content: unknown }[] }): 'review' | 'risk' | null {
+  const first = params.messages[0];
+  if (first === undefined || first.role !== 'user' || !Array.isArray(first.content)) return null;
+  const texts = first.content.map((b) => (b as { text?: unknown } | null)?.text);
+  if (texts.includes(REVIEWER_CRITERIA)) return 'review';
+  if (texts.includes(RISK_CRITERIA)) return 'risk';
+  return null;
+}
+
 // ---- ツール（実行は pipeline.ts） ----
 
 export const READ_FILE_TOOL: ToolDefinition = {
@@ -257,11 +270,11 @@ export function buildReviewerMessages(m: Material): UserMessage[] {
     const prev = `前回の head SHA: ${m.previous.headSha}\n前回のブロッキング指摘:\n${JSON.stringify(m.previous.verdict.review.blocking, null, 2)}`;
     blocks.push(text(wrapUntrusted('previous', prev)));
   }
-  blocks.push(text('上の材料で reviewer の JSON を返す。'));
+  blocks.push(text('上の材料で reviewer の JSON（schema の 2 つの形のうち pass・blocking・nonBlocking・humanNotes の方）を返す。'));
   return [{ role: 'user', content: blocks }];
 }
 
 /** 材料（Reviewer と同じ）→ Risk の基準 → 指示。Issue・PR 本文・計画・前回は入れない */
 export function buildRiskMessages(m: Material): UserMessage[] {
-  return [{ role: 'user', content: [...sharedBlocks(m), text(RISK_CRITERIA), text('上の材料で risk-agent の JSON を返す。')] }];
+  return [{ role: 'user', content: [...sharedBlocks(m), text(RISK_CRITERIA), text('上の材料で risk-agent の JSON（schema の 2 つの形のうち level・answers・probabilities・rationale・facts の方）を返す。')] }];
 }
