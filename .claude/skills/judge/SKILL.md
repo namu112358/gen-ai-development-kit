@@ -1,11 +1,11 @@
 ---
 name: judge
-description: "人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。reviewSource.mode が api なら API のレビュー（review-api）の記録で判定し、使えないときだけ Reviewer と Risk Agent で判定する。「PR #番号 を判定して」「レビューして判定を出して」と頼まれたとき、またはクラウドの Routine の `/judge --routine`（PR 1件の判定を1回分行う。節「Routine の1回分」）で、実装・修正の後の段階で使う。"
+description: "人が付き添うセッションで、PR を Reviewer と Risk Agent に判定させ、判定コメントを投稿して App が受け付けたのを確かめる。reviewSource.mode が api なら API のレビュー（review-api）の記録で判定し、使えないときだけ Reviewer と Risk Agent で判定する。`subscription` なら付き添いのセッションは step の待ち（Routine の判定待ち）の後だけ判定し、判定の中身は `local` と同じ。「PR #番号 を判定して」「レビューして判定を出して」と頼まれたとき、またはクラウドの Routine の `/judge --routine`（入力無しで PR を引き当てて判定する。節「Routine の1回分」）で、実装・修正の後の段階で使う。"
 ---
 
 # judge（判定）
 
-Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添いのセッションで行う手順。Agent PR も人の PR も同じ手順で判定する。`harness.config.json` の `reviewSource.mode` が `api` なら、ローカルのレビュー（reviewer・risk-agent・合体版）の代わりに API のレビュー（review-api）の記録で判定し、記録が使えないときはローカルのレビューで判定する（手順2a。[docs/review-api.md](../../../docs/review-api.md)）。人の PR は修正しない。クラウドの Routine で PR を1件指定して判定するときは、下の節「Routine の1回分（`/judge --routine`）」に従う。
+Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添いのセッションで行う手順。Agent PR も人の PR も同じ手順で判定する。`harness.config.json` の `reviewSource.mode` が `api` なら、ローカルのレビュー（reviewer・risk-agent・合体版）の代わりに API のレビュー（review-api）の記録で判定し、記録が使えないときはローカルのレビューで判定する（手順2a。[docs/review-api.md](../../../docs/review-api.md)）。人の PR は修正しない。クラウドの Routine で入力無しで PR を引き当てて判定するときは、下の節「Routine の1回分（`/judge --routine`）」に従う。
 
 ## 入力
 
@@ -18,7 +18,7 @@ Routine の judge（[.claude/routine.md](../../routine.md)）を、付き添い�
 2. 現在の head に、Claude・App 以外のコラボレーターのレビュー（Comment か Request changes）があれば、判定ではなく fix を先にする。
 2a. レビューの出どころを決める：`node harness/scripts/agent.ts api-review <PR番号> --judge-input <judge-input のファイル>` を1回だけ流す（`reviewSource.mode` が `api` なら記録を最大 `waitMinutes` 分待つので、Bash の timeout は 600000）。出力の `action` で分ける。
    - `api`：手順3〜5を飛ばし、手順6を `compose-verdict <PR番号> <出力の reviewer のパス> <出力の risk のパス> --judge-input <judge-input のファイル> --model <出力の models.review> --review-source api --api-record <出力の recordUrl>` で行う（出力の reviewer・risk は `api-reviewer-<PR番号>-<head7>.json`・`api-risk-<PR番号>-<head7>.json` で、手順4の担当の出力のパスとは別）。`compose-verdict` が記録の出力の書式で止まったら、手順3からローカルのレビューで判定し直し、手順6に `--review-source local` を付け、理由 `api-invalid` を報告に1行で載せる。
-   - `local`：手順3〜5を今のとおり行い、手順6に `--review-source local` を付ける。出力の `reason`（`disabled`・`timeout`・`guardrail-files` など）を報告に1行で載せる。
+   - `local`：手順3〜5を今のとおり行い、手順6に `--review-source local` を付ける。出力の `reason`（`disabled`・`subscription`・`timeout`・`guardrail-files` など）を報告に1行で載せる（`subscription` は `reviewSource.mode` が `subscription` のとき。待ちは step が担うので api-review は待たず、判定の中身は `local` と同じ）。
    - `skip`：判定せずに、理由（`closed`・`same-head`）を伝える。
    - 終了コードが 0 以外（設定・judge-input の誤り）：判定せずに人に返す。
    - Merge の経路は、API の記録で判定してもローカルで判定しても同じ（App が受け付けの記録で決める）。
@@ -51,17 +51,18 @@ judge-input の「再レビューの範囲（補足）」には、前回の head
 
 ## Routine の1回分（`/judge --routine`）
 
-クラウドの Routine で、App が選んだ PR 1件の判定を人のいないまま1回分行う。判定の中身（judge-input → `reviewPanel.mode` に従う担当 → compose-verdict → post-verdict）は上の手順1〜8のとおりで、ここには Routine で変わるところだけを書く。作り方は kit の `docs/judge-routine.md`。この節は `.claude/routine.md` の queue の手順とは別（queue は読まない）。GitHub は MCP ではなく `harness/scripts/agent.ts` の REST で読み書きする。
+クラウドの Routine で、入力無しで開いた Draft の Agent PR を引き当て、人のいないまま判定する。`reviewSource.mode` が `subscription` のとき、人のセッションはこの Routine の判定を待つ。判定の中身（judge-input → `reviewPanel.mode` に従う担当 → compose-verdict → post-verdict）は上の手順1〜8のとおりで、ここには Routine で変わるところだけを書く。作り方は kit の `docs/judge-routine.md`。この節は `.claude/routine.md` の queue の手順とは別（queue は読まない）。GitHub は MCP ではなく `harness/scripts/agent.ts` の REST で読み書きする。
 
-1. 指示を読んだ時点では結果を出さず、入力（PR 番号・head・base・dryRun の JSON）のメッセージが届くまで待つ。入力の形は `{ "pr": 799, "head": "<40桁の SHA>", "base": "main", "dryRun": true }`（`dryRun` は任意。無ければ偽）。
-2. `node --version` が v24 か確かめる。`git fetch --unshallow origin` で浅い clone を解く（patch-id と diff に履歴が要る）。
-3. 入力を scratchpad のファイルに書き、`node harness/scripts/agent.ts judge-routine-check <ファイル>` を流す。出力の `action` が `skip` なら何もせず、`reason` を出力して終える。`judge` なら出力の `head`（今の head）を判定する。
+1. `node --version` が v24 か確かめる。`git fetch --unshallow origin` で浅い clone を解く（patch-id と diff に履歴が要る。`judge-routine-check` も流すが、判定の diff にも要る）。
+2. `node harness/scripts/agent.ts judge-routine-budget` を流す。出力の `ok` が偽なら、判定せずに理由（`count`・`limit`・`truncated`）を出力して終える。
+3. 入力のメッセージ（`{ "pr": 799, "head": "<40桁の SHA>", "base": "main", "dryRun": true }`。`dryRun` は任意。無ければ偽）があれば scratchpad のファイルに書いて `node harness/scripts/agent.ts judge-routine-check <ファイル>` を流す。無ければ `node harness/scripts/agent.ts judge-routine-check`（入力無し。GitHub のイベントの情報は Routine に渡らないので、開いた Draft の Agent PR から引き当てる）。出力の `action` が `skip` なら何もせず、`reason`（`head-checkout`・`no-candidate` など）を出力して終える。`judge` なら出力の `pr` と `head`（今の head）を判定する。
 4. `dryRun` が偽なら `node harness/scripts/agent.ts claim <PR番号> --stage judge` で着手を宣言する（Routine の宣言。`--manual` は付けない）。`dryRun` が真なら宣言しない。
-5. 手順1〜7を行う。ただし手順1の `claim --manual --stage judge` は流さず（宣言はこの節の4だけ）、judge-input だけを流す。手順2a の `api-review` は `dryRun` が真でも流す。PR の head は checkout しない。型検査とテストは CI（必須チェック `ci`）に任せる（#974）。モデル名は Routine に指定したもの（手順2a が `api` なら記録の `models.review`）。
+5. 手順1〜7を行う。ただし手順1の `claim --manual --stage judge` は流さず（宣言はこの節の4だけ）、judge-input だけを流す。手順2a の `api-review` は `dryRun` が真でも流す（`subscription` なら `local`）。手順6の `compose-verdict` には `--judged-by routine` を付ける。PR の head は checkout しない。型検査とテストは CI（必須チェック `ci`）に任せる（#974）。モデル名は Routine に指定したもの（手順2a が `api` なら記録の `models.review`）。
    - 人に聞かない。「人に返す条件」に当たったら、判定せず理由を出力して終える（`dryRun` が偽なら `node harness/scripts/agent.ts release <PR番号>`）。手順2（今の head にコラボレーターのレビューがある）も fix をせず、理由を出して終える。
    - `dryRun` が真なら、`node harness/scripts/review-panel.ts post` を流さず記録のファイルの中身を出力に出し、`node harness/scripts/agent.ts post-verdict <PR番号> <判定コメントのファイル> --dry-run` で組み立てた判定を出す。手順8（App の受け付けの確かめ）と9はしない。
    - `dryRun` が偽なら、手順8は `rest pr-view` で行い、数分待っても受け付けられなければ理由を出力して終える（判定コメントで宣言は終わるので release は要らない）。手順9は下書きのパスと要約を出力に出すだけにする（人に報告しない）。
-6. 最後に要約（PR・判定した head・入力の head との違い・合否・Risk・dry-run か・止めた理由）を出力する。
+6. 1件を終えたら、手順2の `judge-routine-budget` と手順3の `judge-routine-check`（入力無し）をもう一度流す。`judge` で候補が残っていれば手順4から続け、`ok` が偽か `skip` なら終える。`dryRun` が真なら1件で終える。
+7. 最後に要約（PR・判定した head・入力の head との違い・合否・Risk・dry-run か・止めた理由）を出力する。
 
 ## 終わりの状態
 

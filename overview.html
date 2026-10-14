@@ -352,7 +352,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     <section class="dir">
       <h3><code>review-api/</code> PR レビュー（API） <span class="guard">ガードレール</span></h3>
       <ul>
-        <li>Claude API + Cloudflare の PR レビュー。judge はローカルのレビューの代わりにこの記録で判定し、使えないときだけローカルのレビューで判定する（<code>reviewSource.mode</code> が <code>api</code>）。説明は <code>docs/review-api.md</code></li>
+        <li>Claude API + Cloudflare の PR レビュー。judge はローカルのレビューの代わりにこの記録で判定し、使えないときだけローカルのレビューで判定する（<code>reviewSource.mode</code> が <code>api</code>）。<code>subscription</code> なら Worker を使わず、サブスクリプションの枠の Routine が判定し、人のセッションは待つ（<code>docs/judge-routine.md</code>）。説明は <code>docs/review-api.md</code></li>
       </ul>
     </section>
     <section class="dir">

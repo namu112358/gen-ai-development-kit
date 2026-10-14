@@ -383,19 +383,23 @@ GITHUB_TOKEN=… ANTHROPIC_API_KEY=… node scripts/replay.ts owner/repo --prs 1
 
 | キー | このリポジトリ | 意味 |
 | --- | --- | --- |
-| `mode` | `api` | `api` なら judge が API のレビューの記録で判定する。`local`（無いときの既定。導入先の雛形も `local`）なら今までどおりローカルのレビュー |
+| `mode` | `api` | `api` なら judge が API のレビューの記録で判定する。`local`（無いときの既定。導入先の雛形も `local`）なら今までどおりローカルのレビュー。`subscription` なら Worker を使わず、サブスクリプションの枠の Routine が判定し、人のセッションは `routineWaitMinutes` まで待つ（[judge-routine.md](judge-routine.md)） |
 | `waitMinutes` | `8` | 記録が付くまで待つ分（0〜9）。過ぎたらローカル（`timeout`） |
 | `appLogin` | `harness-review-agent[bot]` | レビュー用 App の bot の login。この名義（Bot）の記録だけを使う |
+| `routineWaitMinutes` | 無し（既定 20） | `mode` が `subscription` のときだけ使う。head の push からこの分（正の整数、上限なし）まで、人のセッションは Routine の判定を待つ。過ぎたらローカルで判定する。`routine.stalledClaimMinutes` より短くする |
 
 API の記録で判定するのは、judge の skill の手順2a の `api-review` が `api` を返すとき：判定する head（無ければ PR 自身の差分の patch-id が同じ head）の、レビュー用 App の posted の記録で、コメントが編集されておらず、`dryRun` と `diffTruncated` が false のもの。
 
 **取り込みだけの head は Worker がレビューし直さない（#1089）**：Worker は fetch-pr の後の段階 `same-patch` で、同じ PR の前回レビューした（posted の）記録のうち、judge が使える条件と同じもの（レビュー用 App の名義、編集されていない、`dryRun` と `diffTruncated` が false。欄の無い古い記録は不可）で最新のものを選び、compare API の `base...前回の head` と `base...今の head` の diff を、`index` の行を除き `@@` の行の行番号を消して比べる（`git patch-id --verbatim` と同じ考え方。空白を含む変更内容と文脈の行は区別する）。完全に一致し、記録の `models` が今の設定（`chooseModels`）の組と同じなら、Claude を呼ばずに KV の `review:` に outcome `same-patch`（`reusableHead`・`recordUrl`）を書いて終える。PR にはコメントを付けない（judge は同じ patch-id の前回の記録をそのまま使う。`selectApiReview` の `samePatch`）。迷うときはレビューする側に倒す：diff が取れない（404 など）・どちらかが空・本文が違う（取り込みで衝突を解消した、PR 自身の変更が変わった）・記録が使えない・モデルが違う・段階の中で投げた、のどれでもレビューする。プロンプト（`prompts.ts`）とリポジトリの規則（base の CLAUDE.md など）の変化は見ない：judge も同じ patch-id の記録をそれらの変化を見ずに使っているので Worker の側だけで見ても扱いは変わらず、記録には規則の要約（パスと字数）しか無くプロンプトの版も入っていないため、比べるには記録の形を変える要がある（この Issue の範囲の外）。モデルの比較は judge には無い Worker だけの、より保守的な条件（モデルを変えた後は、取り込みだけの head でも新しいモデルでレビューし直す）。
+
+使い分け：リポジトリごとに `api`（Worker が Claude API で判定する）か `subscription`（Worker を使わず、サブスクリプションの枠の Routine が判定する）のどちらかを選ぶ。両方は使わない。
 
 ローカルのレビューに戻る条件（`api-review` の `local` の `reason`、`harness/lib/api-review.ts`）：
 
 | reason | いつ |
 | --- | --- |
 | `disabled` | `reviewSource.mode` が `local` |
+| `subscription` | `reviewSource.mode` が `subscription`（GitHub を読まず待たない。待ちは `step`。判定の中身は `local` と同じ） |
 | `timeout` | `waitMinutes` を過ぎても記録が無い |
 | `budget-exceeded`・`too-large`・`verdict-invalid` | 投稿しなかった記録 |
 | `previous-local-blocking` | 前回のローカルの判定にブロッキングの指摘がある |
@@ -471,7 +475,7 @@ API のレビューは kit の判定の流れ（judge の skill・reviewer / ris
 
 ### 15.6 judge の設定
 
-導入先の judge は `harness.config.json` の `reviewSource`（節 12 の表）で、API の記録を使うかを決める。
+導入先の judge は `harness.config.json` の `reviewSource`（節 12 の表）で、API の記録を使うかを決める。Worker を使わずサブスクリプションの枠の Routine で判定するなら `subscription`（[judge-routine.md](judge-routine.md)）。
 
 - 既定はローカルのレビュー：`reviewSource` が無い、または `mode` が `local` なら、`api-review` は GitHub を読まずに `{ "action": "local", "reason": "disabled" }` を返し、judge は今までどおりローカルのレビューで判定する。雛形（`harness/templates/harness.config.json`）は `"reviewSource": { "mode": "local" }`。`harness.config.json` は `projectOwned`（初回だけ雛形から作る）なので、前から導入している先にはキーが無いことがあるが、そのときも `local`。配布物でこの既定を確かめるテストは `harness/test/managed-review-source.test.ts`。
 - 使うとき：導入先の `harness.config.json` に次を書く（`appLogin` は導入先の行の App の bot の login）。`mode` が `api` で `appLogin` が無いと、設定の誤りで止まる。

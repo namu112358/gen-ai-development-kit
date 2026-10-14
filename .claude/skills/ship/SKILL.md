@@ -34,7 +34,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
      - Planner の申告（理由コード `needs-decision`）なら、plan の skill の手順9どおり人の答えを `agent-decision` で記録し（`post-decision`）、App の `plan-decision` の結果を待つ。`enforce` で通れば次へ、`shadow` なら人が「進める」と言えば、plan の skill の手順10の進める記録を出してから次へ（ラベルを外すよう人に頼まない）。答えで計画が変わるなら、App が判定し直した後（`agent:plan-ok` か `gate` の停止）に計画を出し直す。
    - `epic`：手順1の `epic` に戻る。
 3. implement の skill で実装し、Draft PR を出す。worktree は消さずに続ける。クラウドの付き添いのセッション（`CLAUDE_CODE_REMOTE` が `true`）では、Draft PR を出した後は節「クラウドで PR を出した後（PR のイベントで進める）」のとおり PR を購読して待つ。
-4. judge の skill で判定する。現在の head にコラボレーターのレビューがあれば、先に fix の skill をする。
+4. judge の skill で判定する。現在の head にコラボレーターのレビューがあれば、先に fix の skill をする。`reviewSource.mode` が `subscription` なら judge を自分で始めず、`step` の `wait`（`waitingFor` が `routine`＝Routine の判定待ち）に従って待つ。`reviewSource.routineWaitMinutes` を過ぎて `step` が `run('judge')` を返したら、今どおり judge の skill で判定する。
 5. 判定にブロッキング指摘があれば（App の `kind=fix-request`）、fix の skill で直し、判定をやり直す。PR が main と衝突している、または main への追従が要るときは sync の skill をする。修正の上限（`agent:blocked`、理由コード `fix-limit`）に達したら人に返す。
 6. 合格して Ready になったら、Merge の経路を確かめる。
    - 自動 Merge 待ち：App が auto-merge を付けたこと（`node harness/scripts/agent.ts rest pr-view <PR番号>` の `autoMergeRequest` が null でない）、または PR に App の記録（本文に `kind=bypass-merge`・`delegated-merge`・`auto-mode-merge`、作成者が App）があり、最新の記録が `-end`（`bypass-merge-end` など）でないこと。
@@ -70,7 +70,7 @@ plan・implement・judge・fix・sync の各 skill（[.claude/skills/](../)）�
   1. このセッション自身が書いたコメント（着手宣言・判定コメントなど）が返ってきただけのイベントと、前に扱ったのと同じイベントは何もしない。App のレビュー・コメント（変更要求 `kind=fix-request`・判定の受け付けなど）は捨てずに次へ進む（App の記録で次の段階が出るため）。
   2. それ以外は、手順1の「ハーネスが更新されたとき」を確かめてから `node harness/scripts/agent.ts step <Issue番号>` を読む。
   3. `node`：`step` が出した宣言（`claim`）がその段階の着手宣言の出し直しになる。その Issue の worktree が無ければ（VM が回収された後など）`node harness/scripts/agent.ts worktree <step の branch>` で作り直し、その段階の skill（fix・sync・judge）を行う。
-  4. `wait` の `app`・`human`・`area-limit`：何もしない（宣言する段階が無いので宣言は出さない。`area-limit` は fleet の扱いのとおり待ち、次のイベントか見回りで読み直す）。
+  4. `wait` の `app`・`human`・`area-limit`・`routine`（Routine の判定待ち。PR のイベント（判定コメント・受け付け）で起きる）：何もしない（宣言する段階が無いので宣言は出さない。`area-limit` は fleet の扱いのとおり待ち、次のイベントか見回りで読み直す）。
   5. `wait` の `done`（Merge 済み）：手順1の「Merge 済みで呼び直されたとき」をしてから、下の「やめる」。
   6. `stop`：「人に返す条件」のとおり人に返す。購読は続ける。
 - **見回り**：取りこぼしに備え、`send_later` で30分後の見回りを1つだけ予約する。

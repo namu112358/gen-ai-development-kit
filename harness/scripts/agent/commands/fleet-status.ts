@@ -3,10 +3,10 @@ import { checkAssignee, requireAssignee } from '../../../lib/assignee.ts';
 import { appMarkKind, hasClaudeMark } from '../../../lib/blocks.ts';
 import { describeFullAreas, fullAreas } from '../../../lib/concurrency.ts';
 import { bypassState } from '../../../gates/bypass.ts';
-import { bypassMergeConfig, delegateConfig, fleetConfig, projectCommands, reasonOf, type ReasonCode, syncLoopConfig } from '../../../lib/config.ts';
+import { bypassMergeConfig, delegateConfig, fleetConfig, projectCommands, reasonOf, type ReasonCode, reviewSourceConfig, syncLoopConfig } from '../../../lib/config.ts';
 import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../../../lib/fleet-reads.ts';
 import { delegateState } from '../../../lib/delegate.ts';
-import { type FleetIssue, type FleetMergeState, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, humanWaitMinutes, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
+import { type FleetIssue, type FleetMergeState, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, humanWaitMinutes, mergeTreeResult, type PrConflict, renderFleetStatus, type RoutineWait, routineWaitOf, selectFleet } from '../../../lib/fleet.ts';
 import { FLEET_WATCH_DEFAULTS, pendingFollowUps, readWatchRecord, updateWatch, watchRecordPath, writeWatchRecord } from '../../../lib/hq-stall.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { gitCommonDir } from '../../../lib/local-state.ts';
@@ -54,6 +54,15 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  * fleet の Issue の開いた PR 同士を git merge-tree で試し、衝突する組（試せなかった組を含む）を返す。
  * PR ごとに head を fetch し（refs/pull/<n>/head）、組ごとに merge-tree を実行する。どちらもシェルを通さず、作業ツリーは変えない。
  */
+/** reviewSource.mode が subscription のときの Routine の判定待ちの設定（api・local は null）。設定の誤りは fail する */
+function routineWaitFromConfig(): RoutineWait | null {
+  try {
+    return routineWaitOf(reviewSourceConfig(config), new Date());
+  } catch (e) {
+    return fail([`harness.config.json: ${(e as Error).message}`]);
+  }
+}
+
 function prConflicts(issues: FleetIssue[]): PrConflict[] {
   const heads = issues.flatMap((i) => i.prs.filter((p) => !p.merged && p.facts !== null).map((p) => ({ number: p.number, sha: p.facts!.headSha })));
   if (heads.length < 2) return [];
@@ -127,7 +136,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const { issues } = await collectFleetIssues(prefetchedGitHub(gh, config, snap), config, items, snap);
 
   const facts = { issues, prConflicts: prConflicts(issues) };
-  const rows = fleetStatus(facts);
+  const rows = fleetStatus(facts, routineWaitFromConfig());
   // Assignee を確かめる設定のときだけ、今の GitHub のユーザーを読む（Issue #172）
   const me = requireAssignee(config) ? (await gh.get<{ login: string }>('/user')).login : null;
   const session = currentSession();
@@ -206,6 +215,7 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
   } catch (e) {
     fail([`harness.config.json: ${(e as Error).message}`]);
   }
+  const reviewSource = routineWaitFromConfig();
   const local: StepLocal = planFile !== undefined
     ? { kind: 'plan', errors: planFileErrors(planFile) }
     : critiqueFile !== undefined ? { kind: 'critique', round: readCritique(critiqueFile) } : { kind: 'none' };
@@ -262,6 +272,7 @@ async function stepCommand(gh: GitHub, args: string[]): Promise<void> {
     now: new Date(),
     humanClaimStaleHours: config.routine.humanClaimStaleHours,
     harnessStale,
+    reviewSource,
     checkCommand: projectCommands(config).checkCommand,
   });
 

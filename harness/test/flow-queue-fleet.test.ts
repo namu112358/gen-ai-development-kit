@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { LABELS } from '../lib/config.ts';
-import { FLEET_STAGES, fleetStatus, type FleetPr, type FleetRow } from '../lib/fleet.ts';
+import { FLEET_STAGES, fleetStatus, type FleetNext, type FleetPr, type FleetRow } from '../lib/fleet.ts';
 import { FLOW_NODES, queueActionKindOf, type FlowNode, type FlowNodeId, type FlowStep } from '../lib/flow.ts';
 import { decideIssue, decidePr, type Action, type IssueFacts, type PrFacts } from '../lib/queue.ts';
 import { KNOWN_DIVERGENCES, type FlowCase } from './support/flow-divergences.ts';
@@ -144,7 +144,9 @@ const overriddenNext = (note: string | null): FlowStep | null => {
 const SYNC_FROM_STAGES: readonly string[] = ['judge', 'fix', 'human-merge', 'auto-merge'];
 
 /** (stage, next) が段階のグラフに当たるか：あるノードの (fleetStage, step) か、next が sync なら sync へ分岐できる段階 */
-function inGraph(stage: string, next: FlowStep): boolean {
+function inGraph(stage: string, next: FleetNext): boolean {
+  // Routine の判定待ちは judge のノードの待ちで、グラフのノードではない
+  if (next === 'routine') return stage === 'judge';
   if (ids.some((id) => nodes[id].fleetStage === stage && nodes[id].step === next)) return true;
   if (next === 'sync') return SYNC_FROM_STAGES.includes(stage);
   return false;

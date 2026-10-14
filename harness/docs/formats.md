@@ -152,7 +152,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 - `risk.probabilities` は記録のみ
 - `facts` は記録と人の確認用の事実（日本語）。Jev には渡さない。Claude の判定を含めない
 - `risk` に危険の判定の欄（`danger`）は無い。auto mode の危険の判定は Jev だけで（#382）、#343 の後に投稿された古い判定コメントに `risk.danger` があっても読まない（無視する）
-- `metrics.reviewSource`（任意）：判定に使ったレビューの出どころ。`api`（API のレビュー（review-api）の記録）か `local`（ローカルの担当）。`compose-verdict` の `--review-source` で入り、本文にも「レビュー：API（URL）」か「レビュー：ローカル」の1行が入る。`metrics.apiReviewRecord`（任意）は `api` のときの記録のコメントの URL（`--api-record`）。どちらも記録と人の確認用で、App は読まない（Issue #1004・#1043）
+- `metrics.reviewSource`（任意）：判定に使ったレビューの出どころ。`api`（API のレビュー（review-api）の記録）か `local`（ローカルの担当）。`compose-verdict` の `--review-source` で入り、本文にも「レビュー：API（URL）」か「レビュー：ローカル」の1行が入る。`metrics.apiReviewRecord`（任意）は `api` のときの記録のコメントの URL（`--api-record`）。どちらも記録と人の確認用で、App は読まない（Issue #1004・#1043）。`metrics.judgedBy`（任意）は判定者：付き添いのセッションは URL か「付き添いのセッション」、Routine は `routine:<セッションの URL>`（URL が無ければ `routine`。`compose-verdict --judged-by routine`）
 - `authorView`（任意）：PR を実装したセッションの見解。空でなく 2000 文字まで。`compose-verdict` の `--author-view <file>`（見解を書いたテキストのファイル。前後の空白を除いて空なら止まる）で入る。渡すのは、その PR を実装したセッションが判定するときだけ。auto mode の危険の問い（Jev）の見解ありの問いにだけ、別の欄 `author_view` で渡す。保留するかには使わない（shadow。Issue #426）
 
 
@@ -198,7 +198,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 | `kind` | 中身 |
 | --- | --- |
 | `node` | `node`（`plan`・`plan-critique`・`implement`・`judge`・`fix`・`sync`）と使う `skill`、宣言する番号と段階 `claim`（judge・fix・sync は PR 番号）、確かめ済みの前提 `preconditions`、使ってよい操作 `allowed`、読むもの `inputs`、出すものの書式 `output`、ブランチ `branch`（PR の head。無ければ null）と接頭辞 `branchPrefix`、計画ゲートの記録の計画の `files`（計画の前は null）。`step` がこの宣言を出す（同じ段階の自分の宣言があれば出さない。確認事項の答えで再開するときは、同じ段階の自分の宣言があっても出し直す） |
-| `wait` | `waitingFor`：`app`（計画ゲート・判定の受け付け・Merge の経路・auto-merge）、`human`（人の Merge 待ち、人の PR の修正・取り込み、確認事項の答え待ち）、`area-limit`（`areaConcurrency` の上限。`--force`・`--fleet` は付けず人・fleet が決める）、`done`（Merge 済み）と `detail`。宣言は変えない |
+| `wait` | `waitingFor`：`app`（計画ゲート・判定の受け付け・Merge の経路・auto-merge）、`human`（人の Merge 待ち、人の PR の修正・取り込み、確認事項の答え待ち）、`area-limit`（`areaConcurrency` の上限。`--force`・`--fleet` は付けず人・fleet が決める）、`routine`（Routine の判定待ち。`reviewSource.mode` が `subscription` で、head の push から `reviewSource.routineWaitMinutes` 以内の judge。過ぎれば `run`（judge）に戻る。`fleet-status` の行は次にやることが `routine`）、`done`（Merge 済み）と `detail`。宣言は変えない |
 | `stop` | 理由コード `reason`、`detail`、このセッションの宣言を解除したか `released` |
 
 `stop` の理由コード：

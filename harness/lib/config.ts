@@ -110,7 +110,7 @@ export interface HarnessConfig {
   project?: { checkCommand?: string | null; installCommand?: string | null };
   reviewPanel?: { mode: 'off' | 'shadow' | 'enforce' }; // 合体版のレビューの動かし方（harness/docs/review-panel.md）。無ければ off
   /** judge のレビューの出どころ（reviewSourceConfig。api なら review-api の記録を waitMinutes 分まで待って使う。appLogin はレビュー用 App の bot の login。無ければ local。Issue #1004） */
-  reviewSource?: { mode?: 'api' | 'local'; waitMinutes?: number; appLogin?: string };
+  reviewSource?: { mode?: 'api' | 'local' | 'subscription'; waitMinutes?: number; appLogin?: string; routineWaitMinutes?: number };
   /**
    * fleet の進め方。nesting が orca なら ship をサブエージェントで並行に動かし（入れ子のサブエージェントが使える環境）、
    * flat なら1つのセッションで段階を交互に進める。maxParallelShips は --max が無いときに同時に動かす ship の数。無ければ既定値（fleetConfig）
@@ -189,6 +189,7 @@ const LIMIT_KEYS: { path: string; kind: LimitKind; required: boolean }[] = [
   { path: 'routine.routineClaimTakeoverMinutes', kind: 'positive', required: true },
   { path: 'routine.gateReplyTimeoutMinutes', kind: 'positive', required: false },
   { path: 'routine.stalledClaimMinutes', kind: 'positive', required: false },
+  { path: 'routine.judgeDailyLimit', kind: 'positiveInteger', required: false },
   { path: 'fixLoop.normalLimit', kind: 'positiveInteger', required: true },
   { path: 'fixLoop.criticalLimit', kind: 'positiveInteger', required: true },
   { path: 'syncLoop.limit', kind: 'positiveInteger', required: false },
@@ -326,20 +327,22 @@ export function implementModelConfig(config: Pick<HarnessConfig, 'fleet'>): { im
 }
 
 /** judge のレビューの出どころの既定値 */
-export const REVIEW_SOURCE_DEFAULTS = { mode: 'local', waitMinutes: 8 } as const;
+export const REVIEW_SOURCE_DEFAULTS = { mode: 'local', waitMinutes: 8, routineWaitMinutes: 20 } as const;
 
 /**
  * judge のレビューの出どころ（reviewSource。無ければ local＝今の担当で判定する）。waitMinutes は 0〜9 の整数
- * （api-review の待ちを Bash の1回の上限 10 分に収める）。api なら appLogin（レビュー用 App の bot の login）が要る。誤りは throw する
+ * （api-review の待ちを Bash の1回の上限 10 分に収める）。api なら appLogin（レビュー用 App の bot の login）が要る。
+ * subscription は Worker を使わず Routine の判定を待つ（appLogin は要らない）。routineWaitMinutes（正の整数、既定 20）は head の push から Routine を待つ分。誤りは throw する
  */
-export function reviewSourceConfig(config: Pick<HarnessConfig, 'reviewSource'>): { mode: 'api' | 'local'; waitMinutes: number; appLogin: string | null } {
+export function reviewSourceConfig(config: Pick<HarnessConfig, 'reviewSource'>): { mode: 'api' | 'local' | 'subscription'; waitMinutes: number; appLogin: string | null; routineWaitMinutes: number } {
   const raw = sectionOf(config.reviewSource, 'reviewSource', '{ "mode": "api", "waitMinutes": 8, "appLogin": "<slug>[bot]" }');
-  const { mode = REVIEW_SOURCE_DEFAULTS.mode, waitMinutes = REVIEW_SOURCE_DEFAULTS.waitMinutes, appLogin } = raw;
-  if (mode !== 'api' && mode !== 'local') throw new Error('reviewSource.mode は api か local で書いてください');
+  const { mode = REVIEW_SOURCE_DEFAULTS.mode, waitMinutes = REVIEW_SOURCE_DEFAULTS.waitMinutes, appLogin, routineWaitMinutes = REVIEW_SOURCE_DEFAULTS.routineWaitMinutes } = raw;
+  if (mode !== 'api' && mode !== 'local' && mode !== 'subscription') throw new Error('reviewSource.mode は api か local か subscription で書いてください');
   if (typeof waitMinutes !== 'number' || !Number.isInteger(waitMinutes) || waitMinutes < 0 || waitMinutes > 9) throw new Error('reviewSource.waitMinutes は 0〜9 の整数で書いてください');
   if (appLogin !== undefined && (typeof appLogin !== 'string' || appLogin.trim() === '')) throw new Error('reviewSource.appLogin は空でない文字列で書いてください');
   if (mode === 'api' && appLogin === undefined) throw new Error('reviewSource.mode が api のときは reviewSource.appLogin（レビュー用 App の bot の login）を書いてください');
-  return { mode, waitMinutes, appLogin: (appLogin as string | undefined) ?? null };
+  if (typeof routineWaitMinutes !== 'number' || !Number.isInteger(routineWaitMinutes) || routineWaitMinutes < 1) throw new Error('reviewSource.routineWaitMinutes は正の整数で書いてください');
+  return { mode, waitMinutes, appLogin: (appLogin as string | undefined) ?? null, routineWaitMinutes };
 }
 
 /** hq の既定値 */

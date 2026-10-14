@@ -5,7 +5,7 @@
  * 流れと止まる理由の一覧は harness/docs/formats.md の「agent.ts step の出力」。
  */
 import type { ConfirmFact } from './confirm.ts';
-import { confirmState, issueNode, resumeAllowed, type FleetIssue } from './fleet.ts';
+import { confirmState, issueNode, resumeAllowed, type FleetIssue, type RoutineWait } from './fleet.ts';
 import type { FlowNodeId, FlowStep, FlowStopReason } from './flow.ts';
 import { postClaim, writeClaim, type ClaimIo } from './claim.ts';
 import { claimBlocker, isOwnClaim, type Claim, type ClaimStage, type StoredClaim } from './queue.ts';
@@ -58,6 +58,8 @@ export interface StepInput {
    * judge のノードの前だけ見て、宣言を出さずに stop（harness-stale。自分の宣言は解除する）を返す（Issue #199）
    */
   harnessStale?: string | null;
+  /** reviewSource.mode が subscription のときの Routine の判定待ちの設定（fleet.ts の routineWaitOf）。無い・null（api・local）なら待たない */
+  reviewSource?: RoutineWait | null;
   /** 設定の検証コマンド（config.ts の projectCommands）。null なら allowed に出さない。無ければ既定（npm run check）。Issue #640 */
   checkCommand?: string | null;
 }
@@ -92,8 +94,8 @@ export interface StepNodeResult extends StepBase {
 
 export interface StepWaitResult extends StepBase {
   kind: 'wait';
-  /** app＝App の結果待ち、human＝人（Merge・人の PR の修正・確認事項の答え）待ち、area-limit＝領域の上限、done＝Merge 済み（終わり） */
-  waitingFor: 'app' | 'human' | 'area-limit' | 'done';
+  /** app＝App の結果待ち、human＝人（Merge・人の PR の修正・確認事項の答え）待ち、area-limit＝領域の上限、routine＝Routine の判定待ち、done＝Merge 済み（終わり） */
+  waitingFor: 'app' | 'human' | 'area-limit' | 'routine' | 'done';
   detail: string;
 }
 
@@ -208,7 +210,7 @@ export function decideStep(input: StepInput): StepDecision {
   }
   const session = input.session;
 
-  const at = issueNode(i, i.prs.some((p) => p.merged));
+  const at = issueNode(i, i.prs.some((p) => p.merged), input.reviewSource ?? null);
   const openPr = i.prs.find((p) => !p.merged && p.facts !== null) ?? null;
   const issueClaim: Claim | null = i.facts.claim;
   const prClaim: Claim | null = openPr?.facts?.claim ?? null;
@@ -356,6 +358,10 @@ export function decideStep(input: StepInput): StepDecision {
       if (input.areaFull) return wait('plan-ok', 'area-limit', input.areaFull);
       return run('implement', { preconditions: ['計画ゲートを通った（App の agent:plan-ok）'] });
     case 'judge':
+      if (at.routineWait && input.reviewSource) {
+        const elapsed = Math.max(0, Math.floor((input.now.getTime() - Date.parse(openPr?.facts?.headPushedAt ?? '')) / 60_000));
+        return wait('judge', 'routine', `Routine の判定待ち（head の push から ${elapsed} 分。reviewSource.routineWaitMinutes の ${input.reviewSource.waitMinutes} 分を過ぎたらローカルで判定）`);
+      }
       if (input.harnessStale) return stop('judge', 'harness-stale', input.harnessStale);
       return run('judge');
     case 'fix': {

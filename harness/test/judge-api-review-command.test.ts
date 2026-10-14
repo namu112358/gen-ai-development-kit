@@ -1,5 +1,5 @@
 // agent.ts api-review（harness/scripts/agent/commands/api-review.ts の apiReview）を偽の GitHub と差し替えた時計で確かめる（Issue #1042）。
-// 設定（reviewSource）が無い・mode local なら GitHub を一度も読まずに disabled、記録が無いまま waitMinutes を過ぎたら timeout（0 なら読み直さない）、
+// 設定（reviewSource）が無い・mode local なら GitHub を一度も読まずに disabled、mode subscription なら読まず待たずに subscription、記録が無いまま waitMinutes を過ぎたら timeout（0 なら読み直さない）、
 // review-api の posted の記録があれば Reviewer・Risk のファイルを書き、そのファイルを composeVerdict に渡すとサブエージェントを呼ばずに判定コメントが組めることを見る
 import assert from 'node:assert/strict';
 import { readFileSync, rmSync } from 'node:fs';
@@ -47,17 +47,18 @@ function fakeClock() {
 
 const noPatch = () => assert.fail('samePatch は呼ばない（head の違う記録が無い）');
 
-test('api-review：reviewSource が無い・mode local なら GitHub を一度も読まずに disabled', async (t) => {
+test('api-review：reviewSource が無い・mode local・mode subscription なら GitHub を一度も読まず待たずに local を返す', async (t) => {
   const { apiReview } = await loadCommand();
   const file = judgeInputFile(t);
-  for (const [name, cfg] of [
-    ['reviewSource が無い', withoutSource()],
-    ['mode local', withSource({ mode: 'local' })],
+  for (const [name, cfg, reason] of [
+    ['reviewSource が無い', withoutSource(), 'disabled'],
+    ['mode local', withSource({ mode: 'local' }), 'disabled'],
+    ['mode subscription', withSource({ mode: 'subscription' }), 'subscription'],
   ] as const) {
     const { gh, touched } = untouchableGh();
     const clock = fakeClock();
     const out = await apiReview(gh, cfg, PR, file, { now: clock.now, sleep: clock.sleep, samePatch: noPatch, ...BASE_DEPS });
-    assert.deepEqual(out, { action: 'local', reason: 'disabled' }, name);
+    assert.deepEqual(out, { action: 'local', reason }, name);
     assert.deepEqual(touched, [], `${name}: GitHub を読んだ`);
     assert.deepEqual(clock.sleeps, [], `${name}: 待った`);
   }
