@@ -14,7 +14,8 @@ import { type AgentCommand, config, fail, writeTemp } from '../cli.ts';
  *
  *   node harness/scripts/agent.ts api-review <pr> --judge-input <file>
  *                                                           reviewSource.mode（harness.config.json。無ければ local）が local なら GitHub を読まずに
- *                                                           { action: 'local', reason: 'disabled' }。api なら judge-input の headSha・PR の状態・前回の判定の head と、
+ *                                                           { action: 'local', reason: 'disabled' }。subscription なら GitHub を読まず待たずに
+ *                                                           { action: 'local', reason: 'subscription' }（Routine の判定の待ちは step が担う）。api なら judge-input の headSha・PR の状態・前回の判定の head と、
  *                                                           PR のレビュー用 App（reviewSource.appLogin）の記録から選ぶ：closed・前回の判定と同じ head は
  *                                                           { action: 'skip', reason }、posted の記録は reviewer・risk の JSON をファイルに書いて
  *                                                           { action: 'api', reviewer, risk, recordUrl, recordHead, models }、投稿しなかった記録は
@@ -31,7 +32,7 @@ import { type AgentCommand, config, fail, writeTemp } from '../cli.ts';
 export type ApiReviewOutput =
   | { action: 'api'; reviewer: string; risk: string; recordUrl: string; recordHead: string; models: { review: string; risk: string } }
   /**
-   * reason：disabled・timeout・投稿しなかった記録の outcome・previous-local-blocking・scope-unreadable・guardrail-files・secret-files・
+   * reason：disabled・subscription・timeout・投稿しなかった記録の outcome・previous-local-blocking・scope-unreadable・guardrail-files・secret-files・
    * record-edited・dry-run・diff-truncated（記録を選んだ理由は recordUrl つき）
    */
   | { action: 'local'; reason: string; recordUrl?: string }
@@ -109,6 +110,7 @@ export async function apiReview(
     fail([(e as Error).message]);
   }
   if (source.mode === 'local') return { action: 'local', reason: 'disabled' };
+  if (source.mode === 'subscription') return { action: 'local', reason: 'subscription' };
   const text = readFileSync(judgeInputFile, 'utf8');
   const judged = checkJudgeInput(text, n);
   if (!judged.ok) fail(judged.errors.map((e) => `${judgeInputFile}: ${e}`));

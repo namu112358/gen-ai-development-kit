@@ -15,7 +15,7 @@ const ADDED_DELEGATE = ['review-api/**', 'harness/lib/api-review.ts', 'harness/s
 const FILES = ['review-api/src/prompts.ts', 'review-api/wrangler.jsonc', 'review-api/wrangler.json', 'harness/lib/api-review.ts', 'harness/scripts/agent/commands/api-review.ts'];
 
 test('実物の reviewSource は mode api・8 分・harness-review-agent[bot]、雛形は mode local', () => {
-  assert.deepEqual(reviewSourceConfig(config), { mode: 'api', waitMinutes: 8, appLogin: 'harness-review-agent[bot]' });
+  assert.deepEqual(reviewSourceConfig(config), { mode: 'api', waitMinutes: 8, appLogin: 'harness-review-agent[bot]', routineWaitMinutes: 20 });
   assert.equal(reviewSourceConfig(template).mode, 'local');
 });
 

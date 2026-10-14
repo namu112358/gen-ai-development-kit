@@ -86,7 +86,7 @@ node harness/scripts/setup.ts all <owner>/<repo> <app-id>
 
 ## 6. Routine
 
-定期実行は将来の構想。patrol の Routine だけは [patrol-routine.md](patrol-routine.md) のとおり、判定の Routine（PR を1件指定して判定する）は [judge-routine.md](judge-routine.md) のとおり回せる。Issue は付き添いのセッションで ship を使って進める。Routine を使うときは次のとおり。
+定期実行は将来の構想。patrol の Routine だけは [patrol-routine.md](patrol-routine.md) のとおり、判定の Routine（開いた Draft の Agent PR を引き当てて判定する）は [judge-routine.md](judge-routine.md) のとおり回せる。Issue は付き添いのセッションで ship を使って進める。Routine を使うときは次のとおり。
 
 [claude.ai/code/routines](https://claude.ai/code/routines)（CLI では `/schedule`）で作る。
 
@@ -245,7 +245,7 @@ Claude Code のクラウドのセッション（claude.ai/code）で、付き添
 
 ## 13. API のレビュー（任意）
 
-既定ではローカルのレビュー（reviewer・risk-agent）で判定するので、何もしなくても今の judge で動く（`harness.config.json` の `reviewSource` が無いか `mode` が `local`）。kit の Worker（Claude API + Cloudflare）でレビューを受けるときに導入先がすることは次の4つ。
+既定ではローカルのレビュー（reviewer・risk-agent）で判定するので、何もしなくても今の judge で動く（`harness.config.json` の `reviewSource` が無いか `mode` が `local`）。Worker を使わずサブスクリプションの枠の Routine で判定するなら `reviewSource.mode` を `subscription` にする（[judge-routine.md](judge-routine.md)）。kit の Worker（Claude API + Cloudflare）でレビューを受けるときに導入先がすることは次の4つ。
 
 1. レビュー専用の GitHub App を導入先にインストールする（別の owner なら、App を公開にして入れるか、その owner に App を別に作る）。
 2. Claude API のキーを、導入先ごとの Console のワークスペースで発行し、月の上限を切る。

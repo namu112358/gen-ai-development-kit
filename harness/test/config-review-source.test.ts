@@ -7,10 +7,10 @@ import { reviewSourceConfig, type HarnessConfig } from '../lib/config.ts';
 const asConfig = (reviewSource: unknown): Pick<HarnessConfig, 'reviewSource'> => ({ reviewSource } as unknown as Pick<HarnessConfig, 'reviewSource'>);
 
 test('reviewSourceConfig：キーが無ければ local・8 分・appLogin null。正しい値はそのまま読む', () => {
-  assert.deepEqual(reviewSourceConfig({} as Pick<HarnessConfig, 'reviewSource'>), { mode: 'local', waitMinutes: 8, appLogin: null });
-  const cases: [unknown, { mode: string; waitMinutes: number; appLogin: string | null }][] = [
-    [{ mode: 'api', waitMinutes: 0, appLogin: 'review-api[bot]' }, { mode: 'api', waitMinutes: 0, appLogin: 'review-api[bot]' }],
-    [{ mode: 'api', waitMinutes: 9, appLogin: 'review-api[bot]' }, { mode: 'api', waitMinutes: 9, appLogin: 'review-api[bot]' }],
+  assert.deepEqual(reviewSourceConfig({} as Pick<HarnessConfig, 'reviewSource'>), { mode: 'local', waitMinutes: 8, appLogin: null, routineWaitMinutes: 20 });
+  const cases: [unknown, { mode: string; waitMinutes: number; appLogin: string | null; routineWaitMinutes: number }][] = [
+    [{ mode: 'api', waitMinutes: 0, appLogin: 'review-api[bot]' }, { mode: 'api', waitMinutes: 0, appLogin: 'review-api[bot]', routineWaitMinutes: 20 }],
+    [{ mode: 'api', waitMinutes: 9, appLogin: 'review-api[bot]' }, { mode: 'api', waitMinutes: 9, appLogin: 'review-api[bot]', routineWaitMinutes: 20 }],
   ];
   for (const [raw, want] of cases) assert.deepEqual(reviewSourceConfig(asConfig(raw)), want, JSON.stringify(raw));
   // mode local は appLogin が無くてよい

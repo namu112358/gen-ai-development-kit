@@ -49,7 +49,7 @@ judge の skill（[.claude/skills/judge/SKILL.md](../../.claude/skills/judge/SKI
 | `shadow` | 判定は今の reviewer のまま。合体版を並行に動かし、結果を判定コメントとは別の記録のコメントに残す。合体版が失敗しても判定は止めない |
 | `enforce`（このリポジトリ。2026-09-30 から、#319） | reviewer を呼ばず、合体版の組み立ての出力で判定する。合体版が失敗したら判定せず人に返す。対象外（closed、同じ head）なら判定しない |
 
-`reviewSource.mode` が `api` で、judge の skill の手順2a の `api-review` が `api` を返した判定では、合体版も reviewer・risk-agent も動かさず、API のレビュー（review-api）の記録で判定する。`reviewPanel.mode` に従うのは、`api-review` が `local` を返した（ローカルのレビューに戻った）判定だけ（[docs/review-api.md](../../docs/review-api.md) の節12）。
+`reviewSource.mode` が `subscription` の判定は `local` と同じ経路（手順2a の `api-review` は `local`・`subscription` を返し、合体版か reviewer・risk-agent で判定する）。Routine の判定を待つのは `step` で、判定の中身は変わらない。`reviewSource.mode` が `api` で、judge の skill の手順2a の `api-review` が `api` を返した判定では、合体版も reviewer・risk-agent も動かさず、API のレビュー（review-api）の記録で判定する。`reviewPanel.mode` に従うのは、`api-review` が `local` を返した（ローカルのレビューに戻った）判定だけ（[docs/review-api.md](../../docs/review-api.md) の節12）。
 
 `reviewPanel.mode` を見るのは付き添いのセッションの judge の skill だけ。Routine（[.claude/routine.md](../../.claude/routine.md)）は対象外で、今の reviewer で判定する。
 

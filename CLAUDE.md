@@ -21,7 +21,7 @@ GitHub Issues × Claude Code の自律開発ハーネス。概要は [README.md]
 | `harness/templates/` | 導入先の設定の雛形（`harness.config.json`・`CLAUDE.template.md`・deny の一覧） |
 | `.claude/skills/` | 付き添いのセッションの手順（ship / fleet / hq / plan / implement / judge / fix / sync / arch-review / qa-retro / test-prune / gh-stack / patrol / intel / issue-creator / backlog / review-panel。Orca の操作：orca-cli / orchestration） |
 | `.claude/agents/` | reviewer / risk-agent / plan-critic / test-designer / arch-reviewer / hq-judge / 合体版のレビューの担当（review-intake / review-lens / review-ac-scope / review-safety / review-overbuild / review-scorer） |
-| `review-api/` | Claude API + Cloudflare（Workers・Workflows）の PR レビュー。judge はローカルのレビューの代わりにこの記録で判定し、使えないときだけローカルのレビューで判定する（`reviewSource.mode` が `api`。Merge の経路はローカルで判定したときと同じ）。調査結果・設計・手順は [docs/review-api.md](docs/review-api.md) |
+| `review-api/` | Claude API + Cloudflare（Workers・Workflows）の PR レビュー。judge はローカルのレビューの代わりにこの記録で判定し、使えないときだけローカルのレビューで判定する（`reviewSource.mode` が `api`。Merge の経路はローカルで判定したときと同じ）。`reviewSource.mode` が `subscription` なら Worker を使わず、サブスクリプションの枠の Routine が判定し、人のセッションは待つ（[docs/judge-routine.md](docs/judge-routine.md)）。調査結果・設計・手順は [docs/review-api.md](docs/review-api.md) |
 | `overview.html` | 全体の図解（流れ・役割・ディレクトリの地図・ラベル）。外部を読み込まない1ファイル |
 
 ## コードの書き方

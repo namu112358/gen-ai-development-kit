@@ -48,6 +48,7 @@ hq に Orca の worker として起こされたとき（プロンプトに orche
    - 確認事項の答えがそろった行（次にやることが `resume` の段階）は、その段階の skill を `step <番号>` が出した `claim` で宣言し直して続け、`inputs` の先頭の人の答えを根拠にする。答えのコメントは書かない。
    - sync：sync の skill。
    - 「—」（待つ）：計画ゲート・判定の受け付け・App の Merge 経路を待つ。ほかの Issue を先に進める。
+   - 「Routine の判定待ち」：`reviewSource.mode` が `subscription` で、head の push から `reviewSource.routineWaitMinutes` 以内の judge。選ばずに待つ（表の選択が「待つ：Routine の判定待ち」。ほかの Issue を先に進める）。過ぎれば次にやることが judge に戻り、今どおり judge の skill で判定する。
 3. 段階を1つ進めるたびに、手順1の `node harness/scripts/agent.ts fleet-status` を読み直して、次にやることを決める。セッションの記憶に頼らない（止まっても同じ手順で続きから再開できる）。
    - 計画の後に「触るファイルが重なるため待つ」になった Issue は、実装に進めない（先に選んだほうの Merge の後に読み直す）。
    - PR 同士が衝突して待つ Issue は、先の側が Merge された後に sync の skill で main を取り込んでから進める。

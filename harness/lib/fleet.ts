@@ -109,7 +109,7 @@ export const FLEET_STAGES = {
 
 export type FleetStage = keyof typeof FLEET_STAGES;
 /** 次にやること（段階のグラフ flow.ts の FlowStep） */
-export type FleetNext = FlowStep;
+export type FleetNext = FlowStep | 'routine';
 
 export interface FleetRow {
   issue: number;
@@ -205,12 +205,38 @@ export interface IssueNode {
   note: string | null;
   sync: boolean;
   humanPr: boolean;
+  /** reviewSource.mode が subscription で、判定の Routine を待つ間（judge のノードだけ。次にやることは routine） */
+  routineWait: boolean;
   stopReason: FlowStopLabel | null;
 }
 
-const node = (n: StageNode, pr: number | null, note: string | null, stopReason: FlowStopLabel | null = null): IssueNode => ({ node: n, pr, note, sync: false, humanPr: false, stopReason });
+/** reviewSource.mode が subscription のときの、Routine の判定を待つ設定（api・local は null） */
+export interface RoutineWait {
+  mode: 'subscription';
+  waitMinutes: number;
+  now: Date;
+}
 
-function prNode(p: FleetPr, anyMerged: boolean): IssueNode {
+/** reviewSourceConfig の返り値から RoutineWait を作る。subscription 以外は null（待たない） */
+export function routineWaitOf(source: { mode: string; routineWaitMinutes: number }, now: Date): RoutineWait | null {
+  return source.mode === 'subscription' ? { mode: 'subscription', waitMinutes: source.routineWaitMinutes, now } : null;
+}
+
+/**
+ * Routine の判定を待つか。判定が無く（受け付けも差し戻しも待ちも無い）、head の push から waitMinutes 分を過ぎていないときだけ真。
+ * headPushedAt が読めない・now より後なら偽（待たずに判定する）
+ */
+export function routineWaiting(f: Pick<PrFacts, 'acceptance' | 'verdictAwaitingGate' | 'verdictRejected' | 'headPushedAt'>, routine: RoutineWait | null): boolean {
+  if (routine === null || f.acceptance !== null || f.verdictAwaitingGate || f.verdictRejected) return false;
+  const pushed = Date.parse(f.headPushedAt);
+  if (Number.isNaN(pushed)) return false;
+  const elapsed = routine.now.getTime() - pushed;
+  return elapsed >= 0 && elapsed < routine.waitMinutes * 60_000;
+}
+
+const node = (n: StageNode, pr: number | null, note: string | null, stopReason: FlowStopLabel | null = null): IssueNode => ({ node: n, pr, note, sync: false, humanPr: false, routineWait: false, stopReason });
+
+function prNode(p: FleetPr, anyMerged: boolean, routine: RoutineWait | null): IssueNode {
   const f = p.facts!;
   const stop = ([LABELS.hold, LABELS.blocked] as const).find((l) => f.labels.includes(l));
   if (stop) return node('stopped', p.number, `PR に \`${stop}\``, stop === LABELS.hold ? 'hold' : 'blocked');
@@ -222,7 +248,10 @@ function prNode(p: FleetPr, anyMerged: boolean): IssueNode {
   else if (acc && !acc.reviewPass) s = node('fix', p.number, 'ブロッキング指摘');
   else if (acc) s = node('merge-route-pending', p.number, '合格。App の Merge 経路（auto-merge か kind=human-review）待ち');
   else if (f.verdictAwaitingGate) s = node('verdict-pending', p.number, '判定の受け付け待ち');
-  else s = node('judge', p.number, f.verdictRejected ? '判定が差し戻された（判定のやり直し）' : null);
+  else {
+    s = node('judge', p.number, f.verdictRejected ? '判定が差し戻された（判定のやり直し）' : null);
+    if (routineWaiting(f, routine)) s = { ...s, routineWait: true, note: 'Routine の判定待ち（reviewSource.mode が subscription）' };
+  }
   // 衝突や main の追従は何より先にする（衝突していると CI も判定の反映も進まない）。段階は残し、次にやることだけ sync にする
   if (f.conflicted) s = { ...s, sync: true, note: 'main と衝突' };
   else if (anyMerged && p.behindMain) s = { ...s, sync: true, note: 'Merge 済みの PR があり、main に追従していない' };
@@ -235,7 +264,7 @@ function prNode(p: FleetPr, anyMerged: boolean): IssueNode {
 const STOP_REASON: Record<string, FlowStopLabel> = { [LABELS.hold]: 'hold', [LABELS.blocked]: 'blocked', [LABELS.waiting]: 'waiting' };
 
 /** Issue の今のノード。anyMerged は、同じ集合に Merge 済みの PR があるか（あれば main に追従していない PR を sync にする） */
-export function issueNode(i: FleetIssue, anyMerged: boolean): IssueNode {
+export function issueNode(i: FleetIssue, anyMerged: boolean, routine: RoutineWait | null = null): IssueNode {
   const f = i.facts;
   const merged = i.prs.find((p) => p.merged);
   if (merged || i.closed) return node('merged', merged?.number ?? null, merged ? null : 'Issue は Close 済み');
@@ -243,7 +272,7 @@ export function issueNode(i: FleetIssue, anyMerged: boolean): IssueNode {
   const stop = STOP_LABELS.find((l) => f.labels.includes(l));
   if (stop) return node('stopped', open?.number ?? null, `\`${stop}\``, STOP_REASON[stop]!);
   if (f.labels.includes(LABELS.epic)) return node('stopped', null, 'Epic（子課題で進める）', 'epic');
-  if (open) return prNode(open, anyMerged);
+  if (open) return prNode(open, anyMerged, routine);
   if (f.openBlockers.length > 0) return node('stopped', null, `依存 ${f.openBlockers.map((b) => `#${b}`).join(', ')} が未解決`, 'dependency');
   if (f.labels.includes(LABELS.planReview)) return node('plan-review', null, '人が進めると決めれば implement');
   const pending = f.latestPlanAt !== null && (f.gate === null || f.gate.at < f.latestPlanAt);
@@ -255,8 +284,8 @@ export function issueNode(i: FleetIssue, anyMerged: boolean): IssueNode {
 }
 
 /** issueNode の結果を fleet の表の段階と次にやることにする（sync は段階を残して次にやることだけ sync、人の PR の fix・sync は none） */
-function issueStage(i: FleetIssue, anyMerged: boolean): Stage {
-  const n = issueNode(i, anyMerged);
+function issueStage(i: FleetIssue, anyMerged: boolean, routine: RoutineWait | null): Stage {
+  const n = issueNode(i, anyMerged, routine);
   const s: Stage = at(n.node, n.pr, n.note);
   if (n.node === 'stopped' && (n.stopReason === 'hold' || n.stopReason === 'blocked' || n.stopReason === 'waiting')) {
     const label = { hold: LABELS.hold, blocked: LABELS.blocked, waiting: LABELS.waiting }[n.stopReason];
@@ -264,6 +293,7 @@ function issueStage(i: FleetIssue, anyMerged: boolean): Stage {
   }
   if (n.humanPr) return { ...s, next: 'none' };
   if (n.sync) return { ...s, next: stepOf('sync') };
+  if (n.routineWait) return { ...s, next: 'routine' };
   if (n.node === 'judge' && i.prs.find((p) => p.number === n.pr && !p.merged)?.facts?.verdictRejected) return { ...s, rejudge: true };
   return s;
 }
@@ -298,11 +328,11 @@ export function resumeAllowed(resume: ConfirmStage, at: IssueNode): boolean {
 }
 
 /** Issue ごとの段階と次にやること。Merge 済みの Issue があれば、main に追従していない残りの PR の次にやることを sync にする */
-export function fleetStatus(facts: FleetFacts): FleetRow[] {
+export function fleetStatus(facts: FleetFacts, routine: RoutineWait | null = null): FleetRow[] {
   const anyMerged = facts.issues.some((i) => i.prs.some((p) => p.merged));
   return facts.issues.map((i) => {
-    const row = { issue: i.facts.number, title: i.facts.title, ...issueStage(i, anyMerged) };
-    const n = issueNode(i, anyMerged);
+    const row = { issue: i.facts.number, title: i.facts.title, ...issueStage(i, anyMerged, routine) };
+    const n = issueNode(i, anyMerged, routine);
     if (n.node === 'merged' || n.node === 'stopped' || n.humanPr) return row;
     const state = confirmState(i);
     if (state.kind === 'pending') {
@@ -415,6 +445,7 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
       continue;
     }
     if (r.confirmWait) { excluded.set(r.issue, `待つ：確認事項の答え待ち（${r.confirmWait.url}）`); continue; }
+    if (r.next === 'routine') { excluded.set(r.issue, '待つ：Routine の判定待ち（reviewSource.mode が subscription）'); continue; }
     const hw = humanWaits.get(r.issue);
     if (r.stage === 'plan-review' && hw?.overdue && humanWait) {
       excluded.set(r.issue, `人の判断待ちが ${hw.minutes} 分（hq.humanWaitMinutes の ${humanWait.limitMinutes} 分を超えた）。脇に置く（人の判断が付けば選び直す）`);
@@ -474,7 +505,7 @@ export function selectFleet(config: HarnessConfig, facts: FleetFacts, rows: Flee
   return { selected: selected.map((i) => i.facts.number), excluded, overlaps, sharedOnlyOverlaps, notes, ...(humanWait ? { humanWaits } : {}) };
 }
 
-const NEXT_LABELS: Record<FleetNext, string> = { plan: 'plan', implement: 'implement', judge: 'judge', fix: 'fix', sync: 'sync', none: '—' };
+const NEXT_LABELS: Record<FleetNext, string> = { plan: 'plan', implement: 'implement', judge: 'judge', fix: 'fix', sync: 'sync', routine: 'Routine の判定待ち', none: '—' };
 
 type FleetMode = { nesting: 'orca' | 'flat'; maxParallelShips: number };
 
