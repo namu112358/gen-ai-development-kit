@@ -13,8 +13,7 @@ import { checkBudget, estimateUsd, monthKey, type Usage } from './cost.ts';
 import type { GitHubClient, IssueComment } from './github.ts';
 import {
   REVIEW_TOOLS,
-  REVIEWER_OUTPUT_SCHEMA,
-  RISK_OUTPUT_SCHEMA,
+  OUTPUT_SCHEMA,
   buildReviewerMessages,
   buildRiskMessages,
   systemFor,
@@ -152,13 +151,14 @@ export function estimateLoopUsd(
 }
 
 /**
- * 2 つの問いが共有するキャッシュの接頭辞のトークン数（文字数の半分の切り上げ）。モデル・system・tools が同じときだけ数え、
+ * 2 つの問いが共有するキャッシュの接頭辞のトークン数（文字数の半分の切り上げ）。モデル・system・tools・output_config が同じときだけ数え、
  * system・tools と、最初の user メッセージの content がどちらもブロックの配列なら先頭から同じブロックの並び（文字列なら system・tools の分だけ）。
- * output_config（出力の形）の違いは見ない（共有できているかは実測で確かめる。docs/review-api.md の節7）。違えば 0
+ * output_config（出力の形）も同じときだけ数える（format が違うと system prompt が形ごとに足されてキャッシュが別になる。両役は同じ OUTPUT_SCHEMA。Issue #1086）。違えば 0
  */
 export function sharedPrefixTokens(a: MessagesParams, b: MessagesParams): number {
   if (a['model'] !== b['model']) return 0;
   if (JSON.stringify(a['system']) !== JSON.stringify(b['system']) || JSON.stringify(a['tools']) !== JSON.stringify(b['tools'])) return 0;
+  if (JSON.stringify(a['output_config']) !== JSON.stringify(b['output_config'])) return 0;
   const ca = a.messages[0]?.content;
   const cb = b.messages[0]?.content;
   const shared: unknown[] = [];
@@ -317,20 +317,20 @@ export function rulesSummary(rules: RepositoryRules): RulesSummary {
 export function buildAskRequests(material: Material, config: Pick<ReviewConfig, 'claude'>): AskRequests {
   const claude = config.claude;
   const models = chooseModels(material, claude);
-  const request = (model: string, messages: MessagesParams['messages'], schema: unknown): MessagesParams => ({
+  const request = (model: string, messages: MessagesParams['messages']): MessagesParams => ({
     model,
     max_tokens: claude.maxTokens,
     system: systemFor(material.rules),
     tools: REVIEW_TOOLS,
     messages,
-    output_config: { effort: claude.effort, format: { type: 'json_schema', schema } },
+    output_config: { effort: claude.effort, format: { type: 'json_schema', schema: OUTPUT_SCHEMA } },
   });
   const compareEnabled = claude.riskCompare !== false && models.review !== models.risk;
   return {
     models,
-    review: request(models.review, buildReviewerMessages(material), REVIEWER_OUTPUT_SCHEMA),
-    risk: request(models.risk, buildRiskMessages(material), RISK_OUTPUT_SCHEMA),
-    riskCompare: compareEnabled ? request(models.review, buildRiskMessages(material), RISK_OUTPUT_SCHEMA) : null,
+    review: request(models.review, buildReviewerMessages(material)),
+    risk: request(models.risk, buildRiskMessages(material)),
+    riskCompare: compareEnabled ? request(models.review, buildRiskMessages(material)) : null,
   };
 }
 

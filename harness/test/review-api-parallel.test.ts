@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { Message, MessagesClient, MessagesParams } from '../../review-api/src/claude.ts';
 import { collectMaterial } from '../../review-api/src/collect.ts';
+import { askRole } from '../../review-api/src/prompts.ts';
 import { buildAskRequests, estimateLoopUsd, sharedPrefixTokens } from '../../review-api/src/pipeline.ts';
 import { answer, baseConfig, CALL_USD, COST_KEY, fakeGitHub, GATE, HEAD, msg, REVIEW_OK, REVIEWER, RISK_OK, run } from './support/review-api-pipeline.ts';
 
@@ -15,7 +16,7 @@ type Reply = Message | Error | { afterRisk: Message | Error };
 
 const toolUse = msg([{ type: 'tool_use', id: 't1', name: 'list_files', input: { prefix: 'src' } }], 'tool_use');
 
-// 役（出力の形に pass があれば Reviewer）ごとの応答の列を返し、create・応答・投げたことを呼ばれた順に events に積む偽の Claude で run を回す
+// 役（askRole）ごとの応答の列を返し、create・応答・投げたことを呼ばれた順に events に積む偽の Claude で run を回す
 async function runParallel(replies: Record<Role, Reply[]>, opts: Parameters<typeof run>[0] = {}) {
   const events: string[] = [];
   const count = { review: 0, risk: 0 };
@@ -23,8 +24,8 @@ async function runParallel(replies: Record<Role, Reply[]>, opts: Parameters<type
   const riskCreated = new Promise<void>((resolve) => (riskStarted = resolve));
   const claude: MessagesClient = {
     async create(p: MessagesParams) {
-      const schema = (p['output_config'] as { format: { schema: { properties: Record<string, unknown> } } }).format.schema;
-      const role: Role = 'pass' in schema.properties ? 'review' : 'risk';
+      const role = askRole(p);
+      if (role === null) throw new Error('偽の Claude：問いの役を見分けられない');
       const n = ++count[role];
       events.push(`${role} create ${n}`);
       if (role === 'risk') riskStarted();

@@ -13,6 +13,7 @@ import { loadReviewConfig } from './config.ts';
 import { appJwt, installationToken, READ_PERMISSIONS, WRITE_PERMISSIONS } from './github-app.ts';
 import { createGitHubClient } from './github.ts';
 import { prepareRepoReview, runReview, type ReviewDeps, type ReviewParams, type ReviewResult, type RunStep, type StepName } from './pipeline.ts';
+import { askRole } from './prompts.ts';
 import { redact } from './redact.ts';
 import { RISK_QUESTIONS } from './verdict.ts';
 import reviewConfigJson from '../review.config.json' with { type: 'json' };
@@ -54,8 +55,7 @@ const RETRY_CONFIG = { retries: { limit: 1, delay: '30 seconds', backoff: 'const
 function dryRunClient(): MessagesClient {
   return {
     async create(params: MessagesParams): Promise<Message> {
-      const outputConfig = params['output_config'] as { format?: { schema?: { properties?: Record<string, unknown> } } } | undefined;
-      const isReviewer = outputConfig?.format?.schema?.properties?.['pass'] !== undefined;
+      const isReviewer = askRole(params) === 'review';
       const answers = Object.fromEntries(RISK_QUESTIONS.map((q) => [q.key, 'no']));
       const body = isReviewer
         ? { pass: true, blocking: [], nonBlocking: ['DRY_RUN'] }
