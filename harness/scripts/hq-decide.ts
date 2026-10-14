@@ -1,7 +1,7 @@
 /**
- * hq の判定（空いた枠の割り当て・交代の判定・便りの振り分け・引き継ぎの判定）を、hq（モデル）が数えずに済むように、純粋な関数にしたもの（Issue #780）。
+ * hq の判定（空いた枠の割り当て・交代の判定・便りの振り分け・引き継ぎの判定・引き継ぎの問いの判定と記録）を、hq（モデル）が数えずに済むように、純粋な関数にしたもの（Issue #780）。
  * hq がすでに読んでいる材料（控え・`fleet-status --json`・`hq-watch.ts` の出力）をファイルで受け取り、「次にすること」を JSON で標準出力に書く。
- * GitHub・Orca・git は呼ばない（控えは git の共通ディレクトリから読むだけ）。判定の基準は hq の skill の手順7・8・10の今の文のまま。
+ * GitHub・Orca・git は呼ばない（控えは git の共通ディレクトリから読むだけ。takeover-record だけは引き継ぎの問いの記録のファイルを書く）。判定の基準は hq の skill の手順7・8・10の今の文のまま。
  *
  *   node harness/scripts/hq-decide.ts assign --fleet-status <file> [--epic-children <file>] [--live-fleets <n>] [--ledger <file>]
  *     動いている ship の数と、空いた枠の割り当て（手順8）。--fleet-status は番号を渡さない `fleet-status --json` の出力、
@@ -24,14 +24,23 @@
  *     起こし直す fleet の着手宣言を、人に聞かずに引き継いでよいか（手順9・10。#770）。--fleet-status は起こし直す fleet の Issue 番号を渡した `fleet-status --json` の出力。
  *     自分（own）でない宣言のうち、控えのそのテーマの fleet の session と、priorSessions[テーマ] のうち at が staleHours（harness.config.json）以内のものにあるものが known、無いもの（期限を過ぎた・at の無い古い形・今より5分を超えて未来の at のもの、session が null、控えが無いときは全部）が unknown。
  *     出力：{ decision: auto | ask | none, theme, known, unknown }（auto は unknown が空で known がある、ask は unknown がある、none は宣言が無い）。
+ *   node harness/scripts/hq-decide.ts takeover-ask --found <file> [--common-dir <dir>]
+ *     止まった宣言・担当のいない PR の引き継ぎの問いを、hq.takeoverAskHours（既定 24 時間）に1回まとめて聞くかの判定（手順8の見回し。#771）。
+ *     --found は見つけたもの（{ key, state, line } の配列）。記録は書かない。出力：{ due, ask, held, skippedDeclined, nextAskAt }。
+ *   node harness/scripts/hq-decide.ts takeover-record --answer <file> [--common-dir <dir>]
+ *     引き継ぎの問いの答え（{ declined: [{ key, state }…], taken: [key…] }）で記録を更新する。出力：更新後の記録 { version, lastAskedAt, declined }。
+ *     記録は git の共通ディレクトリ（--common-dir、無ければ作業ディレクトリから探す）の下の agent-harness/hq/hq-takeover-ask.json（控え hq-fleets.json とは別。ledger-save で消えない）。
+ *     見送った key は state が同じ間は聞き直さない。読めない・version が違う記録は記録なし扱い。
  *
  * 控えの fleets の要素は theme・epic・dispatch・session・issues（Issue 番号の配列）を、最上位の priorSessions（{"<テーマ>": [{ "session": "<ID>", "at": "<控えに入れた時刻 ISO>" }…]}）も読む。形の違う値は読み飛ばす。
  * 引数の誤り・読めないファイルは標準エラーに1行書いて終了コード 1。CLI は import.meta.main の中だけで動く（テストが import しても動かない）。
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fleetConfig, hqConfig, loadConfig } from '../lib/config.ts';
 import type { FleetStatusData, FleetStatusRow } from '../lib/fleet.ts';
-import { gitCommonDir, readLedgerFile, readPriorSessions, type HqLedger } from './hq-state.ts';
+import { writeLocalJson } from '../lib/local-state.ts';
+import { gitCommonDir, hqStateDir, readLedgerFile, readPriorSessions, type HqLedger } from './hq-state.ts';
 import type { CheckMessage, WorkerRow } from './hq-watch.ts';
 
 export interface LedgerFleet { theme: string; epic: number | null; dispatch: string; session: string | null; issues: number[] }
@@ -323,6 +332,71 @@ export function themeCandidates(input: ThemeInput): ThemeResult {
   return { slots, candidates, judge: candidates.length >= 2 && slots >= 1 ? 'theme' : null };
 }
 
+// ---- takeover-ask・takeover-record（手順8の見回し：引き継ぎの問いの判定と記録。#771） ----
+
+export const HQ_TAKEOVER_DEFAULTS = { takeoverAskHours: 24 } as const;
+
+/** hq の節から聞く間隔（時間）を読む（無ければ既定値）。正の整数でなければ throw する */
+export function hqTakeoverConfig(config: { hq?: unknown }): { takeoverAskHours: number } {
+  const raw = config.hq;
+  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('hq はオブジェクトで書いてください');
+  const v = (raw as Record<string, unknown> | undefined)?.takeoverAskHours ?? HQ_TAKEOVER_DEFAULTS.takeoverAskHours;
+  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) throw new Error('hq.takeoverAskHours は正の整数（時間）で書いてください');
+  return { takeoverAskHours: v };
+}
+
+export interface TakeoverItem { key: string; state: string; line: string }
+export interface TakeoverDeclined { key: string; state: string }
+export interface TakeoverRecord { version: 1; lastAskedAt: string | null; declined: TakeoverDeclined[] }
+export interface TakeoverDecision { due: boolean; ask: TakeoverItem[]; held: number; skippedDeclined: number; nextAskAt: string | null }
+
+const ms = (iso: string | null | undefined): number | null => {
+  if (typeof iso !== 'string') return null;
+  const t = Date.parse(iso);
+  return Number.isNaN(t) ? null : t;
+};
+
+export function takeoverAskDecision(a: { found: TakeoverItem[]; record: TakeoverRecord | null; now: number; hours: number }): TakeoverDecision {
+  const seen = new Set<string>();
+  const declined = new Map((a.record?.declined ?? []).map((d) => [d.key, d.state]));
+  const ask: TakeoverItem[] = [];
+  let skippedDeclined = 0;
+  for (const it of a.found) {
+    if (seen.has(it.key)) continue;
+    seen.add(it.key);
+    if (declined.get(it.key) === it.state) skippedDeclined++;
+    else ask.push(it);
+  }
+  const last = ms(a.record?.lastAskedAt);
+  const intervalMs = a.hours * 3_600_000;
+  const due = ask.length > 0 && (last === null || a.now - last >= intervalMs);
+  return { due, ask, held: ask.length, skippedDeclined, nextAskAt: last === null ? null : new Date(last + intervalMs).toISOString() };
+}
+
+/** 答えを記録に反映する。lastAskedAt は now に進め、見送りは key ごとに置き換え、引き継いだ key は見送りから外す */
+export function recordTakeoverAnswer(record: TakeoverRecord | null, a: { now: number; declined: TakeoverDeclined[]; taken: string[] }): TakeoverRecord {
+  const map = new Map((record?.declined ?? []).map((d) => [d.key, d.state]));
+  for (const d of a.declined) map.set(d.key, d.state);
+  for (const k of a.taken) map.delete(k);
+  return { version: 1, lastAskedAt: new Date(a.now).toISOString(), declined: [...map].map(([key, state]) => ({ key, state })) };
+}
+
+export function takeoverPath(commonDir: string): string {
+  return join(hqStateDir(commonDir), 'hq-takeover-ask.json');
+}
+
+/** 読めない・version が違うときは null（記録なし） */
+export function parseTakeoverRecord(v: unknown): TakeoverRecord | null {
+  if (!isObj(v) || v.version !== 1 || !Array.isArray(v.declined)) return null;
+  if (v.lastAskedAt !== null && typeof v.lastAskedAt !== 'string') return null;
+  const declined: TakeoverDeclined[] = [];
+  for (const d of v.declined) {
+    if (!isObj(d) || typeof d.key !== 'string' || typeof d.state !== 'string') return null;
+    declined.push({ key: d.key, state: d.state });
+  }
+  return { version: 1, lastAskedAt: v.lastAskedAt, declined };
+}
+
 // ---- model（hq のモデルの設定） ----
 
 export const HQ_MODELS = ['inherit', 'haiku', 'sonnet', 'opus'] as const;
@@ -390,6 +464,39 @@ function loadLedgerFleets(path: string | null): { fleets: LedgerFleet[]; raw: Hq
   return { fleets: readLedgerFleets(raw), raw };
 }
 
+function readTakeoverRecord(commonDir: string): TakeoverRecord | null {
+  const path = takeoverPath(commonDir);
+  if (!existsSync(path)) return null;
+  try { return parseTakeoverRecord(JSON.parse(readFileSync(path, 'utf8'))); } catch { return null; }
+}
+
+function takeoverCommonDir(f: Map<string, string[]>): string {
+  const dir = one(f, '--common-dir', false) ?? gitCommonDir(process.cwd());
+  if (!dir) throw new Error('git の共通ディレクトリが見つかりません');
+  return dir;
+}
+
+function parseFound(v: unknown): TakeoverItem[] {
+  if (!Array.isArray(v)) throw new Error('found は TakeoverItem の配列で書いてください');
+  return v.map((x) => {
+    if (!isObj(x) || typeof x.key !== 'string' || typeof x.state !== 'string' || typeof x.line !== 'string') throw new Error('found の要素は key・state・line を文字列で書いてください');
+    return { key: x.key, state: x.state, line: x.line };
+  });
+}
+
+function parseAnswer(v: unknown): { declined: TakeoverDeclined[]; taken: string[] } {
+  if (!isObj(v) || !Array.isArray(v.declined) || !Array.isArray(v.taken)) throw new Error('answer は { declined: {key,state}[], taken: string[] } で書いてください');
+  const declined = v.declined.map((d) => {
+    if (!isObj(d) || typeof d.key !== 'string' || typeof d.state !== 'string') throw new Error('declined の要素は key・state を文字列で書いてください');
+    return { key: d.key, state: d.state };
+  });
+  const taken = v.taken.map((k) => {
+    if (typeof k !== 'string') throw new Error('taken は key の文字列の配列で書いてください');
+    return k;
+  });
+  return { declined, taken };
+}
+
 function posIntArg(s: string, name: string): number {
   const n = Number(s);
   if (!posInt(n)) throw new Error(`${name} は正の整数で書いてください：${s}`);
@@ -441,6 +548,22 @@ function run(argv: string[]): unknown {
       staleHours: loadConfig().staleHours,
     });
   }
+  if (cmd === 'takeover-ask') {
+    const f = takeFlags(rest, ['--found', '--common-dir']);
+    const found = parseFound(readJsonFile(one(f, '--found', true) as string, '見つけたもの'));
+    const commonDir = takeoverCommonDir(f);
+    const { takeoverAskHours } = hqTakeoverConfig(loadConfig() as { hq?: unknown });
+    return takeoverAskDecision({ found, record: readTakeoverRecord(commonDir), now: Date.now(), hours: takeoverAskHours });
+  }
+  if (cmd === 'takeover-record') {
+    const f = takeFlags(rest, ['--answer', '--common-dir']);
+    const answer = parseAnswer(readJsonFile(one(f, '--answer', true) as string, '答え'));
+    const commonDir = takeoverCommonDir(f);
+    hqTakeoverConfig(loadConfig() as { hq?: unknown });
+    const next = recordTakeoverAnswer(readTakeoverRecord(commonDir), { now: Date.now(), ...answer });
+    writeLocalJson(takeoverPath(commonDir), next);
+    return next;
+  }
   if (cmd === 'route') {
     const f = takeFlags(rest, ['--wake']);
     const j = readJsonFile(one(f, '--wake', true) as string, 'hq-watch.ts の出力');
@@ -473,7 +596,7 @@ function run(argv: string[]): unknown {
     takeFlags(rest, []);
     return hqModelConfig(loadConfig() as { hq?: unknown });
   }
-  throw new Error('使い方：hq-decide.ts assign|handover|takeover|route|themes|model …（引数は先頭のコメントを見る）');
+  throw new Error('使い方：hq-decide.ts assign|handover|takeover|takeover-ask|takeover-record|route|themes|model …（引数は先頭のコメントを見る）');
 }
 
 if (import.meta.main) {
