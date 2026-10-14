@@ -1,6 +1,6 @@
 # PR レビューの外部化（Claude API + Cloudflare）
 
-reviewer / risk-agent の判定を Claude API + Cloudflare に委ねる試作（Shadow Mode）の調査結果・設計・手順。既存の判定と並走させ、Merge の経路には影響しない。コードは Epic #861 の子課題で `review-api/` に足す。
+reviewer / risk-agent の判定を Claude API + Cloudflare に委ねる仕組みの調査結果・設計・手順。Shadow Mode で並走させた後、本運用に移した（Issue #1081）：judge はローカルのレビューの代わりに API のレビューの記録で判定し、記録が使えないときだけローカルのレビューで判定する（節12）。Merge の経路はローカルのレビューで判定したときと同じ。コードは Epic #861 の子課題で `review-api/` に足す。
 
 更新：2026-10-13（デプロイの経路を Workers Builds に変更。秘密でない設定を `wrangler.jsonc` の `vars` に移した。外部の仕様と料金は 2026-10-12 に公式の文書で確かめた値）
 
@@ -8,8 +8,9 @@ reviewer / risk-agent の判定を Claude API + Cloudflare に委ねる試作（
 
 - **推奨構成**：GitHub Webhook → Cloudflare Workers（受付）→ Cloudflare Workflows（収集 → Claude API → 検証 → 投稿）。コードは [review-api/](../review-api/)。GitHub Actions は増やさない。
 - **既存の GitHub App は変えない**。レビュー専用の GitHub App を新しく作り（権限は読み取り＋PR のコメント書き込みだけ）、その Webhook を Workers に向ける。既存 App（`appSlug`）の秘密鍵は Cloudflare に置かない（置くと信頼の根が Actions の外に広がる。[security.md](../harness/docs/security.md) の「信頼の根」）。
-- **Shadow Mode は仕組みで担保される**：新 App のコメントはコラボレーターではないのでゲートが読まず（`author_association` が OWNER / MEMBER / COLLABORATOR 以外は無視。`harness/gates/on-comment.ts`）、記録のブロック名は `api-review-shadow`（`gate.yml` の起動条件にも `agent-verdict` の読み取りにも当たらない）。Merge・Approve・ラベル・Check Run は書かない。
-- **既存の形式をそのまま使う**：Claude API の出力は reviewer の JSON（`pass`・`blocking`・`nonBlocking`・`humanNotes`）と risk-agent の JSON（`level`・8問の `answers`・`rationale`・`facts`）と同じ形。検証は `harness/lib/verdict.ts` の `parseVerdict` と同じ規則（`pass` と `blocking` の整合、kind・noul の語彙）。将来の置き換えでは、この JSON を `compose-verdict` の入力に渡せる。
+- **本運用（節12）**：このリポジトリの `reviewSource.mode` は `api`。judge のセッションが `api-review` で記録を選び、`compose-verdict --review-source api --api-record <記録の URL>` で本人名義の判定コメントにする。記録が使えないとき（記録が無い・投稿しなかった記録・待つ時間を過ぎた・ガードレールに当たる PR など）はローカルのレビューで判定する。
+- **App は記録を読まない**：新 App のコメントはコラボレーターではないのでゲートが読まず（`author_association` が OWNER / MEMBER / COLLABORATOR 以外は無視。`harness/gates/on-comment.ts`）、記録のブロック名は `api-review-shadow`（`gate.yml` の起動条件にも `agent-verdict` の読み取りにも当たらない）。Merge・Approve・ラベル・Check Run は書かない。
+- **既存の形式をそのまま使う**：Claude API の出力は reviewer の JSON（`pass`・`blocking`・`nonBlocking`・`humanNotes`）と risk-agent の JSON（`level`・8問の `answers`・`rationale`・`facts`）と同じ形。検証は `harness/lib/verdict.ts` の `parseVerdict` と同じ規則（`pass` と `blocking` の整合、kind・noul の語彙）。本運用では、この JSON を `compose-verdict` の入力に渡す。
 - **費用の仮説（$1〜2 / レビュー）は高めの見込み**。Opus 5.5 で 1 レビュー（2 回の問い）あたり $0.3〜0.8、Sonnet 5.5 でその半分程度と見積もる（下の「費用」）。実測はレビューごとの記録（トークン・USD）で確かめる。
 - **人が決めること**（下の「人が決めること」）：(1) レビュー専用 App を作るか、(2) Cloudflare の plan（Free で始めるか Paid $5/月か）、(3) Claude API のキーをどの Console のワークスペースで発行するか。どれも試作のコードには影響しない（Secrets と変数で渡す）。
 
@@ -113,8 +114,8 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 - **役の分離**を保つ：Reviewer の問いには Issue・計画・PR 本文・diff・関連コードを渡し、Risk の問いには diff と関連コードだけを渡す（risk-agent.md の「読んではいけないもの」と同じ）。
 - **JSON の形**は reviewer / risk-agent の出力と同じ。`blocking[].kind` は `harness/lib/verdict.ts` の `BLOCKING_KINDS`、8問のキーは `RISK_QUESTIONS` と同じ語彙。ずれはテスト（`harness/test/review-api-verdict.test.ts`）で止める。
 - **再レビュー**：同じ PR の前回の shadow 記録（head とブロッキング指摘）を Reviewer に渡し、前回からの差分と直っていない指摘だけをブロッキングにするよう指示する（reviewer.md の「再レビュー」と同じ）。
-- **受理できるか**：`compose-verdict` は2つの JSON ファイルを受け取るので、API の出力をそのまま渡せる（`facts` は risk の中に置く）。ただし判定コメントは本人名義で投稿する決まりで、Cloudflare が投稿するものを App が判定として受け付けることは**しない**（信頼の投稿者・形式・権限は変えない）。正式な置き換えは、judge の skill が「サブエージェントの代わりに API の結果を取りに行く」形で行う（下の「本運用への移行条件」）。
-- **影響しない根拠**：新 App は `author_association` がコラボレーターでないので `on-comment.ts` が無視する。コメントの本文に `gate.yml` の起動条件のフェンスを含めない。Check Run・ラベル・レビュー（approve / request changes）・Draft の切り替え・Merge は呼ばない（token の `permissions` でも `pull_requests: write` 以外を渡さない）。
+- **受理できるか**：`compose-verdict` は2つの JSON ファイルを受け取るので、API の出力をそのまま渡せる（`facts` は risk の中に置く）。ただし判定コメントは本人名義で投稿する決まりで、Cloudflare が投稿するものを App が判定として受け付けることは**しない**（信頼の投稿者・形式・権限は変えない）。置き換えは、judge の skill が「サブエージェントの代わりに API の結果を取りに行く」形で行う（judge の skill の手順2a。節12）。
+- **ゲートに影響しない根拠**：判定コメントは今までどおり judge のセッションが本人名義で投稿し、App はそれだけを受け付ける。新 App は `author_association` がコラボレーターでないので `on-comment.ts` が無視する。コメントの本文に `gate.yml` の起動条件のフェンスを含めない。Check Run・ラベル・レビュー（approve / request changes）・Draft の切り替え・Merge は呼ばない（token の `permissions` でも `pull_requests: write` 以外を渡さない）。
 - **検証コマンド**：判定の `typecheck-test-failure` はローカルも API も出さない。型検査とテストの失敗は CI（必須チェック `ci`）で止まる（#974）。
 
 ## 5. 安全
@@ -322,7 +323,7 @@ npm run dev                                        # wrangler dev（http://local
 node scripts/send-webhook.ts opened owner/repo 123 <sha>   # 署名つきの Webhook を送る（別の端末）
 ```
 
-`wrangler dev` は Workflow も手元で動く。Claude を呼ばずに流れだけ見るときは `DRY_RUN=1`（Claude の段階を飛ばして固定の JSON を使う。`.dev.vars` に `DRY_RUN=1` を書く）。
+`wrangler dev` は Workflow も手元で動く。Claude を呼ばずに流れだけ見るときは `DRY_RUN=1`（Claude の段階を飛ばして固定の JSON を使う。`.dev.vars` に `DRY_RUN=1` を書く）。DRY_RUN の記録（`dryRun` が真）は judge の判定に使わない（`api-review` がローカルのレビューに戻す）。
 
 `settleSeconds` が 120 なら、`synchronize` で送ったときは待つあいだの push でも superseded になる（`opened` は待たない）。手元ですぐ試すときは 0 にする。
 
@@ -341,22 +342,49 @@ main への Merge で Cloudflare の Workers Builds がビルドしてデプロ�
 
 ## 11. Shadow Mode の比較手順
 
-1. 既存の流れはそのまま（ship / judge）。Agent PR が作られる・push されるたびに、PR に新 App のコメント「API レビュー（shadow）」が付く。
+1. Agent PR が作られる・push されるたびに、PR に新 App のコメント「API レビュー（shadow）」が付く。本運用では judge がこの記録で判定するので、ローカルのレビューと並べて比べられるのは、ローカルのレビューに戻った PR（ガードレールに当たる PR など）だけになる。
 2. 比較のスクリプト（未作成。Phase 4 で `review-api/scripts/` に足す）で、同じ head の `agent-verdict` と `api-review-shadow` を並べる：`pass` の一致、ブロッキング指摘の対応（同じ・片方だけ）、Risk の level・8問の一致、USD・所要秒。
 3. 20 件ほど溜まったら表にして、見逃し（既存にあって API に無い重大な指摘）と誤検知（API だけが指摘し、人が見て違うもの）を数える。
 
-## 12. 本運用への移行条件
+## 12. 本運用
 
-- 20 件以上の比較で、既存のブロッキング指摘を API が全部見つけ（重大な見逃し 0）、API だけの指摘のうち誤検知が 2 割以下、Risk の level の一致が 9 割以上。
-- 1 レビューの実測 USD が予算の範囲（例：$1 未満）で、月の合計が `budget.monthlyUsd` に収まる。
-- 失敗（Workflow の `errored`、`verdict-invalid`）が 5% 未満。
-- 置き換えの形：judge の skill に `reviewSource: api` の設定を足し、reviewer / risk-agent のサブエージェントの代わりに API の記録（KV か PR のコメント）を読んで `compose-verdict` に渡す。判定コメントの投稿者（本人名義）と App の受け付けは変えない。これは別の Issue（ガードレールに触れる）。
+人の決定：Epic #1004 の OWNER のコメント「レビューは、API 側を本運用に進めてください。ローカルは API が使えない時の退行運転の手段として下さい。」と、Issue #1081 の決定「ローカルのレビューを API レビューが代替するだけでいいんよ」。API で判定した PR を特別扱いせず、Merge の経路（自動 Merge・Human Merge・bypass・委任承認・auto mode）はローカルのレビューで判定したときと同じ。
+
+設定は `harness.config.json` の `reviewSource`（`harness/lib/config.ts` の `reviewSourceConfig`）。
+
+| キー | このリポジトリ | 意味 |
+| --- | --- | --- |
+| `mode` | `api` | `api` なら judge が API のレビューの記録で判定する。`local`（無いときの既定。導入先の雛形も `local`）なら今までどおりローカルのレビュー |
+| `waitMinutes` | `8` | 記録が付くまで待つ分（0〜9）。過ぎたらローカル（`timeout`） |
+| `appLogin` | `harness-review-agent[bot]` | レビュー用 App の bot の login。この名義（Bot）の記録だけを使う |
+
+API の記録で判定するのは、judge の skill の手順2a の `api-review` が `api` を返すとき：判定する head（無ければ PR 自身の差分の patch-id が同じ head）の、レビュー用 App の posted の記録で、コメントが編集されておらず、`dryRun` と `diffTruncated` が false のもの。
+
+ローカルのレビューに戻る条件（`api-review` の `local` の `reason`、`harness/lib/api-review.ts`）：
+
+| reason | いつ |
+| --- | --- |
+| `disabled` | `reviewSource.mode` が `local` |
+| `timeout` | `waitMinutes` を過ぎても記録が無い |
+| `budget-exceeded`・`too-large`・`verdict-invalid` | 投稿しなかった記録 |
+| `previous-local-blocking` | 前回のローカルの判定にブロッキングの指摘がある |
+| `scope-unreadable` | 変更ファイルか base の `harness.config.json` のガードレールの設定が読めない |
+| `guardrail-files` | 変更ファイルが base の `guardrailPaths` に当たる |
+| `secret-files` | 秘密扱いのファイルを含む |
+| `record-edited` | 記録のコメントが編集された |
+| `dry-run`・`diff-truncated` | DRY_RUN の記録・diff を切った記録（欄の無い古い記録も） |
+| `api-invalid` | 記録の出力で `compose-verdict` が止まった（judge の skill の手順2a） |
+
+base の `guardrailPaths` には `harness/lib/**`・`harness/scripts/agent/**`・`harness/gates/**`・`CLAUDE.md`・`review-api/**`・judge などの skill が入っているので、このリポジトリで API の記録で判定する PR は、docs と、ガードレールに入っていない skill・docs の一部などに限られる。
+
+置き換わる先の差：ローカルのレビューは reviewer・risk-agent に合体版（`reviewPanel.mode` が `enforce`。review-safety などの担当）を足したもの。API のレビューは Reviewer と Risk の2つの問いで、合体版の担当は動かない。`.md` だけの PR は `review.config.json` の `claude.docsOnly` のモデルが diff だけを見る（節6）。この差は人の決定（API が代替するだけ）の範囲で受け入れている（Issue #1081 の保留の検討会）。
 
 ## 13. ロールバック
 
 - GitHub App の Webhook を Inactive にする（即時。Cloudflare は何も受けない）か、Worker を削除する。
 - 直前の版に戻すときは、Worker の Deployments（Version History）で前の版に Rollback する。
-- 既存の流れには影響しないので、戻す操作はこれだけ。PR に残った shadow のコメントはそのままでよい（ゲートは読まない）。
+- judge をローカルのレビューに戻すときは、`harness.config.json` の `reviewSource.mode` を `local` にする（Webhook を止めると記録が付かず、`waitMinutes` を待ってからローカルに戻る）。
+- PR に残った shadow のコメントはそのままでよい（ゲートは読まない）。
 - 鍵の失効：App の秘密鍵を Revoke、Claude API のキーを Console で無効化。
 
 ## 14. 人が決めること

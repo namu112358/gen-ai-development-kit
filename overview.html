@@ -215,7 +215,7 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
     </li>
     <li class="step">
       <div class="step-head"><span class="num">4</span><h3>判定</h3><span class="who claude">Claude</span><span class="who app">App</span><span class="who jev">Jev</span></div>
-      <p>Reviewer（AC を満たすか）と Risk Agent（壊れたときの影響を8問で）が判定し、判定コメントを投稿します。App が受け付けてチェック（<code>agent/review</code>・<code>agent/risk</code>）に変え、合格なら PR を Ready にします。Jev もいまは記録のために同じ8問に答えます。</p>
+      <p>Reviewer（AC を満たすか）と Risk Agent（壊れたときの影響を8問で）が判定し、判定コメントを投稿します。このリポジトリでは API のレビュー（<code>review-api/</code>）の記録で判定し、記録が使えないとき（ガードレールに当たる PR など）だけローカルの Reviewer・Risk Agent で判定します。App が受け付けてチェック（<code>agent/review</code>・<code>agent/risk</code>）に変え、合格なら PR を Ready にします。Jev もいまは記録のために同じ8問に答えます。</p>
       <div class="branch"><strong>直すループ：</strong>ブロッキング指摘（直すまで Merge させない指摘）があれば Claude が直して判定し直します。上限を超えると <code>agent:blocked</code> で人に返ります。</div>
       <div class="branch"><strong>確認事項：</strong>人の判断が要る場面で、セッションは確認事項を Issue / PR にコメントで書いてその Issue を止め、ほかの Issue を進めます。人は手元のダッシュボードか <code>/answer</code> のコメントで答え、<code>step</code> と <code>fleet-status</code> が答えで止めた段階を返します。セッションは答えを書きません。</div>
     </li>
@@ -350,9 +350,9 @@ footer { margin-top: 48px; color: var(--muted); font-size: 0.88rem; }
       </ul>
     </section>
     <section class="dir">
-      <h3><code>review-api/</code> PR レビューの試作</h3>
+      <h3><code>review-api/</code> PR レビュー（API） <span class="guard">ガードレール</span></h3>
       <ul>
-        <li>Claude API + Cloudflare で PR レビューを既存の判定と並走させる試作（Shadow Mode。Merge の経路には影響しない）。説明は <code>docs/review-api.md</code></li>
+        <li>Claude API + Cloudflare の PR レビュー。judge はローカルのレビューの代わりにこの記録で判定し、使えないときだけローカルのレビューで判定する（<code>reviewSource.mode</code> が <code>api</code>）。説明は <code>docs/review-api.md</code></li>
       </ul>
     </section>
     <section class="dir">
