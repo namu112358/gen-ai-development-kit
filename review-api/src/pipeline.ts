@@ -1,4 +1,4 @@
-// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ。待つのは action が trigger.settleActions にあるか、action の無い古い params のときだけ）fetch-pr → collect → budget → review と risk（Risk は Reviewer の最初の応答の後に始め、並べて待つ）→ validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
+// レビューの段階（最初に settle で trigger.settleSeconds 秒だけ待つ。待つのは action が trigger.settleActions にあるか、action の無い古い params のときだけ）fetch-pr → same-patch（前回レビューした head と PR 自身の差分が同じなら、Claude を呼ばずに終える。Issue #1089）→ collect → budget → review と risk（Risk は Reviewer の最初の応答の後に始め、並べて待つ）→ validate → risk-compare → record → post（止めたときは record の後に post-stopped）を順に呼ぶ runReview と、Claude に渡すツールの実行 createToolRunner。
 // リポジトリの表（repos.ts）の行から Claude のクライアント・設定・伏せる秘密を組む prepareRepoReview（Workflow が使う）。行に Claude のキーが無ければ deps.claude は null で、fetch-pr の後に no-api-key で止める。
 // 月の累計は cost:<owner>/<repo>:<YYYY-MM>（小文字）でリポジトリごとに数え、上限は行の上書き済みの config.budget で見る。KV の記録・ログ・コメントは deps.secrets で伏せる。
 // GitHub・Claude・KV・時計・ログは deps から受け取り、token は deps の作り方（reader・writer）の中に閉じる（ここでは見ない）。
@@ -10,7 +10,7 @@ import { askWithTools, type AskResult, type MessagesClient, type MessagesParams,
 import { collectMaterial, type Material } from './collect.ts';
 import { applyRepoOverrides, DEFAULT_SETTLE_ACTIONS, type BudgetEnv, type ModelPricing, type ReviewConfig } from './config.ts';
 import { checkBudget, estimateUsd, monthKey, type Usage } from './cost.ts';
-import type { GitHubClient } from './github.ts';
+import type { GitHubClient, IssueComment } from './github.ts';
 import {
   REVIEW_TOOLS,
   REVIEWER_OUTPUT_SCHEMA,
@@ -27,9 +27,9 @@ import { collectSecrets, parseRepoTable, resolveRepoRuntime, type RepoEnv, type 
 import { wrapUntrusted } from './untrusted.ts';
 import { checkReviewerOutput, checkRiskOutput, composeShadowVerdict, type ReviewerOutput, type RiskOutput } from './verdict.ts';
 
-export type StepName = 'fetch-pr' | 'collect' | 'budget' | 'review' | 'risk' | 'validate' | 'risk-compare' | 'record' | 'record-cost' | 'post' | 'post-stopped';
+export type StepName = 'fetch-pr' | 'same-patch' | 'collect' | 'budget' | 'review' | 'risk' | 'validate' | 'risk-compare' | 'record' | 'record-cost' | 'post' | 'post-stopped';
 export type RunStep = <T>(name: StepName, fn: () => Promise<T>) => Promise<T>;
-export type ReviewOutcome = 'superseded' | 'closed' | 'duplicate' | 'no-api-key' | 'budget-exceeded' | 'too-large' | 'verdict-invalid' | 'posted';
+export type ReviewOutcome = 'superseded' | 'closed' | 'duplicate' | 'same-patch' | 'no-api-key' | 'budget-exceeded' | 'too-large' | 'verdict-invalid' | 'posted';
 
 export type GitHubReader = Pick<GitHubClient, 'getPr' | 'getIssue' | 'listComments' | 'compareDiff' | 'getFileContent' | 'getTree'>;
 export type GitHubWriter = Pick<GitHubClient, 'createComment'>;
@@ -232,6 +232,46 @@ function hasOwnRecord(comments: { body: string; user: { login: string } | null }
   return comments.some((c) => c.user?.login === login && parseApiReviewComment(c.body)?.headSha === headSha);
 }
 
+/**
+ * PR 自身の差分を比べるための diff の正規化（Issue #1089）。`index ` の行を除き、`@@` で始まる行を行番号の無い `@@` にする
+ * （`git patch-id --verbatim` と同じく行番号と blob の sha を無視し、空白を含む変更内容と文脈の行は区別する）。空・空白だけなら ''
+ */
+export function normalizePrDiff(diff: string): string {
+  if (diff.trim() === '') return '';
+  return diff
+    .split('\n')
+    .filter((line) => !line.startsWith('index '))
+    .map((line) => (line.startsWith('@@') ? '@@' : line))
+    .join('\n');
+}
+
+/** 飛ばす判断に使える前回の記録（レビューした head・記録のコメントの URL・使ったモデル） */
+export type ReusableRecord = { headSha: string; url: string | null; models: { review: string; risk: string } };
+
+/**
+ * 同じ PR の前回レビューした（posted の）記録のうち、今の head の代わりに使えるものを選ぶ（Issue #1089）。
+ * レビュー用 App の名義で、parseApiReviewComment が posted と読め、headSha が今の head と違い、dryRun と diffTruncated が false
+ * （欄の無い古い記録は不可）、コメントが編集されていない（created_at と updated_at が同じ。欄が無ければ編集なしとみなす）もののうち、id が最大のもの。
+ * 投稿しなかった記録・ほかの名義の記録は選ばない。無ければ null（モデルが今の設定と合うかは呼び出し側が diff を取ってから比べる）
+ */
+export function findReusableRecord(comments: IssueComment[], reviewAppLogin: string, headSha: string): ReusableRecord | null {
+  let best: { id: number; value: ReusableRecord } | null = null;
+  for (const c of comments) {
+    if (c.user?.login !== reviewAppLogin) continue;
+    if (c.created_at !== undefined && c.updated_at !== undefined && c.created_at !== c.updated_at) continue;
+    const parsed = parseApiReviewComment(c.body);
+    if (parsed === null || parsed.outcome !== 'posted') continue;
+    const r = parsed.record;
+    if (r.headSha === headSha || r.dryRun !== false || r.diffTruncated !== false) continue;
+    const models = r.models as { review?: unknown; risk?: unknown } | undefined;
+    if (typeof models?.review !== 'string' || typeof models?.risk !== 'string') continue;
+    if (best === null || c.id > best.id) {
+      best = { id: c.id, value: { headSha: r.headSha, url: c.html_url ?? null, models: { review: models.review, risk: models.risk } } };
+    }
+  }
+  return best?.value ?? null;
+}
+
 export function sumUsage(...parts: Record<string, Usage>[]): Record<string, Usage> {
   const out: Record<string, Usage> = {};
   for (const part of parts) {
@@ -384,6 +424,31 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
   const claude = deps.claude;
   if (claude === null) return stopStep('fetch-pr', 'no-api-key');
   log('fetch-pr ok');
+
+  // 1b. same-patch（Issue #1089）：前回レビューした head と PR 自身の差分（base...head の3点比較の diff）が同じで、記録のモデルが今の設定と同じなら、
+  // Claude を呼ばずに KV に記録して終える（GitHub にはコメントを付けない。judge は同じ patch-id の前回の記録を使う）。
+  // diff が取れない・空・違う、記録が使えない、段階の中で投げた、のどれでもレビューする側（skip: null）に倒す。段階の結果は小さい JSON だけにする
+  const samePatch = await step('same-patch', async (): Promise<{ skip: string | null }> => {
+    try {
+      const gh = await deps.github.reader();
+      const found = await gh.getPr(pr);
+      const previous = findReusableRecord(await gh.listComments(pr), params.reviewAppLogin, headSha);
+      if (previous === null) return { skip: null };
+      const [before, current] = await Promise.all([gh.compareDiff(found.base.ref, previous.headSha), gh.compareDiff(found.base.ref, headSha)]);
+      const a = normalizePrDiff(before);
+      if (a === '' || a !== normalizePrDiff(current)) return { skip: null };
+      const models = chooseModels({ diff: current, diffTruncated: false }, config.claude);
+      if (models.review !== previous.models.review || models.risk !== previous.models.risk) return { skip: null };
+      await writeRecord('same-patch', { reusableHead: previous.headSha, recordUrl: previous.url });
+      return { skip: previous.headSha };
+    } catch {
+      return { skip: null };
+    }
+  });
+  if (samePatch.skip !== null) {
+    log(`same-patch skip ${samePatch.skip}`);
+    return result('same-patch');
+  }
 
   // 2. collect
   const material = await step('collect', async (): Promise<Material> => {
