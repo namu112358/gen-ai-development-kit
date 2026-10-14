@@ -32,6 +32,7 @@ export async function instanceId(owner: string, repo: string, pr: number, sha: s
 }
 
 interface EventFields {
+  action?: unknown;
   repository?: { full_name?: unknown };
   installation?: { id?: unknown };
   pull_request?: { number?: unknown; head?: { sha?: unknown } };
@@ -92,6 +93,7 @@ async function handleWebhook(request: Request, env: Env): Promise<Response> {
     repo,
     pr: number,
     headSha: sha.toLowerCase(),
+    ...(typeof fields.action === 'string' ? { action: fields.action } : {}),
     installationId,
     deliveryId: request.headers.get('X-GitHub-Delivery') ?? '',
   };
