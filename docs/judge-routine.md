@@ -64,3 +64,4 @@ Routine の GitHub トリガー（`pull_request` のイベント）で判定の 
 
 記録：PoC の PR は #1094（2026-10-14）。1回目の `opened` の後、2つ目の commit の push（`synchronize`）でも起きるかを確かめる。
 権限の更新後の3つ目の commit でも確かめる。
+Routine の保存し直し（12:50 UTC）の後の4つ目の commit でも確かめる。
