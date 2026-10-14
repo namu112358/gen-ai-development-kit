@@ -1,9 +1,9 @@
-// Issue #690：運用の健康 14 項目の判定・読めない欄・しきい値の上書き・GitHub を読む数の上限・前回との比べ（lib/ops-health.ts）
+// Issue #690：運用の健康 14 項目の判定・読めない欄・渡したしきい値での判定・GitHub を読む数の上限・前回との比べ（lib/ops-health.ts）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { GitHub } from '../lib/github.ts';
 import {
-  budgetedGitHub, GetBudgetError, increasedItems, judgeOpsHealth, OPS_HEALTH_DEFAULTS, OPS_ITEM_IDS, opsHealthThresholds,
+  budgetedGitHub, GetBudgetError, increasedItems, judgeOpsHealth, OPS_HEALTH_DEFAULTS, OPS_ITEM_IDS,
   type OpsHealthInput, type OpsItem, type OpsItemId,
 } from '../lib/ops-health.ts';
 import type { Claim } from '../lib/queue.ts';
@@ -109,9 +109,8 @@ test('読めない欄は、その項目だけ available: false になり、ほ�
   for (const i of items) assert.equal(i.available, i.id !== 'stale-worktree', i.id);
 });
 
-test('しきい値の上書き：undefined のキーは無視し、上書きしたキーの項目の threshold だけが変わる', () => {
-  const t = opsHealthThresholds({ gateRunsPerDay: 5, ciJobMinutes: undefined });
-  assert.deepEqual(t, { ...OPS_HEALTH_DEFAULTS, gateRunsPerDay: 5 });
+test('渡したしきい値で判定する：OPS_HEALTH_DEFAULTS の gateRunsPerDay だけを変えて渡すと、gate-runs の項目の threshold だけが変わる', () => {
+  const t = { ...OPS_HEALTH_DEFAULTS, gateRunsPerDay: 5 };
   const before = judge({}), after = judge({}, t);
   for (const id of OPS_ITEM_IDS) {
     const [b, a] = [item(before, id), item(after, id)];

@@ -34,13 +34,6 @@ export const OPS_HEALTH_DEFAULTS: OpsHealthThresholds = {
   epicDrift: 1, linkMismatch: 1, staleWorktrees: 1, areaFullMinutes: 60, reviewPanelFailures: 1, maxGets: 200,
 };
 
-/** override のうち値が undefined でないキーだけを既定に重ねる（型と範囲の検査は observe.ts がする） */
-export function opsHealthThresholds(override: Partial<OpsHealthThresholds> = {}): OpsHealthThresholds {
-  const out = { ...OPS_HEALTH_DEFAULTS };
-  for (const [k, v] of Object.entries(override)) if (v !== undefined) (out as Record<string, number>)[k] = v;
-  return out;
-}
-
 /** Actions の workflow run（REST の欄名のうち使うものだけ） */
 export interface OpsRun {
   id: number;

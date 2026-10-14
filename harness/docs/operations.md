@@ -277,12 +277,11 @@ Stacked PR は、下の層のブランチを base にした PR を重ねたも�
 | `jev.maxDiffChars` | 80000 | Jev に渡す diff の文字数の上限 | ゲート |
 | `jev.decisionMaxTargets`・`decisionMaxAnswerChars` | 20・20000 | 決定の記録を Jev に問う項目の数・答えの文字数の上限（超えれば問わない） | ゲート |
 | `classification.issueTriageJevPerRun` | 5 | 1回の定期実行で Jev に分類を問う Issue の数（残りは次の実行） | ゲート（`label-apply`） |
-| `harnessDrift.graceHours` | （書かない。既定 6） | origin で変わったハーネスのファイルを「読み込みが古い」とするまでの時間（規則・settings・判定の担当には置かない。0 で猶予なし。#812） | セッションだけ（`harness-drift`・`claim`・`fleet-status`・`step`） |
 | `fleet.maxParallelShips` | 3 | fleet ごとに、`--max` が無いときに同時に動かす ship の数（全体の上限は `hq.maxParallelShips`） | セッションだけ |
-| `observe.opsHealth.*`（`scheduleGapMinutes`・`rateLimitFailures`・`failedGateMinutes`・`gateRunsPerDay`・`ciJobMinutes`・`readyHours`・`prOpenHours`・`requeueCount`・`claimIdleMinutes`・`planReviewCount`・`unplannedIssueCount`・`epicDrift`・`linkMismatch`・`staleWorktrees`・`areaFullMinutes`・`reviewPanelFailures`・`maxGets`） | 90・1・60・600・10・2・24・2・60・5・10・1・1・1・60・1・200 | 保守の観測の運用の健康（節「保守の観測」）のしきい値。…Minutes・…Hours は分・時間、ほかは件数・回数で、`maxGets` は1回の観測で GitHub を読む数の上限。書かなければ `ops-health.ts`（このリポジトリだけ。導入先には配らない）の既定（`OPS_HEALTH_DEFAULTS`）で動く。誤りは `observe` の実行時に運用の健康の節が読めない旨で出す（ほかの節は出る。`loadConfig` では検査しない） | セッションだけ（`observe`） |
-| `delegateMerge.hours`・`minRemainingMinutes` | （無し） | 古いキー。読まないが、書いてあれば検査する | — |
 
 - `routine.gateReplyTimeoutMinutes`・`routine.stalledClaimMinutes`・`jev.decisionMaxTargets`・`jev.decisionMaxAnswerChars`・`classification.issueTriageJevPerRun` は、コードに直書きだった上限をキーにしたもの。省略でき、無ければ今の値で動く。`areaConcurrency`・`fleet`・`syncLoop`・`patrolAutoSupply`・`delegateMerge` も省略できる。
+- 設定ファイルにも雛形にも書いていないキー：`harnessDrift.graceHours`（書かなければ既定 6）は、origin で変わったハーネスのファイルを「読み込みが古い」とするまでの時間（規則・settings・判定の担当には置かない。0 で猶予なし。#812）で、読む側はセッションだけ（`harness-drift`・`claim`・`fleet-status`・`step`）。`delegateMerge.hours`・`minRemainingMinutes` は古いキーで、読まないが、書いてあれば検査する。
+- 保守の観測の運用の健康のしきい値は設定では変えない定数（`harness/lib/ops-health.ts` の `OPS_HEALTH_DEFAULTS`）で、節「見直しを /loop で回す」の「patrol が知らせる観測の項目」に書く。
 - 読むときの検査：`loadConfig` が上限の数値のキーを型と範囲で検査する（`harness/lib/config.ts` の `limitErrors`）。回数・件数・文字数は正の整数、時間は正の数、`minRemainingMinutes` は 0 以上。必須のキー（`routine` の3つ、`fixLoop` の2つ、`staleHours`、`jev.maxDiffChars`）が無いのも誤り。誤りがあれば、キーと今の値を示して止まる（上限が効かないまま動かない）。上限のほかに `project`（検証コマンド・取り込みのコマンド）の書式も検査する（#640）。Jev のしきい値・ガードレールの一覧などはここでは検査しない。
 - 誤りのある設定が main に入ると、ゲートと `agent.ts` のコマンドが全部止まる。guard の hook も設定を読めず、`git … push` を送り先に関わらず止めるので、セッションは直す PR を push できない。人が手元で `harness.config.json` を直す PR を出して Merge する。`npm run check` が実物の設定と雛形を検査する（`harness/test/config-limits.test.ts`）ので、PR の段階で落ちる。
 
@@ -545,7 +544,7 @@ node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run
 | 遅いテスト | テストごと・ファイルごとの時間の上位。`--junit` に Node の junit の出力を渡すか、`--run-tests` でこのリポジトリのテストを動かす（導入先には `harness/test` が無いので `--junit` を渡す）。どちらも無ければ読めない旨を出す |
 | 不安定なテスト | 同じ head で失敗の後に成功した CI の実行のテスト名ごとの回数と、失敗した実行の URL（qa-retro と同じ集め方） |
 | 生き残ったミュータント | ci ワークフローの mutation ジョブのログの `survived` の行（ファイル・行・壊し方・PR・実行の URL）。同じ箇所は新しい実行だけ残し、今は無いファイルは除く。行番号はその PR のもので、今の main とずれることがある。ログが読めなかった実行は数と理由を出す |
-| 運用の健康 | 直近 24 時間の 14 項目（項目は節「見直しを /loop で回す」の表）。項目ごとに値・しきい値・根拠を出し、超えた項目を先に並べる。GitHub を読む数は `observe.opsHealth.maxGets`（既定 200）までで、読んだ数を `gets/maxGets` で出す。読めない項目（上限に達した・worktree を読めないなど）は理由を出す |
+| 運用の健康 | 直近 24 時間の 14 項目（項目は節「見直しを /loop で回す」の表）。項目ごとに値・しきい値・根拠を出し、超えた項目を先に並べる。GitHub を読む数は 200（`harness/lib/ops-health.ts` の `OPS_HEALTH_DEFAULTS.maxGets`）までで、読んだ数を `gets/maxGets` で出す。読めない項目（上限に達した・worktree を読めないなど）は理由を出す |
 
 - 標準出力に人が読む要約を出し、最後の行に JSON のパスを出す。JSON は OS の一時ディレクトリに書く。リポジトリにも GitHub にも書かない（GitHub は gh の認証で読むだけ）。
 - 各節は `--top`（既定 20）件までで、切った数を出す。GitHub が読めない（`--offline`、認証が無い）ときは、不安定なテスト・生き残ったミュータント・運用の健康の節を読めない旨にして、ほかの節は出す。
@@ -566,9 +565,9 @@ node harness/scripts/observe.ts [--days <n>] [--top <n>] [--junit <path> | --run
 
 ### patrol が知らせる観測の項目
 
-patrol の回の要約の先頭には、保守の観測の「運用の健康」のうち、しきい値を超えた項目と前回から増えた項目を出す（知らせるだけで、見直しの skill は動かさない。直すのは各 Issue で行う）。項目は Epic #417 の表の 1〜14 で、しきい値のキーは `harness.config.json` の `observe.opsHealth` にある（節「上限の設定」）。
+patrol の回の要約の先頭には、保守の観測の「運用の健康」のうち、しきい値を超えた項目と前回から増えた項目を出す（知らせるだけで、見直しの skill は動かさない。直すのは各 Issue で行う）。項目は Epic #417 の表の 1〜14 で、しきい値は `harness/lib/ops-health.ts` の `OPS_HEALTH_DEFAULTS` にある定数で、設定では変えない。
 
-| # | 見張るもの | 見分け方 | しきい値のキー | 個別の直しの Issue |
+| # | 見張るもの | 見分け方 | しきい値（`OPS_HEALTH_DEFAULTS` のキー） | 個別の直しの Issue |
 | --- | --- | --- | --- | --- |
 | 1 | 定期実行の抜け | gate の schedule の実行の間隔（最後の実行からの時間・最大の間隔） | `scheduleGapMinutes` | #392 の候補「定期実行の抜けを補う」（未起票） |
 | 2 | App の API の上限 | gate の失敗の実行のうち上限が原因のもの（ログか失敗の理由）。数・時刻 | `rateLimitFailures` | #379・#384（済み）、#248 |
@@ -585,7 +584,7 @@ patrol の回の要約の先頭には、保守の観測の「運用の健康」�
 | 13 | 領域の上限の張り付き | 領域ごとの開いた PR の数と上限、上限で待っている Issue と待った時間 | `areaFullMinutes` | #399 |
 | 14 | 合体版のレビューの失敗 | 判定コメントの無いまま終わった合体版の記録、担当の失敗の数 | `reviewPanelFailures` | #406 |
 
-- GitHub を読む数は、1回の観測で `maxGets`（既定 200）までに限る。上限に達したら以後の読みを呼ばず、その読みに頼る項目を読めない旨にする（API の上限を観測で使いすぎない）。
+- GitHub を読む数は、1回の観測で `maxGets`（200。`OPS_HEALTH_DEFAULTS.maxGets`）までに限る。上限に達したら以後の読みを呼ばず、その読みに頼る項目を読めない旨にする（API の上限を観測で使いすぎない）。
 - 個別の直しの Issue が Merge された後も、項目は残す（直った後にまた起きたら気づくため）。
 - 新しく「また起きそうな問題」が見つかって観測に足したら、この表に1行足す（足す項目・見分け方・しきい値の案は intel・qa-retro の下書きに書く）。
 

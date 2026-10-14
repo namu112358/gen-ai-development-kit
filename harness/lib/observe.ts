@@ -6,14 +6,14 @@ import type { GitHub } from './github.ts';
 import { HOTSPOT_LOG_ARGS, countLines, parseNumstat, rankHotspots, type Hotspot } from './hotspot.ts';
 import { collectOpsHealth, type WorktreeEntry } from './observe-ops.ts';
 import { buildDocsInventory, checkDoc, isDocTarget, type DocFinding } from './observe-docs.ts';
-import { OPS_HEALTH_DEFAULTS, increasedItems, opsHealthThresholds, type OpsItem, type OpsItemId } from './ops-health.ts';
+import { OPS_HEALTH_DEFAULTS, increasedItems, type OpsItem, type OpsItemId } from './ops-health.ts';
 import { collectCiHealth, parseJunit, slowTests, type FlakyTestsSection, type MutantsSection, type SlowTests, type Unavailable } from './test-health.ts';
 
 /**
  * 保守の観測（harness/scripts/observe.ts）のまとめ。docs の照合（observe-docs.ts）・ホットスポット（hotspot.ts）・
  * テストの健康（test-health.ts）を1回分の JSON（version 1）に組み、人が読む要約と、前回の JSON との差を作る。
  * 読む部分（git・ファイル・GitHub）は ObserveIo で受け取る。GitHub は GET だけ、出力は OS の一時ディレクトリに書く（リポジトリにも GitHub にも書かない）。
- * 運用の健康（observe-ops.ts が GitHub と git を読み、ops-health.ts が 14 項目を判定する）も節として組み、`observe.opsHealth` のしきい値の型と範囲は opsHealthConfigErrors で検査する（誤りはその節だけ読めない扱い）。
+ * 運用の健康（observe-ops.ts が GitHub と git を読み、ops-health.ts が 14 項目を判定する）も節として組む（しきい値は ops-health.ts の OPS_HEALTH_DEFAULTS。設定では変えない）。
  * LLM は呼ばない。判断（直すか・Issue にするか）は人か、次の段階の skill が行う。
  */
 
@@ -114,34 +114,6 @@ export function parseObserveArgs(args: string[]): { ok: true; value: ObserveOpti
   return errors.length ? { ok: false, errors } : { ok: true, value };
 }
 
-// --- 運用の健康の設定 ---
-
-const OPS_COUNT_KEYS = new Set(['rateLimitFailures', 'gateRunsPerDay', 'requeueCount', 'planReviewCount', 'unplannedIssueCount', 'epicDrift', 'linkMismatch', 'staleWorktrees', 'reviewPanelFailures']);
-const OPS_AMOUNT_KEYS = new Set(['scheduleGapMinutes', 'failedGateMinutes', 'ciJobMinutes', 'readyHours', 'prOpenHours', 'claimIdleMinutes', 'areaFullMinutes']);
-const isPlainObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-
-/** observe.opsHealth の型と範囲の誤り（maxGets と件数のキーは正の整数、…Minutes・…Hours のキーは正の有限の数、知らないキーも誤り）。loadConfig では検査しない */
-export function opsHealthConfigErrors(config: HarnessConfig): string[] {
-  const observeConfig: unknown = config.observe;
-  if (observeConfig === undefined) return [];
-  if (!isPlainObject(observeConfig)) return [`observe はオブジェクトで書いてください（今の値：${JSON.stringify(observeConfig)}）`];
-  const ops = observeConfig.opsHealth;
-  if (ops === undefined) return [];
-  if (!isPlainObject(ops)) return [`observe.opsHealth はオブジェクトで書いてください（今の値：${JSON.stringify(ops)}）`];
-  const errors: string[] = [];
-  for (const [key, value] of Object.entries(ops)) {
-    if (value === undefined) continue;
-    const shown = `observe.opsHealth.${key}（今の値：${JSON.stringify(value)}）`;
-    if (!(key in OPS_HEALTH_DEFAULTS)) errors.push(`${shown} は知らないキーです`);
-    else if (key === 'maxGets' || OPS_COUNT_KEYS.has(key)) {
-      if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) errors.push(`${shown} は正の整数で書いてください`);
-    } else if (OPS_AMOUNT_KEYS.has(key)) {
-      if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) errors.push(`${shown} は正の数で書いてください`);
-    }
-  }
-  return errors;
-}
-
 // --- 集める ---
 
 const reasonOf = (e: unknown): string => (e instanceof Error ? e.message : String(e)).split('\n')[0]!.slice(0, 300);
@@ -216,10 +188,7 @@ export async function observe(io: ObserveIo, opts: ObserveOptions, previous?: Ob
 
   // 運用の健康（GitHub と git）
   let opsHealth: NonNullable<ObserveReport['opsHealth']>;
-  const opsErrors = opsHealthConfigErrors(io.config);
-  if (opsErrors.length > 0) {
-    opsHealth = { available: false, reason: `observe.opsHealth の設定の誤り：${opsErrors.join('；')}` };
-  } else if (io.gh === null) {
+  if (io.gh === null) {
     opsHealth = { available: false, reason: io.offlineReason ?? '--offline のため GitHub を読んでいません' };
   } else {
     try {
@@ -231,7 +200,7 @@ export async function observe(io: ObserveIo, opts: ObserveOptions, previous?: Ob
           notes.push(`worktree を読めません：${reasonOf(e)}`);
         }
       }
-      const ops = await collectOpsHealth(io.gh, { config: io.config, now: io.now, thresholds: opsHealthThresholds(io.config.observe?.opsHealth), worktrees });
+      const ops = await collectOpsHealth(io.gh, { config: io.config, now: io.now, thresholds: OPS_HEALTH_DEFAULTS, worktrees });
       notes.push(...ops.notes);
       opsHealth = { available: true, since: ops.since, gets: ops.gets, maxGets: ops.maxGets, items: ops.items };
     } catch (e) {

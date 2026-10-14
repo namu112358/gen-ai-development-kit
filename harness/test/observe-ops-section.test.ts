@@ -1,15 +1,12 @@
-// Issue #702：保守の観測（observe）の運用の健康の節。偽の GitHub で JSON の opsHealth が 14 項目を出し要約で超えた項目が先に出ること、
-// observe.opsHealth の誤り（opsHealthConfigErrors）で loadConfig は止まらず運用の健康の節だけ読めないこと、前回との差（diff.opsHealth）、
-// 実物と雛形のしきい値が OPS_HEALTH_DEFAULTS と同じで harness/docs/operations.md に書かれていること、maxGets が GitHub を読む上限に使われること、GET しか呼ばないことを確かめる。
+// Issue #702：保守の観測（observe）の運用の健康の節。偽の GitHub で JSON の opsHealth が 14 項目を出し要約で超えた項目が先に出ること、前回との差（diff.opsHealth）、
+// しきい値が OPS_HEALTH_DEFAULTS の定数（17 キーの値）だけで実物と雛形の設定に observe が無く、キーが harness/docs/operations.md に書かれていること（#1077）、
+// GitHub を読む上限が OPS_HEALTH_DEFAULTS.maxGets であること、GET しか呼ばないことを確かめる。
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { loadConfig, type HarnessConfig } from '../lib/config.ts';
 import { GitHub } from '../lib/github.ts';
-import { diffReports, observe, opsHealthConfigErrors, renderSummary, type ObserveIo, type ObserveOptions, type ObserveReport } from '../lib/observe.ts';
+import { diffReports, observe, renderSummary, type ObserveIo, type ObserveOptions, type ObserveReport } from '../lib/observe.ts';
 import { OPS_HEALTH_DEFAULTS, OPS_ITEM_IDS, type OpsItem } from '../lib/ops-health.ts';
 import { config, FakeGitHub } from './support/gate-fixtures.ts';
 
@@ -53,20 +50,12 @@ function summarySection(summary: string, prefix: string): string {
   return lines.slice(start, end === -1 ? undefined : end).join('\n');
 }
 
-function writeConfig(opsHealth: unknown): { path: string; cleanup: () => void } {
-  const dir = mkdtempSync(join(tmpdir(), 'observe-ops-section-'));
-  const path = join(dir, 'harness.config.json');
-  writeFileSync(path, JSON.stringify({ ...JSON.parse(readFileSync(REAL_PATH, 'utf8')), observe: { opsHealth } }, null, 2));
-  return { path, cleanup: () => rmSync(dir, { recursive: true, force: true }) };
-}
-
 // --- AC1 ---
 
 test('偽の GitHub で observe を回すと opsHealth が 14 項目を出し、要約の運用の健康の節で超えた項目が超えていない項目より先に出る（GET だけ）', async () => {
   const fake = opsFake();
-  // schedule-gap（1番目の項目）は超えないようにして、超えた epic-drift（10番目）が先に並ぶことを見る
-  const cfg = { ...config, observe: { opsHealth: { scheduleGapMinutes: 2000 } } };
-  const report = await observe(io({ config: cfg, gh: new GitHub(fake, 'o/r') }), OPTS);
+  // 実行が無いので rate-limit（2番目の項目）は値 0・しきい値 1 で超えない。超えた epic-drift（10番目）が先に並ぶことを見る
+  const report = await observe(io({ gh: new GitHub(fake, 'o/r') }), OPTS);
 
   const ops = report.opsHealth;
   assert.ok(ops?.available, '運用の健康の節が読めること');
@@ -75,7 +64,7 @@ test('偽の GitHub で observe を回すと opsHealth が 14 項目を出し、
   assert.equal(ops.since, new Date(NOW.getTime() - 24 * 3_600_000).toISOString());
   const byId = new Map(ops.items.map((i) => [i.id, i]));
   assert.equal((byId.get('epic-drift') as Extract<OpsItem, { available: true }>).exceeded, true);
-  assert.equal((byId.get('schedule-gap') as Extract<OpsItem, { available: true }>).exceeded, false);
+  assert.equal((byId.get('rate-limit') as Extract<OpsItem, { available: true }>).exceeded, false);
   // io.worktrees が無いと項目 12 だけが読めない
   assert.deepEqual(ops.items.filter((i) => !i.available).map((i) => i.id), ['stale-worktree']);
   onlyGets(fake);
@@ -83,7 +72,7 @@ test('偽の GitHub で observe を回すと opsHealth が 14 項目を出し、
   const section = summarySection(renderSummary(report), '運用の健康');
   assert.ok(section.includes(`${ops.gets}/${ops.maxGets}`), 'GitHub を読んだ数（gets/maxGets）が出る');
   const exceeded = section.indexOf('Epic のずれ');
-  const notExceeded = section.indexOf('定期実行の抜け');
+  const notExceeded = section.indexOf('API の上限');
   assert.ok(exceeded >= 0 && notExceeded >= 0);
   assert.ok(exceeded < notExceeded, '超えた項目が先に出る');
   assert.ok(section.includes('worktree を読めません'), '読めない項目は理由が出る');
@@ -95,53 +84,6 @@ test('gh が null なら運用の健康の節は offlineReason（無ければ --
   assert.match((offline.opsHealth as { reason: string }).reason, /--offline/);
   const reasoned = await observe(io({ offlineReason: 'GITHUB_TOKEN が無い' }), OPTS);
   assert.deepEqual(reasoned.opsHealth, { available: false, reason: 'GITHUB_TOKEN が無い' });
-});
-
-// --- AC2 ---
-
-test('opsHealthConfigErrors：型と範囲の誤り・知らないキー・オブジェクトでない observe は誤りにし、キーと今の値を添える。正しい値と省略は誤りにしない', () => {
-  const ok: unknown[] = [undefined, {}, { opsHealth: {} }, { opsHealth: { ...OPS_HEALTH_DEFAULTS } }, { opsHealth: { readyHours: 1.5, scheduleGapMinutes: 0.5, maxGets: 1 } }];
-  for (const observeValue of ok) {
-    const cfg = { ...config, observe: observeValue } as unknown as HarnessConfig;
-    assert.deepEqual(opsHealthConfigErrors(cfg), [], `${JSON.stringify(observeValue)} を誤りにした`);
-  }
-  const bad: [unknown, string][] = [
-    [{ opsHealth: { scheduleGapMinutes: -1 } }, 'observe.opsHealth.scheduleGapMinutes'],
-    [{ opsHealth: { readyHours: 0 } }, 'observe.opsHealth.readyHours'],
-    [{ opsHealth: { maxGets: 'x' } }, 'observe.opsHealth.maxGets'],
-    [{ opsHealth: { maxGets: 1.5 } }, 'observe.opsHealth.maxGets'],
-    [{ opsHealth: { maxGets: 0 } }, 'observe.opsHealth.maxGets'],
-    [{ opsHealth: { requeueCount: 2.5 } }, 'observe.opsHealth.requeueCount'],
-    [{ opsHealth: { staleWorktrees: -1 } }, 'observe.opsHealth.staleWorktrees'],
-    [{ opsHealth: { ciJobMinutes: null } }, 'observe.opsHealth.ciJobMinutes'],
-    [{ opsHealth: { bogus: 1 } }, 'observe.opsHealth.bogus'],
-    [{ opsHealth: [] }, 'observe.opsHealth'],
-    [{ opsHealth: 5 }, 'observe.opsHealth'],
-    ['x', 'observe'],
-    [null, 'observe'],
-  ];
-  for (const [observeValue, key] of bad) {
-    const errors = opsHealthConfigErrors({ ...config, observe: observeValue } as unknown as HarnessConfig);
-    assert.ok(errors.length > 0, `${JSON.stringify(observeValue)} を誤りにしなかった`);
-    assert.ok(errors.some((e) => e.includes(key)), `${JSON.stringify(errors)} に ${key} が無い`);
-  }
-});
-
-test('observe.opsHealth に負の数・文字列・知らないキーがあっても loadConfig は止まらず、運用の健康の節だけがキーと今の値を添えて読めない旨になる', async (t) => {
-  const file = writeConfig({ scheduleGapMinutes: -1, maxGets: 'x', bogus: 1 });
-  t.after(file.cleanup);
-  let loaded: HarnessConfig | undefined;
-  assert.doesNotThrow(() => { loaded = loadConfig(file.path); });
-
-  const fake = opsFake();
-  const report = await observe(io({ config: loaded!, gh: new GitHub(fake, 'o/r') }), OPTS);
-  assert.equal(report.opsHealth?.available, false);
-  const reason = (report.opsHealth as { reason: string }).reason;
-  for (const part of ['observe.opsHealth.scheduleGapMinutes', '-1', 'observe.opsHealth.maxGets', '"x"', 'bogus']) assert.ok(reason.includes(part), `理由に ${part} が無い：${reason}`);
-  assert.ok(renderSummary(report).includes('observe.opsHealth.scheduleGapMinutes'), '要約にも出る');
-  assert.equal(report.docs.available, true);
-  assert.equal(report.hotspots.available, true);
-  onlyGets(fake);
 });
 
 // --- AC3 ---
@@ -174,10 +116,15 @@ test('diff.opsHealth：前回か今回に opsHealth が無い・読めないな�
 
 // --- AC4 ---
 
-test('実物と雛形の observe.opsHealth は OPS_HEALTH_DEFAULTS と同じで、17 キーが harness/docs/operations.md の「上限の設定」と「見直しを /loop で回す」に書かれている', () => {
+test('しきい値は OPS_HEALTH_DEFAULTS の 17 キーの今の値で、実物と雛形の設定に最上位の observe が無く、17 キーが harness/docs/operations.md の「見直しを /loop で回す」に書かれている', () => {
+  assert.deepEqual(OPS_HEALTH_DEFAULTS, {
+    scheduleGapMinutes: 90, rateLimitFailures: 1, failedGateMinutes: 60, gateRunsPerDay: 600, ciJobMinutes: 10,
+    readyHours: 2, prOpenHours: 24, requeueCount: 2, claimIdleMinutes: 60, planReviewCount: 5, unplannedIssueCount: 10,
+    epicDrift: 1, linkMismatch: 1, staleWorktrees: 1, areaFullMinutes: 60, reviewPanelFailures: 1, maxGets: 200,
+  });
   for (const path of [REAL_PATH, TEMPLATE_PATH]) {
-    const json = JSON.parse(readFileSync(path, 'utf8')) as { observe?: { opsHealth?: unknown } };
-    assert.deepEqual(json.observe?.opsHealth, OPS_HEALTH_DEFAULTS, path);
+    const json = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    assert.equal(Object.hasOwn(json, 'observe'), false, `${path} に observe が残っている`);
   }
   const docs = readFileSync(DOCS_PATH, 'utf8');
   const docSection = (heading: string): string => {
@@ -189,26 +136,22 @@ test('実物と雛形の observe.opsHealth は OPS_HEALTH_DEFAULTS と同じで�
   };
   const keys = Object.keys(OPS_HEALTH_DEFAULTS);
   assert.equal(keys.length, 17);
-  for (const heading of ['上限の設定', '見直しを /loop で回す']) {
-    const text = docSection(heading);
-    const missing = keys.filter((k) => !text.includes(`\`${k}\``));
-    assert.deepEqual(missing, [], `「${heading}」に書かれていないキー`);
-  }
+  const text = docSection('見直しを /loop で回す');
+  const missing = keys.filter((k) => !text.includes(`\`${k}\``));
+  assert.deepEqual(missing, [], '「見直しを /loop で回す」に書かれていないキー');
 });
 
 // --- AC5 ---
 
-test('設定の observe.opsHealth.maxGets が report.opsHealth.maxGets に出て、GitHub を読む上限に使われる（読んだ数は上限以下・GET だけ）', async (t) => {
-  const file = writeConfig({ maxGets: 2 });
-  t.after(file.cleanup);
+test('report.opsHealth.maxGets は OPS_HEALTH_DEFAULTS.maxGets（200）で、GitHub を読んだ数はその上限以下・GET だけ', async () => {
   const fake = opsFake();
-  const report = await observe(io({ config: loadConfig(file.path), gh: new GitHub(fake, 'o/r') }), OPTS);
+  const report = await observe(io({ gh: new GitHub(fake, 'o/r') }), OPTS);
 
   const ops = report.opsHealth;
   assert.ok(ops?.available);
-  assert.equal(ops.maxGets, 2);
-  assert.ok(ops.gets <= 2, `gets ${ops.gets}`);
-  assert.ok(fake.calls.filter((c) => OPS_PATH.test(c.path)).length <= 2, '偽の GitHub が受けた運用の健康の GET が上限を超えない');
-  assert.ok(ops.items.some((i) => !i.available && i.reason.includes('上限')), '上限の理由で読めない項目が出る');
+  assert.equal(ops.maxGets, 200);
+  assert.equal(ops.maxGets, OPS_HEALTH_DEFAULTS.maxGets);
+  assert.ok(ops.gets <= ops.maxGets, `gets ${ops.gets}`);
+  assert.ok(fake.calls.filter((c) => OPS_PATH.test(c.path)).length <= ops.maxGets, '偽の GitHub が受けた運用の健康の GET が上限を超えない');
   onlyGets(fake);
 });

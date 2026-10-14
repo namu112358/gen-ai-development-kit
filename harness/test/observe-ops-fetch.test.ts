@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { GitHub, HttpError } from '../lib/github.ts';
 import { collectOpsHealth, readWorktrees, type WorktreeEntry } from '../lib/observe-ops.ts';
-import { OPS_ITEM_IDS, opsHealthThresholds, type OpsItemId } from '../lib/ops-health.ts';
+import { OPS_HEALTH_DEFAULTS, OPS_ITEM_IDS, type OpsItemId } from '../lib/ops-health.ts';
 import { config, FakeGitHub, HEAD, planGateComment, pr, verdictComment } from './support/gate-fixtures.ts';
 import { sandbox } from './support/git-sandbox.ts';
 
@@ -62,7 +62,7 @@ const WORKTREES: WorktreeEntry[] = [
 
 const collect = (fake: FakeGitHub, opts: { worktrees?: WorktreeEntry[] | null; maxGets?: number } = {}) =>
   collectOpsHealth(new GitHub(fake, 'o/r'), {
-    config, now: NOW, thresholds: opsHealthThresholds(opts.maxGets === undefined ? {} : { maxGets: opts.maxGets }),
+    config, now: NOW, thresholds: opts.maxGets === undefined ? OPS_HEALTH_DEFAULTS : { ...OPS_HEALTH_DEFAULTS, maxGets: opts.maxGets },
     worktrees: opts.worktrees === undefined ? WORKTREES : opts.worktrees,
   });
 
@@ -75,7 +75,7 @@ test('14 項目が OPS_ITEM_IDS の順で出て、実行の一覧の失敗は項
   assert.deepEqual(all.items.map((i) => i.id), [...OPS_ITEM_IDS]);
   assert.deepEqual(unavailable(all.items), []);
   assert.equal(all.gets, ok.calls.length);
-  assert.equal(all.maxGets, opsHealthThresholds().maxGets);
+  assert.equal(all.maxGets, OPS_HEALTH_DEFAULTS.maxGets);
   assert.equal(all.since, new Date(NOW.getTime() - 24 * 3_600_000).toISOString());
   onlyGets(ok);
 

@@ -8,7 +8,7 @@
  *   どちらも無ければ遅いテストの節は読めない旨を出す
  * - --previous：前回の JSON。節ごとに「新しく出たもの」「消えたもの」の差を足す
  * - --offline：GitHub を読まない（不安定なテスト・生き残ったミュータント・運用の健康の節は読めない旨を出す）
- * - 運用の健康：直近 24 時間の 14 項目（しきい値と GitHub を読む上限は harness.config.json の observe.opsHealth）
+ * - 運用の健康：直近 24 時間の 14 項目（しきい値と GitHub を読む上限は ops-health.ts の OPS_HEALTH_DEFAULTS。設定では変えない）
  *
  * 標準出力に人が読む要約を出し、最後の行に JSON（harness/lib/observe.ts の ObserveReport）のパスを出す。
  * JSON は OS の一時ディレクトリに書く。リポジトリにも GitHub にも書かない（GitHub は gh の認証で GET だけ）。
