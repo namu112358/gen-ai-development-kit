@@ -119,9 +119,12 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
       const { token } = await installationToken(jwt, runtime.installationId, permissions);
       return createGitHubClient({ token, owner, repo });
     };
+    // 記録の印は、prepareRepoReview が固定の JSON のクライアントを選ぶのと同じ条件（DRY_RUN=1）で決める（Issue #1068）
+    const dryRun = env.DRY_RUN === '1';
     const deps: ReviewDeps = {
       github: { reader: () => client(READ_PERMISSIONS), writer: () => client(WRITE_PERMISSIONS) },
       claude: setup.claude,
+      dryRun,
       kv: {
         get: (key) => env.REVIEW_KV.get(key),
         put: (key, value) => env.REVIEW_KV.put(key, value),
