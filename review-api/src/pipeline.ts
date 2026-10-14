@@ -46,6 +46,8 @@ export interface ReviewDeps {
   sleep?(ms: number): Promise<void>;
   /** ログと投稿の本文から伏せる文字列（API キー・Webhook の秘密など） */
   secrets?: string[];
+  /** Claude の代わりに固定の JSON を使っているか（Workflow の DRY_RUN=1）。記録の dryRun に入れる */
+  dryRun?: boolean;
 }
 
 export interface ReviewParams {
@@ -447,6 +449,8 @@ export async function runReview(deps: ReviewDeps, params: ReviewParams, runStep?
       durationSec,
       ...compareFields,
       rules,
+      diffTruncated: material.diffTruncated,
+      dryRun: deps.dryRun === true,
     };
     return { usd, body: redact(renderShadowComment(record), secrets), durationSec };
   });

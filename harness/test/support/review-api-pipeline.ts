@@ -1,5 +1,5 @@
 // review-api のレビューの段階（review-api/src/pipeline.ts の runReview）を外部 API を呼ばずに回す補助。偽の GitHub・偽の Claude（応答の列。Error の要素は投げる）・偽の KV と run、
-// 設定・記録・応答の見本と定数を持つ（review-api-pipeline.test.ts と review-api-risk-compare.test.ts・review-api-rules-material.test.ts が共有する。#995）
+// 設定・記録・応答の見本と定数を持つ（review-api-pipeline.test.ts と review-api-risk-compare.test.ts・review-api-rules-material.test.ts・review-api-dry-run-record.test.ts が共有する。#995）
 // 偽の GitHub には ref（commit の SHA）ごとの規則のファイル（CLAUDE.md など）を渡せる。渡さない ref・パスは 404（#1052）
 import type { ContentBlock, Message, MessagesClient, MessagesParams } from '../../../review-api/src/claude.ts';
 import type { ReviewConfig } from '../../../review-api/src/config.ts';
@@ -101,7 +101,7 @@ export const msg = (content: ContentBlock[], stop_reason: string, model = MODEL)
 export const answer = (v: unknown, model = MODEL): Message => msg([{ type: 'text', text: JSON.stringify(v) }], 'end_turn', model);
 
 // 1回の runReview を偽の依存で回す。responses の Error の要素は、その回の問いで投げる。afterClaude は Claude を2回呼んだ後に GitHub の state を書き換える。
-// filesByRef は偽の GitHub に ref ごとに置くファイル（規則のファイルなど）
+// filesByRef は偽の GitHub に ref ごとに置くファイル（規則のファイルなど）。dryRun は渡したときだけ runReview の deps に入れる（#1068）
 export async function run(opts: {
   pr?: Pr;
   comments?: ReturnType<typeof comment>[];
@@ -110,6 +110,7 @@ export async function run(opts: {
   responses?: (Message | Error)[];
   afterClaude?: (state: { pr: Pr; comments: ReturnType<typeof comment>[] }) => void;
   filesByRef?: FilesByRef;
+  dryRun?: boolean;
 } = {}) {
   const state = { pr: opts.pr ?? { state: 'open', head: HEAD }, comments: opts.comments ?? [] };
   const { gh, calls, posted } = fakeGitHub(state, opts.filesByRef);
@@ -135,6 +136,7 @@ export async function run(opts: {
       now: () => NOW,
       log: (line) => logs.push(line),
       secrets: [API_KEY],
+      ...(opts.dryRun === undefined ? {} : { dryRun: opts.dryRun }),
     },
     params(opts.config),
   );
