@@ -4,7 +4,8 @@
     "skipBotSenders": true,
     "branchPrefix": "claude/",
     "requireClosesIssue": true,
-    "settleSeconds": 120
+    "settleSeconds": 120,
+    "settleActions": ["synchronize"]
   },
   "claude": {
     "reviewModel": "claude-opus-5-5",
