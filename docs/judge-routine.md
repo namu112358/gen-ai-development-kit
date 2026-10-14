@@ -63,3 +63,4 @@ Routine の GitHub トリガー（`pull_request` のイベント）で判定の 
 手順：Routine を Web UI で作り（GitHub トリガーは CLI・cloud のセッションからは作れない。Claude GitHub App のインストールを画面が求める）、Filter に合うブランチから Draft PR を1件開く。起きたセッションの記録で、(1) イベントの情報の届き方、(2) checkout の commit、(3) 同じ PR に続けて push したときのセッションの数、(4) 上限に当たったときの見え方、を読む。PoC の PR は Merge せずに閉じる。
 
 記録：PoC の PR は #1094（2026-10-14）。1回目の `opened` の後、2つ目の commit の push（`synchronize`）でも起きるかを確かめる。
+権限の更新後の3つ目の commit でも確かめる。
