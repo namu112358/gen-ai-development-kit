@@ -7,8 +7,7 @@ import { locateRow, type PaneSnapshot } from './panes.ts';
  * hq：動いてはいるが進んでいない fleet を見つける判定（Issue #287、人の決定はコメント 5905221457）。
  * 入力は fleet の collect が書いたペインのスナップショット（harness/lib/panes.ts の PaneSnapshot）で、
  * `at`（最後に読んだ時刻）が古ければ collect が止まっている、AI の番の行の `since` が長ければ進んでいない、とみなす。
- * しきい値は harness.config.json の hq.staleSnapshotMinutes・hq.stuckMinutes（無ければ既定値）。
- * hq.maxFleets は config.ts の hqConfig が読む（config.ts は delegateMergeExclude に入るので、ここで同じ hq の節を読む）。
+ * しきい値は STALL_DEFAULTS.hq（設定では変えない定数）。
  * CLI は harness/scripts/panes.ts の fleets。
  * fleet：待つ間の読み直しの判断（Issue #199、人の決定 2026-09-30。下の節）。選んだ Issue が App・CI や人の Merge を待つ間に、fleet が間隔ごとに
  * `fleet-status --watch` を読み直すときの判断。App 待ちの行が一定の時間を過ぎても動かなければ1回だけ知らせ、Merge 済みで見届けの
@@ -17,7 +16,7 @@ import { locateRow, type PaneSnapshot } from './panes.ts';
  * readWatchRecord・writeWatchRecord（local-state.ts の writeLocalJson）で読み書きする。ほかは純粋関数。
  */
 
-/** 止まっているかの判定のしきい値の既定値（分）。hq は harness.config.json の hq、fleetWatch は fleet.watch で変えられる */
+/** 止まっているかの判定のしきい値（分）。設定では変えない定数（変えるときはここを直す） */
 export const STALL_DEFAULTS = {
   hq: { staleSnapshotMinutes: 30, stuckMinutes: 120 },
   fleetWatch: { intervalMinutes: 3, appStallMinutes: 20 },
@@ -31,21 +30,6 @@ export interface HqStallConfig {
   staleSnapshotMinutes: number;
   /** AI の番の行がこれ以上同じ状態なら、進んでいない */
   stuckMinutes: number;
-}
-
-/** hq の節から判定のしきい値を読む（無い項目は既定値）。hq がオブジェクトでない、値が正の整数でなければ throw する */
-export function hqStallConfig(config: { hq?: unknown }): HqStallConfig {
-  const raw = config.hq;
-  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) {
-    throw new Error('hq はオブジェクトで書いてください（例：{ "maxFleets": 2, "staleSnapshotMinutes": 30, "stuckMinutes": 120 }）');
-  }
-  const hq = (raw ?? {}) as Record<string, unknown>;
-  const read = (key: keyof HqStallConfig): number => {
-    const v = hq[key] === undefined ? HQ_STALL_DEFAULTS[key] : hq[key];
-    if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) throw new Error(`hq.${key} は正の整数（分）で書いてください`);
-    return v;
-  };
-  return { staleSnapshotMinutes: read('staleSnapshotMinutes'), stuckMinutes: read('stuckMinutes') };
 }
 
 /** fleet 1つの判定。missing はスナップショットが無い・読めない（collect が動いていない） */
@@ -103,26 +87,10 @@ export function fleetStall(snap: PaneSnapshot, now: number, cfg: HqStallConfig):
 
 // --- fleet の待つ間の読み直し（旧 harness/lib/fleet-watch.ts） ---
 
-/** 待つ間の読み直しの既定値（harness.config.json の fleet.watch で変えられる）。STALL_DEFAULTS.fleetWatch の別名 */
+/** 待つ間の読み直しの間隔と、App が止まったとみなす時間（分）。STALL_DEFAULTS.fleetWatch の別名 */
 export const FLEET_WATCH_DEFAULTS = STALL_DEFAULTS.fleetWatch;
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-const isPositiveInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v > 0;
-
-/**
- * 待つ間の読み直しの設定（harness.config.json の fleet.watch。無い項目は既定値）。書式の誤りは throw する（fleet-status --watch の実行時に止まる）。
- * HarnessConfig.fleet の型に watch は足さず、ここで読む（harness/lib/config.ts は #196 と重なるため触らない。shipModeConfig と同じく fleet の節を読む）。
- */
-export function fleetWatchConfig(config: { fleet?: unknown }): { intervalMinutes: number; appStallMinutes: number } {
-  const fleet = config.fleet;
-  if (fleet !== undefined && !isObject(fleet)) throw new Error('fleet はオブジェクトで書いてください');
-  const watch = fleet?.watch;
-  if (watch !== undefined && !isObject(watch)) throw new Error('fleet.watch はオブジェクトで書いてください（例：{ "intervalMinutes": 3, "appStallMinutes": 20 }）');
-  const { intervalMinutes = FLEET_WATCH_DEFAULTS.intervalMinutes, appStallMinutes = FLEET_WATCH_DEFAULTS.appStallMinutes } = (watch ?? {}) as Record<string, unknown>;
-  if (!isPositiveInt(intervalMinutes)) throw new Error('fleet.watch.intervalMinutes は正の整数で書いてください');
-  if (!isPositiveInt(appStallMinutes)) throw new Error('fleet.watch.appStallMinutes は正の整数で書いてください');
-  return { intervalMinutes, appStallMinutes };
-}
 
 /** App が動くのを待つ段階（計画ゲートの記録待ち・auto-merge が付いたまま Merge 待ち）。人の番（human-merge・plan-review）は数えない */
 export const APP_WAIT_STAGES: readonly string[] = ['plan-gate', 'auto-merge'];
