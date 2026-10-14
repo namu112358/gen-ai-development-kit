@@ -46,3 +46,18 @@ Prompt：
 ## 範囲の外
 
 App から Routine を起こすこと、plan・implement・fix の Routine は、この手順の外（review-panel の⑧は #974 で判定から外した）。
+
+## GitHub トリガーでの PoC（Routine の GitHub イベントで起こす）
+
+Routine の GitHub トリガー（`pull_request` のイベント）で判定の Routine を起こせるかの動作確認。公式の文書（2026-10-14）では、PR のリポジトリが Routine の先頭なら **PR の head の commit から clone される**（上の「PR の head は checkout しない」と食い違う）、イベントの情報がセッションにどう届くかは**書かれていない**、時間あたりの上限の実数は**非公開で超えた分は捨てられる**。この3点を確かめるのが目的で、判定の本番の経路にはまだ使わない。
+
+| 項目 | 設定 |
+| --- | --- |
+| Repositories | このリポジトリ1つ |
+| Model | claude-opus-5-5 |
+| Environment | Node 24 を入れた環境（`node --version` が `v24.` でなければ setup script を失敗にする。Node 22 のままだと見張りの hook が Bash と MCP を止める） |
+| Connectors | 全部外す |
+| Trigger | GitHub event → このリポジトリ → Pull request（全部の action）。Filter：Head branch equals `<PoC の PR のブランチ>`（ほかの PR で起きないように） |
+| Prompt | GitHub に書かず読むだけの PoC の文（届いたイベントの情報の引用、`git rev-parse HEAD` と PR の head の照合、REST / GraphQL、HEAD から `GET /commits/{sha}/pulls` で PR を引く、`judge-routine-check`、dry-run の判定） |
+
+手順：Routine を Web UI で作り（GitHub トリガーは CLI・cloud のセッションからは作れない。Claude GitHub App のインストールを画面が求める）、Filter に合うブランチから Draft PR を1件開く。起きたセッションの記録で、(1) イベントの情報の届き方、(2) checkout の commit、(3) 同じ PR に続けて push したときのセッションの数、(4) 上限に当たったときの見え方、を読む。PoC の PR は Merge せずに閉じる。
