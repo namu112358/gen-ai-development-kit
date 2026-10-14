@@ -473,9 +473,17 @@ export interface ComposeArgs {
   reviewSource?: 'api' | 'local';
   /** API の記録のコメントの URL（reviewSource が api のときだけ） */
   apiRecord?: string;
+  /** 判定者の印（Routine の判定のときだけ routine。Issue #1097） */
+  judgedBy?: 'routine';
 }
 
-const COMPOSE_USAGE = 'compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>] [--author-view <file>] [--review-source api|local] [--api-record <url>]';
+const COMPOSE_USAGE = 'compose-verdict <pr> <reviewer.json> <risk.json> --judge-input <file> [--model <m>] [--author-view <file>] [--review-source api|local] [--api-record <url>] [--judged-by routine]';
+
+/** 判定者の説明（metrics.judgedBy）。routine ならセッションの URL つき（routine:<URL>。URL が無ければ routine）、無ければ URL（無ければ「付き添いのセッション」） */
+export function judgedByFor(judgedBy: 'routine' | undefined, url: string | null): string {
+  if (judgedBy === 'routine') return url === null ? 'routine' : `routine:${url}`;
+  return url ?? '付き添いのセッション';
+}
 
 /** --author-view のファイルを読み、前後の空白を除く（空なら空文字。誤りにするのは composeVerdict・parseVerdict。#426・#449） */
 export function readAuthorViewFile(file: string): string {
@@ -484,7 +492,7 @@ export function readAuthorViewFile(file: string): string {
 
 /** compose-verdict の引数を読む（--judge-input・--model・--author-view の位置に関わらず） */
 export function parseComposeArgs(args: string[]): Parsed<ComposeArgs> {
-  const r = splitArgs(args, ['--judge-input', '--model', '--author-view', '--review-source', '--api-record']);
+  const r = splitArgs(args, ['--judge-input', '--model', '--author-view', '--review-source', '--api-record', '--judged-by']);
   if (!r.ok) return { ok: false, errors: [...r.errors, COMPOSE_USAGE] };
   const { positional, options } = r.value;
   const [pr, reviewerFile, riskFile] = positional;
@@ -493,7 +501,9 @@ export function parseComposeArgs(args: string[]): Parsed<ComposeArgs> {
   if (!/^\d+$/.test(pr)) return { ok: false, errors: [`PR 番号「${pr}」が数ではありません`, COMPOSE_USAGE] };
   const reviewSource = options['--review-source'];
   const apiRecord = options['--api-record'];
+  const judgedBy = options['--judged-by'];
   const sourceErrors: string[] = [];
+  if (judgedBy !== undefined && judgedBy !== 'routine') sourceErrors.push(`--judged-by「${judgedBy}」は routine だけです`);
   if (reviewSource !== undefined && reviewSource !== 'api' && reviewSource !== 'local') sourceErrors.push(`--review-source「${reviewSource}」は api か local です`);
   if (apiRecord !== undefined && reviewSource !== 'api') sourceErrors.push('--api-record は --review-source api のときだけ渡せます');
   if (reviewSource === 'api' && apiRecord === undefined) sourceErrors.push('--review-source api には --api-record <url>（API の記録のコメントの URL）が要ります');
@@ -510,6 +520,7 @@ export function parseComposeArgs(args: string[]): Parsed<ComposeArgs> {
       ...(options['--author-view'] ? { authorViewFile: options['--author-view'] } : {}),
       ...(reviewSource === 'api' || reviewSource === 'local' ? { reviewSource } : {}),
       ...(apiRecord !== undefined ? { apiRecord } : {}),
+      ...(judgedBy === 'routine' ? { judgedBy } : {}),
     },
   };
 }
@@ -588,7 +599,7 @@ export interface ComposeInput {
   samePatch?: boolean;
   reviewer: unknown;
   risk: unknown;
-  /** judgedBy は判定者の説明（「付き添いのセッション」やセッションの URL など） */
+  /** judgedBy は判定者の説明（「付き添いのセッション」やセッションの URL など。Routine は routine:<セッションの URL>、URL が無ければ routine） */
   meta: { model?: string; judgedBy: string; reviewSource?: 'api' | 'local'; apiRecord?: string };
   /** PR を実装したセッションの見解（任意。判定の agent-verdict の authorView に入る。結論には使わない。#426） */
   authorView?: string;
