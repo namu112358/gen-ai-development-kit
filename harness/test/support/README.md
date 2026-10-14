@@ -11,8 +11,9 @@
 | `flow-divergences.ts` | queue（`decideIssue`・`decidePr`）と fleet（`fleetStatus`）が次にやることで食い違うと分かっている組み合わせの一覧（述語と理由。`flow-queue-fleet.test.ts` が使う。#201） |
 | `git-sandbox.ts` | worktree のテスト用の git の砂場（一時ディレクトリに bare の origin と、その clone（本体）を作る） |
 | `judge-graphql-fixtures.ts` | judge-input の過去の PR の読み方のテスト用の見本（1つの見本を、REST の応答と、まとめた GraphQL の問い合わせ（PastPrHistories・PastPrThreads）の応答と、前のファイルごとの履歴の問い合わせの応答で返す偽の GitHub。#249） |
+| `judge-api-review.ts` | judge の API のレビューの選び方とコマンド（`agent.ts api-review`）のテスト用の見本（review-api の記録のコメント（posted の印・止めた記録・編集）、範囲つきの `selectApiReview` の呼び出し、前回の判定を入れられる judge-input のファイル、PR・変更ファイル・コメントに答える偽の GitHub、base のガードレールの差し替え `BASE_DEPS`。`judge-api-review-select.test.ts`・`judge-api-review-command.test.ts`・`judge-api-review-fallback.test.ts` が共有する。#1069） |
 | `output-file-rules.ts` | サブエージェントの定義に同じ言い回しで置く「渡された出力のパスに自分で書く」決まりの文（判定の担当と plan-critic のテストが共有する） |
-| `review-api-pipeline.ts` | review-api のレビューの段階（`runReview`）を外部 API を呼ばずに回す偽の GitHub・偽の Claude（応答の列。Error の要素は投げる）・偽の KV と `run`、設定・記録・応答の見本と定数（`review-api-pipeline.test.ts`・`review-api-risk-compare.test.ts` が共有する。#995） |
+| `review-api-pipeline.ts` | review-api のレビューの段階（`runReview`）を外部 API を呼ばずに回す偽の GitHub・偽の Claude（応答の列。Error の要素は投げる）・偽の KV と `run`、設定・記録・応答の見本と定数（`review-api-pipeline.test.ts`・`review-api-risk-compare.test.ts`・`review-api-dry-run-record.test.ts` が共有する。#995） |
 | `settings-deny.ts` | `.claude/settings.json` と deny の雛形の `permissions.deny` の読み方と、Bash の規則の照合の近似（`matchesRule`・`hits`。`settings-deny.test.ts`・`settings-deny-push.test.ts` が共有する。#404） |
 | `skill-text.ts` | skill の文を確かめるテストの補助（frontmatter・節・手順の切り出しと、skill ごとの構造の表（見出し・語・含まないはずの語・順番）を本文と照らし、足りないものを全部一度に返す `skillProblems`。#487） |
 | `stack-fixtures.ts` | Stacked PR・orphan-base のテスト用の見本（stack 付きの PR、orphan-base／base-resolved の App の記録、agent:blocked の events）と、`acceptanceFake` にルートを足した偽の GitHub |
