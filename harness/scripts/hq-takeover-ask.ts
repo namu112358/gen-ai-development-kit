@@ -1,5 +1,5 @@
 /**
- * Issue #771：止まった宣言・担当のいない PR の引き継ぎの問いを、hq が hq.takeoverAskHours（既定 24 時間）に1回まとめて聞く判定と記録。
+ * Issue #771：止まった宣言・担当のいない PR の引き継ぎの問いを、hq が 24 時間（HQ_TAKEOVER_DEFAULTS。設定では変えない）に1回まとめて聞く判定と記録。
  *
  *   node harness/scripts/hq-takeover-ask.ts check <found.json> [--common-dir <dir>]（見つけたもの TakeoverItem[] から判定を JSON で出す。記録は書かない）
  *   node harness/scripts/hq-takeover-ask.ts record <answer.json> [--common-dir <dir>]（{ declined: {key,state}[], taken: string[] } で記録を更新する）
@@ -9,20 +9,10 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig } from '../lib/config.ts';
 import { writeLocalJson } from '../lib/local-state.ts';
 import { gitCommonDir, hqStateDir } from './hq-state.ts';
 
 export const HQ_TAKEOVER_DEFAULTS = { takeoverAskHours: 24 } as const;
-
-/** hq の節から聞く間隔（時間）を読む（無ければ既定値）。正の整数でなければ throw する */
-export function hqTakeoverConfig(config: { hq?: unknown }): { takeoverAskHours: number } {
-  const raw = config.hq;
-  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('hq はオブジェクトで書いてください');
-  const v = (raw as Record<string, unknown> | undefined)?.takeoverAskHours ?? HQ_TAKEOVER_DEFAULTS.takeoverAskHours;
-  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) throw new Error('hq.takeoverAskHours は正の整数（時間）で書いてください');
-  return { takeoverAskHours: v };
-}
 
 export interface TakeoverItem { key: string; state: string; line: string }
 export interface TakeoverDeclined { key: string; state: string }
@@ -121,7 +111,7 @@ function main(argv: string[]): void {
   if ((cmd !== 'check' && cmd !== 'record') || !file || positional.length !== 2) throw new Error(usage);
   const commonDir = dir ?? gitCommonDir(process.cwd());
   if (!commonDir) throw new Error('git の共通ディレクトリが見つかりません');
-  const { takeoverAskHours } = hqTakeoverConfig(loadConfig() as { hq?: unknown });
+  const { takeoverAskHours } = HQ_TAKEOVER_DEFAULTS;
   if (cmd === 'check') {
     const decision = takeoverAskDecision({ found: parseFound(readJsonFile(file)), record: readRecord(commonDir), now: Date.now(), hours: takeoverAskHours });
     console.log(JSON.stringify(decision, null, 2));

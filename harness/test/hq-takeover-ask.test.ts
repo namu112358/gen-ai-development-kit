@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { hqStateDir } from '../scripts/hq-state.ts';
 import {
-  HQ_TAKEOVER_DEFAULTS, hqTakeoverConfig, recordTakeoverAnswer, takeoverAskDecision, takeoverPath,
+  HQ_TAKEOVER_DEFAULTS, recordTakeoverAnswer, takeoverAskDecision, takeoverPath,
   type TakeoverItem, type TakeoverRecord,
 } from '../scripts/hq-takeover-ask.ts';
 
@@ -20,19 +20,10 @@ const H = 24;
 const item = (key: string, state = 'stale'): TakeoverItem => ({ key, state, line: `${key} ${state}` });
 const rec = (lastAskedAt: string | null, declined: { key: string; state: string }[] = []): TakeoverRecord => ({ version: 1, lastAskedAt, declined });
 
-// ---- hqTakeoverConfig ----
+// ---- HQ_TAKEOVER_DEFAULTS ----
 
-test('hqTakeoverConfig：書いていなければ既定値 24、書いた正の整数はそのまま', () => {
+test('HQ_TAKEOVER_DEFAULTS：引き継ぎを聞く間隔は 24 時間', () => {
   assert.deepEqual(HQ_TAKEOVER_DEFAULTS, { takeoverAskHours: 24 });
-  assert.deepEqual(hqTakeoverConfig({}), { takeoverAskHours: 24 });
-  assert.deepEqual(hqTakeoverConfig({ hq: {} }), { takeoverAskHours: 24 });
-  assert.deepEqual(hqTakeoverConfig({ hq: { takeoverAskHours: 6 } }), { takeoverAskHours: 6 });
-});
-
-test('hqTakeoverConfig：0・負・小数・文字列は throw', () => {
-  for (const v of [0, -1, 1.5, '24']) {
-    assert.throws(() => hqTakeoverConfig({ hq: { takeoverAskHours: v } }), String(v));
-  }
 });
 
 // ---- takeoverAskDecision ----
