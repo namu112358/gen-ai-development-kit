@@ -2,7 +2,6 @@
 // 自分の宣言を解除すること。harnessStale が null なら今までどおり judge、judge 以外のノード（plan・implement・fix・sync）では止まらないこと。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { FLOW_STEP_STOP_REASONS } from '../lib/flow.ts';
 import { decideStep, type StepNodeResult, type StepStopResult } from '../lib/step.ts';
 import { fleetIssue, issueFacts, manual, N, openPr, PR, planOkFacts, SESSION, stepInput } from './support/step-fixtures.ts';
 
@@ -10,10 +9,6 @@ const STALE = 'このセッションの読み込みが古いため judge を始�
 
 const judgeIssue = (prClaim?: ReturnType<typeof manual>, issueClaim?: ReturnType<typeof manual>) =>
   fleetIssue(planOkFacts(issueClaim ? { claim: issueClaim } : {}), { prs: [openPr(prClaim ? { claim: prClaim } : {})] });
-
-test('FLOW_STEP_STOP_REASONS に harness-stale がある', () => {
-  assert.ok((FLOW_STEP_STOP_REASONS as readonly string[]).includes('harness-stale'));
-});
 
 test('judge のノードで harnessStale に文 → stop harness-stale（宣言しない、detail はその文）', () => {
   const d = decideStep(stepInput(judgeIssue(), { harnessStale: STALE }));

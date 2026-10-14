@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseChildMarker, patternsOverlap, renderChildBody, validateSplit, type SplitChild } from '../lib/epic.ts';
-import { parseIssueBody, acceptanceItems } from '../lib/issue-form.ts';
+import { parseIssueBody } from '../lib/issue-form.ts';
 import { evaluatePlanGate, parsePlan, type Plan } from '../lib/plan.ts';
 import { decideIssue, type IssueFacts } from '../lib/queue.ts';
 
@@ -89,7 +89,6 @@ test('子 Issue の本文：Issue Form の見出しで読め、目印を持つ',
   assert.match(parsed.contract.background, /Epic #12 の子課題（2\/2）/);
   assert.match(parsed.contract.background, /`docs\/\*\*`/);
   assert.equal(parsed.contract.requirements, '- r');
-  assert.deepEqual(acceptanceItems(parsed.contract), ['a']);
   assert.match(parsed.contract.dependencies, /#13 の後/);
   assert.deepEqual(parseChildMarker(body), { parent: 12, index: 1 });
   assert.ok(parseIssueBody(renderChildBody(12, 0, split, [])).ok, '依存なし');

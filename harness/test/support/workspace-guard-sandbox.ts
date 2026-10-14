@@ -16,7 +16,7 @@ export function git(cwd: string, ...args: string[]): string {
 }
 
 /** 一時ディレクトリを作り、実体のパスで返す（短い名前（8.3）やリンクで比べ方がずれないように） */
-export function realTempDir(prefix: string): string {
+function realTempDir(prefix: string): string {
   return realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
 }
 

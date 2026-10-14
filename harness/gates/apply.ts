@@ -471,11 +471,6 @@ function latestBaseRecord(ctx: GateContext, comments: IssueComment[]): { kind: '
   return last.kind === 'orphan-base' ? { kind: last.kind, value: last.value as OrphanBaseRecord } : { kind: last.kind, value: last.value as BaseResolvedRecord };
 }
 
-/** App の orphan-base の記録が最新で、まだ解消の記録が無いか */
-export async function orphanRecorded(ctx: GateContext, number: number): Promise<boolean> {
-  return latestBaseRecord(ctx, await ctx.gh.listComments(number))?.kind === 'orphan-base';
-}
-
 /**
  * スタックでないのに base が既定ブランチ以外の PR（orphan-base）を Merge できない状態に留める：
  * auto-merge を外し、Draft に戻し、理由コード orphan-base 付きの記録と agent:blocked を付ける。

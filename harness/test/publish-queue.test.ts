@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { readQueueSection, renderQueueSection, replaceQueueSection } from '../gates/publish-queue.ts';
+import { QUEUE_END, QUEUE_START, renderQueueSection, replaceQueueSection } from '../gates/publish-queue.ts';
+import { extractBlock } from '../lib/blocks.ts';
 import type { QueueResult } from '../lib/facts.ts';
+
+/** queue 節（QUEUE_START〜QUEUE_END）の agent-app ブロックを読む */
+function readQueueSection(body: string): QueueResult | null {
+  const start = body.indexOf(QUEUE_START);
+  const end = body.indexOf(QUEUE_END);
+  if (start < 0 || end < start) return null;
+  const block = extractBlock(body.slice(start, end), 'agent-app');
+  return block.found && block.ok ? (block.value as QueueResult) : null;
+}
 
 const q: QueueResult = {
   computedAt: '2026-09-27T00:00:00.000Z',

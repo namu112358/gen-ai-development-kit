@@ -117,7 +117,7 @@ export interface StepDecision {
   critique: CritiqueRound[];
 }
 
-/** 批評の回の上限（flow.ts の plan ⇄ plan-critique と同じ） */
+/** 批評の回の上限 */
 export const CRITIQUE_LIMIT = 3;
 
 const STEP = 'node harness/scripts/agent.ts step';

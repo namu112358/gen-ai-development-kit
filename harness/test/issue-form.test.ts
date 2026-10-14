@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { acceptanceItems, parseIssueBody, SECTIONS } from '../lib/issue-form.ts';
+import { parseIssueBody, SECTIONS } from '../lib/issue-form.ts';
 
 const formYaml = readFileSync(new URL('../../.github/ISSUE_TEMPLATE/agent-task.yml', import.meta.url), 'utf8');
 
@@ -32,7 +32,6 @@ test('フォームが出力する本文を読める', () => {
   assert.ok(r.ok);
   assert.equal(r.contract.goal, 'ログ出力を JSON にする');
   assert.equal(r.contract.background, '');
-  assert.deepEqual(acceptanceItems(r.contract), ['`log()` が JSON を出す', '既存テストが通る', '番号付き']);
 });
 
 test('CRLF と本文中のコードブロックを扱える', () => {

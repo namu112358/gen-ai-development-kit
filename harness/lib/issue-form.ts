@@ -51,11 +51,3 @@ export function parseIssueBody(body: string | null | undefined): ParseResult {
   }
   return errors.length > 0 ? { ok: false, errors } : { ok: true, contract };
 }
-
-/** Acceptance Criteria を箇条書き（`- [ ]`、`-`、`1.`）から項目の配列にする */
-export function acceptanceItems(contract: IssueContract): string[] {
-  return contract.acceptanceCriteria
-    .split('\n')
-    .map((line) => line.match(/^\s*(?:[-*]|\d+\.)\s+(?:\[[ xX]\]\s+)?(.+)$/)?.[1]?.trim())
-    .filter((item): item is string => Boolean(item));
-}
