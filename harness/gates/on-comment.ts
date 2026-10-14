@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
 import { autoModeConfig, autoModeDanger, planBodyWithoutView, type AutoModeJevRecord, type AutoModeState } from '../lib/auto-mode.ts';
+import { verdictUsesApiRecord } from '../lib/api-review.ts';
 import { extractBlock } from '../lib/blocks.ts';
 import { AREA_PREFIX } from '../lib/classify.ts';
 import { answeredPlan, splitPlannerRelease } from '../lib/decision.ts';
-import { appLogin, LABELS, reasonMark, type ReasonCode } from '../lib/config.ts';
+import { appLogin, LABELS, reasonMark, reviewSourceConfig, type ReasonCode } from '../lib/config.ts';
 import { delegateEligibility, delegateExcludeFiles, delegateModeName, delegatePlanExclude, delegatePlanGate, type DelegateState } from '../lib/delegate.ts';
 import type { IssueComment } from '../lib/github.ts';
 import { guardrailFiles, humanMergeFiles } from '../lib/guardrail.ts';
@@ -418,7 +419,7 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
   // ⑨のブロッキング指摘を Jev に問う。enforce のときだけ、下限未満の⑨を外した判定（effective）で合否・修正の依頼を決める（判定コメントは書き換えない）
   const overbuildJev = await overbuildJevFor(ctx, pr.number, verdict, diff);
   const effective = applyOverbuildJev(verdict, overbuildJev);
-  const acceptance = await buildAcceptance(ctx, pr.number, effective, comment.id, currentPatch, diff, isAgentPr(ctx.config, pr, ctx.repository), classifyBase(pr, ctx.config.defaultBranch));
+  const acceptance = await buildAcceptance(ctx, pr.number, effective, verdict, comment.id, currentPatch, diff, isAgentPr(ctx.config, pr, ctx.repository), classifyBase(pr, ctx.config.defaultBranch));
   if (overbuildJev) acceptance.overbuildJev = overbuildJev;
   // Jev の呼び出し中などに push されていたら、新しい head の差分でも同じときだけ続ける
   const current = await getPr(ctx, prNumber);
@@ -455,7 +456,26 @@ async function onVerdict(ctx: GateContext, prNumber: number, comment: IssueComme
   if (risk.add.length > 0) await ctx.gh.addLabels(prNumber, risk.add);
 }
 
-async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, verdictCommentId: number, currentPatch: string, diff: string, agent: boolean, base: BaseKind): Promise<Acceptance> {
+/** API のレビューの記録で判定した受け付けの理由（自動 Merge・委任承認・auto mode・bypass に乗せない。Issue #1080） */
+const API_REVIEW_REASON = 'API のレビューの記録で判定した（自動 Merge・委任承認・auto mode・bypass に乗せず人が Merge する）';
+
+/**
+ * 判定が API のレビューの記録から作られたか。reviewSource が api のときだけ PR のコメントを読み、読んだコメントも返す（auto mode の Jev の使い回しに使う）。
+ * 設定の誤りは API の記録とみなす（自動の経路に乗せない側）
+ */
+async function apiReviewSourced(ctx: GateContext, prNumber: number, posted: Verdict): Promise<{ sourced: boolean; comments: IssueComment[] | null }> {
+  let source: ReturnType<typeof reviewSourceConfig>;
+  try {
+    source = reviewSourceConfig(ctx.config);
+  } catch {
+    return { sourced: true, comments: null };
+  }
+  const comments = source.mode === 'api' && source.appLogin !== null ? await ctx.gh.listComments(prNumber) : null;
+  return { sourced: verdictUsesApiRecord({ verdict: posted, pr: prNumber, comments, appLogin: source.appLogin }), comments };
+}
+
+/** verdict は合否・修正の依頼に使う判定（⑨を Jev で下げた後）、posted は投稿された判定（API の記録と比べる） */
+async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verdict, posted: Verdict, verdictCommentId: number, currentPatch: string, diff: string, agent: boolean, base: BaseKind): Promise<Acceptance> {
   const files = await changedFiles(ctx.gh, prNumber);
   const planned = await plannedFilesForPr(ctx.gh, ctx.config, prNumber);
   let scope = 'files' in planned ? checkScope(planned.files, files) : { ok: false, outside: [`（${planned.missing}）`] };
@@ -488,6 +508,11 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
     elig.autoEligible = false;
     elig.reasons.unshift('スタックでないのに base が既定ブランチ以外（`orphan-base`。Draft に留めています）');
   }
+  const apiSource = await apiReviewSourced(ctx, prNumber, posted);
+  if (apiSource.sourced) {
+    elig.autoEligible = false;
+    elig.reasons.unshift(API_REVIEW_REASON);
+  }
   const exclude = delegateExcludeFiles(ctx.config, files);
   const delegate = delegateEligibility({
     reviewPass: verdict.review.pass,
@@ -503,13 +528,20 @@ async function buildAcceptance(ctx: GateContext, prNumber: number, verdict: Verd
   });
   // bypass モード：委任と同じ計画と照らし、Risk・ガードレール・humanMergePaths・delegateMergeExclude・Jev を飛ばす理由として記録する（harness/gates/bypass.ts）
   const bypass = bypassEligibility({ reviewPass: verdict.review.pass, scopeOk: delegateScope.ok, outside: delegateScope.outside, humanMerge, exclude, jevGate, agent, base, guardrail, risk });
+  if (apiSource.sourced) {
+    for (const record of [delegate, bypass]) {
+      record.eligible = false;
+      record.reasons.push(API_REVIEW_REASON);
+    }
+  }
   // auto mode：bypass と同じ計画と照らし、必須の条件をすべて満たし自動 Merge の対象でないときだけ Jev に PR の危険を問う（harness/gates/auto-mode.ts）。
   // auto mode の今の状態は見ない（後からラベルを付けても、この受け付けの記録で乗れるように）。同じ patch-id の ok の記録は使い回す
   const required = autoModeRequired({ agent, base, reviewPass: verdict.review.pass, scopeOk: delegateScope.ok, outside: delegateScope.outside });
+  if (apiSource.sourced) required.push(API_REVIEW_REASON);
   let autoJev: AutoModeJevRecord | undefined;
   if (!elig.autoEligible && required.length === 0) {
     // 鍵が無ければ問えないので、前の記録も読まない（API を増やさない）
-    const reused = ctx.secrets.jevApiKey ? reusablePrJev(acceptanceForPatch(ctx.config, await ctx.gh.listComments(prNumber), currentPatch)) : null;
+    const reused = ctx.secrets.jevApiKey ? reusablePrJev(acceptanceForPatch(ctx.config, apiSource.comments ?? (await ctx.gh.listComments(prNumber)), currentPatch)) : null;
     autoJev = reused ?? (await askPrJev(ctx, diff, files, verdict.authorView));
   }
   const autoMode = autoModeEligibility({ required, danger: autoJev ? autoModeDanger(ctx.config, { jev: autoJev }) : null, jev: autoJev, humanMerge, exclude, jevGate, guardrail, risk });

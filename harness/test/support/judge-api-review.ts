@@ -64,7 +64,7 @@ export const comment = (id: number, body: string, user: IssueComment['user'] = {
 /** コマンドのテストの posted の記録（id 7、合格の Reviewer） */
 export const postedComment = (marks: PostedMarks = {}): IssueComment => comment(7, postedBody(HEAD, PR, { reviewer: PASSING_REVIEWER, ...marks }));
 
-export type Facts = { state: string | null; previousHead: string | null; previous?: { blocking: number; reviewSource: 'api' | 'local' | null } | null };
+export type Facts = { state: string | null; previousHead: string | null; previous?: { blocking: number; reviewSource: 'api' | 'local' | null; headSha: string; apiRecord: string | null } | null };
 export type Scope = { files: string[] | null; baseGuardrail: GuardrailConfig | null };
 export const OPEN: Facts = { state: 'open', previousHead: null };
 

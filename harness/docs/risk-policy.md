@@ -41,6 +41,8 @@
 
 merge-route（必須チェック）が 3〜7 をまとめて検査する。`agent/risk` は必須にせず、結果をサマリーに書く。PR の大きさに上限は置かない。
 
+API のレビュー（review-api）の記録で判定した PR は、上の条件を満たしても、委任承認・auto mode・bypass の間でも自動の経路に乗らず Human Merge になる（受け付けの記録の `reasons` と `delegate`・`bypass`・`autoMode` の `reasons` に「API のレビューの記録で判定した」と入る。Issue #1080）。App は、判定の `metrics.reviewSource` が `api` か `metrics.apiReviewRecord` がある判定と、`reviewSource.mode` が `api` の間は、metrics の無い判定でも同じ head のレビュー用 App（`reviewSource.appLogin`）の記録と review（`pass`・`blocking`・`nonBlocking`）が同じ判定を、API の記録で判定したとみなす（`harness/lib/api-review.ts` の `verdictUsesApiRecord`。`reviewSource` の設定が誤っていれば、どの判定もそうみなす）。
+
 ## 委任承認
 
 人が計画ゲートの承認と Merge の判断を App に委ねる。ダッシュボード Issue に人だけが付けるラベルで、2段階がある。

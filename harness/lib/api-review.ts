@@ -1,5 +1,6 @@
 import type { IssueComment } from './github.ts';
 import { type GuardrailConfig, guardrailFiles } from './guardrail.ts';
+import type { Verdict } from './verdict.ts';
 
 /**
  * API のレビュー（review-api）の記録のコメントの読み戻しと、judge が判定に使う記録の選び方（Issue #1004・#1042）。GitHub・git を呼ばない。
@@ -120,6 +121,45 @@ export function judgeInputFacts(text: string): { state: string | null; previousH
   return { state, previousHead };
 }
 
+/** レビュー用 App（appLogin・Bot）の、この PR の posted の記録 */
+function postedRecordOf(comment: IssueComment, pr: number, appLogin: string): Extract<ApiReviewRecord, { outcome: 'posted' }> | null {
+  if (comment.user?.login !== appLogin || comment.user.type !== 'Bot') return null;
+  const record = parseApiReviewRecord(comment.body);
+  return record !== null && record.outcome === 'posted' && record.pr === pr ? record : null;
+}
+
+/** 前回の判定が指す記録（apiRecord の URL のコメント）が、レビュー用 App の posted の記録で前回の head のものか */
+function previousRecordConfirmed(input: { pr: number; appLogin: string; comments: IssueComment[] }, previous: { headSha: string; apiRecord: string | null }): boolean {
+  if (previous.apiRecord === null) return false;
+  return input.comments.some((c) => c.html_url === previous.apiRecord && postedRecordOf(c, input.pr, input.appLogin)?.headSha === previous.headSha);
+}
+
+const reviewKey = (review: { pass: unknown; blocking: unknown; nonBlocking: unknown }): string =>
+  JSON.stringify([review.pass, review.blocking, review.nonBlocking]);
+
+/**
+ * 判定が API のレビューの記録から作られたか（App の受け付けが自動 Merge の経路に乗せないため。Issue #1080）。
+ * metrics.reviewSource が api か metrics.apiReviewRecord があれば真。comments と appLogin があれば、metrics を書き忘れた判定も、
+ * 同じ head のレビュー用 App の posted の記録と review の pass・blocking・nonBlocking が同じなら真
+ */
+export function verdictUsesApiRecord(input: {
+  verdict: Pick<Verdict, 'headSha' | 'review' | 'metrics'>;
+  pr: number;
+  comments: IssueComment[] | null;
+  appLogin: string | null;
+}): boolean {
+  const { verdict, comments, appLogin } = input;
+  if (verdict.metrics?.['reviewSource'] === 'api' || typeof verdict.metrics?.['apiReviewRecord'] === 'string') return true;
+  if (comments === null || appLogin === null) return false;
+  const key = reviewKey(verdict.review);
+  return comments.some((c) => {
+    const record = postedRecordOf(c, input.pr, appLogin);
+    if (record === null || record.headSha !== verdict.headSha) return false;
+    const review = record.verdict.review as { pass?: unknown; blocking?: unknown; nonBlocking?: unknown } | null;
+    return typeof review === 'object' && review !== null && reviewKey({ pass: review.pass, blocking: review.blocking, nonBlocking: review.nonBlocking }) === key;
+  });
+}
+
 /**
  * judge が判定に使う API の記録を選ぶ。closed・前回の判定と同じ head は skip。前回の判定にブロッキングがあり出どころが api でない
  * （previous-local-blocking）、変更ファイル（リネームは旧パスも）か base のガードレールの設定が読めない（scope-unreadable）、
@@ -137,15 +177,18 @@ export function selectApiReview(input: {
   facts: {
     state: string | null;
     previousHead: string | null;
-    previous?: { blocking: number; reviewSource: 'api' | 'local' | null } | null;
+    previous?: { blocking: number; reviewSource: 'api' | 'local' | null; headSha: string; apiRecord: string | null } | null;
   };
   scope: { files: string[] | null; baseGuardrail: GuardrailConfig | null };
   samePatch: (recordHead: string) => boolean;
 }): ApiReviewChoice {
   if (input.facts.state === 'closed') return { action: 'skip', reason: 'closed' };
   if (input.facts.previousHead === input.judgedHead) return { action: 'skip', reason: 'same-head' };
+  // 前回の判定の出どころ api は自己申告なので、その判定が指す記録（レビュー用 App の posted の記録で、前回の head のもの）を確かめられたときだけ信じる（Issue #1080）
   const previous = input.facts.previous;
-  if (previous && previous.blocking > 0 && previous.reviewSource !== 'api') return { action: 'local', reason: 'previous-local-blocking' };
+  if (previous && previous.blocking > 0 && !(previous.reviewSource === 'api' && previousRecordConfirmed(input, previous))) {
+    return { action: 'local', reason: 'previous-local-blocking' };
+  }
   const { files, baseGuardrail } = input.scope;
   if (files === null || baseGuardrail === null) return { action: 'local', reason: 'scope-unreadable' };
   if (guardrailFiles(baseGuardrail, files).length > 0) return { action: 'local', reason: 'guardrail-files' };

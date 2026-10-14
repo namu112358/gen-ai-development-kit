@@ -160,7 +160,7 @@ export function prCommentsForJudge(config: HarnessConfig, comments: IssueComment
 
 export interface PreviousVerdict {
   /** 最新の正しい判定（無ければ null） */
-  verdict: { headSha: string; blocking: BlockingFinding[]; reviewSource: 'api' | 'local' | null } | null;
+  verdict: { headSha: string; blocking: BlockingFinding[]; reviewSource: 'api' | 'local' | null; apiRecord: string | null } | null;
   /** それより新しい、ブロックが壊れた判定コメントの URL */
   broken: string[];
 }
@@ -176,7 +176,7 @@ export function previousVerdict(comments: IssueComment[]): PreviousVerdict {
       broken.push(c.html_url);
       continue;
     }
-    const v = b.value as { headSha?: unknown; review?: { blocking?: unknown }; metrics?: { reviewSource?: unknown } };
+    const v = b.value as { headSha?: unknown; review?: { blocking?: unknown }; metrics?: { reviewSource?: unknown; apiReviewRecord?: unknown } };
     // 判定に使ったレビューの出どころ（compose-verdict の --review-source。api・local のときだけ。Issue #1069）
     const source = v.metrics?.reviewSource;
     return {
@@ -184,6 +184,8 @@ export function previousVerdict(comments: IssueComment[]): PreviousVerdict {
         headSha: String(v.headSha ?? ''),
         blocking: Array.isArray(v.review?.blocking) ? (v.review.blocking as BlockingFinding[]) : [],
         reviewSource: source === 'api' || source === 'local' ? source : null,
+        // 出どころ api の判定が指す API の記録のコメントの URL（compose-verdict の --api-record。api-review が記録を確かめる。Issue #1080）
+        apiRecord: typeof v.metrics?.apiReviewRecord === 'string' ? v.metrics.apiReviewRecord : null,
       },
       broken,
     };

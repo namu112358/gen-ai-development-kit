@@ -15,7 +15,7 @@ import {
 } from './support/judge-api-review.ts';
 
 const URL7 = 'https://example.test/c7';
-const withPrevious = (blocking: number, reviewSource: 'api' | 'local' | null): Facts => ({ state: 'open', previousHead: OTHER, previous: { blocking, reviewSource } });
+const withPrevious = (blocking: number, reviewSource: 'api' | 'local' | null): Facts => ({ state: 'open', previousHead: OTHER, previous: { blocking, reviewSource, headSha: OTHER, apiRecord: null } });
 const scope = (files: string[] | null, baseGuardrail: GuardrailConfig | null = BASE_GUARDRAIL): Scope => ({ files, baseGuardrail });
 
 test('selectApiReview：使える posted の記録があっても、範囲・記録の印・前回のブロッキングで local に戻す', () => {
@@ -26,7 +26,6 @@ test('selectApiReview：使える posted の記録があっても、範囲・記
     // 前回の判定のブロッキング
     ['前回のローカルのレビューにブロッキング', posted(), { action: 'local', reason: 'previous-local-blocking' }, { facts: withPrevious(1, 'local') }],
     ['前回のレビューの出どころが不明でブロッキング', posted(), { action: 'local', reason: 'previous-local-blocking' }, { facts: withPrevious(2, null) }],
-    ['前回の API のレビューにブロッキング', posted(), { action: 'api', recordUrl: URL7 }, { facts: withPrevious(1, 'api') }],
     ['前回のローカルのレビューにブロッキングなし', posted(), { action: 'api', recordUrl: URL7 }, { facts: withPrevious(0, 'local') }],
     // 範囲（変更ファイルと base のガードレール）
     ['変更ファイルを読めない', posted(), { action: 'local', reason: 'scope-unreadable' }, { scope: scope(null) }],

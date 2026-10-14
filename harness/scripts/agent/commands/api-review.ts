@@ -135,7 +135,10 @@ export async function apiReview(
       judgedHead,
       appLogin: source.appLogin!,
       comments,
-      facts: { ...facts, previous: previous && { blocking: previous.blocking.length, reviewSource: previous.reviewSource } },
+      facts: {
+        ...facts,
+        previous: previous && { blocking: previous.blocking.length, reviewSource: previous.reviewSource, headSha: previous.headSha, apiRecord: previous.apiRecord },
+      },
       scope: { files, baseGuardrail: baseGuardrail.value },
       samePatch: (recordHead) => {
         const cached = patchCache.get(recordHead);
