@@ -138,17 +138,15 @@ test('ラベルを付けると：auto-mode-switch を書き、止まった計画
   assert.ok(!kindsOn(fake, 8).includes('auto-mode-merge'), 'hold の PR には付けない');
 });
 
-test('App・Bot が付けたラベルでは auto mode は有効にならず、auto-mode-switch に理由を書くだけで auto-merge を付けず、計画も通さない', async () => {
-  for (const login of [APP, 'someone[bot]']) {
-    const w: DelegateWorld = { prs: [agentPr(5)], comments: { 5: [autoAcceptance(91)] }, dashboardLabels: [AUTO], dashboardEvents: [autoOn(minutesAgo(1), login)] };
-    addStoppedPlan(w);
-    const fake = delegateWorldFake(w);
-    await onDashboard(fake, 'labeled', AUTO, [AUTO], login);
-    assert.deepEqual(mutationIds(fake, 'enablePullRequestAutoMerge'), [], login);
-    assert.ok(!kindsOn(fake, 5).includes('auto-mode-merge'), login);
-    assert.equal(countKind(fake, 1, 'auto-mode-switch'), 1, `${login}: ${kindsOn(fake, 1).join(',')}`);
-    assert.ok(!w.issues![61]!.includes(LABELS.planOk), `${login}: 計画を通した`);
-  }
+test('App が付けたラベルでは auto mode は有効にならず、auto-mode-switch に理由を書くだけで auto-merge を付けず、計画も通さない（Bot は auto-mode-state.test.ts が状態の単位で確かめる）', async () => {
+  const w: DelegateWorld = { prs: [agentPr(5)], comments: { 5: [autoAcceptance(91)] }, dashboardLabels: [AUTO], dashboardEvents: [autoOn(minutesAgo(1), APP)] };
+  addStoppedPlan(w);
+  const fake = delegateWorldFake(w);
+  await onDashboard(fake, 'labeled', AUTO, [AUTO], APP);
+  assert.deepEqual(mutationIds(fake, 'enablePullRequestAutoMerge'), []);
+  assert.ok(!kindsOn(fake, 5).includes('auto-mode-merge'));
+  assert.equal(countKind(fake, 1, 'auto-mode-switch'), 1, kindsOn(fake, 1).join(','));
+  assert.ok(!w.issues![61]!.includes(LABELS.planOk), '計画を通した');
 });
 
 test('ラベルを付けても停止スイッチがあれば、auto-merge は付けず、ダッシュボードに記録する', async () => {

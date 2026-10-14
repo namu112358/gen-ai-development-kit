@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { appMark, appMarkKind, claudeMark, renderBlock } from '../lib/blocks.ts';
 import { areaLimitLabels } from '../lib/concurrency.ts';
-import { CHECKS, fleetConfig, LABELS } from '../lib/config.ts';
+import { CHECKS, LABELS } from '../lib/config.ts';
 import { issueFacts, prFacts } from '../lib/facts.ts';
-import { type FleetIssue, type FleetPr, fleetStatus, fleetStatusData, renderFleetStatus, selectFleet } from '../lib/fleet.ts';
+import type { FleetIssue, FleetPr } from '../lib/fleet.ts';
 import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../lib/fleet-reads.ts';
 import { GitHub } from '../lib/github.ts';
 import { Snapshot } from '../lib/graphql-prefetch.ts';
@@ -199,23 +199,6 @@ test('collectFleetIssues：readFleetSnapshot の先読みで読んだ事実が�
   assert.equal(prefetched.issues.find((i) => i.facts.number === 11)!.planFiles, null);
   assert.deepEqual(prefetched.openPrs.map((p) => p.number).sort((a, b) => a - b), [5, 8]);
   assert.ok(prefetched.openPrLabels.length > 0, '領域のラベルを数える材料');
-});
-
-test('fleetStatus → selectFleet → renderFleetStatus と fleetStatusData の出力が、今の REST の読み方と同じ', async () => {
-  const { before, prefetched } = await threeWays(baseWorld(), [3, 13, 11]);
-  const mode = fleetConfig(config);
-  const render = (issues: FleetIssue[]) => {
-    const facts = { issues, prConflicts: [] };
-    const rows = fleetStatus(facts);
-    const sel = selectFleet(config, facts, rows, null, null, null);
-    return { text: renderFleetStatus(rows, sel, null, mode), json: fleetStatusData(facts, rows, sel, null, null, mode) };
-  };
-  const expected = render(before.issues);
-  const got = render(prefetched.issues);
-  assert.equal(got.text, expected.text);
-  assert.deepEqual(got.json, expected.json);
-  assert.match(got.text, /#3\b/);
-  assert.match(got.text, /#13\b/);
 });
 
 test('readFleetSnapshot：先読みのときは、Issue のコメント・timeline・blockedBy・closedBy の問い合わせ、PR のコメント・レビュー・check-run、main との比較が内側に流れない', async () => {

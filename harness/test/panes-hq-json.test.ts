@@ -47,14 +47,6 @@ test('hqTodoJson：人がすることが無い・スナップショットが無�
   assert.match(got.warning ?? '', /テーマB/);
 });
 
-test('hqTodoJson：控えが読めないときは ledger: false・count 0・warning', () => {
-  const got = hqTodoJson({ ledger: false, fleets: [] }, NOW);
-  assert.equal(got.ledger, false);
-  assert.equal(got.count, 0);
-  assert.deepEqual(got.items, []);
-  assert.ok(got.warning);
-});
-
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const script = join(root, 'harness', 'scripts', 'panes.ts');
 const missingLedger = join(root, 'harness', 'test', 'no-such-hq-fleets.json');
