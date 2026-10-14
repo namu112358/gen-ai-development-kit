@@ -131,3 +131,15 @@ auto mode の経路に乗る PR では、`agent/tests` のすべての種類の�
 英訳はしない（[plan.md](../../docs/plan.md) の決定ログ Q96、人の決定 2026-09-30）。日本語の材料と英訳した材料を投げ比べる実験のスクリプトは #1008 で削除した。
 
 **実装のモデルの振り分け（#139）**：計画ゲートで、App が集めた材料（Issue のタイトルと本文、計画の `files` とその件数・種類、ガードレールに触れるか）だけを Jev に問い、実装に勧めるモデルを `plan-gate` の記録に残す。計画の本文・批評・ゲートの理由は渡さない（計画を書いたセッションが Jev を誘導できないように）。鍵（`JEV_API_KEY`）は Environment `gate` にあり、セッションは Jev を呼べない。使ったモデルは PR 本文の `実装のモデル:` の行の申告で、ゲート・Merge の経路は読まない（集計で人が見るだけ）。`enforce` に切り替える基準は [plan.md](../../docs/plan.md) の決定ログ（Q106）。
+
+## 規約・費用の確認事項
+
+| 項目 | 現状の理解 | 確認すること |
+| --- | --- | --- |
+| Claude Team の規約 | Team は Commercial Terms。OAuth 認証はサブスク購入者の通常利用のためのもの（[Legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)） | 自律実行を継続的に回す利用量が「通常利用」に収まるか。不明なら Anthropic に問い合わせ |
+| Routines | Pro・Max・Team・Enterprise で利用可、研究プレビュー。サブスク利用量に加え1日の実行上限あり。GitHub トリガーは PR とリリースのみ（[Routines](https://code.claude.com/docs/en/routines)） | 組織の管理者設定、1日の上限の実数 |
+| Team プランの持ち主 | — | 会社契約のシートなら、個人のパブリックリポジトリでの利用が社内ルール上許されるか |
+| GitHub Actions | パブリックリポジトリの標準ランナーは無料。private は無料枠を超えると課金（[GitHub の料金改定](https://github.blog/changelog/2025-12-16-coming-soon-simpler-pricing-and-a-better-experience-for-github-actions/)） | 移行後の軽い Actions の月間実行時間 |
+| Jev | TypeSafe AI の API、従量課金（[TypeSafe AI](https://docs.typesafe.ai/introduction)） | Claude のサブスクとは別の支出になることの了承 |
+
+この表は法的助言ではない。規約の最終判断は各社の規約本文と窓口で確認する。
