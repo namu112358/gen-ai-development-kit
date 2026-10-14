@@ -28,7 +28,7 @@
 | `facts.ts` | queue の材料（事実）を GitHub から集める。 | ○ |
 | `fleet-reads.ts` | fleet-status と step の事実集め（Issue ごとの Closes する PR・Issue と PR の事実・main との差・human-review・計画の files）。 | ○ |
 | `fleet.ts` | fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。 | ○ |
-| `flow.ts` | 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。 | ○ |
+| `flow.ts` | 段階のノード（次にやること・fleet の表の段階）と止まる理由を置くデータ（Issue #201）。 | ○ |
 | `gh-rest-create.ts` | Issue と Draft PR を GraphQL を使わず REST（GitHub.request の POST・GitHub.addLabels）だけで作る（Issue #713）。 | ○ |
 | `gh-rest.ts` | Issue・PR を GraphQL を使わず REST（GitHub.get・GitHub.paginate）だけで読み、gh の `--json` の欄の名前にそろえて返す（Issue #712）。 | ○ |
 | `github.ts` | GitHub REST / GraphQL の最小クライアント。 | ○ |

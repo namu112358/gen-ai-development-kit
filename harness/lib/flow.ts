@@ -1,9 +1,8 @@
 import type { ReasonCode } from './config.ts';
 
 /**
- * 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。
+ * 段階のノード（次にやること・fleet の表の段階）と止まる理由を置くデータ（Issue #201）。今やるノードは step.ts の decideStep が決める。
  * queue.ts・fleet.ts は、次にやること（step）と fleet の表の段階をここから引く。GitHub を呼ばない。
- * 流れの説明は docs/plan.md の「段階の制御をコードに移す」、ship の skill、overview.html にもあるが、正はこのデータ。
  */
 
 /** 次にやること（ship の段階の skill）。none は、今は何もしない（App・人・ほかの段階を待つ） */
@@ -49,46 +48,8 @@ export const FLOW_NODES = {
 
 export type FlowNodeId = keyof typeof FLOW_NODES;
 
-export interface FlowEdge {
-  from: FlowNodeId;
-  to: FlowNodeId;
-  /** 条件の短い文 */
-  when: string;
-}
-
-/** 行き先と条件（止まる先へのエッジは FLOW_STOPS） */
-export const FLOW_EDGES: readonly FlowEdge[] = [
-  { from: 'issue', to: 'plan', when: '計画が無い' },
-  { from: 'plan', to: 'plan-critique', when: '計画を書いた' },
-  { from: 'plan-critique', to: 'plan', when: '批評が revise（指摘を直してもう一度）' },
-  { from: 'plan-critique', to: 'plan-gate', when: '批評が go か split で、post-plan で投稿した' },
-  { from: 'plan-gate', to: 'plan-ok', when: 'App が agent:plan-ok を付けた' },
-  { from: 'plan-review', to: 'plan-ok', when: '人が進めると決めた（決定の記録を App が確かめた・委任承認）' },
-  { from: 'plan-review', to: 'plan', when: '計画を出し直す' },
-  { from: 'plan-ok', to: 'implement', when: '実装に着手した' },
-  { from: 'implement', to: 'judge', when: 'Draft PR を出した' },
-  { from: 'judge', to: 'verdict-pending', when: '判定コメントを投稿した' },
-  { from: 'verdict-pending', to: 'fix', when: '受け付けの記録が不合格（kind=fix-request）' },
-  { from: 'verdict-pending', to: 'merge-route-pending', when: '受け付けの記録が合格' },
-  { from: 'fix', to: 'judge', when: '直して push した' },
-  { from: 'judge', to: 'sync', when: 'main と衝突している、または Merge 済みの PR があり main に追従していない' },
-  { from: 'verdict-pending', to: 'sync', when: 'main と衝突している、または Merge 済みの PR があり main に追従していない' },
-  { from: 'merge-route-pending', to: 'sync', when: 'main と衝突している、または Merge 済みの PR があり main に追従していない' },
-  { from: 'fix', to: 'sync', when: 'main と衝突している、または Merge 済みの PR があり main に追従していない' },
-  { from: 'human-merge', to: 'sync', when: 'main と衝突している、または Merge 済みの PR があり main に追従していない（段階は残し、次にやることだけ sync）' },
-  { from: 'auto-merge', to: 'sync', when: 'main と衝突している、または Merge 済みの PR があり main に追従していない（段階は残し、次にやることだけ sync）' },
-  { from: 'judge', to: 'fix', when: '最後の push より後に人のレビューがある' },
-  { from: 'sync', to: 'judge', when: '取り込んだ（差分が変われば判定し直す）' },
-  { from: 'merge-route-pending', to: 'human-merge', when: 'App が kind=human-review のコメントを付け、PR が Ready' },
-  { from: 'merge-route-pending', to: 'auto-merge', when: 'App が auto-merge を付けた' },
-  { from: 'human-merge', to: 'merged', when: '人が Merge した' },
-  { from: 'auto-merge', to: 'merged', when: 'auto-merge で Merge された' },
-  { from: 'stopped', to: 'issue', when: '人が止まる印を外したか、依存が片付いた（今の状態から段階を決め直す）' },
-];
-
 /** 止まる理由：ラベル・事実によるもの（hold・blocked・waiting・epic・依存）か、config.ts の REASON_CODES の理由コードか、agent.ts step だけが返す理由 */
 export type FlowStopLabel = 'hold' | 'blocked' | 'waiting' | 'epic' | 'dependency';
-export const FLOW_STOP_LABELS: readonly FlowStopLabel[] = ['hold', 'blocked', 'waiting', 'epic', 'dependency'];
 
 /**
  * agent.ts step（harness/lib/step.ts）だけが返す止まる理由（Issue #306）。人に返す理由で、agent:blocked のコメントの理由コード（REASON_CODES）ではない。
@@ -96,7 +57,6 @@ export const FLOW_STOP_LABELS: readonly FlowStopLabel[] = ['hold', 'blocked', 'w
  * sync-limit＝sync ⇄ judge の上限、repeated-finding＝同じ指摘の繰り返し、critique-limit＝批評の3回目でも必須が残る、harness-stale＝このセッションの読み込みが古いので judge を始めない（#199）
  */
 export type FlowStepStopReason = 'no-session' | 'assignee' | 'claimed' | 'plan-review' | 'sync-limit' | 'repeated-finding' | 'critique-limit' | 'harness-stale';
-export const FLOW_STEP_STOP_REASONS: readonly FlowStepStopReason[] = ['no-session', 'assignee', 'claimed', 'plan-review', 'sync-limit', 'repeated-finding', 'critique-limit', 'harness-stale'];
 
 export type FlowStopReason = FlowStopLabel | ReasonCode | FlowStepStopReason;
 
@@ -124,22 +84,6 @@ export const FLOW_STOPS: readonly FlowStop[] = [
   { from: ['judge'], to: 'stopped', reasons: ['harness-stale'] },
 ];
 
-export interface FlowLoop {
-  nodes: readonly [FlowNodeId, FlowNodeId];
-  /** 回数の上限。数値、harness.config.json のキー、または上限なし（null） */
-  limit: number | { config: 'fixLoop.normalLimit' | 'fixLoop.criticalLimit' | 'syncLoop.limit' }[] | null;
-  /** 上限を超えたときの止まる理由（上限なしなら null） */
-  stop: FlowStopReason | null;
-  note: string;
-}
-
-/** ループと上限 */
-export const FLOW_LOOPS: readonly FlowLoop[] = [
-  { nodes: ['plan', 'plan-critique'], limit: 3, stop: 'critique-limit', note: '3回目でも必須の指摘が残るか、前回と同じ必須の指摘が直っていなければ止める。Routine は needs-decision（.claude/routine.md の plan の render-block）、有人セッションの step は critique-limit・repeated-finding を返し、人に聞く' },
-  { nodes: ['fix', 'judge'], limit: [{ config: 'fixLoop.normalLimit' }, { config: 'fixLoop.criticalLimit' }], stop: 'fix-limit', note: '修正の回数は App が数え、上限で agent:blocked にする（critical は criticalLimit）' },
-  { nodes: ['sync', 'judge'], limit: [{ config: 'syncLoop.limit' }], stop: 'sync-limit', note: 'PR の main からの取り込み（親が2つの commit）が harness.config.json の syncLoop.limit（無ければ 3）に達した後に、もう一度 sync が要れば agent.ts step が止める（#306）' },
-];
-
 /** ノードの次にやること（リテラルの型のまま返す） */
 export function stepOf<N extends FlowNodeId>(node: N): (typeof FLOW_NODES)[N]['step'] {
   return FLOW_NODES[node].step;
@@ -157,7 +101,3 @@ export function queueActionKindOf<S extends FlowStep>(step: S): QueueActionKind<
   return (step === 'sync' ? 'resolve-conflict' : step === 'none' ? null : step) as QueueActionKind<S>;
 }
 
-/** step の作業をするノード（step が none 以外のときの行き先） */
-export function stepNode(step: Exclude<FlowStep, 'none'>): FlowNodeId {
-  return step;
-}

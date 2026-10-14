@@ -93,7 +93,7 @@ export function restPr(p: WPr, detail = false) {
     ...(detail ? { mergeable_state: p.mergeableState ?? 'clean', ...(p.stack !== undefined ? { stack: p.stack } : {}) } : {}),
   };
 }
-export function restIssue(i: WIssue) {
+function restIssue(i: WIssue) {
   return { number: i.number, title: i.title ?? `t${i.number}`, state: i.state ?? 'open', body: i.body === undefined ? null : i.body, html_url: `https://github.com/${REPO}/issues/${i.number}`, labels: (i.labels ?? []).map((name) => ({ name })) };
 }
 const restPrItem = (p: WPr) => ({ ...restIssue({ number: p.number, title: prDefaults(p).title, body: prDefaults(p).body, labels: p.labels, state: p.state ?? 'open' }), html_url: `https://github.com/${REPO}/pull/${p.number}`, pull_request: { html_url: `https://github.com/${REPO}/pull/${p.number}` } });

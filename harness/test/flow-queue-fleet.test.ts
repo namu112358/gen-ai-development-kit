@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { LABELS } from '../lib/config.ts';
 import { FLEET_STAGES, fleetStatus, type FleetPr, type FleetRow } from '../lib/fleet.ts';
-import { FLOW_EDGES, FLOW_NODES, queueActionKindOf, type FlowNode, type FlowNodeId, type FlowStep } from '../lib/flow.ts';
+import { FLOW_NODES, queueActionKindOf, type FlowNode, type FlowNodeId, type FlowStep } from '../lib/flow.ts';
 import { decideIssue, decidePr, type Action, type IssueFacts, type PrFacts } from '../lib/queue.ts';
 import { KNOWN_DIVERGENCES, type FlowCase } from './support/flow-divergences.ts';
 
@@ -140,10 +140,13 @@ const overriddenNext = (note: string | null): FlowStep | null => {
   return m ? (m[1] as FlowStep) : null;
 };
 
-/** (stage, next) が段階のグラフに当たるか：あるノードの (fleetStage, step) か、next が sync なら同じ fleetStage のノードから sync へのエッジがある */
+/** sync へ分岐できる段階（judge・fix・human-merge・auto-merge のノードは main と衝突・未追従なら sync に進む） */
+const SYNC_FROM_STAGES: readonly string[] = ['judge', 'fix', 'human-merge', 'auto-merge'];
+
+/** (stage, next) が段階のグラフに当たるか：あるノードの (fleetStage, step) か、next が sync なら sync へ分岐できる段階 */
 function inGraph(stage: string, next: FlowStep): boolean {
   if (ids.some((id) => nodes[id].fleetStage === stage && nodes[id].step === next)) return true;
-  if (next === 'sync') return ids.some((id) => nodes[id].fleetStage === stage && FLOW_EDGES.some((e) => e.from === id && e.to === 'sync'));
+  if (next === 'sync') return SYNC_FROM_STAGES.includes(stage);
   return false;
 }
 

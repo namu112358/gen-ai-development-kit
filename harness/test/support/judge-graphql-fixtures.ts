@@ -4,7 +4,7 @@ import { FakeGitHub } from './gate-fixtures.ts';
 export const REPO = 'o/r';
 const T0 = '2026-09-20T00:00:00Z';
 /** GraphQL の1ページの件数（comments・reviews・レビューごとの comments の first:100） */
-export const PAST_PR_PAGE = 100;
+const PAST_PR_PAGE = 100;
 
 export interface PActor { login: string; bot?: boolean }
 export interface PComment { id: number; body: string; created_at?: string; author?: PActor | null; association?: string }
@@ -37,24 +37,24 @@ const commentUrl = (n: number, id: number) => `https://github.com/${REPO}/pull/$
 const reviewUrl = (n: number, id: number) => `https://github.com/${REPO}/pull/${n}#pullrequestreview-${id}`;
 const reviewCommentUrl = (n: number, id: number) => `https://github.com/${REPO}/pull/${n}#discussion_r${id}`;
 
-export function restPastComment(n: number, c: PComment) {
+function restPastComment(n: number, c: PComment) {
   const at = c.created_at ?? T0;
   return { id: c.id, body: c.body, html_url: commentUrl(n, c.id), created_at: at, updated_at: at, author_association: c.association ?? 'OWNER', user: restUser(c.author) };
 }
-export function restPastReview(n: number, r: PReview) {
+function restPastReview(n: number, r: PReview) {
   return {
     id: r.id, body: r.body ?? '', state: r.state, submitted_at: r.submitted_at === undefined ? T0 : r.submitted_at,
     html_url: reviewUrl(n, r.id), author_association: r.association ?? 'OWNER', user: restUser(r.author),
   };
 }
-export function restPastReviewComment(n: number, c: PReviewComment) {
+function restPastReviewComment(n: number, c: PReviewComment) {
   return {
     id: c.id, body: c.body, path: c.path, line: c.line, original_line: c.original_line === undefined ? c.line : c.original_line,
     created_at: c.created_at ?? T0, html_url: reviewCommentUrl(n, c.id), author_association: c.association ?? 'OWNER', user: restUser(c.author),
   };
 }
 /** REST の /pulls/{n}/comments：全部のレビューのコメントを created_at → id の順 */
-export function restPastReviewComments(p: PastPrWorld) {
+function restPastReviewComments(p: PastPrWorld) {
   return (p.reviews ?? []).flatMap((r) => r.comments ?? []).map((c) => restPastReviewComment(p.number, c))
     .sort((a, b) => (a.created_at === b.created_at ? a.id - b.id : a.created_at < b.created_at ? -1 : 1));
 }
