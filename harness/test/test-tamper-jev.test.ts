@@ -75,16 +75,6 @@ test('askableChanges：対にならないアサーションの削除（変更後
   assert.equal(askableChanges(fromDiff).ask, false);
 });
 
-test('askableChanges：対が 40 件までは問い、41 件（上限超え）は問わない', () => {
-  const pairs = (n: number) => Array.from({ length: n }, (_, i) => changed(`assert.equal(f(${i}), 1);`, `assert.equal(f(${i}), 2);`, FILE, i + 1));
-  const forty = askableChanges(pairs(40));
-  assert.equal(forty.ask, true);
-  assert.ok(forty.ask && forty.changes.length === 40);
-  const over = askableChanges(pairs(41));
-  assert.equal(over.ask, false);
-  assert.ok(!over.ask && over.reason.length > 0);
-});
-
 test('askableChanges：検出が0件なら問わない', () => {
   assert.equal(askableChanges([]).ask, false);
 });

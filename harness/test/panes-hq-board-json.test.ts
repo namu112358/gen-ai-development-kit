@@ -65,21 +65,16 @@ test('hqBoardJson：groups は終わっていないものが先、終わった E
   assert.deepEqual(got.steps.length, 6);
 });
 
-test('hqBoardJson：控えが読めないときは ledger: false・空・warning', () => {
-  const got = hqBoardJson({ ledger: false, fleets: [] }, NOW);
-  assert.equal(got.ledger, false);
-  assert.deepEqual([got.epics, got.groups, got.none], [[], [], null]);
-  assert.ok(got.warning);
-});
-
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const script = join(root, 'harness', 'scripts', 'panes.ts');
 
-test('panes.ts hq board --json：1行の JSON（version 1）を出す', () => {
+test('panes.ts hq board --json：1行の JSON（version 1）を出す。控えが読めないときは ledger: false・空・warning', () => {
   const r = spawnSync(process.execPath, [script, 'hq', 'board', '--json', '--fleets', join(root, 'harness', 'test', 'no-such-hq-fleets.json')], { cwd: root, encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.equal(r.stdout.trim().split('\n').length, 1);
-  const got = JSON.parse(r.stdout) as { version: number; ledger: boolean };
+  const got = JSON.parse(r.stdout) as { version: number; ledger: boolean; epics: unknown; groups: unknown; none: unknown; warning?: string };
   assert.equal(got.version, 1);
   assert.equal(got.ledger, false);
+  assert.deepEqual([got.epics, got.groups, got.none], [[], [], null]);
+  assert.ok(got.warning);
 });

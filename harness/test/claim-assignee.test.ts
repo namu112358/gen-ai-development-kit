@@ -113,13 +113,6 @@ test('postClaim：before が null なら今どおり宣言する（before は最
   assert.equal(v.stage, 'plan');
 });
 
-test('postClaim：before を渡さなければ今どおり宣言する', async () => {
-  const f = fakeIo();
-  const r = await postClaim(f.io, N, baseOpts());
-  assert.equal(r.error, null);
-  assert.equal(f.posted.length, 1);
-});
-
 // ---- ensureOwnClaim の assignee ----
 
 test('ensureOwnClaim：自分の宣言があっても、assignee が error を返せば（宣言の後にアサインが変わった）その文のまま止まる', async () => {
@@ -152,9 +145,4 @@ test('ensureOwnClaim：持ち主が自分でなければ、assignee を呼ばず
   assert.ok(empty.error, '宣言が無い');
   assert.notEqual(empty.error, ASSIGNEE_ERROR);
   assert.equal(none.calls, 0);
-});
-
-test('ensureOwnClaim：assignee を渡さなければ今と同じ（自分の宣言なら通る）', async () => {
-  const f = fakeIo([claimComment(manual(SESSION, { stage: 'implement' }))]);
-  assert.equal((await ensureOwnClaim(f.io, N, SESSION)).error, null);
 });

@@ -1,6 +1,6 @@
 // runReview を段階ごとに step.do で動かす ReviewWorkflow と、Worker の Env・Workflow の params の型 ReviewEventParams。
 // collect の結果（diff と変更ファイルの中身）は 1 MiB を超えうるので、collect だけは step.do で包まず、再開のたびに GitHub を読み直す。
-// 最初に step.sleep で settleSeconds 秒待つ（push が続くあいだの古い head に Claude を呼ばない）。
+// 最初に step.sleep で settleSeconds 秒待つ（push が続くあいだの古い head に Claude を呼ばない）。待つのは action が trigger.settleActions にあるときと、action の無い古い params のときだけ。
 // token・API キー・本文・署名は段階の結果にもログにも入れない。
 // @anthropic-ai/sdk・cloudflare:workers・cloudflare:workflows を import するのは worker.ts とこのファイルだけ。
 import Anthropic from '@anthropic-ai/sdk';
@@ -20,6 +20,8 @@ export interface ReviewEventParams {
   repo: string;
   pr: number;
   headSha: string;
+  /** Webhook の action（Issue #1067 より前に作った Workflow の params には無い） */
+  action?: string;
   installationId: number;
   deliveryId: string;
 }
@@ -105,7 +107,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
     if (gateAppLogin === '' || reviewAppLogin === '') {
       throw new WorkflowNonRetryableError('GATE_APP_LOGIN と REVIEW_APP_LOGIN が必要です');
     }
-    const { owner, repo, pr, headSha } = event.payload;
+    const { owner, repo, pr, headSha, action } = event.payload;
     const secrets = [env.GITHUB_WEBHOOK_SECRET, env.GITHUB_APP_PRIVATE_KEY, env.ANTHROPIC_API_KEY].filter(
       (s): s is string => s !== undefined && s !== '',
     );
@@ -114,9 +116,12 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
       const { token } = await installationToken(jwt, env.GITHUB_INSTALLATION_ID ?? '', permissions);
       return createGitHubClient({ token, owner, repo });
     };
+    // 固定の JSON を使う経路と記録の印を同じ値で決める（Issue #1068）
+    const dryRun = env.DRY_RUN === '1';
     const deps: ReviewDeps = {
       github: { reader: () => client(READ_PERMISSIONS), writer: () => client(WRITE_PERMISSIONS) },
-      claude: env.DRY_RUN === '1' ? dryRunClient() : anthropicClient(env.ANTHROPIC_API_KEY ?? ''),
+      claude: dryRun ? dryRunClient() : anthropicClient(env.ANTHROPIC_API_KEY ?? ''),
+      dryRun,
       kv: {
         get: (key) => env.REVIEW_KV.get(key),
         put: (key, value) => env.REVIEW_KV.put(key, value),
@@ -134,6 +139,7 @@ export class ReviewWorkflow extends WorkflowEntrypoint<Env, ReviewEventParams> {
       repo,
       pr,
       headSha,
+      ...(action === undefined ? {} : { action }),
       gateAppLogin,
       reviewAppLogin,
       config: budgeted.config,

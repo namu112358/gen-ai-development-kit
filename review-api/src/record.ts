@@ -31,6 +31,10 @@ export interface ShadowRecord {
   usageByRole?: { review: RoleUsage; risk: RoleUsage; riskCompare?: RoleUsage };
   riskCompare?: RiskCompareRecord;
   rules?: RulesSummary;
+  /** diff を maxDiffChars で切ったか（古い記録・replay.ts の記録には無い） */
+  diffTruncated?: boolean;
+  /** DRY_RUN=1 で Claude を呼ばずに固定の JSON を使ったか（古い記録・replay.ts の記録には無い） */
+  dryRun?: boolean;
 }
 
 /** 投稿しなかった記録の outcome（shadow のコメントを付けずに止めた理由） */
@@ -160,7 +164,12 @@ export function parseApiReviewComment(body: string): ParsedApiReviewComment | nu
   const obj = value as Record<string, unknown>;
   if (obj['version'] !== 1 || obj['headSha'] !== headSha) return null;
   const hasVerdict = 'verdict' in obj;
-  if (!('outcome' in obj)) return hasVerdict ? { headSha, outcome: 'posted', record: value as unknown as ShadowRecord } : null;
+  if (!('outcome' in obj)) {
+    if (!hasVerdict) return null;
+    // 印の欄は、あれば boolean だけを読む（Issue #1068）
+    for (const key of ['diffTruncated', 'dryRun']) if (key in obj && typeof obj[key] !== 'boolean') return null;
+    return { headSha, outcome: 'posted', record: value as unknown as ShadowRecord };
+  }
   const outcome = obj['outcome'];
   if (hasVerdict || typeof outcome !== 'string' || !STOPPED_OUTCOMES.includes(outcome)) return null;
   return { headSha, outcome: outcome as StoppedOutcome, record: value as unknown as StoppedRecord };
