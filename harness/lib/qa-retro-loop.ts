@@ -1,7 +1,7 @@
 import { checkIssueDrafts } from './arch-review.ts';
 
 /**
- * qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と手元の状態（純粋関数）。スクリプトは harness/scripts/qa-retro-loop.ts。
+ * qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と loop の状態（純粋関数）。スクリプトは harness/scripts/qa-retro-loop.ts。
  * 期間は時刻で決め、前回の回の終わり（状態の until）を次の回の始まりにする（collectQaRetro の Merge 日時の判定は始まりを含み終わりを含まないので、境目の PR は1回だけ数えられる）。
  * 終わりは今の 7 日前（後追いの修正は Merge 後 7 日以内の fix の PR で数えるので、窓が閉じた PR だけを見る）。状態が無い初回は、終わりの 14 日前から。
  *

@@ -27,7 +27,6 @@
 | `exempt.ts` | 人が付ける例外ラベル（review:exempt・test:exempt）は、付けた時点の PR の差分にだけ効く。 | ○ |
 | `facts.ts` | queue の材料（事実）を GitHub から集める。 | ○ |
 | `fleet-reads.ts` | fleet-status と step の事実集め（Issue ごとの Closes する PR・Issue と PR の事実・main との差・human-review・計画の files）。 | ○ |
-| `fleet-watch.ts` | fleet の待つ間の読み直しの判断（Issue #199、人の決定 2026-09-30）。 | ○ |
 | `fleet.ts` | fleet（付き添いのセッションで複数の Issue を並行して進める）の段階の判定と選び方。 | ○ |
 | `flow.ts` | 段階のグラフ（ノード・エッジ・ループの上限・止まる先の理由）を1か所に置いたデータ（Issue #201）。 | ○ |
 | `gh-rest-create.ts` | Issue と Draft PR を GraphQL を使わず REST（GitHub.request の POST・GitHub.addLabels）だけで作る（Issue #713）。 | ○ |
@@ -39,7 +38,7 @@
 | `harness-drift.ts` | 読み込みの記録：付き添いのセッションが始めたときに読み込んだハーネスのファイル（CLAUDE.md・規則・担当の定義・skill・settings）の版を、セッションごとに記録し、今の origin の既定ブランチの版と比べて「このセッションの読み込みは古い」かを決める（Issue #199）。 | ○ |
 | `head-move.ts` | plan-critic の前後の HEAD の比べ方（Issue #784）。 | ○ |
 | `hotspot.ts` | 保守の観測（harness/scripts/observe.ts）のホットスポット：直近の期間に変更の多い大きなファイル。 | ○ |
-| `hq-stall.ts` | hq が、動いてはいるが進んでいない fleet を見つける判定（Issue #287、人の決定はコメント 5905221457）。 | ○ |
+| `hq-stall.ts` | 止まっているかの判定（しきい値の表はこのファイルの STALL_DEFAULTS の1か所）。 | ○ |
 | `incident-triage.ts` | セッションの問題の記録（incident）の振り分けを Jev に問い、セッションの振り分けと並べて残す shadow（Issue #498）。 | ○ |
 | `incident.ts` | セッションで起きた問題（拒否・人に返す・App の拒否・人の訂正・回避策）の記録（Issue #186）。 | ○ |
 | `issue-form.ts` | Issue Forms（.github/ISSUE_TEMPLATE/agent-task.yml）が出力する本文の読み取り。 | ○ |
@@ -50,7 +49,6 @@
 | `judge-routine.ts` | 判定の Routine の1回分（`/judge --routine`。 | ○ |
 | `label-fill.ts` | 付き添いのセッションが、Jev の提案のラベルを付ける（agent.ts label-fill、Issue #538）。 | ○ |
 | `label-rules.ts` | 必須ラベルの検査（harness/docs/operations.md の「必須ラベルの規則」）。 | ○ |
-| `local-state-loop.ts` | 見直しの loop（test-prune・qa-retro・patrol）の状態のファイルの読み書きの補助（Issue #414）。 | ○ |
 | `local-state.ts` | 手元の状態のファイル（git の共通ディレクトリの下の agent-harness/ と panes のスナップショット）の場所の決め方と一時ファイル経由の書き込み（Issue #653）。 | ○ |
 | `merge-route.ts` | App が PR に残す受け付け記録（````agent-app````、kind=acceptance）と、merge-route の評価。 | ○ |
 | `model-routing.ts` | 実装のモデル（Opus / Sonnet）を Jev に問い、計画ゲートの記録と show-plan・集計で使う形にする（Issue #139）。 | ○ |
@@ -63,12 +61,12 @@
 | `panes.ts` | fleet のワークスペースのペイン表示（harness/scripts/panes.ts）の、段階の読み替えと描き方。 | ○ |
 | `past-pr-reads.ts` | judge-input の過去の PR の節の材料（変更ファイルを触った Merge 済みの過去の PR と、そのコメント・レビュー・レビューコメント）を GraphQL でまとめて読む。 | ○ |
 | `patch-id.ts` | diff テキストの `git patch-id --verbatim` を返す。 | ○ |
-| `patrol-issue.ts` | patrol のまとめの Issue の本文に置く状態（patrol-state）の読み書き・縮め方・題名の照らし・回のコメント（純粋関数）。 | ○ |
+| `patrol-issue.ts` | patrol のまとめの Issue の本文の状態（patrol-state）と、pull したディレクトリ（<dir>）の読み書き・縮め方・題名の照らし・回のコメント。 | ○ |
 | `patrol.ts` | 見直しのまとめ役（patrol の skill）が、観測の差と前回からの経過で今回まわす見直しを決める（純粋関数）。 | ○ |
 | `plan.ts` | 計画コメントの構造化出力（````agent-plan````）。 | ○ |
 | `post-merge-revert.ts` | Merge 後の main の CI の失敗（Issue #802）の判断：既定ブランチの先頭の必須チェックの結果の見分け、revert の PR を出すか・停止だけか・何もしないかの分かれ目、revert の commit のメッセージ・PR の題と本文・ダッシュボードの理由の本文。 | ○ |
 | `push-claim.ts` | 着手宣言の無いセッションの push を見分ける（harness/gates/push-claim.ts が Agent PR の push で App のコメントにして知らせる）。 | ○ |
-| `qa-retro-loop.ts` | qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と手元の状態（純粋関数）。 | ○ |
+| `qa-retro-loop.ts` | qa-retro を付き添いのセッションの `/loop` から回すときの、期間のつなぎ方と loop の状態（純粋関数）。 | ○ |
 | `qa-retro.ts` | Merge 済みの PR の振り返り（qa-retro の skill）の集計。 | ○ |
 | `queue.ts` | Routine の次の行動を決める純粋関数。 | 対象外 |
 | `related-tests.ts` | 変更したファイルに関係するテストを選ぶ（相対 import をたどる）。 | ○ |
@@ -90,7 +88,7 @@
 | `sync.ts` | 導入先に配布物を写す sync の判断（上書き・新規・unchanged・除外・settings の merge・kit に無い managed の警告・写した版の記録）を決める純粋関数（Epic #642 の #650）。 | ○ |
 | `test-health.ts` | 保守の観測（harness/scripts/observe.ts）のテストの健康：遅いテスト、不安定なテスト（同じ head で失敗の後に成功）、mutation で生き残ったミュータント。 | ○ |
 | `test-move-jev.ts` | テストファイルの削除の移し先を Jev に問う材料・要求・答えのまとめ・要約の節・記録の型（Epic #511、Issue #513）。 | ○ |
-| `test-prune-loop.ts` | test-prune を付き添いのセッションの `/loop` から回すときの、手元の状態と回の記録（純粋関数）。 | ○ |
+| `test-prune-loop.ts` | test-prune を付き添いのセッションの `/loop` から回すときの、loop の状態と回の記録（純粋関数）。 | ○ |
 | `test-prune.ts` | 減らせるテストの材料（harness/scripts/test-prune.ts）の決まる集計。 | ○ |
 | `test-tamper-jev.ts` | テストの改ざんの検査（agent/tests）が見つけたアサーションの書き換えとテストの名前の変更を Jev に問う材料と、答えのまとめ（Q95）。 | ○ |
 | `test-tamper.ts` | テストの改ざん検査（agent/tests）。 | ○ |

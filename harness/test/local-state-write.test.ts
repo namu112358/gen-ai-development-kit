@@ -1,6 +1,6 @@
 // Issue #653：手元の状態のファイルの書き込み（harness/lib/local-state.ts）。名前の変更のやり直しと、
 // 失敗したときに一時ファイルを残さず元のファイルを前の中身のまま残すこと（io の差し替えで失敗を起こす）。
-// 書く中身の字下げ・writeLocalFileOnce の2回目が false なことは既存のテスト（stage-file・fleet-watch・harness-drift・hq-state）に任せる。
+// 書く中身の字下げ・writeLocalFileOnce の2回目が false なことは既存のテスト（stage-file・hq-stall・harness-drift・hq-state）に任せる。
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';

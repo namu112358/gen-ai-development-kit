@@ -252,7 +252,7 @@ Reviewer と Risk Agent の出力を1つにまとめる。`headSha` は判定し
 
 ### 見張りの記録
 
-fleet の待つ間の読み直し（`agent.ts fleet-status --watch`）が、git の共通ディレクトリの下の `agent-harness/watch/<セッションの ID>.json`（名前の読み替えは段階のファイルと同じ。URL の ID なら `watch/session_….json`）に書く（`harness/lib/fleet-watch.ts`。#199）。App を待つ段階（`plan-gate`・`auto-merge`）の行ごとに、その状態を最初に見た時刻と、知らせ済みかを持つ。
+fleet の待つ間の読み直し（`agent.ts fleet-status --watch`）が、git の共通ディレクトリの下の `agent-harness/watch/<セッションの ID>.json`（名前の読み替えは段階のファイルと同じ。URL の ID なら `watch/session_….json`）に書く（`harness/lib/hq-stall.ts`。#199）。App を待つ段階（`plan-gate`・`auto-merge`）の行ごとに、その状態を最初に見た時刻と、知らせ済みかを持つ。
 
 ```json
 { "version": 1, "session": "3f2a9c1e-…", "entries": { "199:-:plan-gate": { "since": "2026-09-30T12:00:00.000Z", "notified": false } } }
@@ -514,11 +514,12 @@ patrol の Routine が、見直し（arch-review・qa-retro・test-prune）の�
 | フィールド | 内容 |
 | --- | --- |
 | `version` | 書式の版（`1`） |
-| `patrol` | `PatrolState`（`harness/lib/patrol.ts`。手元の `patrol.json` と同じ形）。まだ無ければ `null` |
-| `qaRetro` | `LoopState`（`harness/lib/qa-retro-loop.ts`。手元の `qa-retro-loop.json` と同じ形）。まだ無ければ `null` |
-| `testPrune` | `TestPruneLoopState`（`harness/lib/test-prune-loop.ts`。手元の `test-prune-loop.json` と同じ形）。まだ無ければ `null` |
+| `patrol` | `PatrolState`（`harness/lib/patrol.ts`。`<dir>/patrol.json` と同じ形）。まだ無ければ `null` |
+| `qaRetro` | `LoopState`（`harness/lib/qa-retro-loop.ts`。`<dir>/qa-retro-loop.json` と同じ形）。まだ無ければ `null` |
+| `testPrune` | `TestPruneLoopState`（`harness/lib/test-prune-loop.ts`。`<dir>/test-prune-loop.json` と同じ形）。まだ無ければ `null` |
 
 - フェンスの名前は `agent-` で始まらない。App の記録ではなく、`gate.yml` の `if:` にも当たらない。
+- 読み書きの経路は1本（#1025）：付き添いのセッションの `/loop` も Routine も `patrol-pull --dir <dir>` → 各スクリプト（`patrol.ts`・`qa-retro-loop.ts`・`test-prune-loop.ts` に `--dir <dir>`）→ `patrol-push --dir <dir>` で読み書きする。書くサブコマンド（`patrol.ts` の3つ・`qa-retro-loop.ts advance`・`adopt`・`test-prune-loop.ts record`・`adopt`）は `--dir` が無ければ止まる。`--dir` の無い読むだけのサブコマンド（`qa-retro-loop.ts data`・`pending`、`test-prune-loop.ts pending`）は、`patrol-pull` と同じ探し方で本文を REST で読む（書かない・Issue を作らない。Issue が無い・初回扱いなら状態は `null`）。
 - 初回の扱い：ブロックが無い・JSON が壊れている・部分の状態が読めない本文は初回として読む（`patrol-pull` の標準出力の `first`・`reason`）。このとき `patrol-push` は、本文に `patrol-state` があったのに読めなかったことを回のコメントに残して書き直す（前の本文は Issue の編集履歴に残る）。`version` が 1 でない数なら、新しい書式を古い kit が上書きしないよう `patrol-pull` が止まる。
 - 縮め方：本文に置く前に、patrol の `rounds` を直近 10 件にし、採用済みの下書きの `body` を空にする。qa-retro・test-prune の回は落とさない。本文の上限は 65536 文字（`PATROL_ISSUE_BODY_MAX`）で、超えたら `patrol-push` は書かずに止まる。
 - `node harness/scripts/agent.ts patrol-pull --dir <dir>`：まとめの Issue（開いた Issue のうち題が一致し番号が最小のもの。無ければ作る）の本文を `<dir>/patrol.json`・`qa-retro-loop.json`・`test-prune-loop.json` に写す（`null` の部分は書かず、既にあれば消す）。`<dir>/pulled.json`（`{ issue, bodySha256, rounds: { qaRetro, testPrune } }`）を書き、標準出力に `{ issue, created, first, reason? }`。

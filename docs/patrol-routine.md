@@ -53,6 +53,6 @@ Prompt：
 
 ## 注記
 
-- 手元の `/loop` の patrol と Routine の patrol は同じリポジトリで両方回さない（回すなら手元は `--dry-run` にするか Routine を止める）。状態の置き場所が違う（手元は git の共通ディレクトリの下、Routine はまとめの Issue の本文）。
-- Routine の下書きは「qa-retro の下書きを選ぶ」「test-prune の下書きを選ぶ」（手元の状態を読む）と hq の未採用の数には出ず、「patrol の下書きを選ぶ」で選ぶ。
+- 付き添いのセッションの `/loop` の patrol と Routine の patrol は、同じまとめの Issue の本文を `patrol-pull`・`patrol-push` で読み書きする（状態は1本）。両方を同じ時に回すと、後から push した側が本文の変化で止まり、pull からやり直す。
+- 下書きは、`/loop` の回のものも Routine の回のものも、「patrol の下書きを選ぶ」「qa-retro の下書きを選ぶ」「test-prune の下書きを選ぶ」と hq の未採用の数（`qa-retro-loop.ts pending` などが `--dir` なしでまとめの Issue の本文を読む）に出る。
 - `--routine` の回は auto mode の間の自動の供給（Issue の作成と `agent:ready`）を行わない。

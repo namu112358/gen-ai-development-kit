@@ -1,23 +1,31 @@
-import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkIssueDrafts } from '../../../lib/arch-review.ts';
 import { extractBlock } from '../../../lib/blocks.ts';
-import { GitHub } from '../../../lib/github.ts';
 import { parsePatrolState } from '../../../lib/patrol.ts';
 import {
   compactPatrolIssueState,
   dedupeDrafts,
+  findPatrolIssue,
   newDraftsSince,
+  newerPatrolStateVersion,
+  openIssues,
+  PATROL_DIR_FILES,
+  patrolBodyChanged,
+  patrolBodySha256,
+  type PatrolDirKey,
+  patrolIssueTitleChecked,
   parsePatrolIssueBody,
   patrolIssueBodyErrors,
   type PatrolIssueState,
+  patrolNewerVersionError,
+  readDirPart,
   renderPatrolIssueBody,
   renderPatrolRoundComment,
+  writeDirPart,
 } from '../../../lib/patrol-issue.ts';
 import { parseLoopState, QA_RETRO_LOOP_MAX_DRAFTS } from '../../../lib/qa-retro-loop.ts';
 import { splitArgs } from '../../../lib/session-inputs.ts';
-import { patrolIssueTitle } from '../../../lib/state.ts';
 import { parseTestPruneLoopState } from '../../../lib/test-prune-loop.ts';
 import { type AgentCommand, type CommandContext, config, currentSession, fail } from '../cli.ts';
 
@@ -34,35 +42,9 @@ import { type AgentCommand, type CommandContext, config, currentSession, fail } 
  *                                                           下書きを開いた Issue の題と照らし、同じ題のものを除いて先頭から n 件（既定 3）を --out に書く。標準出力に { kept, removed }
  */
 
-const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex');
-const FILES = { patrol: 'patrol.json', qaRetro: 'qa-retro-loop.json', testPrune: 'test-prune-loop.json' } as const;
-
-interface IssueRow { number: number; title: string; body?: string | null; pull_request?: unknown }
-
-/** 開いた Issue（PR を除く） */
-async function openIssues(gh: GitHub): Promise<IssueRow[]> {
-  return (await gh.paginate<IssueRow>('/issues?state=open')).filter((i) => !i.pull_request);
-}
-
-/** 題が一致する開いた Issue のうち番号の最小（作成者は問わない） */
-async function findPatrolIssue(gh: GitHub, title: string): Promise<IssueRow | null> {
-  const found = (await openIssues(gh)).filter((i) => i.title === title).sort((a, b) => a.number - b.number);
-  return found[0] ?? null;
-}
-
-/** ブロックが読めてオブジェクトで、version が 1 でない数ならその数 */
-function newerVersion(body: string): number | null {
-  const block = extractBlock(body, 'patrol-state');
-  if (!block.found || !block.ok) return null;
-  const v = block.value as { version?: unknown } | null;
-  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
-  return typeof v.version === 'number' && v.version !== 1 ? v.version : null;
-}
-
 function checkTitle(): string {
-  const title = patrolIssueTitle(config);
-  if (title === config.dashboardIssueTitle) fail([`patrolIssueTitle がダッシュボード Issue の題（${title}）と同じです。別の題にしてください`]);
-  return title;
+  const r = patrolIssueTitleChecked(config);
+  return r.ok ? r.title : fail(r.errors);
 }
 
 function parseDirArgs(args: string[], valueOptions: string[], usage: string): Record<string, string> {
@@ -92,19 +74,18 @@ async function patrolPull(args: string[], ctx: CommandContext): Promise<void> {
     body = res.body ?? initial;
     created = true;
   } else body = issue.body ?? '';
-  const newer = newerVersion(body);
-  if (newer !== null) fail([`まとめの Issue の patrol-state の version が ${newer} です。この kit は 1 だけを読みます。kit を更新してください`]);
+  const newer = newerPatrolStateVersion(body);
+  if (newer !== null) fail([patrolNewerVersionError(newer)]);
   const parsed = parsePatrolIssueBody(body);
   mkdirSync(dir, { recursive: true });
   const state = parsed.first ? null : parsed.state;
   for (const key of ['patrol', 'qaRetro', 'testPrune'] as const) {
-    const file = join(dir, FILES[key]);
     const part = state?.[key] ?? null;
-    if (part === null) rmSync(file, { force: true });
-    else writeFileSync(file, JSON.stringify(part, null, 2) + '\n');
+    if (part === null) rmSync(join(dir, PATROL_DIR_FILES[key]), { force: true });
+    else writeDirPart(dir, key, part);
   }
   const rounds = { qaRetro: state?.qaRetro?.rounds.length ?? 0, testPrune: state?.testPrune?.rounds.length ?? 0 };
-  writeFileSync(join(dir, 'pulled.json'), JSON.stringify({ issue: issue.number, bodySha256: sha256(body), rounds }, null, 2) + '\n');
+  writeFileSync(join(dir, 'pulled.json'), JSON.stringify({ issue: issue.number, bodySha256: patrolBodySha256(body), rounds }, null, 2) + '\n');
   console.log(JSON.stringify({ issue: issue.number, created, first: parsed.first, ...(parsed.first ? { reason: parsed.reason } : {}) }));
 }
 
@@ -126,12 +107,9 @@ function readPulled(dir: string): Pulled {
   return v as Pulled;
 }
 
-function readPart<T>(dir: string, key: keyof typeof FILES, parse: (text: string | null) => { ok: true; state: T | null } | { ok: false; errors: string[] }): T | null {
-  const file = join(dir, FILES[key]);
-  if (!existsSync(file)) return null;
-  const r = parse(readFileSync(file, 'utf8'));
-  if (!r.ok) fail([`${file} が読めません：${r.errors.join('、')}`]);
-  return r.state;
+function readPart<T>(dir: string, key: PatrolDirKey, parse: (text: string | null) => { ok: true; state: T | null } | { ok: false; errors: string[] }): T | null {
+  const r = readDirPart(dir, key, parse);
+  return r.ok ? r.state : fail(r.errors);
 }
 
 async function patrolPush(args: string[], ctx: CommandContext): Promise<void> {
@@ -151,7 +129,7 @@ async function patrolPush(args: string[], ctx: CommandContext): Promise<void> {
   const gh = ctx.gh();
   const current = await gh.get<{ body?: string | null }>(`/issues/${pulled.issue}`);
   const currentBody = current.body ?? '';
-  if (sha256(currentBody) !== pulled.bodySha256) fail(['pull の後にまとめの Issue の本文が変わりました。patrol-pull からやり直してください']);
+  if (patrolBodyChanged(currentBody, pulled.bodySha256)) fail(['pull の後にまとめの Issue の本文が変わりました。patrol-pull からやり直してください']);
 
   const state: PatrolIssueState = {
     version: 1,

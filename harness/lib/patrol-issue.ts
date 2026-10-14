@@ -1,16 +1,24 @@
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { claudeMark, extractBlock, renderBlock } from './blocks.ts';
+import type { HarnessConfig } from './config.ts';
+import type { GitHub } from './github.ts';
+import { writeLocalJson } from './local-state.ts';
 import { parsePatrolState, type PatrolRound, type PatrolState } from './patrol.ts';
 import { parseLoopState, type LoopDraft, type LoopState } from './qa-retro-loop.ts';
+import { patrolIssueTitle } from './state.ts';
 import { parseTestPruneLoopState, type TestPruneLoopState } from './test-prune-loop.ts';
 
 /**
- * patrol のまとめの Issue の本文に置く状態（patrol-state）の読み書き・縮め方・題名の照らし・回のコメント（純粋関数）。
- * patrol の Routine が、patrol・qa-retro-loop・test-prune-loop の3つの状態と下書きを1件のまとめの Issue（題は harness/lib/state.ts の patrolIssueTitle）の本文に置く。
- * コマンドは #704 で harness/scripts/agent/commands/patrol-issue.ts に足す（Epic #634）。
+ * patrol のまとめの Issue の本文の状態（patrol-state）と、pull したディレクトリ（<dir>）の読み書き・縮め方・題名の照らし・回のコメント。
+ * patrol・qa-retro-loop・test-prune-loop の3つの状態と下書きは、/loop からも Routine からも1件のまとめの Issue（題は harness/lib/state.ts の patrolIssueTitle）の本文に置く。
+ * patrol-pull（harness/scripts/agent/commands/patrol-issue.ts）が本文を <dir> に写し、3つのスクリプトが --dir で <dir> を読み書きし、patrol-push が本文に書き戻す。
+ * 上書きの防ぎは patrol-push の本文の比べ（patrolBodyChanged）。--dir なしの読むだけのサブコマンドは readPatrolIssueState で本文を REST で読む（書かない・作らない）。
  *
  * 本文の書式：人が読む短い説明と、<details> の中の ```patrol-state（agent- で始まらない。gate.yml の if: に当たらない）：
  *   { "version": 1, "patrol": <PatrolState | null>, "qaRetro": <LoopState | null>, "testPrune": <TestPruneLoopState | null> }
- * 部分の状態の形は、それぞれ harness/lib/patrol.ts・qa-retro-loop.ts・test-prune-loop.ts の手元の状態のファイルと同じ。
+ * 部分の状態の形は、それぞれ harness/lib/patrol.ts・qa-retro-loop.ts・test-prune-loop.ts の loop の状態（<dir> の各ファイル）と同じ。
  */
 
 /** 本文の上限（GitHub の Issue の本文の上限） */
@@ -145,4 +153,124 @@ export function renderPatrolRoundComment(opts: {
   if (opts.summary) lines.push('', opts.summary);
   if (opts.archReviewUrl) lines.push('', `arch-review の記録：${opts.archReviewUrl}（arch-review の下書きはダッシュボードの記録から選びます）`);
   return lines.join('\n');
+}
+
+export type LoopResult<T> = ({ ok: true } & T) | { ok: false; errors: string[] };
+
+const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+/** 誤りを出して終わる（終了コード 1） */
+export function exitWithErrors(errors: string[]): never {
+  console.error(['誤り:', ...errors.map((e) => `- ${e}`)].join('\n'));
+  process.exit(1);
+}
+
+/** ファイルの本文。無ければ null、ほかの理由で読めなければ Error を投げる */
+export function readText(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw new Error(`${path} を読めません: ${message(e)}`, { cause: e });
+  }
+}
+
+/** JSON のファイルを読む。what は誤りの文に入れる名前 */
+export function readJsonFile(path: string, what: string): LoopResult<{ value: unknown }> {
+  let text: string | null;
+  try {
+    text = readText(path);
+  } catch (e) {
+    return { ok: false, errors: [message(e)] };
+  }
+  if (text === null) return { ok: false, errors: [`${what}のファイルがありません: ${path}`] };
+  try {
+    return { ok: true, value: JSON.parse(text) };
+  } catch (e) {
+    return { ok: false, errors: [`${what}のファイルが JSON として読めません: ${message(e)}`] };
+  }
+}
+
+/** まとめの Issue の題（ダッシュボード Issue の題と同じなら誤り） */
+export function patrolIssueTitleChecked(config: HarnessConfig): LoopResult<{ title: string }> {
+  const title = patrolIssueTitle(config);
+  if (title === config.dashboardIssueTitle) return { ok: false, errors: [`patrolIssueTitle がダッシュボード Issue の題（${title}）と同じです。別の題にしてください`] };
+  return { ok: true, title };
+}
+
+/** pull したディレクトリの中の、部分の状態のファイル名（patrol-pull・patrol-push・3つのスクリプトで同じ） */
+export const PATROL_DIR_FILES = { patrol: 'patrol.json', qaRetro: 'qa-retro-loop.json', testPrune: 'test-prune-loop.json' } as const;
+export type PatrolDirKey = keyof typeof PATROL_DIR_FILES;
+
+interface IssueRow { number: number; title: string; body?: string | null; pull_request?: unknown }
+
+/** 開いた Issue（PR を除く） */
+export async function openIssues(gh: GitHub): Promise<IssueRow[]> {
+  return (await gh.paginate<IssueRow>('/issues?state=open')).filter((i) => !i.pull_request);
+}
+
+/** 題が一致する開いた Issue のうち番号の最小（作成者は問わない） */
+export async function findPatrolIssue(gh: GitHub, title: string): Promise<{ number: number; title: string; body?: string | null } | null> {
+  const found = (await openIssues(gh)).filter((i) => i.title === title).sort((a, b) => a.number - b.number);
+  return found[0] ?? null;
+}
+
+/** ブロックが読めてオブジェクトで、version が 1 でない数ならその数 */
+export function newerPatrolStateVersion(body: string): number | null {
+  const block = extractBlock(body, 'patrol-state');
+  if (!block.found || !block.ok) return null;
+  const v = block.value as { version?: unknown } | null;
+  if (typeof v !== 'object' || v === null || Array.isArray(v)) return null;
+  return typeof v.version === 'number' && v.version !== 1 ? v.version : null;
+}
+
+/** version が新しいときの誤りの文 */
+export const patrolNewerVersionError = (v: number): string => `まとめの Issue の patrol-state の version が ${v} です。この kit は 1 だけを読みます。kit を更新してください`;
+/**
+ * まとめの Issue を探して本文の状態を読む（--dir なしの読むだけのサブコマンド用。書かない・Issue を作らない）。
+ * Issue が無い・本文が初回扱いなら state: null。version が 1 より新しければ ok: false
+ */
+export async function readPatrolIssueState(
+  gh: GitHub,
+  title: string,
+): Promise<{ ok: true; issue: number | null; state: PatrolIssueState | null } | { ok: false; errors: string[] }> {
+  const issue = await findPatrolIssue(gh, title);
+  if (!issue) return { ok: true, issue: null, state: null };
+  const body = issue.body ?? '';
+  const newer = newerPatrolStateVersion(body);
+  if (newer !== null) return { ok: false, errors: [patrolNewerVersionError(newer)] };
+  const parsed = parsePatrolIssueBody(body);
+  return { ok: true, issue: issue.number, state: parsed.first ? null : parsed.state };
+}
+
+/** <dir> の部分の状態を読む。ファイルが無ければ null。読めない・形が違えば ok: false */
+export function readDirPart<T>(
+  dir: string,
+  key: PatrolDirKey,
+  parse: (text: string | null) => { ok: true; state: T | null } | { ok: false; errors: string[] },
+): { ok: true; state: T | null } | { ok: false; errors: string[] } {
+  const file = join(dir, PATROL_DIR_FILES[key]);
+  let text: string | null;
+  try {
+    text = readText(file);
+  } catch (e) {
+    return { ok: false, errors: [message(e)] };
+  }
+  if (text === null) return { ok: true, state: null };
+  const r = parse(text);
+  if (!r.ok) return { ok: false, errors: [`${file} が読めません：${r.errors.join('、')}`] };
+  return { ok: true, state: r.state };
+}
+
+/** <dir> の部分の状態を書く（2字下げの JSON と末尾の改行。local-state.ts の writeLocalJson） */
+export function writeDirPart(dir: string, key: PatrolDirKey, state: unknown): void {
+  writeLocalJson(join(dir, PATROL_DIR_FILES[key]), state);
+}
+
+/** 本文の sha256（pull したときの本文を控える） */
+export const patrolBodySha256 = (body: string): string => createHash('sha256').update(body).digest('hex');
+
+/** pull したときから本文が変わったか（patrol-push が書かずに止まる条件。上書きの防ぎ） */
+export function patrolBodyChanged(currentBody: string, pulledSha256: string): boolean {
+  return patrolBodySha256(currentBody) !== pulledSha256;
 }
