@@ -4,6 +4,7 @@
 //     head が同じなら judge（samePatch を呼ばない）。head が違っても patch-id が同じなら judge（判定するのは今の head、inputHead に入力の head）。
 // (3) runJudgeRoutineCheck を偽の GitHub（FakeGitHub）で通す：壊れた JSON・closed・404・head も patch-id も違う、で skip と理由。head が同じなら judge。
 //     どの場合も GitHub に書き込まない（GET だけ）。patch-id の比べは差し替える（git fetch を流さない）。
+//     deps の git の確かめは偽物（HEAD は既定ブランチの祖先で、PR の head と別。Issue #1097）。judge に進む場合は GET /issues/5/comments（空）も読む。
 // patch-id の分かれ道は (2) の純粋関数に寄せ、入力の形の細かい場合は代表（壊れた JSON）だけにする。
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -48,7 +49,7 @@ test('parseJudgeRoutineInput：コードブロックに入った JSON を読み�
 // --- (2) PR の状態・head・patch-id ---
 
 const INPUT: JudgeRoutineInput = { pr: 5, head: HEAD, base: 'main', dryRun: true };
-const openPr = { state: 'open', merged: false, headSha: HEAD, baseRef: 'main' };
+const openPr = { state: 'open', merged: false, headSha: HEAD, baseRef: 'main', draft: true };
 
 test('checkJudgeRoutineInput：closed・merged・base の違い・head も patch-id も違う、は skip と理由', () => {
   const cases: { name: string; pr: typeof openPr; samePatch: boolean }[] = [
@@ -93,19 +94,29 @@ test('checkJudgeRoutineInput：head が違っても patch-id が同じなら、�
 const loadRun = async () => (await import('../scripts/agent/commands/judge-routine.ts')).runJudgeRoutineCheck;
 
 function world(reply: 'missing' | ReturnType<typeof pr>) {
-  return new FakeGitHub().on('GET', /\/pulls\/5$/, (_m, _b, opts) => {
-    if (reply !== 'missing') return reply;
-    if (opts.allow404) return null;
-    throw new HttpError(404, 'GET /pulls/5 -> 404');
-  });
+  return new FakeGitHub()
+    .on('GET', /\/pulls\/5$/, (_m, _b, opts) => {
+      if (reply !== 'missing') return reply;
+      if (opts.allow404) return null;
+      throw new HttpError(404, 'GET /pulls/5 -> 404');
+    })
+    .on('GET', /\/issues\/5\/comments/, () => []);
 }
+
+/** 偽の git の確かめ：HEAD は既定ブランチの祖先で、PR の head と別（checkout の違いで skip にならない） */
+const deps = (samePatch: boolean) => ({
+  samePatch: () => samePatch,
+  git: { fetchUnshallow: () => {}, headSha: () => 'd'.repeat(40), isAncestorOfDefault: () => true },
+  age: { now: new Date(), humanClaimStaleHours: 24, routineClaimTakeoverMinutes: 60 },
+  defaultBranch: 'main',
+});
 
 async function check(t: TestContext, fake: FakeGitHub, text: string, samePatch: boolean) {
   const run = await loadRun();
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'error', () => {});
   try {
-    return await run(new GitHub(fake, 'o/r'), inputFile(text), () => samePatch);
+    return await run(new GitHub(fake, 'o/r'), inputFile(text), deps(samePatch));
   } finally {
     t.mock.restoreAll();
   }
