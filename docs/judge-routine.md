@@ -1,6 +1,6 @@
 # 判定の Routine
 
-クラウドの Routine で判定の1回分（`/judge --routine`）を回し、App が選んだ PR 1件を、人のいないまま付き添いのセッションと同じ手順（judge の skill。`reviewPanel.mode` に従う）で判定する設定の手順。手順は judge の skill の節「Routine の1回分」にある。
+クラウドの Routine で判定の1回分（`/judge --routine`）を回し、App が選んだ PR 1件を、人のいないまま付き添いのセッションと同じ手順（judge の skill。`reviewPanel.mode` に従う）で判定する設定の手順。手順は judge の skill の節「Routine の1回分」にある。`harness.config.json` の `reviewSource.mode` が `api` なら、付き添いのセッションと同じく judge の skill の手順2a で API のレビュー（review-api）の記録で判定し、使えないときはローカルのレビューで判定する（[review-api.md](review-api.md) の節12）。
 
 ## 作り方
 
