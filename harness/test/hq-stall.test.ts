@@ -1,7 +1,7 @@
 // Issue #287：hq が進んでいない fleet を見つける判定（harness/lib/hq-stall.ts）と、それを JSON で出す `panes.ts fleets` を確かめる。
-// しきい値 hq.staleSnapshotMinutes・hq.stuckMinutes の既定値と不正な値（人の決定）、スナップショットの古さと AI の番の行の長さの境界、
+// しきい値の定数 HQ_STALL_DEFAULTS の値（#1076 で設定キーを外し、定数だけで動かす）、スナップショットの古さと AI の番の行の長さの境界、
 // `--session` で渡したセッションだけを読むこと（無いものは missing）、`--session` なしで止まることを確かめる。
-// 後半は Issue #199：fleet の待つ間の読み直し（旧 harness/lib/fleet-watch.ts。#1025 で hq-stall.ts に寄せた）。設定（fleet.watch の既定値と誤り）、App 待ちの行の見張り（updateWatch：
+// 後半は Issue #199：fleet の待つ間の読み直し（旧 harness/lib/fleet-watch.ts。#1025 で hq-stall.ts に寄せた）。定数 FLEET_WATCH_DEFAULTS の値、App 待ちの行の見張り（updateWatch：
 // 最初に見た行は知らせない・appStallMinutes を過ぎた plan-gate・auto-merge の行だけを1回だけ知らせる・段階や PR が変われば数え直す・人の番は数えない）、
 // Merge 後の見届けが済んでいない行（pendingFollowUps：記録に頼らず事実だけで決める）、見張りの記録のパスと読み書き、
 // fleet-status.ts が --watch のときだけ updateWatch を呼ぶこと（#199。fleet-watch-skill.test.ts から移した）。
@@ -16,9 +16,7 @@ import {
   APP_WAIT_STAGES,
   FLEET_WATCH_DEFAULTS,
   fleetStall,
-  fleetWatchConfig,
   HQ_STALL_DEFAULTS,
-  hqStallConfig,
   missingFleet,
   pendingFollowUps,
   readWatchRecord,
@@ -62,41 +60,10 @@ const snap = (rows: FleetStatusRow[], patch: Partial<PaneSnapshot> = {}): PaneSn
 
 const CFG = { staleSnapshotMinutes: 30, stuckMinutes: 120 };
 
-// ---- hqStallConfig：既定値 ----
+// ---- しきい値の定数 ----
 
 test('HQ_STALL_DEFAULTS：staleSnapshotMinutes 30・stuckMinutes 120', () => {
   assert.deepEqual(HQ_STALL_DEFAULTS, { staleSnapshotMinutes: 30, stuckMinutes: 120 });
-});
-
-test('hqStallConfig：hq が無い・空なら既定値', () => {
-  assert.deepEqual(hqStallConfig({}), { staleSnapshotMinutes: 30, stuckMinutes: 120 });
-  assert.deepEqual(hqStallConfig({ hq: {} }), { staleSnapshotMinutes: 30, stuckMinutes: 120 });
-});
-
-test('hqStallConfig：hq.maxFleets だけがあっても既定値（maxFleets は hqConfig が読む）', () => {
-  assert.deepEqual(hqStallConfig({ hq: { maxFleets: 4 } }), { staleSnapshotMinutes: 30, stuckMinutes: 120 });
-});
-
-test('hqStallConfig：書いた値を読み、書いていない方は既定値', () => {
-  assert.deepEqual(hqStallConfig({ hq: { staleSnapshotMinutes: 10 } }), { staleSnapshotMinutes: 10, stuckMinutes: 120 });
-  assert.deepEqual(hqStallConfig({ hq: { stuckMinutes: 45 } }), { staleSnapshotMinutes: 30, stuckMinutes: 45 });
-  assert.deepEqual(hqStallConfig({ hq: { maxFleets: 2, staleSnapshotMinutes: 1, stuckMinutes: 1 } }), { staleSnapshotMinutes: 1, stuckMinutes: 1 });
-});
-
-// ---- hqStallConfig：不正な値 ----
-
-test('hqStallConfig：staleSnapshotMinutes・stuckMinutes が正の整数でなければ throw する', () => {
-  for (const key of ['staleSnapshotMinutes', 'stuckMinutes']) {
-    for (const v of [0, -1, 1.5, '30', null]) {
-      assert.throws(() => hqStallConfig({ hq: { [key]: v } }), Error, `${key}=${String(v)}`);
-    }
-  }
-});
-
-test('hqStallConfig：hq がオブジェクトでなければ throw する', () => {
-  for (const hq of [null, 1, 'x', true, [] as unknown[]]) {
-    assert.throws(() => hqStallConfig({ hq }), Error, JSON.stringify(hq));
-  }
 });
 
 // ---- fleetStall：スナップショットの古さ ----
@@ -254,26 +221,10 @@ const WATCH_CFG = { appStallMinutes: 20 };
 
 const watchRow = (issue: number, stage: string, pr: number | null = null): WatchRow => ({ issue, pr, stage });
 
-// ---- 設定 ----
+// ---- 見張りの定数 ----
 
-test('fleetWatchConfig：fleet・watch が無ければ既定値（3 分おき・20 分で App が動いていない）', () => {
+test('FLEET_WATCH_DEFAULTS：3 分おき・20 分で App が動いていない', () => {
   assert.deepEqual(FLEET_WATCH_DEFAULTS, { intervalMinutes: 3, appStallMinutes: 20 });
-  assert.deepEqual(fleetWatchConfig({}), FLEET_WATCH_DEFAULTS);
-  assert.deepEqual(fleetWatchConfig({ fleet: {} }), FLEET_WATCH_DEFAULTS);
-  assert.deepEqual(fleetWatchConfig({ fleet: { nesting: 'orca' } }), FLEET_WATCH_DEFAULTS);
-});
-
-test('fleetWatchConfig：片方だけ書けば、もう片方は既定値', () => {
-  assert.deepEqual(fleetWatchConfig({ fleet: { watch: { intervalMinutes: 5 } } }), { intervalMinutes: 5, appStallMinutes: 20 });
-  assert.deepEqual(fleetWatchConfig({ fleet: { watch: { appStallMinutes: 45 } } }), { intervalMinutes: 3, appStallMinutes: 45 });
-});
-
-test('fleetWatchConfig：正の整数でない値・watch がオブジェクトでないときは throw', () => {
-  for (const v of [0, -1, 1.5, '3', null, Number.NaN]) {
-    assert.throws(() => fleetWatchConfig({ fleet: { watch: { intervalMinutes: v } } }), Error, `intervalMinutes=${String(v)}`);
-    assert.throws(() => fleetWatchConfig({ fleet: { watch: { appStallMinutes: v } } }), Error, `appStallMinutes=${String(v)}`);
-  }
-  for (const w of [3, 'x', [], null]) assert.throws(() => fleetWatchConfig({ fleet: { watch: w } }), Error, `watch=${JSON.stringify(w)}`);
 });
 
 // ---- App 待ちの段階 ----
@@ -434,5 +385,5 @@ test('fleet-status.ts：--watch を splitArgs の前に取り除き、使い方�
       assert.ok(guarded(src.slice(Math.max(0, s - 600), s)) || guarded(src.slice(lineStart, s)), `${fn}（updateWatch を呼ぶ）が --watch の分岐の外で呼ばれています`);
     }
   }
-  for (const w of ['pendingFollowUps(', 'fleetWatchConfig(', '--porcelain', 'watchRecordPath(']) assert.ok(src.includes(w), `fleet-status.ts に ${w} がありません`);
+  for (const w of ['pendingFollowUps(', 'FLEET_WATCH_DEFAULTS', '--porcelain', 'watchRecordPath(']) assert.ok(src.includes(w), `fleet-status.ts に ${w} がありません`);
 });

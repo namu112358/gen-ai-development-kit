@@ -258,7 +258,7 @@ fleet の待つ間の読み直し（`agent.ts fleet-status --watch`）が、git 
 { "version": 1, "session": "3f2a9c1e-…", "entries": { "199:-:plan-gate": { "since": "2026-09-30T12:00:00.000Z", "notified": false } } }
 ```
 
-- 鍵は `<Issue>:<PR か ->:<段階>`。段階や PR が変わった行・App 待ちでなくなった行は消える。`harness.config.json` の `fleet.watch.appStallMinutes` 分以上同じ状態の行を1回だけ知らせる。読めない・書式が違うファイルは無いものとして空から始める。
+- 鍵は `<Issue>:<PR か ->:<段階>`。段階や PR が変わった行・App 待ちでなくなった行は消える。20 分（`harness/lib/hq-stall.ts` の `FLEET_WATCH_DEFAULTS.appStallMinutes`）以上同じ状態の行を1回だけ知らせる。読めない・書式が違うファイルは無いものとして空から始める。
 - Merge 後の見届けが済んでいない Issue（段階が `merged` で、Issue が開いている、または `claude/issue-<番号>-` の worktree が残る）は、この記録を使わず、毎回の事実だけで決める。
 
 ### 手元の状態のファイルの書き込みと片付け

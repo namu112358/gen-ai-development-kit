@@ -25,7 +25,7 @@
  *     自分（own）でない宣言のうち、控えのそのテーマの fleet の session と、priorSessions[テーマ] のうち at が staleHours（harness.config.json）以内のものにあるものが known、無いもの（期限を過ぎた・at の無い古い形・今より5分を超えて未来の at のもの、session が null、控えが無いときは全部）が unknown。
  *     出力：{ decision: auto | ask | none, theme, known, unknown }（auto は unknown が空で known がある、ask は unknown がある、none は宣言が無い）。
  *   node harness/scripts/hq-decide.ts takeover-ask --found <file> [--common-dir <dir>]
- *     止まった宣言・担当のいない PR の引き継ぎの問いを、hq.takeoverAskHours（既定 24 時間）に1回まとめて聞くかの判定（手順8の見回し。#771）。
+ *     止まった宣言・担当のいない PR の引き継ぎの問いを、24 時間（HQ_TAKEOVER_DEFAULTS。設定では変えない）に1回まとめて聞くかの判定（手順8の見回し。#771）。
  *     --found は見つけたもの（{ key, state, line } の配列）。記録は書かない。出力：{ due, ask, held, skippedDeclined, nextAskAt }。
  *   node harness/scripts/hq-decide.ts takeover-record --answer <file> [--common-dir <dir>]
  *     引き継ぎの問いの答え（{ declined: [{ key, state }…], taken: [key…] }）で記録を更新する。出力：更新後の記録 { version, lastAskedAt, declined }。
@@ -336,15 +336,6 @@ export function themeCandidates(input: ThemeInput): ThemeResult {
 
 export const HQ_TAKEOVER_DEFAULTS = { takeoverAskHours: 24 } as const;
 
-/** hq の節から聞く間隔（時間）を読む（無ければ既定値）。正の整数でなければ throw する */
-export function hqTakeoverConfig(config: { hq?: unknown }): { takeoverAskHours: number } {
-  const raw = config.hq;
-  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('hq はオブジェクトで書いてください');
-  const v = (raw as Record<string, unknown> | undefined)?.takeoverAskHours ?? HQ_TAKEOVER_DEFAULTS.takeoverAskHours;
-  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) throw new Error('hq.takeoverAskHours は正の整数（時間）で書いてください');
-  return { takeoverAskHours: v };
-}
-
 export interface TakeoverItem { key: string; state: string; line: string }
 export interface TakeoverDeclined { key: string; state: string }
 export interface TakeoverRecord { version: 1; lastAskedAt: string | null; declined: TakeoverDeclined[] }
@@ -552,14 +543,13 @@ function run(argv: string[]): unknown {
     const f = takeFlags(rest, ['--found', '--common-dir']);
     const found = parseFound(readJsonFile(one(f, '--found', true) as string, '見つけたもの'));
     const commonDir = takeoverCommonDir(f);
-    const { takeoverAskHours } = hqTakeoverConfig(loadConfig() as { hq?: unknown });
+    const { takeoverAskHours } = HQ_TAKEOVER_DEFAULTS;
     return takeoverAskDecision({ found, record: readTakeoverRecord(commonDir), now: Date.now(), hours: takeoverAskHours });
   }
   if (cmd === 'takeover-record') {
     const f = takeFlags(rest, ['--answer', '--common-dir']);
     const answer = parseAnswer(readJsonFile(one(f, '--answer', true) as string, '答え'));
     const commonDir = takeoverCommonDir(f);
-    hqTakeoverConfig(loadConfig() as { hq?: unknown });
     const next = recordTakeoverAnswer(readTakeoverRecord(commonDir), { now: Date.now(), ...answer });
     writeLocalJson(takeoverPath(commonDir), next);
     return next;
