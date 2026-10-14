@@ -160,7 +160,7 @@ export function prCommentsForJudge(config: HarnessConfig, comments: IssueComment
 
 export interface PreviousVerdict {
   /** 最新の正しい判定（無ければ null） */
-  verdict: { headSha: string; blocking: BlockingFinding[] } | null;
+  verdict: { headSha: string; blocking: BlockingFinding[]; reviewSource: 'api' | 'local' | null } | null;
   /** それより新しい、ブロックが壊れた判定コメントの URL */
   broken: string[];
 }
@@ -176,8 +176,17 @@ export function previousVerdict(comments: IssueComment[]): PreviousVerdict {
       broken.push(c.html_url);
       continue;
     }
-    const v = b.value as { headSha?: unknown; review?: { blocking?: unknown } };
-    return { verdict: { headSha: String(v.headSha ?? ''), blocking: Array.isArray(v.review?.blocking) ? (v.review.blocking as BlockingFinding[]) : [] }, broken };
+    const v = b.value as { headSha?: unknown; review?: { blocking?: unknown }; metrics?: { reviewSource?: unknown } };
+    // 判定に使ったレビューの出どころ（compose-verdict の --review-source。api・local のときだけ。Issue #1069）
+    const source = v.metrics?.reviewSource;
+    return {
+      verdict: {
+        headSha: String(v.headSha ?? ''),
+        blocking: Array.isArray(v.review?.blocking) ? (v.review.blocking as BlockingFinding[]) : [],
+        reviewSource: source === 'api' || source === 'local' ? source : null,
+      },
+      broken,
+    };
   }
   return { verdict: null, broken };
 }
