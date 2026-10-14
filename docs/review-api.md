@@ -192,7 +192,7 @@ Cloudflare Workflow  review-api/src/workflow.ts（段階ごとに再試行・結
 
 Cloudflare：Free plan（100k リクエスト/日、Workflow 3,000 step/日、KV 1,000 書き込み/日）で 1 日数十レビューは収まる見込み。Worker の CPU 10 ms/リクエストに当たるなら Paid（$5/月、30 秒）。Claude API と Cloudflare の課金は別の記録（KV の `cost:` は Claude API の USD だけ。Cloudflare はダッシュボードの請求で見る）。
 
-**記録**：レビューごとに `review:<owner>/<repo>:<PR>:<sha>`（モデルごとの input / output / cache write / cache read のトークン、推定 USD、結果の要約、所要秒、`outcome`）、リポジトリと月ごとに `cost:<owner>/<repo>:<YYYY-MM>`（owner/repo は小文字。USD の累計）。同じ内容を PR のコメントの `api-review-shadow` ブロックにも書く（比較は PR のコメントだけで行える）。
+**記録**：レビューごとに `review:<owner>/<repo>:<PR>:<sha>`（モデルごとの input / output / cache write / cache read のトークン、推定 USD、結果の要約、所要秒、`outcome`。`outcome` は `posted`・`superseded`・`closed`・`duplicate`・`same-patch`（取り込みだけの head を飛ばした。Claude を呼ばず USD は無く、使える前回の head `reusableHead` と記録のコメントの URL `recordUrl` を持つ。#1089）・`no-api-key`・`budget-exceeded`・`too-large`・`verdict-invalid`）、リポジトリと月ごとに `cost:<owner>/<repo>:<YYYY-MM>`（owner/repo は小文字。USD の累計）。同じ内容を PR のコメントの `api-review-shadow` ブロックにも書く（比較は PR のコメントだけで行える）。
 
 **上限**：上限と月の累計はリポジトリごと。上限は 表の行の `budget` → `BUDGET_*`（下）→ `review.config.json` の `budget` の順で決まり、月の累計はそのリポジトリの `cost:<owner>/<repo>:<YYYY-MM>` だけを見る（片方のリポジトリが上限で止まっても、もう片方は自分の累計と上限で判定される）。`budget.monthlyUsd` を超えたら Claude を呼ばず `outcome: budget-exceeded` を記録する。`budget.perReviewUsd` は材料とツールの呼び出しの見込み（下の「キャッシュの置き方」の式）で事前に確かめる（超えたら `outcome: too-large`）。KV は結果整合なので月の上限は目安（数件の超過はあり得る）。
 
@@ -388,6 +388,8 @@ GITHUB_TOKEN=… ANTHROPIC_API_KEY=… node scripts/replay.ts owner/repo --prs 1
 | `appLogin` | `harness-review-agent[bot]` | レビュー用 App の bot の login。この名義（Bot）の記録だけを使う |
 
 API の記録で判定するのは、judge の skill の手順2a の `api-review` が `api` を返すとき：判定する head（無ければ PR 自身の差分の patch-id が同じ head）の、レビュー用 App の posted の記録で、コメントが編集されておらず、`dryRun` と `diffTruncated` が false のもの。
+
+**取り込みだけの head は Worker がレビューし直さない（#1089）**：Worker は fetch-pr の後の段階 `same-patch` で、同じ PR の前回レビューした（posted の）記録のうち、judge が使える条件と同じもの（レビュー用 App の名義、編集されていない、`dryRun` と `diffTruncated` が false。欄の無い古い記録は不可）で最新のものを選び、compare API の `base...前回の head` と `base...今の head` の diff を、`index` の行を除き `@@` の行の行番号を消して比べる（`git patch-id --verbatim` と同じ考え方。空白を含む変更内容と文脈の行は区別する）。完全に一致し、記録の `models` が今の設定（`chooseModels`）の組と同じなら、Claude を呼ばずに KV の `review:` に outcome `same-patch`（`reusableHead`・`recordUrl`）を書いて終える。PR にはコメントを付けない（judge は同じ patch-id の前回の記録をそのまま使う。`selectApiReview` の `samePatch`）。迷うときはレビューする側に倒す：diff が取れない（404 など）・どちらかが空・本文が違う（取り込みで衝突を解消した、PR 自身の変更が変わった）・記録が使えない・モデルが違う・段階の中で投げた、のどれでもレビューする。プロンプト（`prompts.ts`）とリポジトリの規則（base の CLAUDE.md など）の変化は見ない：judge も同じ patch-id の記録をそれらの変化を見ずに使っているので Worker の側だけで見ても扱いは変わらず、記録には規則の要約（パスと字数）しか無くプロンプトの版も入っていないため、比べるには記録の形を変える要がある（この Issue の範囲の外）。モデルの比較は judge には無い Worker だけの、より保守的な条件（モデルを変えた後は、取り込みだけの head でも新しいモデルでレビューし直す）。
 
 ローカルのレビューに戻る条件（`api-review` の `local` の `reason`、`harness/lib/api-review.ts`）：
 

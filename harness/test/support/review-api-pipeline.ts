@@ -5,6 +5,8 @@
 // Risk は Reviewer の最初の応答の後に始まるので、Reviewer が1回で答えるなら create は review → risk の順（応答の列はこの順に並べる）。Reviewer がツールを使う（2回以上 create する）と
 // Reviewer の2回目と Risk の1回目の順は決まらないので、そのときは claude 引数で役ごとに振り分ける偽の Claude を渡す（呼び出しは claudeCalls に積む）。store に Map を渡すと、run が投げても KV を後から読める。
 // review-api-parallel.test.ts も共有する（#1061）
+// review-api-same-patch.test.ts も共有する（#1089）：偽の GitHub は head の SHA ごとの compare の diff（compareDiffs）を受け取れ、shadowComment は extra で
+// 記録の dryRun・diffTruncated・models と、コメントの created_at・updated_at・html_url を入れられる（extra を渡さなければ今までどおり）
 import type { ContentBlock, Message, MessagesClient, MessagesParams } from '../../../review-api/src/claude.ts';
 import type { ReviewConfig } from '../../../review-api/src/config.ts';
 import { createGitHubClient } from '../../../review-api/src/github.ts';
@@ -16,6 +18,8 @@ export const GATE = 'agent-harness[bot]';
 export const REVIEWER = 'review-api[bot]';
 export const HEAD = 'a'.repeat(40);
 export const OTHER = 'b'.repeat(40);
+/** 前回レビューした head（base の SHA の OTHER とは別） */
+export const OTHER2 = 'c'.repeat(40);
 export const MODEL = 'claude-opus-5-5';
 export const TOKEN = 'ghs_FAKETOKEN911abcdef';
 export const API_KEY = 'sk-ant-api03-FAKEKEY911';
@@ -41,13 +45,28 @@ export const RISK_OK: RiskOutput = {
   facts: { references: '', tests: '', fileKinds: '' },
 };
 export const REVIEW_OK = { pass: true, blocking: [], nonBlocking: [] as string[] };
-export const shadowComment = (id: number, login: string, headSha: string) => {
+export const RECORD_AT = '2026-10-13T00:00:00Z';
+/** shadowComment の extra：渡すと記録に dryRun・diffTruncated（既定 false）を入れ、コメントに created_at・updated_at（既定は同じ RECORD_AT）・html_url を付ける */
+export type ShadowExtra = {
+  dryRun?: boolean;
+  diffTruncated?: boolean;
+  models?: ShadowRecord['models'];
+  createdAt?: string;
+  updatedAt?: string;
+  url?: string;
+};
+export type ShadowCommentLike = ReturnType<typeof comment> & { created_at?: string; updated_at?: string; html_url?: string };
+export const shadowComment = (id: number, login: string, headSha: string, extra?: ShadowExtra): ShadowCommentLike => {
   const record: ShadowRecord = {
     version: 1, pr: 5, headSha,
     verdict: composeShadowVerdict({ pr: 5, headSha, reviewer: REVIEW_OK, risk: RISK_OK, model: MODEL }),
-    models: { review: MODEL, risk: MODEL }, usage: {}, usd: null, durationSec: 1,
+    models: extra?.models ?? { review: MODEL, risk: MODEL }, usage: {}, usd: null, durationSec: 1,
+    ...(extra === undefined ? {} : { dryRun: extra.dryRun ?? false, diffTruncated: extra.diffTruncated ?? false }),
   };
-  return comment(id, login, renderShadowComment(record));
+  const base = comment(id, login, renderShadowComment(record));
+  if (extra === undefined) return base;
+  const createdAt = extra.createdAt ?? RECORD_AT;
+  return { ...base, created_at: createdAt, updated_at: extra.updatedAt ?? createdAt, ...(extra.url === undefined ? {} : { html_url: extra.url }) };
 };
 
 export type Pr = { state: string; merged?: boolean; head: string; body?: string };
@@ -67,11 +86,16 @@ export const TREE = {
 /** ref（commit の SHA）→ パス → 中身。PR の base の SHA は OTHER */
 export type FilesByRef = Record<string, Record<string, string>>;
 
-// URL で振り分ける偽の GitHub。state は Claude の呼び出しの後に書き換えられる（投稿の直前の取り直しを見るため）。filesByRef は ref ごとのファイル（無ければ 404）
+/** head の SHA → compare（main...<sha>）が返す diff。渡さなければ HEAD だけ DIFF で、ほかの SHA は 404 */
+export type CompareDiffs = Record<string, string>;
+
+// URL で振り分ける偽の GitHub。state は Claude の呼び出しの後に書き換えられる（投稿の直前の取り直しを見るため）。filesByRef は ref ごとのファイル（無ければ 404）。
+// compareDiffs は head の SHA ごとの compare の diff（無ければ HEAD だけ DIFF）
 export function fakeGitHub(
-  state: { pr: Pr; comments: ReturnType<typeof comment>[] },
+  state: { pr: Pr; comments: ShadowCommentLike[] },
   filesByRef: FilesByRef = {},
   target: { owner: string; repo: string } = { owner: 'o', repo: 'r' },
+  compareDiffs: CompareDiffs = { [HEAD]: DIFF },
 ) {
   const calls: string[] = [];
   const posted: string[] = [];
@@ -91,7 +115,11 @@ export function fakeGitHub(
       return json(comment(99, REVIEWER, body));
     }
     if (p === '/issues/5/comments') return json(state.comments);
-    if (p === `/compare/main...${HEAD}`) return new Response(DIFF);
+    if (p.startsWith('/compare/main...')) {
+      const diff = compareDiffs[p.slice('/compare/main...'.length)];
+      if (diff !== undefined) return new Response(diff);
+      return new Response('not found', { status: 404 });
+    }
     if (p === `/git/trees/${HEAD}`) return json(TREE);
     const path = p.startsWith('/contents/') ? decodeURIComponent(p.slice('/contents/'.length)) : undefined;
     const ref = url.searchParams.get('ref') ?? '';
@@ -109,22 +137,24 @@ export const msg = (content: ContentBlock[], stop_reason: string, model = MODEL)
 export const answer = (v: unknown, model = MODEL): Message => msg([{ type: 'text', text: JSON.stringify(v) }], 'end_turn', model);
 
 // 1回の runReview を偽の依存で回す。responses の Error の要素は、その回の問いで投げる。afterClaude は Claude を2回呼んだ後に GitHub の state を書き換える。
-// filesByRef は偽の GitHub に ref ごとに置くファイル（規則のファイルなど）。claude: null は行のキーが無いときの依存（Claude は呼ばれない）。dryRun は渡したときだけ runReview の deps に入れる（#1068）
+// filesByRef は偽の GitHub に ref ごとに置くファイル（規則のファイルなど）。claude: null は行のキーが無いときの依存（Claude は呼ばれない）。dryRun は渡したときだけ runReview の deps に入れる（#1068）。
+// compareDiffs は head の SHA ごとの compare の diff（渡さなければ HEAD だけ DIFF。#1089）
 export async function run(opts: {
   claude?: MessagesClient | null;
   pr?: Pr;
-  comments?: ReturnType<typeof comment>[];
+  comments?: ShadowCommentLike[];
   kv?: Record<string, string>;
   /** KV の中身を持つ Map（kv の代わりに渡すと、run が投げても後から読める） */
   store?: Map<string, string>;
   config?: ReviewConfig;
   responses?: (Message | Error)[];
-  afterClaude?: (state: { pr: Pr; comments: ReturnType<typeof comment>[] }) => void;
+  afterClaude?: (state: { pr: Pr; comments: ShadowCommentLike[] }) => void;
   filesByRef?: FilesByRef;
   dryRun?: boolean;
+  compareDiffs?: CompareDiffs;
 } = {}) {
   const state = { pr: opts.pr ?? { state: 'open', head: HEAD }, comments: opts.comments ?? [] };
-  const { gh, calls, posted } = fakeGitHub(state, opts.filesByRef);
+  const { gh, calls, posted } = fakeGitHub(state, opts.filesByRef, undefined, opts.compareDiffs);
   const kv = opts.store ?? new Map(Object.entries(opts.kv ?? {}));
   const claudeCalls: MessagesParams[] = [];
   const responses = opts.responses ?? [answer(REVIEW_OK), answer(RISK_OK)];

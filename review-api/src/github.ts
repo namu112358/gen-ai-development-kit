@@ -48,6 +48,10 @@ export interface IssueComment {
   body: string;
   user: { login: string } | null;
   author_association: string;
+  /** GitHub の応答にある欄（ISO 8601）。偽物や古い呼び出し元には無いことがある */
+  created_at?: string;
+  updated_at?: string;
+  html_url?: string;
 }
 
 export interface TreeEntry {
