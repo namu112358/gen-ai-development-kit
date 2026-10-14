@@ -127,10 +127,10 @@ export interface FleetRow {
   confirmWait?: { since: string; url: string };
 }
 
-/** 人の判断待ちを脇に置くまでの時間の既定値（分）。hq.stuckMinutes の既定にそろえる（Issue #667） */
+/** 人の判断待ちを脇に置くまでの時間の既定値（分）。HQ_STALL_DEFAULTS.stuckMinutes（120 分）にそろえる（Issue #667） */
 export const HUMAN_WAIT_DEFAULT_MINUTES = 120;
 
-/** hq.humanWaitMinutes（正の整数、分）。無ければ既定。hq-stall.ts の hqStallConfig と同じ読み方（Issue #667） */
+/** hq.humanWaitMinutes（正の整数、分）。無ければ既定。hq の節がオブジェクトでない・値が正の整数でなければ throw する（Issue #667） */
 export function humanWaitMinutes(config: { hq?: unknown }): number {
   const hq = config.hq;
   if (hq === undefined) return HUMAN_WAIT_DEFAULT_MINUTES;

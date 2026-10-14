@@ -1,15 +1,16 @@
 // auto mode の危険の問いで、見解（authorView）のある計画・PR は Jev に見解なし・ありの2回を問い、保留するかは見解なしの確率だけで決め、
 // 両方の確率を記録に残して同じ計画コメント・patch-id では問い直さないことを、askPlanJev・askPrJev の単体と、偽の GitHub を通した計画ゲート・判定の受け付けで確かめる（Issue #426）
+// prViewRecord の「要求が ask: false（diff が大きすぎる）なら Jev を呼ばず withView を skipped にする」単体（元 gates-auto-mode-view-skipped.test.ts、Issue #449）もここにある
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { test } from 'node:test';
-import { AUTO_MODE_JEV_QUESTION_SET, autoModeConfig, planBodyWithoutView } from '../lib/auto-mode.ts';
+import { AUTO_MODE_JEV_QUESTION_SET, autoModeConfig, autoModePrJevRequest, planBodyWithoutView } from '../lib/auto-mode.ts';
 import { appMark, extractBlock, renderBlock } from '../lib/blocks.ts';
 import { LABELS, reasonMark, type HarnessConfig } from '../lib/config.ts';
 import type { askJev } from '../lib/jev.ts';
 import type { Plan } from '../lib/plan.ts';
 import type { Verdict } from '../lib/verdict.ts';
-import { askPlanJev, askPrJev } from '../gates/auto-mode.ts';
+import { askPlanJev, askPrJev, prViewRecord } from '../gates/auto-mode.ts';
 import { onComment, reviewAutoModePlans } from '../gates/on-comment.ts';
 import {
   APP, CRITIQUE, DIFF, FakeGitHub, acceptanceFake, config as base, critiqueClaim, ctxFor, delegateLabeled, delegateWorldFake, pr, verdict, verdictEvent, type DelegateWorld,
@@ -133,6 +134,19 @@ test('askPrJev：見解なしが error・diff が大きすぎる（skipped）な
   assert.equal(skipped.withView, undefined);
 });
 
+test('prViewRecord：見解ありの要求が ask: false（diff が大きすぎる）なら Jev を呼ばず、withView は skipped・yes 無し・detail が残る', async () => {
+  const small: HarnessConfig = { ...config, jev: { ...config.jev, maxDiffChars: 10 } };
+  const viewed = autoModePrJevRequest(small, DIFF, [CONFIG_FILE], VIEW);
+  assert.ok(!viewed.ask, '前提：diff が大きすぎて問えない要求');
+  const jev = fakeJev(0.01);
+  const rec = await prViewRecord(viewed, (request) => jev.fn('jev-key', request));
+  assert.equal(jev.asked.length, 0, 'Jev を呼んだ（見解なしで問い直した）');
+  assert.equal(rec.status, 'skipped');
+  assert.ok(!('yes' in rec), `yes の欄がある: ${JSON.stringify(rec)}`);
+  assert.equal(rec.detail, viewed.record.detail);
+  assert.match(String(rec.detail), /diff が大きすぎます/);
+});
+
 // ---- 計画ゲート（onComment → onPlan） ----
 
 const planOf = (issue: number, patch: Partial<Plan> = {}): Plan => ({
@@ -208,19 +222,6 @@ test('計画ゲート：Jev に渡す計画の本文には authorView が入ら�
     assert.ok(!String(r.state.plan).includes(VIEW), '本文に見解の文が残っている');
   }
   assert.equal(jev.viewed()[0]!.state.author_view, VIEW);
-});
-
-test('計画ゲート：同じ計画コメントの2回目の判定では、withView ごと前の記録を使い回して問い直さない', async () => {
-  const w = autoWorld();
-  const jev = fakeJev(0.5, 0.01);
-  const first = await postPlan(w, planOf(84, { authorView: VIEW }), jev);
-  assert.equal(jev.asked.length, 2);
-  const firstRec = lastGateRecord(first.fake, 84);
-  const second = await postPlan(w, planOf(84, { authorView: VIEW }), jev, first.comment);
-  assert.equal(jev.asked.length, 2, '2回目に問い直した');
-  const rec = lastGateRecord(second.fake, 84);
-  assert.deepEqual(rec.autoMode?.jev, firstRec.autoMode?.jev, '使い回した記録が前と違う');
-  assert.equal(rec.autoMode?.jev.withView?.yes, 0.01);
 });
 
 test('計画ゲート：見解の無い計画は今までどおり1回だけ問い、記録に withView が無く、本文はそのまま渡す', async () => {

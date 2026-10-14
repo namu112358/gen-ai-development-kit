@@ -9,6 +9,7 @@ import { estimateCost, summarizeUsage, type PricingTable } from '../lib/usage.ts
 import { config, HEAD } from './support/gate-fixtures.ts';
 
 // 合体版の記録のコメント・費用・④の材料（Issue #149）
+// 末尾に、ac-scope の acNotes が組み立てと記録の読み込みで humanNotes.acNotes に引き継がれることの確かめ（元 review-panel-human-notes.test.ts、Issue #972）もある
 
 let nextId = 1;
 function comment(body: string, association = 'OWNER', login = 'me'): IssueComment {
@@ -291,4 +292,43 @@ test('④の材料：過去の PR が無い・集めていない・節が無け�
   assert.deepEqual(pastPrMaterial(renderJudgeInput(config, facts())), { pastPrs: 0, pastPrsWithoutComments: 0 });
   assert.deepEqual(pastPrMaterial(`headSha: ${HEAD}\nPR #5 issues=(なし)\n`), { pastPrs: 0, pastPrsWithoutComments: 0 });
   assert.deepEqual(pastPrMaterial('=== 過去の PR のコメント（参考）\n--- PR #1 t\n(コラボレーターのコメントなし)\n--- PR #2 t\n- コメント me\n本文\n=== 範囲照合\n--- PR #3 x\n'), { pastPrs: 2, pastPrsWithoutComments: 1 });
+});
+
+const AC_NOTES = ['AC1：acNotes を読む → 満たす', 'AC2：未知の鍵を拒む → 満たす'];
+
+/** 担当の出力（ac-scope にブロッキングになる指摘1つ。acNotes は渡したときだけ）から組み立て、記録に書いて読み戻す */
+function runAcNotes(acNotes?: string[]) {
+  const acScope: Record<string, unknown> = { findings: [{ kind: 'ac-unmet', file: 'a.ts', detail: 'AC2 を確かめるテストが無い', unfixedPrevious: false }], concerns: [], checkPoints: [] };
+  if (acNotes) acScope.acNotes = acNotes;
+  const parsed = ok(parsePanelOutputs({
+    intake: { eligible: true, reason: '対象', claudeMd: [], summary: '要約' },
+    lens1: { lens: 1, findings: [] }, lens2: { lens: 2, findings: [] }, lens3: { lens: 3, findings: [] }, lens4: { lens: 4, findings: [] }, lens5: { lens: 5, findings: [] },
+    'ac-scope': acScope, safety: { findings: [], concerns: [], checkPoints: [] }, overbuild: { findings: [] },
+  }));
+  const composed = ok(composePanel({
+    findings: parsed.findings, notes: parsed.notes, suggestions: parsed.suggestions, overbuildMissing: parsed.overbuildMissing,
+    scores: parsed.findings.map((f) => ({ id: f.id, score: 90, reason: '理由' })),
+    check: { headSha: HEAD, exitCode: 0, outputTail: '' }, previous: null, changedLines: null,
+  }));
+  const record: PanelRecord = {
+    version: 1, pr: 5, headSha: HEAD, mode: 'shadow', review: composed.review, findings: composed.findings,
+    check: { exitCode: 0 }, material: { pastPrs: 0, pastPrsWithoutComments: 0 }, cost: { panel: null, reviewer: null },
+  };
+  return { composed, back: ok(parsePanelRecord(renderPanelRecord(record))) };
+}
+
+test('合体版：ac-scope の acNotes は composePanel と記録の読み込みで review.humanNotes.acNotes に入り、無ければ鍵が無く、有無で pass・blocking は変わらない', () => {
+  const withAc = runAcNotes(AC_NOTES);
+  assert.deepEqual(withAc.composed.review.humanNotes.acNotes, AC_NOTES);
+  assert.deepEqual(withAc.back.review.humanNotes.acNotes, AC_NOTES);
+
+  const without = runAcNotes();
+  assert.ok(!('acNotes' in without.composed.review.humanNotes), 'composePanel の humanNotes に acNotes の鍵がある');
+  assert.ok(!('acNotes' in without.back.review.humanNotes), '記録の humanNotes に acNotes の鍵がある');
+
+  assert.equal(withAc.composed.review.pass, false);
+  assert.deepEqual(
+    { pass: withAc.back.review.pass, blocking: withAc.back.review.blocking },
+    { pass: without.back.review.pass, blocking: without.back.review.blocking },
+  );
 });

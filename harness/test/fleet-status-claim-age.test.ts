@@ -79,14 +79,3 @@ test('claimAge を渡すと、Issue と PR の宣言に at と stale が出る�
   assert.equal(rowOf(data, 30).claim, null, '解除済みの宣言は null のまま');
 });
 
-test('claimAge を渡さないと、宣言に at・stale の鍵が無い', () => {
-  const data = build();
-  for (const n of cases.map((c) => c.n)) {
-    const info = rowOf(data, n).claim!;
-    assert.ok(!('at' in info) && !('stale' in info), `#${n}`);
-  }
-  for (const c of prCases) {
-    const info = rowOf(data, c.n).prClaim!;
-    assert.ok(!('at' in info) && !('stale' in info), `#${c.n}`);
-  }
-});

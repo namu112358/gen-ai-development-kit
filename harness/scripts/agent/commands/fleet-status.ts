@@ -7,7 +7,7 @@ import { bypassMergeConfig, delegateConfig, fleetConfig, projectCommands, reason
 import { collectFleetIssues, type FleetIssueItem, prefetchedGitHub, readFleetSnapshot, readStepSnapshot } from '../../../lib/fleet-reads.ts';
 import { delegateState } from '../../../lib/delegate.ts';
 import { type FleetIssue, type FleetMergeState, type FleetRow, fleetStatus, fleetStatusData, fleetTargets, humanWaitMinutes, mergeTreeResult, type PrConflict, renderFleetStatus, selectFleet } from '../../../lib/fleet.ts';
-import { fleetWatchConfig, pendingFollowUps, readWatchRecord, updateWatch, watchRecordPath, writeWatchRecord } from '../../../lib/fleet-watch.ts';
+import { FLEET_WATCH_DEFAULTS, pendingFollowUps, readWatchRecord, updateWatch, watchRecordPath, writeWatchRecord } from '../../../lib/hq-stall.ts';
 import { GitHub } from '../../../lib/github.ts';
 import { gitCommonDir } from '../../../lib/local-state.ts';
 import { driftLine, judgeBlock } from '../../../lib/harness-drift.ts';
@@ -36,9 +36,9 @@ import { type AgentCommand, assigneeIo, checkFile, config, currentSession, fail,
  *                                                           （ダッシュボードを1回探し、bypass か委任のラベルがあるときだけ timeline を読む。読めなければ readable: false。harness/lib/fleet.ts の mergeStateLines）
  *                                                           表の下に、このセッションの読み込みが古ければその1行を出す（harness/lib/harness-drift.ts の driftLine。記録が無い・古くなければ出さない。#199）。--json では比べない（git fetch もしない）。
  *                                                           --watch（fleet の待つ間の読み直し。#199）なら、見張りの記録（git の共通ディレクトリの下の agent-harness/watch/<セッションの ID>.json）を
- *                                                           読み書きし、App が fleet.watch.appStallMinutes 分以上動いていない行（1回だけ）と、Merge 後の見届けが済んでいない Issue
- *                                                           （Issue が開いている・claude/issue-<番号>- の worktree が残る）と、読み直しの間隔（fleet.watch.intervalMinutes）を表の下に足す
- *                                                           （--json と一緒なら JSON の watch に入れる。harness/lib/fleet-watch.ts）
+ *                                                           読み書きし、App が 20 分（FLEET_WATCH_DEFAULTS.appStallMinutes）以上動いていない行（1回だけ）と、Merge 後の見届けが済んでいない Issue
+ *                                                           （Issue が開いている・claude/issue-<番号>- の worktree が残る）と、読み直しの間隔（FLEET_WATCH_DEFAULTS.intervalMinutes）を表の下に足す
+ *                                                           （--json と一緒なら JSON の watch に入れる。harness/lib/hq-stall.ts）
  *   node harness/scripts/agent.ts step <番号> [--plan <file> | --critique <file>] [--proceed]
  *                                                           今やってよいノードを1つだけ返す（JSON。harness/lib/step.ts、書式は harness/docs/formats.md の「agent.ts step の出力」。#306）。
  *                                                           段階は fleet-status と同じ事実と判断（fleet.ts の issueNode）で決め、セッションの ID・担当・着手宣言・ループの上限
@@ -116,14 +116,6 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   } catch (e) {
     fail([`harness.config.json: ${(e as Error).message}`]);
   }
-  let watchCfg: ReturnType<typeof fleetWatchConfig> | null = null;
-  if (watch) {
-    try {
-      watchCfg = fleetWatchConfig(config);
-    } catch (e) {
-      fail([`harness.config.json: ${(e as Error).message}`]);
-    }
-  }
   const items: FleetIssueItem[] = a.value.positional.length > 0
     ? await Promise.all(a.value.positional.map((n) => gh.get<FleetIssueItem>(`/issues/${n}`)))
     : fleetTargets(await gh.paginate<FleetIssueItem>('/issues?state=open', 10), config);
@@ -141,7 +133,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
   const session = currentSession();
   const sel = selectFleet(config, facts, rows, max, session, me, { limitMinutes: humanLimit, now: new Date() });
   const merge = await fleetMergeState(gh);
-  const watched = watchCfg ? watchNotes(rows, items, session, watchCfg) : null;
+  const watched = watch ? watchNotes(rows, items, session, FLEET_WATCH_DEFAULTS) : null;
   if (json) {
     const data = fleetStatusData(facts, rows, sel, max, session, mode, merge, { now: new Date(), humanClaimStaleHours: config.routine.humanClaimStaleHours, routineClaimTakeoverMinutes: config.routine.routineClaimTakeoverMinutes });
     return JSON.stringify(watched ? { ...data, watch: watched } : data, null, 2);
@@ -156,7 +148,7 @@ async function fleetStatusText(gh: GitHub, args: string[]): Promise<string> {
 
 /**
  * fleet-status --watch の表の下の行（Issue #199）：見張りの記録を今の行で更新して書き、App が動いていない行の知らせ（1回だけ）と、
- * Merge 後の見届けが済んでいない Issue と、読み直しの間隔を返す。判断は harness/lib/fleet-watch.ts の純粋関数
+ * Merge 後の見届けが済んでいない Issue と、読み直しの間隔を返す。判断は harness/lib/hq-stall.ts の純粋関数
  */
 function watchNotes(rows: FleetRow[], items: FleetIssueItem[], session: string | null, cfg: { intervalMinutes: number; appStallMinutes: number }) {
   const commonDir = gitCommonDir(process.cwd());
@@ -169,7 +161,7 @@ function watchNotes(rows: FleetRow[], items: FleetIssueItem[], session: string |
   const lines = [
     ...stalls.map((s) => `App が動いていない：${s.text}（人に知らせる）`),
     ...(followUps.length > 0 ? [`Merge 後の見届けが済んでいない：${followUps.map((n) => `#${n}`).join(' ')}（その Issue の ship を呼び直す）`] : []),
-    `待つ間の読み直しは ${cfg.intervalMinutes} 分おき（harness.config.json の fleet.watch.intervalMinutes）`,
+    `待つ間の読み直しは ${cfg.intervalMinutes} 分おき（FLEET_WATCH_DEFAULTS）`,
   ];
   return { stalls, followUps, intervalMinutes: cfg.intervalMinutes, lines };
 }

@@ -252,14 +252,14 @@ export function checkObserveReport(v: unknown): Result<{ report: ObserveReport }
 }
 
 /** harness/scripts/patrol.ts の引数（process.argv.slice(2)。先頭がサブコマンド） */
-export function parsePatrolArgs(args: string[]): Result<{ sub: string; positional: string[]; max: number; state: string | null; ran: string[]; suggested: string[] }> {
+export function parsePatrolArgs(args: string[]): Result<{ sub: string; positional: string[]; max: number; dir: string | null; ran: string[]; suggested: string[] }> {
   const [sub, ...rest] = args;
-  const out = { sub: sub ?? '', positional: [] as string[], max: PATROL_DEFAULT_MAX, state: null as string | null, ran: [] as string[], suggested: [] as string[] };
+  const out = { sub: sub ?? '', positional: [] as string[], max: PATROL_DEFAULT_MAX, dir: null as string | null, ran: [] as string[], suggested: [] as string[] };
   const errors: string[] = [];
   let maxSeen = false;
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i]!;
-    if (a === '--max' || a === '--state' || a === '--ran' || a === '--suggested') {
+    if (a === '--max' || a === '--dir' || a === '--ran' || a === '--suggested') {
       const v = rest[++i];
       if (v === undefined || v.startsWith('--')) {
         errors.push(`${a} の値がありません`);
@@ -271,9 +271,9 @@ export function parsePatrolArgs(args: string[]): Result<{ sub: string; positiona
         maxSeen = true;
         if (!/^[1-9]\d*$/.test(v)) errors.push(`--max は正の整数：${v}`);
         else out.max = Number(v);
-      } else if (a === '--state') {
-        if (out.state !== null) errors.push('--state が2回あります');
-        out.state = v;
+      } else if (a === '--dir') {
+        if (out.dir !== null) errors.push('--dir が2回あります');
+        out.dir = v;
       } else (a === '--ran' ? out.ran : out.suggested).push(v);
     } else if (a.startsWith('--')) errors.push(`知らない引数です：${a}`);
     else out.positional.push(a);

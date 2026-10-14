@@ -3,7 +3,7 @@
  *
  *   node harness/scripts/hq-compact.ts fleet --theme <テーマ> [--dry-run]（標準出力に { theme, decision, sent } の JSON）
  *
- * - 送るのは、前に縮めてから（無ければ起こしてから）hq.compactMinutes（既定 180 分）以上経ち、受け持ちの Issue に plan-gate 以外の着手宣言が無く、
+ * - 送るのは、前に縮めてから（無ければ起こしてから）180 分（HQ_COMPACT_DEFAULTS。設定では変えない）以上経ち、受け持ちの Issue に plan-gate 以外の着手宣言が無く、
  *   端末がターンを終えている（Orca の tui-idle）ときだけ。ターンの途中・ship が動いている間は送らない。
  * - hq 自身は hq-watch.ts が timeout で戻る切れ目で maybeCompactHq を呼ぶ。縮めた記録は git の共通ディレクトリの下の agent-harness/hq/hq-compact.json
  *   （hq の控え hq-fleets.json とは別のファイル。ledger-save で消えない）。
@@ -12,7 +12,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadConfig } from '../lib/config.ts';
 import type { FleetStatusRow } from '../lib/fleet.ts';
 import { writeLocalJson } from '../lib/local-state.ts';
 import { orcaCliCommand } from '../lib/worktree.ts';
@@ -25,15 +24,6 @@ export const COMPACT_WAIT_MS = 600_000;
 
 export const FLEET_COMPACT_NOTE = 'hq の Orca の worker の fleet。前置き（実行ファイル・Task ID・Dispatch ID・handle・capability）、受け持つ Epic と Issue の集合、各 Issue の段階と次にすること、hq への返事待ちの質問を残す。縮めた後は `node harness/scripts/hq-state.ts ledger` の自分の Dispatch の要素と `fleet-status` を読み直して続ける';
 export const HQ_COMPACT_NOTE = 'hq。控えの場所（`hq-state.ts ledger`）、hq の Run と端末の handle、人に聞いている質問と返せていない答え、見張りを必ず置くことを残す。縮めた後は控えを読み直して手順8から続ける';
-
-/** hq の節から縮める間隔（分）を読む（無ければ既定値）。正の整数でなければ throw する */
-export function hqCompactConfig(config: { hq?: unknown }): { compactMinutes: number } {
-  const raw = config.hq;
-  if (raw !== undefined && (raw === null || typeof raw !== 'object' || Array.isArray(raw))) throw new Error('hq はオブジェクトで書いてください');
-  const v = (raw as Record<string, unknown> | undefined)?.compactMinutes ?? HQ_COMPACT_DEFAULTS.compactMinutes;
-  if (typeof v !== 'number' || !Number.isInteger(v) || v <= 0) throw new Error('hq.compactMinutes は正の整数（分）で書いてください');
-  return { compactMinutes: v };
-}
 
 export type CompactReason = 'due' | 'not-due' | 'busy' | 'not-idle' | 'unknown-start';
 export interface CompactDecision { send: boolean; reason: CompactReason; busy?: number[] }
@@ -256,7 +246,7 @@ function main(argv: string[]): Promise<void> {
   if (!theme) throw new Error(usage);
   const commonDir = gitCommonDir(process.cwd());
   if (!commonDir) throw new Error('git の共通ディレクトリが見つかりません');
-  const { compactMinutes } = hqCompactConfig(loadConfig() as { hq?: unknown });
+  const { compactMinutes } = HQ_COMPACT_DEFAULTS;
   const deps: FleetCompactDeps = {
     ledger: () => readLedgerFile(commonDir),
     ...realRecord(commonDir),

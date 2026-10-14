@@ -45,17 +45,17 @@ description: 人が付き添うセッションで、減らせるテスト（ほ�
 skill によらない共通の規則（`/loop` の始め方・止め方、回の中で人に聞かないこと）は [harness/docs/operations.md の「見直しを /loop で回す」](../../../harness/docs/operations.md#見直しを-loop-で回す) を参照する。ここには test-prune に固有のことだけを書く。
 
 - 間隔の目安：1日〜2週間おき（例 `/loop 7d /test-prune --loop`）。所要時間はテストファイルの本数による（既定で4本ずつ並行。`--concurrency`）。[patrol](../patrol/SKILL.md) から回すときは、patrol の決め方（下限 1 日・上限 14 日）が回す時期を決める。
-- test-prune は毎回全部のテストを見るので、期間や前回の位置は持たない。回ごとの集計の時刻と下書きを手元の状態のファイル（既定は `git rev-parse --path-format=absolute --git-common-dir` の下の `agent-harness/test-prune-loop.json`。作業ツリーにも GitHub にも書かない）に持つ。
+- test-prune は毎回全部のテストを見るので、期間や前回の位置は持たない。回ごとの集計の時刻と下書きは patrol のまとめの Issue の本文の状態（`testPrune`）に持つ。回は `node harness/scripts/agent.ts patrol-pull --dir <dir>` で本文の状態を `<dir>`（scratchpad の `patrol/`）に写し、`pending`・`record` に `--dir <dir>` を渡し、最後に `node harness/scripts/agent.ts patrol-push --dir <dir>` で書き戻す（[patrol](../patrol/SKILL.md) から回すときは、pull と push は patrol がする）。
 - 1回分の処理（回の中で人の答えを待たない）：
   1. `node harness/scripts/test-prune.ts [--only <glob>] [--health <観測の JSON>]` を実行する。patrol から回すときは、patrol がその回に作った観測の JSON を `--health` に渡す。単独の `/test-prune --loop` では渡さず、無いことを報告に書く。最後の行の JSON を「## 集計」の手順2・3どおり読む。
   2. 「## 判断」の手順を行う。
-  3. `node harness/scripts/test-prune-loop.ts pending` で未採用の下書きを読み、同じ案の下書きがすでにあれば新しく作らない（同じ候補が続けて出るため）。
+  3. `node harness/scripts/agent.ts patrol-pull --dir <dir>` の後に `node harness/scripts/test-prune-loop.ts pending --dir <dir>` で未採用の下書きを読み、同じ案の下書きがすでにあれば新しく作らない（同じ候補が続けて出るため）。
   4. 報告を「## 出力」の手順1どおり文章で出す。報告の先頭に集計の時刻（`generatedAt`）と `headSha` を書く。直す Issue の下書きは3件まで作り、文章で示す。ループの回では AskUserQuestion を呼ばない。`gh issue create` もしない（Issue にするかは、下の「人が選ぶ場面」で人が決める）。
-  5. 下書きを JSON の配列（`title`・`body`、同じものがある開いた Issue があれば `duplicateOf`。`labels` は持たせない）で scratchpad に書き、`node harness/scripts/test-prune-loop.ts record <集計の JSON> [--drafts <下書きの JSON>]` で回を記録する。記録するのは報告を出した後だけ。すでに状態にある下書きと同じタイトルのものは記録されず、出力の `duplicates` に出る。
+  5. 下書きを JSON の配列（`title`・`body`、同じものがある開いた Issue があれば `duplicateOf`。`labels` は持たせない）で scratchpad に書き、`node harness/scripts/test-prune-loop.ts record <集計の JSON> [--drafts <下書きの JSON>] --dir <dir>` で回を記録し、`node harness/scripts/agent.ts patrol-push --dir <dir>` で書き戻す。記録するのは報告を出した後だけ。push が「pull の後にまとめの Issue の本文が変わりました」で止まったら、その回を止めて理由を出す。すでに状態にある下書きと同じタイトルのものは記録されず、出力の `duplicates` に出る。
 - `record` が集計の JSON の確かめ（形が違う・前回の回の集計より新しくない）で止まったら、人に聞かずにその回を止め、理由を出す（古い JSON を渡した・ほかのセッションが同じ状態で回した恐れ）。状態は変わらない。
-- 止め方：`/loop` を止める（止めるよう頼む・セッションを閉じる）。`record` の前に止めた回は記録が残らない（次の回はまた全部のテストを見るので抜けない）。
-- 人が選ぶ場面（ループの回の外）：人が「test-prune の下書きを選ぶ」と頼んだら、`node harness/scripts/test-prune-loop.ts pending` で未採用の下書きを読み、どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作り（`--label` は渡さない）、作るたびに `node harness/scripts/test-prune-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号>` で書き戻す。作った Issue は「## 出力」の手順4どおり plan に進める。
-- 動作を確かめるときは、`--state <一時のパス>` を `record`・`pending`・`adopt` に渡して、手元の状態のファイルと分ける。
+- 止め方：`/loop` を止める（止めるよう頼む・セッションを閉じる）。push の前に止めた回は記録が残らない（次の回はまた全部のテストを見るので抜けない）。
+- 人が選ぶ場面（ループの回の外）：人が「test-prune の下書きを選ぶ」と頼んだら、`node harness/scripts/test-prune-loop.ts pending`（`--dir` なしでまとめの Issue の本文を読む）で未採用の下書きを読み、どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作り（`--label` は渡さない）、`patrol-pull --dir <dir>` → 作った Issue ごとに `node harness/scripts/test-prune-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号> --dir <dir>` → `patrol-push --dir <dir>` で書き戻す（回の番号と下書きの番号は同じ pull の写しで確かめる）。作った Issue は「## 出力」の手順4どおり plan に進める。
+- 動作を確かめるときは、`patrol-pull --dir <一時のディレクトリ>` で写し、`record`・`pending`・`adopt` に `--dir <一時のディレクトリ>` を渡して、push しない（まとめの Issue の状態は変わらない）。
 
 ## やってはいけないこと
 

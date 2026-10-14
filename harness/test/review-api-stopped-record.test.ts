@@ -1,4 +1,4 @@
-// review-api の投稿しなかった記録（review-api/src/record.ts の renderStoppedComment・parseApiReviewComment と pipeline.ts の post-stopped）を確かめる（Issue #1003）。
+// review-api の投稿しなかった記録（review-api/src/record.ts の renderStoppedComment・parseApiReviewComment と pipeline.ts の post-stopped）を確かめる（Issue #1003。no-api-key は #1050）。
 // 読み戻しで posted（renderShadowComment の本文）と止めた outcome（renderStoppedComment の本文）を見分け、parseShadowComment は止めた記録を読まないこと、
 // outcome が語彙の外・止めた記録に verdict があると null になること、同じ head の止めた記録のコメント（レビュー用の App の名義）があると duplicate で投稿しないこと、
 // 止めた記録の本文に API キー・token・diff の行・PR の題・Claude の出力が出ないこと、止めた記録の投稿が失敗しても outcome が変わらないことを見る。
@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import { runReview } from '../../review-api/src/pipeline.ts';
 import { parseApiReviewComment, parseShadowComment, renderStoppedComment, type StoppedOutcome } from '../../review-api/src/record.ts';
 import {
+  answer,
   API_KEY,
   comment,
   COST_KEY,
@@ -18,6 +19,7 @@ import {
   params,
   REVIEW_KEY,
   REVIEWER,
+  RISK_OK,
   run,
   shadowComment,
   TOKEN,
@@ -32,7 +34,7 @@ test('読み戻しで posted と止めた outcome を見分け、parseShadowComm
   assert.equal(posted?.outcome, 'posted');
   assert.equal(posted?.headSha, HEAD);
 
-  const outcomes: StoppedOutcome[] = ['budget-exceeded', 'too-large', 'verdict-invalid'];
+  const outcomes: StoppedOutcome[] = ['budget-exceeded', 'too-large', 'verdict-invalid', 'no-api-key'];
   for (const outcome of outcomes) {
     const body = renderStoppedComment({ version: 1, pr: 5, headSha: HEAD, outcome, usd: null });
     const parsed = parseApiReviewComment(body);
@@ -67,7 +69,7 @@ test('止めた記録の本文に API キー・token・diff の行・PR の題�
   const leaky = `not json ${API_KEY} +new PR の題 LEAK-SENTINEL`;
   const cases: [string, Parameters<typeof run>[0]][] = [
     ['budget-exceeded', { kv: { [COST_KEY]: '9.99' } }],
-    ['verdict-invalid', { responses: [msg([{ type: 'text', text: leaky }], 'end_turn')] }],
+    ['verdict-invalid', { responses: [msg([{ type: 'text', text: leaky }], 'end_turn'), answer(RISK_OK)] }],
   ];
   for (const [name, opts] of cases) {
     const r = await run(opts);

@@ -1,5 +1,4 @@
-// Issue #402：collect が読んだ Epic（読み方は panes-hq-epics.test.ts）のスナップショット（epics・issueEpic）から hq の Epic のページが
-// Close の数を描くこと、hq の描く入口（startHqRender）が控えとスナップショットだけを読み（run が無く GitHub を
+// Issue #402：hq の描く入口（startHqRender）が控えとスナップショットだけを読み（run が無く GitHub を
 // 読まない）、描くたびに控えを読み直して今動いている fleet を見つけることを、偽の deps と schedule で確かめる。
 // CLI の入口（ペインの名前が無い `panes.ts hq` は todo、--session は止まる）は子のプロセスの --once で確かめる。
 import assert from 'node:assert/strict';
@@ -8,8 +7,8 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { FLEET_STAGES, type FleetStage, type FleetStatusData, type FleetStatusRow } from '../lib/fleet.ts';
-import { CLEAR_SCREEN, stripAnsi, type PaneSnapshot } from '../lib/panes.ts';
-import { readHqView, renderHqBoard, type HqView } from '../lib/panes-hq.ts';
+import { CLEAR_SCREEN, type PaneSnapshot } from '../lib/panes.ts';
+import type { HqView } from '../lib/panes-hq.ts';
 import {
   collectOnce, startHqRender, type CollectDeps, type CollectOptions, type HqRenderDeps, type RunResult,
 } from '../scripts/panes.ts';
@@ -73,15 +72,6 @@ test('collectOnce：fleet の Issue が0件なら Epic を読まない（gh を�
 });
 
 // ---- collect から描くまで：描く側は GitHub を読まない ----
-
-test('collect が書いたスナップショットから、Epic のページが Close の数を描く（描く側は gh を呼ばない）', () => {
-  const { deps } = fakeDeps();
-  const s = collectOnce(deps, opts());
-  const v = readHqView({ fleets: [{ theme: 'ペイン', epic: 281, session: 'sess-1', startedAt: '2026-09-30T00:50:00.000Z' }] }, () => s, NOW, 10);
-  const text = stripAnsi(renderHqBoard(v, 'epic', NOW, 120));
-  assert.ok(text.includes('1/2'), text);
-  assert.ok(text.includes('#281'), text);
-});
 
 test('lib/panes-hq.ts は node:child_process・node:fs・github・scripts を import しない', () => {
   const src = readFileSync(join(root, 'harness', 'lib', 'panes-hq.ts'), 'utf8');

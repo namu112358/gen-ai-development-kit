@@ -48,16 +48,16 @@ Merge 済みの PR を、人が呼んだときか、付き添いのセッショ�
 skill によらない共通の規則（`/loop` の始め方・止め方、回の中で人に聞かないこと）は [harness/docs/operations.md の「見直しを /loop で回す」](../../../harness/docs/operations.md#見直しを-loop-で回す) を参照する。ここには qa-retro に固有のことだけを書く。
 
 - 間隔の目安：1日〜1週間おき（例 `/loop 1d /qa-retro --loop`）。期間の終わりは今の7日前なので、間隔を短くしても1回分の期間が細かくなるだけで、抜けも重なりも出ない。
-- 1回分の期間：前回の回の終わりから、今の7日前まで（後追いの修正は Merge 後 7 日以内の fix の PR で数えるので、窓が閉じた PR だけを見る）。初回（状態のファイルが無い）は、終わりの14日前から。前回の回の終わりは手元の状態のファイル（既定は `git rev-parse --path-format=absolute --git-common-dir` の下の `agent-harness/qa-retro-loop.json`。作業ツリーにも GitHub にも書かない）に持つ。
+- 1回分の期間：前回の回の終わりから、今の7日前まで（後追いの修正は Merge 後 7 日以内の fix の PR で数えるので、窓が閉じた PR だけを見る）。初回（状態が無い）は、終わりの14日前から。前回の回の終わりは patrol のまとめの Issue の本文の状態（`qaRetro`）に持つ。回は `node harness/scripts/agent.ts patrol-pull --dir <dir>` で本文の状態を `<dir>`（scratchpad の `patrol/`）に写し、`data`・`advance` に `--dir <dir>` を渡し、最後に `node harness/scripts/agent.ts patrol-push --dir <dir>` で書き戻す（[patrol](../patrol/SKILL.md) から回すときは、pull と push は patrol がする）。
 - 1回分の処理（回の中で人の答えを待たない）：
-  1. `node harness/scripts/qa-retro-loop.ts data` を実行する。「まだ見る期間がありません」と出たら、その回はそこで終える（状態は変わらない）。出力が JSON のファイルのパスなら、「## 集計」の手順2どおり読む。
+  1. `node harness/scripts/agent.ts patrol-pull --dir <dir>` の後に `node harness/scripts/qa-retro-loop.ts data --dir <dir>` を実行する。「まだ見る期間がありません」と出たら、その回はそこで終える（状態は変わらない）。出力が JSON のファイルのパスなら、「## 集計」の手順2どおり読む。
   2. 「## 判断」の手順を行う。
   3. 報告を「## 出力」の手順1どおり文章で出す。報告の先頭に期間（始まり・終わり）を書く。「## 出力」の手順1の抜き取りは `session-judgment-digest --weekly` が週に1回だけ `due` を真にするので、回の間隔が短くても週1回だけ出る。直す Issue の下書きは3件まで作り、文章で示す。ループの回では AskUserQuestion を呼ばない。`gh issue create` もしない（Issue にするかは、下の「人が選ぶ場面」で人が決める）。
-  4. 下書きを JSON の配列（`title`・`body`、同じものがある開いた Issue があれば `duplicateOf`。`labels` は持たせない）で scratchpad に書き、`node harness/scripts/qa-retro-loop.ts advance <集計の JSON> [--drafts <下書きの JSON>]` で期間を進める。進めるのは報告を出した後だけ。
+  4. 下書きを JSON の配列（`title`・`body`、同じものがある開いた Issue があれば `duplicateOf`。`labels` は持たせない）で scratchpad に書き、`node harness/scripts/qa-retro-loop.ts advance <集計の JSON> [--drafts <下書きの JSON>] --dir <dir>` で期間を進め、`node harness/scripts/agent.ts patrol-push --dir <dir>` で書き戻す。進めるのは報告を出した後だけ。push が「pull の後にまとめの Issue の本文が変わりました」で止まったら、その回を止めて理由を出す（期間は進まないので、次の回が同じ始まりから見直す）。
 - `advance` が一致の確かめ（集計の JSON の期間の始まりが、前回の回の終わりと違う）で止まったら、人に聞かずにその回を止め、理由を出す（ほかのセッションが同じ状態で回している・古い JSON を渡した恐れ）。状態は変わらない。
-- 止め方：`/loop` を止める（止めるよう頼む・セッションを閉じる）。`advance` の前に止めた回は期間が進まないので、次の回が同じ始まりから見直す（抜けない）。
-- 人が選ぶ場面（ループの回の外）：人が「qa-retro の下書きを選ぶ」と頼んだら、`node harness/scripts/qa-retro-loop.ts pending` で未採用の下書きを読み、どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作り（ラベルは付けない）、作るたびに `node harness/scripts/qa-retro-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号>` で書き戻す（期間は変わらない）。作った Issue は「## 出力」の手順4どおり plan に進める。
-- 動作を確かめるときは、`--state <一時のパス>` を `data`・`advance` に渡して、手元の状態のファイルと分ける。
+- 止め方：`/loop` を止める（止めるよう頼む・セッションを閉じる）。push の前に止めた回は期間が進まないので、次の回が同じ始まりから見直す（抜けない）。
+- 人が選ぶ場面（ループの回の外）：人が「qa-retro の下書きを選ぶ」と頼んだら、`node harness/scripts/qa-retro-loop.ts pending`（`--dir` なしでまとめの Issue の本文を読む）で未採用の下書きを読み、どれを作るかを AskUserQuestion（複数選択、1回4問まで）で聞く。人が選んだものだけを `gh issue create` で作り（ラベルは付けない）、`patrol-pull --dir <dir>` → 作った Issue ごとに `node harness/scripts/qa-retro-loop.ts adopt <回の番号> <下書きの番号> <Issue 番号> --dir <dir>` → `patrol-push --dir <dir>` で書き戻す（期間は変わらない。回の番号と下書きの番号は同じ pull の写しで確かめる）。作った Issue は「## 出力」の手順4どおり plan に進める。
+- 動作を確かめるときは、`patrol-pull --dir <一時のディレクトリ>` で写し、`data`・`advance` に `--dir <一時のディレクトリ>` を渡して、push しない（まとめの Issue の状態は変わらない）。
 
 ## やってはいけないこと
 

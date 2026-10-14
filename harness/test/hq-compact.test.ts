@@ -1,16 +1,16 @@
-// Issue #737：hq が fleet と hq 自身に /compact を送る条件の判定（harness/scripts/hq-compact.ts）を確かめる。Orca・GitHub は起動しない。
+// Issue #737：hq が fleet と hq 自身に /compact を送る条件の判定（harness/scripts/hq-compact.ts）と、間隔の定数 HQ_COMPACT_DEFAULTS の値（#1076）を確かめる。Orca・GitHub は起動しない。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { FLEET_STAGES, type FleetClaimInfo, type FleetStatusRow } from '../lib/fleet.ts';
 import type { HqLedger } from '../scripts/hq-state.ts';
 import {
-  busyIssues, compactDecision, hqSelfDecision, maybeCompactHq, parseCompactFile, recordCompact, runFleetCompact, type CompactFile,
+  busyIssues, compactDecision, HQ_COMPACT_DEFAULTS, hqSelfDecision, maybeCompactHq, parseCompactFile, recordCompact, runFleetCompact, type CompactFile,
 } from '../scripts/hq-compact.ts';
 
 const NOW = Date.parse('2026-10-12T12:00:00.000Z');
 const MIN = 60000;
 const minsAgo = (m: number): string => new Date(NOW - m * MIN).toISOString();
-const CM = 180;
+const CM = HQ_COMPACT_DEFAULTS.compactMinutes;
 
 const claim = (stage: string | null): FleetClaimInfo => ({ by: 'manual', stage, session: 's', own: false });
 const row = (issue: number, patch: Partial<FleetStatusRow> = {}): FleetStatusRow => ({
@@ -23,6 +23,12 @@ function probes(busy: number[], idle: boolean | null) {
   const n = { busy: 0, idle: 0 };
   return { n, busy: () => { n.busy++; return busy; }, idle: () => { n.idle++; return idle; } };
 }
+
+// ---- HQ_COMPACT_DEFAULTS ----
+
+test('HQ_COMPACT_DEFAULTS：/compact を送る間隔は 180 分', () => {
+  assert.deepEqual(HQ_COMPACT_DEFAULTS, { compactMinutes: 180 });
+});
 
 // ---- compactDecision ----
 

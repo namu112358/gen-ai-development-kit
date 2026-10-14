@@ -172,16 +172,12 @@ test('AC4：鍵が無ければ（Jev の記録が skipped）どの計画も通�
   assertUntouched(fake, w, [...RELEASED, ...HELD, ...SKIPPED]);
 });
 
-test('auto mode が無効（ラベルが無い・人以外が付けた・停止スイッチ・無効の状態を渡した）なら何もしない', async () => {
+test('auto mode が無効（ラベルが無い・無効の状態を渡した）なら何もしない（停止スイッチ・App が付けたは auto-mode-state.test.ts が状態の単位で確かめる）', async () => {
   const off: AutoModeState = { active: false, since: null, by: null, reason: 'ラベルが無い' };
   const cases: [string, DelegateWorld, AutoModeState | undefined][] = [
     ['ラベルが無い', stoppedWorld([]), undefined],
-    ['停止スイッチ', stoppedWorld([AUTO, config.autoMergeStopLabel]), undefined],
     ['無効の状態を渡した', stoppedWorld(), off],
   ];
-  const bot = stoppedWorld();
-  bot.dashboardEvents = [delegateLabeled(AUTO, minutesAgo(10), APP)];
-  cases.push(['App が付けた', bot, undefined]);
   for (const [name, w, state] of cases) {
     const fake = delegateWorldFake(w);
     const jev = fakeJev();

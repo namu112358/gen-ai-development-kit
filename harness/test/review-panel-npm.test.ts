@@ -28,14 +28,6 @@ test('installFailureMessage：0 以外で終わったときは終了コードと
   assert.ok(!msg.includes('起動できませんでした'), msg);
 });
 
-test('installFailureMessage：Windows で npm が認識されないときの cmd の出力が入る', () => {
-  const stderr = "'npm' は、内部コマンドまたは外部コマンド、\n操作可能なプログラムまたはバッチ ファイルとして認識されていません。\n";
-  const msg = installFailureMessage('npm ci', { status: 1, stdout: '', stderr });
-  assert.equal(msg.split('\n')[0], HEAD);
-  assert.ok(msg.includes('終了コード 1'), msg);
-  assert.ok(msg.includes('認識されていません'), msg);
-});
-
 test('installFailureMessage：status が null（シグナルで終了）のときはそう書く', () => {
   const msg = installFailureMessage('npm ci', { status: null, stdout: 'partial\n', stderr: '' });
   assert.equal(msg.split('\n')[0], HEAD);

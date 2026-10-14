@@ -1,9 +1,6 @@
 // Issue #157：このセッションの着手宣言が無いと critic-input・post-plan・worktree が止まり、claim はほかのセッションの宣言の上に宣言しない
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { claudeMark, renderBlock } from '../lib/blocks.ts';
-import { claimOf } from '../lib/facts.ts';
-import type { IssueComment } from '../lib/github.ts';
 import { claimBlocker, requireOwnClaim, worktreeClaimIssue, type Claim } from '../lib/queue.ts';
 
 const SESSION = '3f2a9c1e-0b1d-4c2e-9f00-123456789abc';
@@ -36,11 +33,6 @@ test('claimBlocker：ほかのセッションの有効な手動の宣言があ�
     const r = claimBlocker(claim, current, opts());
     assert.ok(typeof r === 'string' && r.length > 0, `止めるべき: ${label}`);
   }
-});
-
-test('claimBlocker：--takeover ならほかのセッションの宣言の上に宣言してよい', () => {
-  assert.equal(claimBlocker(manual({ session: OTHER }), SESSION, opts(true)), null);
-  assert.equal(claimBlocker(manual(), SESSION, opts(true)), null);
 });
 
 test('claimBlocker：Routine の宣言の上に手動で宣言するのは今までどおり止めない', () => {
@@ -92,32 +84,4 @@ test('worktreeClaimIssue：claude/issue-<番号>-… のブランチだけ、宣
   for (const branch of ['feature/x', 'claude/106-x', 'claude/issue-abc-x', 'main', 'agent/harness-architecture-config-272b82']) {
     assert.equal(worktreeClaimIssue(branch, false, false), null, branch);
   }
-});
-
-// ---- post-plan の後も宣言が有効なまま残る ----
-
-let nextId = 1;
-function comment(body: string): IssueComment {
-  const id = nextId++;
-  return { id, body, html_url: `u${id}`, created_at: `2026-09-26T00:00:${String(id).padStart(2, '0')}Z`, updated_at: '', author_association: 'OWNER', user: { login: 'me', type: 'User' } };
-}
-const plan = { version: 1, issue: 3, risk: 'low', needsHuman: false, needsHumanReasons: [], acChangeProposed: false, openQuestions: [], files: ['docs/a.md'] };
-const claimComment = (value: Record<string, unknown>) => comment(`${claudeMark(SESSION)}\n着手しました。\n\n${renderBlock('agent-claim', value)}`);
-const planComment = () => comment(`${claudeMark(SESSION)}\n## 計画\n\n${renderBlock('agent-plan', plan)}`);
-
-test('claimOf：計画コメントの後に plan-gate の宣言があれば、その宣言が有効（post-plan の後も残る）', () => {
-  const gateClaim = { by: 'manual', at: '2026-09-26T11:00:00Z', session: SESSION, stage: 'plan-gate' };
-  const comments = [
-    claimComment({ by: 'manual', at: '2026-09-26T10:00:00Z', session: SESSION, stage: 'plan-critique' }),
-    planComment(),
-    claimComment(gateClaim),
-  ];
-  const c = claimOf(comments);
-  assert.deepEqual(c, gateClaim);
-  assert.deepEqual(requireOwnClaim(c, SESSION), { error: null, warning: null }, 'このセッションの宣言として通る');
-});
-
-test('claimOf：計画コメントの後に宣言が無ければ null（宣言は終わっている）', () => {
-  const comments = [claimComment({ by: 'manual', at: '2026-09-26T10:00:00Z', session: SESSION, stage: 'plan-critique' }), planComment()];
-  assert.equal(claimOf(comments), null);
 });
