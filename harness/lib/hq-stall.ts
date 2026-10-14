@@ -32,6 +32,7 @@ export interface HqStallConfig {
   stuckMinutes: number;
 }
 
+/** fleet 1つの判定。missing はスナップショットが無い・読めない（collect が動いていない） */
 export interface FleetStall {
   session: string;
   missing?: true;
