@@ -7,7 +7,7 @@ import { LABELS } from '../lib/config.ts';
 import type { askJev } from '../lib/jev.ts';
 import type { Plan } from '../lib/plan.ts';
 import { onComment } from '../gates/on-comment.ts';
-import { APP, CRITIQUE, DELEGATE, config, critiqueClaim, ctxFor, delegateLabeled, delegateWorldFake, type DelegateWorld, type FakeGitHub } from './support/gate-fixtures.ts';
+import { CRITIQUE, DELEGATE, config, critiqueClaim, ctxFor, delegateLabeled, delegateWorldFake, type DelegateWorld, type FakeGitHub } from './support/gate-fixtures.ts';
 
 const AUTO = autoModeConfig(config).label;
 /** ガードレールに当たり、delegateMergeExclude に当たらない files */
@@ -268,21 +268,13 @@ test('委任で通らない（delegateMergeExclude に重なる）計画は、�
   assert.equal(jev.asked.length, 1);
 });
 
-test('auto mode のラベルが無い・人以外（App・bot）が付けた・停止スイッチがあるときは auto mode で通らず、Jev に問わない', async () => {
-  const worlds: [string, DelegateWorld][] = [
-    ['ラベルが無い', { prs: [], dashboardLabels: [], dashboardEvents: [] }],
-    ['App', autoWorld({ login: APP })],
-    ['bot', autoWorld({ login: 'someone[bot]' })],
-    ['停止スイッチ', autoWorld({ extra: [config.autoMergeStopLabel] })],
-  ];
-  for (const [name, w] of worlds) {
-    const jev = fakeJev(0.01);
-    const { fake } = await postPlan(w, planOf(52), { jev });
-    const rec = assertStopped(fake, 52);
-    assert.ok(added(fake, 52, LABELS.planReview), `${name}: plan-review を付けていない`);
-    assert.equal(rec.autoMode, undefined, `${name}: 記録に autoMode がある`);
-    assert.equal(jev.asked.length, 0, `${name}: Jev に問った`);
-  }
+test('auto mode のラベルが無いときは auto mode で通らず、Jev に問わない（App・bot・停止スイッチは auto-mode-state.test.ts が状態の単位で確かめる）', async () => {
+  const jev = fakeJev(0.01);
+  const { fake } = await postPlan({ prs: [], dashboardLabels: [], dashboardEvents: [] }, planOf(52), { jev });
+  const rec = assertStopped(fake, 52);
+  assert.ok(added(fake, 52, LABELS.planReview), 'plan-review を付けていない');
+  assert.equal(rec.autoMode, undefined, '記録に autoMode がある');
+  assert.equal(jev.asked.length, 0, 'Jev に問った');
 });
 
 test('ゲートを通る計画は、auto mode の間でも Jev に問わず autoMode の記録にならない', async () => {

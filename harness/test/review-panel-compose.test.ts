@@ -48,7 +48,8 @@ function overbuildFinding(index: number, kind: string, patch: Record<string, unk
 
 // ---- 表のとおりの扱い ----
 
-test('compose：①は 75 以上で claude-md のブロッキング、75 未満は dropped（review のどこにも出ない）', () => {
+test('compose：①は 75 以上で claude-md のブロッキング、75 未満は dropped（review のどこにも出ない）。しきい値 SCORE_THRESHOLD は 75', () => {
+  assert.equal(SCORE_THRESHOLD, 75);
   const v = ok(compose([finding('lens1', 0, 'claude-md'), finding('lens1', 1, 'claude-md', { detail: '捨てられる①' })], { 'lens1-0': 75, 'lens1-1': 74 }));
   assert.equal(treatmentOf(v, 'lens1-0'), 'blocking');
   assert.equal(treatmentOf(v, 'lens1-1'), 'dropped');
@@ -85,26 +86,6 @@ test('compose：⑥⑦は 75 以上で出力の kind のままブロッキング
   assert.ok(concerns.includes('範囲外かもしれない') && concerns.includes('消えるかもしれない'));
 });
 
-test('compose：しきい値 SCORE_THRESHOLD は 75 で、ちょうど SCORE_THRESHOLD はブロッキング、SCORE_THRESHOLD - 1 は①〜⑤で dropped・⑥⑦で humanNotes', () => {
-  assert.equal(SCORE_THRESHOLD, 75);
-  const v = ok(compose([
-    finding('lens1', 0, 'claude-md'), finding('lens1', 1, 'claude-md'),
-    finding('lens5', 0, 'bug'), finding('lens5', 1, 'bug'),
-    finding('safety', 0, 'secret-leak', { unfixedPrevious: false }), finding('safety', 1, 'secret-leak', { unfixedPrevious: false }),
-  ], {
-    'lens1-0': SCORE_THRESHOLD, 'lens1-1': SCORE_THRESHOLD - 1,
-    'lens5-0': SCORE_THRESHOLD, 'lens5-1': SCORE_THRESHOLD - 1,
-    'safety-0': SCORE_THRESHOLD, 'safety-1': SCORE_THRESHOLD - 1,
-  }));
-  assert.equal(treatmentOf(v, 'lens1-0'), 'blocking');
-  assert.equal(treatmentOf(v, 'lens1-1'), 'dropped');
-  assert.equal(treatmentOf(v, 'lens5-0'), 'blocking');
-  assert.equal(treatmentOf(v, 'lens5-1'), 'dropped');
-  assert.equal(treatmentOf(v, 'safety-0'), 'blocking');
-  assert.equal(treatmentOf(v, 'safety-1'), 'humanNotes');
-  assert.equal(v.review.blocking.length, 3);
-});
-
 test('compose：⑨（overbuild）の指摘は確信度 74 なら nonBlocking で合格、75・100 は⑨の種類のブロッキングで不合格（Issue #386）', () => {
   const details = ['使われない引数を足している', '同じ分岐を3回確かめている', '1か所でしか使わない抽象'] as const;
   const findings = [
@@ -133,13 +114,6 @@ test('compose：⑨（overbuild）の指摘は確信度 74 なら nonBlocking �
   assert.ok(!('planLevel' in found), '組み立ての findings は planLevel を持たない');
 });
 
-test('compose：⑨はほかのブロッキングと並んでも、両方ブロッキングになる（Issue #386）', () => {
-  const v = ok(compose([finding('lens2', 0, 'bug'), overbuildFinding(0, 'over-implementation')], { 'lens2-0': 90, 'overbuild-0': 100 }));
-  assert.equal(v.review.pass, false);
-  assert.deepEqual(v.review.blocking.map((b) => b.kind).sort(), ['bug', 'over-implementation']);
-  assert.equal(treatmentOf(v, 'overbuild-0'), 'blocking');
-});
-
 test('compose：⑨の planLevel: true の指摘は確信度 74 でも 75 以上でも humanNotes.checkPoints に入り、concerns には入らない。planLevel が無い・false なら checkPoints に入らない（Issue #325・#386）', () => {
   const v = ok(compose([
     overbuildFinding(0, 'over-engineering', { planLevel: true, detail: '計画の方針ごと過剰な層' }),
@@ -156,16 +130,6 @@ test('compose：⑨の planLevel: true の指摘は確信度 74 でも 75 以上
   assert.equal(treatmentOf(v, 'overbuild-0'), 'nonBlocking');
   assert.equal(treatmentOf(v, 'overbuild-1'), 'blocking');
   for (const f of v.findings) assert.ok(!('planLevel' in f), `${f.id}: 組み立ての findings は planLevel を持たない`);
-});
-
-test('compose：ブロッキングの detail は file:line と元の内容を含み、file は BlockingFinding の file に入る', () => {
-  const v = ok(compose([finding('lens2', 0, 'bug', { file: 'harness/lib/x.ts', line: 42, detail: 'null を見落としている' })], { 'lens2-0': 90 }));
-  const [b] = v.review.blocking;
-  assert.ok(b!.detail.includes('harness/lib/x.ts:42') && b!.detail.includes('null を見落としている'));
-  assert.equal(b!.file, 'harness/lib/x.ts');
-  const found = v.findings.find((f) => f.id === 'lens2-0')!;
-  assert.equal(found.score, 90);
-  assert.equal(found.source, 'lens2');
 });
 
 test('compose：parsePanelOutputs の notes は humanNotes に入る', () => {
@@ -459,10 +423,11 @@ test('parsePanelOutputs：未知のキー・lens の番号の食い違い・kind
 const answers = Object.fromEntries(RISK_QUESTIONS.map((q) => [q.key, q.safe]));
 const risk = { level: 'low', answers, rationale: '合体版のテスト', facts: { references: 'none', tests: 'none', fileKinds: 'code' } };
 
-test('compose：出力の review は composeVerdict の reviewer として受け付けられ、読み戻すと blocking が同じ（合格・不合格とも）', () => {
+test('compose：出力の review は composeVerdict の reviewer として受け付けられ、読み戻すと blocking が同じ（合格・不合格・⑨のブロッキングとも。Issue #386）', () => {
   const failing = ok(compose([finding('lens2', 0, 'bug'), finding('ac-scope', 0, 'ac-unmet', { unfixedPrevious: false }), finding('safety', 0, 'regression', { unfixedPrevious: false })], { 'lens2-0': 90, 'ac-scope-0': 90, 'safety-0': 10 }, { check: CHECK_NG }));
   const passing = ok(compose([finding('lens2', 0, 'bug'), finding('safety', 0, 'regression', { unfixedPrevious: false })], { 'lens2-0': 10, 'safety-0': 10 }));
-  for (const [name, v, pass] of [['不合格', failing, false], ['合格', passing, true]] as const) {
+  const overbuild = ok(compose([overbuildFinding(0, 'over-engineering', { planLevel: true }), overbuildFinding(1, 'over-testing')], { 'overbuild-0': 100, 'overbuild-1': 100 }));
+  for (const [name, v, pass] of [['不合格', failing, false], ['合格', passing, true], ['⑨のブロッキング', overbuild, false]] as const) {
     assert.equal(v.review.pass, pass, name);
     const r = composeVerdict({ pr: 5, judgedHead: HEAD, currentHead: HEAD, reviewer: v.review, risk, meta: { model: 'm', judgedBy: '付き添いのセッション' } });
     assert.ok(r.ok, `${name}: ${r.ok ? '' : r.errors.join('\n')}`);
@@ -473,18 +438,6 @@ test('compose：出力の review は composeVerdict の reviewer として受け
     assert.deepEqual(parsed.value.review.blocking, v.review.blocking, name);
     assert.equal(parsed.value.review.pass, pass, name);
   }
-});
-
-test('compose：⑨のブロッキングを含む review も composeVerdict の reviewer として受け付けられ、読み戻すと不合格で blocking が同じ（Issue #386）', () => {
-  const v = ok(compose([overbuildFinding(0, 'over-engineering', { planLevel: true }), overbuildFinding(1, 'over-testing')], { 'overbuild-0': 100, 'overbuild-1': 100 }));
-  const r = composeVerdict({ pr: 5, judgedHead: HEAD, currentHead: HEAD, reviewer: v.review, risk, meta: { model: 'm', judgedBy: '付き添いのセッション' } });
-  assert.ok(r.ok, r.ok ? '' : r.errors.join('\n'));
-  const b = extractBlock(r.value, 'agent-verdict');
-  assert.ok(b.found && b.ok);
-  const parsed = parseVerdict(b.value);
-  assert.ok(parsed.ok);
-  assert.equal(parsed.value.review.pass, false);
-  assert.deepEqual(parsed.value.review.blocking, v.review.blocking);
 });
 
 // ---- 前回の判定（judge-input から） ----

@@ -2,8 +2,10 @@
 // 人待ちが全 fleet の人がすることを出し、無ければ「今はありません」と進行中の件数を出すこと、Epic のページの Close の数・人待ちの数・
 // Epic に入っていない件数、Issue のページの Epic ごとの6段階の横棒と済みの畳み方、ログの新しい順、長いタイトルの折り返し（英数字の語を
 // 途中で切らない）を、要点の語句だけで確かめる（文言を丸ごと固定しない）。
+// fleet の数の上限の注意は、このリポジトリの hq.maxFleets（5）の境目も確かめる（元 panes-hq-max-fleets.test.ts、Issue #522）。
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { hqConfig, loadConfig } from '../lib/config.ts';
 import { FLEET_STAGES, type FleetStage, type FleetStatusData, type FleetStatusRow } from '../lib/fleet.ts';
 import { MARKS, displayWidth, stripAnsi, type PaneEpic, type PaneSnapshot } from '../lib/panes.ts';
 import {
@@ -151,9 +153,12 @@ test('renderHqTodo：人がすることが無ければ「今はありません�
   assert.match(text, /AI・App が進行中 3 件/);
 });
 
-test('renderHqTodo：fleet が hq.maxFleets を超えると警告の行', () => {
+test('renderHqTodo：fleet が hq.maxFleets 以下なら警告が出ず、超えると警告の行（このリポジトリの hq.maxFleets は 5）', () => {
+  const max = 2;
   const fleets = [1, 2, 3].map((n) => fv(fleet(`f${n}`, `s-${n}`), snap(`s-${n}`, [row(n)])));
-  assert.match(plain(renderHqTodo(view(fleets), NOW, 160, 2)), /hq\.maxFleets/);
+  assert.doesNotMatch(plain(renderHqTodo(view(fleets.slice(0, max)), NOW, 160, max)), /hq\.maxFleets/);
+  assert.match(plain(renderHqTodo(view(fleets.slice(0, max + 1)), NOW, 160, max)), /hq\.maxFleets/);
+  assert.equal(hqConfig(loadConfig()).maxFleets, 5);
 });
 
 test('renderHqTodo：注意（hqWarning）があれば出す', () => {

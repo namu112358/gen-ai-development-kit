@@ -1,28 +1,26 @@
-// 見張りの hook（guard.ts）が保護ラベル・例外ラベルの付け外しを意味で止め、gh api --input - の本文も見て、読むだけのコマンドは通すことを確かめる（Issue #218・#241）
+// 見張りの hook（guard.ts）が保護ラベル・例外ラベルの付け外しを意味で止め、gh api --input - の本文も見て、読むだけのコマンドは通すことを確かめる（Issue #218・#241。bypass・delegate・auto mode のラベルの拒否は #245・#210・#344 から #1010 で寄せた）
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { decide, decideRaw, type GuardContext, type HookInput } from '../../.claude/hooks/guard.ts';
-import { delegateConfig, LABELS, loadConfig } from '../lib/config.ts';
+import { decide, decideRaw, protectedLabelsOf, type GuardContext, type HookInput } from '../../.claude/hooks/guard.ts';
+import * as lib from '../lib/config.ts';
 
-/** guard.ts の main が設定から作るのと同じ形の ctx */
+/** guard.ts の main と同じく protectedLabelsOf で作る ctx */
 function ctxFromConfig(): GuardContext {
-  const config = loadConfig();
-  return {
-    defaultBranch: config.defaultBranch,
-    protectedLabels: [LABELS.planOk, LABELS.hold, config.autoMergeStopLabel, delegateConfig(config).planLabel, delegateConfig(config).mergeLabel],
-    currentBranch: 'claude/issue-218-x',
-  };
+  const config = lib.loadConfig();
+  return { defaultBranch: config.defaultBranch, protectedLabels: protectedLabelsOf(config, lib), currentBranch: 'claude/issue-218-x' };
 }
 
 const bash = (command: string): HookInput => ({ tool_name: 'Bash', tool_input: { command } });
 
-/** 保護ラベルの5つと、例外ラベルの3つと、今後増える例外ラベルの例 */
+/** 保護ラベルの7つと、例外ラベルの3つと、今後増える例外ラベルの例 */
 const LABEL_NAMES = [
   'agent:plan-ok',
   'agent:hold',
   'agent:auto-merge-stopped',
   'agent:delegate-plan',
   'agent:delegate-merge',
+  'agent:bypass-merge',
+  'agent:auto-mode',
   'plan:exempt',
   'review:exempt',
   'test:exempt',
@@ -38,17 +36,21 @@ function assertDenyAll(input: HookInput, label: string): void {
   assert.equal(decideRaw(JSON.stringify(input), null).deny, true, `止めるべき（decideRaw、設定が読めない）: ${label}`);
 }
 
-function assertAllowAll(input: HookInput, label: string): void {
+/** withoutConfig が真なら、設定が読めないとき（ctx が null）も通すことを確かめる */
+function assertAllowAll(input: HookInput, label: string, withoutConfig = true): void {
   const ctx = ctxFromConfig();
   assert.deepEqual(decide(input, ctx), { deny: false }, `通すべき（decide）: ${label}`);
   assert.deepEqual(decideRaw(JSON.stringify(input), ctx), { deny: false }, `通すべき（decideRaw）: ${label}`);
+  if (withoutConfig) assert.deepEqual(decideRaw(JSON.stringify(input), null), { deny: false }, `通すべき（decideRaw、設定が読めない）: ${label}`);
 }
 
 function ghLabelCmds(label: string): string[] {
   return [
     `gh issue edit 1 --add-label ${label}`,
     `gh issue edit 1 --add-label=${label}`,
+    `gh issue edit 1 --remove-label ${label}`,
     `gh issue edit 1 --remove-label foo,${label}`,
+    `gh issue edit 1 --add-label ${label},bar`,
     `gh issue edit 1 --add-label ${label.toUpperCase()}`,
     `gh issue create --title t -l ${label}`,
     `gh issue create --title t --label=${label}`,
@@ -61,6 +63,7 @@ function ghLabelCmds(label: string): string[] {
     `gh api repos/o/r/issues/1/labels -f 'labels[]=${label}'`,
     `gh api -X POST repos/o/r/issues/1/labels -f 'labels[]=${label}'`,
     `gh api -X DELETE repos/o/r/issues/1/labels/${label}`,
+    `gh api --method DELETE repos/o/r/issues/1/labels/${label}`,
     `gh api -X DELETE repos/o/r/issues/1/labels/${encodeURIComponent(label)}`,
   ];
 }
@@ -204,6 +207,7 @@ test('本文でラベルに触れるだけのコメントは通す', () => {
   assertAllowAll(
     { tool_name: 'mcp__github__add_issue_comment', tool_input: { issue_number: 1, body: 'agent:hold と test:exempt を外してください' } },
     'add_issue_comment の本文にラベルの名前',
+    false, // 設定が読めないときは MCP の入力にラベルの名前があれば止める（FALLBACK_LABELS の厳しい判定）
   );
 });
 

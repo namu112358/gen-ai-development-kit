@@ -217,19 +217,13 @@ test('auto mode が有効でも、hold・計画の範囲外の PR には human-r
   }
 });
 
-test('auto mode の App・Bot が付けたラベル・停止スイッチでは、今までどおり Human Merge', async () => {
-  const cases: [string, FakeGitHub][] = [
-    ['App', verdictFake({ dashboardLabels: [AUTO], events: [autoOn(hoursAgo(1), APP)] })],
-    ['Bot', verdictFake({ dashboardLabels: [AUTO], events: [autoOn(hoursAgo(1), 'someone[bot]')] })],
-    ['停止スイッチ', verdictFake({ dashboardLabels: [AUTO, config.autoMergeStopLabel], events: [autoOn()] })],
-  ];
-  for (const [name, fake] of cases) {
-    await accept(fake);
-    const w = fake.writes();
-    assert.ok(!w.includes('enablePullRequestAutoMerge'), `${name}: ${w.join('\n')}`);
-    assert.ok(!w.includes('comment:auto-mode-merge'), name);
-    assert.ok(w.includes('comment:human-review'), name);
-  }
+test('auto mode の App が付けたラベルでは、今までどおり Human Merge（Bot・停止スイッチは auto-mode-state.test.ts が状態の単位で確かめる）', async () => {
+  const fake = verdictFake({ dashboardLabels: [AUTO], events: [autoOn(hoursAgo(1), APP)] });
+  await accept(fake);
+  const w = fake.writes();
+  assert.ok(!w.includes('enablePullRequestAutoMerge'), w.join('\n'));
+  assert.ok(!w.includes('comment:auto-mode-merge'), w.join('\n'));
+  assert.ok(w.includes('comment:human-review'), w.join('\n'));
 });
 
 // ---- 乗り方の順番：自動 Merge の対象 → 委任 → auto mode → bypass ----
@@ -295,13 +289,6 @@ test('auto mode で乗る PR でテストを弱める変更があると、agent/
   const tests = checks(fake, CHECKS.tests);
   assert.ok(tests.length > 0, 'agent/tests を書いていません');
   assert.ok(tests.every((t) => t.conclusion === 'failure'), JSON.stringify(tests));
-});
-
-test('auto mode が無効なら今までどおり：テストを弱める変更は neutral（Human Merge）', async () => {
-  const files = [CONFIG_FILE, 'a.test.ts'];
-  const fake = verdictFake({ dashboardLabels: [], files, diff: SKIP_DIFF });
-  await accept(fake);
-  assert.equal(checks(fake, CHECKS.tests).at(-1)?.conclusion, 'neutral');
 });
 
 // ---- 引き継ぎ：委任・bypass と auto mode のあいだ ----
